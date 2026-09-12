@@ -19,6 +19,7 @@ Usage:
     python scripts/run_da3.py --image_dir ./data/example/images --output_dir ./da3_outputs/example --no_vis
 """
 
+import os
 import sys
 import argparse
 import numpy as np
@@ -31,6 +32,8 @@ from typing import List, Optional, Dict, Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent  # MV-SAM3D root
 DA3_ROOT = PROJECT_ROOT.parent / "Depth-Anything-3"
+if os.environ.get("VIEWFORGE_ROOT"):
+    DA3_ROOT = Path(os.environ["VIEWFORGE_ROOT"]) / "third_party" / "depth-anything-3"
 
 if not DA3_ROOT.exists():
     raise FileNotFoundError(
@@ -336,4 +339,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,16 @@
+{
+  "mv-sam3d": {
+    "commit": "abb04b5e8af5bc33b0265bdf19937e76bbb6bcdd",
+    "repository": "https://github.com/devinli123/MV-SAM3D.git",
+    "adaptation": "Runtime scripts and external DA3 path support are committed on top of this base; the current checkout revision is recorded per run. No reconstruction algorithm changes."
+  },
+  "depth-anything-3": {"commit": "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4"},
+  "pytorch3d": {"commit": "75ebeeaea0908c5527e7b1e305fbc7681382db47"},
+  "gsplat": {"commit": "2323de5905d5e90e035f792fe65bad0fedd413e7"},
+  "moge": {"commit": "a8c37341bc0325ca99b9d57981cc3bb2bd3e255b"},
+  "utils3d": {"commit": "3913c65d81e05e47b9f367250cf8c0f7462a0900"},
+  "dinov2": {
+    "commit": null,
+    "provenance": "same Torch Hub source snapshot and dinov2_vitl14_reg4_pretrain.pth used in the completed A800 and RTX 3090 runs; no git commit embedded in snapshot"
+  }
+}
