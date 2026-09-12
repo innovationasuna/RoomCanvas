@@ -102,3 +102,7 @@ tmp/
 temp/
 *.tmp
 *.bak
+
+# ViewForge: machine-specific settings remain outside version control.
+/configs/local.env
+.pytest_cache/

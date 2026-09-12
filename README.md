@@ -2,6 +2,10 @@
 
 MV-SAM3D is a multi-view 3D reconstruction framework that extends SAM 3D Objects to leverage observations from multiple viewpoints. It supports both single-object and multi-object generation, and is designed to produce more stable geometry, texture, and scene-level consistency.
 
+## ViewForge deployment
+
+This branch preserves the upstream history and adds the existing single-GPU runtime tools without changing the reconstruction algorithm. See [运行与仓库说明](docs/VIEWFORGE_RUNTIME.md) for the RTX 3090 setup, external data layout, and Git workflow.
+
 ## Paper
 
 - arXiv: [https://arxiv.org/abs/2603.11633](https://arxiv.org/abs/2603.11633)
