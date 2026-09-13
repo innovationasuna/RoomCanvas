@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ViewForge · 补拍预览</title>
+  <link rel="stylesheet" href="./cover-viewer.css">
+</head>
+<body>
+  <main id="viewer" data-view="overview" aria-label="三维重建与补拍位置预览">
+    <canvas id="render-canvas" tabindex="0" aria-label="拖动旋转三维模型，滚轮缩放；可点击橙色箭头查看推荐取景"></canvas>
+    <span id="camera-label" class="camera-label" hidden>建议从这里拍摄</span>
+    <div class="toolbar">
+      <span id="mode-chip" class="mode-chip">GLB 网格</span>
+      <div class="actions">
+        <button id="toggle-arrow" type="button" aria-pressed="true" disabled><span class="arrow-dot" aria-hidden="true"></span><span id="arrow-label">隐藏补拍箭头</span></button>
+        <button id="recommended-view" type="button" disabled>查看推荐取景</button>
+        <button id="overview" type="button" disabled hidden>返回概览</button>
+      </div>
+    </div>
+    <div id="status" role="status" aria-live="polite" data-busy="true" data-error="false">
+      <span class="spinner" aria-hidden="true"></span><span id="status-text">正在载入预览…</span>
+      <button id="retry" type="button" hidden>重试</button>
+    </div>
+    <div class="footer">
+      <span id="hint" class="hint" hidden></span>
+      <span class="navigation-hint">拖动旋转 · 滚轮缩放</span>
+    </div>
+  </main>
+  <script defer src="./cover-viewer.js"></script>
+</body>
+</html>
