@@ -33,7 +33,8 @@ def natural_name(path):
         return (1, 0, path.stem)
 
 
-def input_manifest(root, name, selected=None):
+def selected_images(root, name, selected=None):
+    """List/validate photos independently of mask availability (no EXIF rotation)."""
     directory = root/'data/inputs'/component(name)
     images = sorted((p for p in (directory/'images').iterdir() if p.is_file()
                      and p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp')), key=natural_name)
@@ -50,16 +51,41 @@ def input_manifest(root, name, selected=None):
     for path in images:
         if path.suffix not in ('.png', '.jpg'):
             raise ValueError(f'MV-SAM3D input requires lowercase .png/.jpg: {path}')
-        masks = [directory/'masks'/f'{path.stem}{suffix}'
-                 for suffix in ('.png', '_mask.png', '.jpg', '_mask.jpg')]
-        masks = [p for p in masks if p.is_file()]
-        if len(masks) != 1:
-            raise ValueError(f'{path.stem}: expected exactly one matching mask')
-        with Image.open(path) as rgb, Image.open(masks[0]) as mask:
-            if rgb.size != mask.size or mask.mode != 'RGBA' or mask.getchannel('A').getbbox() is None:
-                raise ValueError(f'{path.stem}: expected a same-size RGBA mask with nonempty alpha')
-        entries.append(dict(name=path.stem, image=str(path.resolve()), mask=str(masks[0].resolve())))
+        try:
+            with Image.open(path) as rgb:
+                rgb.load()
+        except (OSError, ValueError) as exc:
+            raise ValueError(f'{path.stem}: invalid image: {exc}') from exc
+        entries.append(dict(name=path.stem, image=str(path.absolute())))
     return dict(input_dir=str(directory.resolve()), mask_prompt='masks', images=entries)
+
+
+def match_masks(inputs, allow_missing=False):
+    directory = Path(inputs['input_dir'])
+    entries = []
+    for row in inputs['images']:
+        path = Path(row['image'])
+        candidates = [directory/'masks'/f'{row["name"]}{suffix}'
+                      for suffix in ('.png', '_mask.png', '.jpg', '_mask.jpg')]
+        masks = [p for p in candidates if p.exists() or p.is_symlink()]
+        if not masks and allow_missing:
+            entries.append(dict(row, mask=None))
+            continue
+        if len(masks) != 1:
+            raise ValueError(f'{row["name"]}: expected exactly one matching mask; found {len(masks)}')
+        try:
+            with Image.open(path) as rgb, Image.open(masks[0]) as mask:
+                mask.load()
+                if rgb.size != mask.size or mask.mode != 'RGBA' or mask.getchannel('A').getbbox() is None:
+                    raise ValueError('expected a same-size RGBA mask with nonempty alpha')
+        except (OSError, ValueError) as exc:
+            raise ValueError(f'{row["name"]}: invalid mask {masks[0].name}: {exc}') from exc
+        entries.append(dict(row, mask=str(masks[0].absolute())))
+    return dict(inputs, images=entries)
+
+
+def input_manifest(root, name, selected=None):
+    return match_masks(selected_images(root, name, selected))
 
 
 def check_gpu(min_free_gib):
