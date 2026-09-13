@@ -1,4 +1,4 @@
-# 本地运行
+# ViewForge 运行说明
 
 `code/` 是保留上游历史的 MV-SAM3D 仓库。`upstream` 指向原作者仓库，当前部署基于 `abb04b5`；尚未创建 GitHub 账号下的远程 fork。
 
@@ -100,3 +100,6 @@ bash scripts/launch.sh --object stuffed_toy --images 1 3 5 7 --attempt a03
 再次改变选择再回到同组四图，确认按钮先恢复“准备预览”；重新准备复用 4、生成 0，用时 10.228 秒，未进入模型/GPU路径，生成 mask 的大小及 mtime 均未改变。记录为 `logs/masks/20260913_161445_629dc28e/`。
 
 另建独立物体 `birefnet_partial_20260913`，四张原图只作链接，并复制本次输出的 1、5 为 `_mask.png` 形式。真实准备复用 1、5，仅生成 3、7，共 38.542 秒；两张已有 mask 的大小和 mtime 未改变。记录为 `logs/masks/20260913_161310_9d2bedad/`。原 `stuffed_toy` 的全部照片和 mask 的大小及 mtime 与首轮准备记录一致，最终两张 GPU 均回到 2 MiB。
+
+
+项目运行根目录已于 2026-09-13 统一为 `/workspace/geyinuo/ViewForge`，网页标题为 ViewForge。目录用途见 [项目目录](DIRECTORY_LAYOUT.md)。原路径 `/workspace/geyinuo/viewforge-mvsam3d` 保留为指向 `ViewForge` 的兼容软链接，用于已有环境入口、历史记录和符号链接；历史结果内容未批量改写。

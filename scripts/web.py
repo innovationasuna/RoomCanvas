@@ -163,9 +163,9 @@ def build_app():
     choices = objects()
     first = choices[0] if choices else None
     rows = images_for(first)
-    with gr.Blocks(title='MV-SAM3D', theme=gr.themes.Soft(), css='footer, #gaussian-preview a {display: none !important;}') as demo:
+    with gr.Blocks(title='ViewForge', theme=gr.themes.Soft(), css='footer, #gaussian-preview a {display: none !important;}') as demo:
         confirmation = gr.State(Confirmation(first, [r['name'] for r in rows]))
-        gr.Markdown('# MV-SAM3D')
+        gr.Markdown('# ViewForge')
         with gr.Row():
             with gr.Column(scale=1):
                 obj = gr.Dropdown(choices, value=first, label='输入物体', interactive=True)

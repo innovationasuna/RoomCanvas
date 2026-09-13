@@ -1,4 +1,8 @@
-# MV-SAM3D
+# ViewForge
+
+ViewForge provides automatic BiRefNet masks, preview confirmation, and multi-view reconstruction using DA3 and MV-SAM3D. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
+
+## MV-SAM3D
 
 MV-SAM3D is a multi-view 3D reconstruction framework that extends SAM 3D Objects to leverage observations from multiple viewpoints. It supports both single-object and multi-object generation, and is designed to produce more stable geometry, texture, and scene-level consistency.
 
