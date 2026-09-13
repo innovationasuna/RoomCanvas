@@ -33,7 +33,7 @@ def natural_name(path):
         return (1, 0, path.stem)
 
 
-def selected_images(root, name, selected=None):
+def selected_images(root, name, selected=None, *, validate=True):
     """List/validate photos independently of mask availability (no EXIF rotation)."""
     directory = root/'data/inputs'/component(name)
     images = sorted((p for p in (directory/'images').iterdir() if p.is_file()
@@ -52,8 +52,9 @@ def selected_images(root, name, selected=None):
         if path.suffix not in ('.png', '.jpg'):
             raise ValueError(f'MV-SAM3D input requires lowercase .png/.jpg: {path}')
         try:
-            with Image.open(path) as rgb:
-                rgb.load()
+            if validate:
+                with Image.open(path) as rgb:
+                    rgb.load()
         except (OSError, ValueError) as exc:
             raise ValueError(f'{path.stem}: invalid image: {exc}') from exc
         entries.append(dict(name=path.stem, image=str(path.absolute())))
@@ -135,12 +136,65 @@ def execute(run, commands, result):
         write_json(run/'result.json', result)
 
 
+def stage_inputs(root, run, object_name, inputs, parent_run_id=None):
+    from import_photos import source_metadata, parent_selection
+    old = []
+    recommendation_id = None
+    if parent_run_id:
+        suggestion = Path(root)/'runs'/component(parent_run_id)/'cover/result.json'
+        if suggestion.is_file():
+            recommendation_id = (json.loads(suggestion.read_text()).get('best') or {}).get('id')
+        parent_object, old = parent_selection(root, parent_run_id)
+        if parent_object != object_name:
+            raise ValueError('Parent run belongs to another object')
+        by_name = {row['name']: row for row in inputs['images']}
+        if not set(old).issubset(by_name):
+            raise ValueError('Keep the parent photos and anchor when adding views')
+        inputs['images'] = [by_name[n] for n in old] + [r for r in inputs['images'] if r['name'] not in old]
+    subset = run/'input'
+    for folder in ('images', 'masks'):
+        (subset/folder).mkdir(parents=True)
+    rows = []
+    for index, row in enumerate(inputs['images'], 1):
+        alias = f'{index:06d}'
+        source_name = row['name']
+        staged = dict(row, name=alias, source_name=source_name)
+        for key, folder in (('image', 'images'), ('mask', 'masks')):
+            source = Path(row[key])
+            target = subset/folder/(alias + source.suffix)
+            target.symlink_to(source)
+            staged['source_' + key] = str(source)
+            staged[key] = str(target)
+        staged['original'] = source_metadata(root, object_name, source_name).get('original', row['image'])
+        staged['original_filename'] = source_metadata(root, object_name, source_name).get('original_filename', Path(row['image']).name)
+        rows.append(staged)
+    return dict(inputs, object=object_name, source_input_dir=inputs['input_dir'],
+                input_dir=str(subset), images=rows, parent_run_id=parent_run_id,
+                trigger_recommendation_id=recommendation_id,
+                new_image_ids=[r['source_name'] for r in rows if r['source_name'] not in old],
+                anchor_image_id=rows[0]['source_name'])
+
+
+def execute_cover(run, result):
+    result['cover_status'] = 'running'
+    write_json(run/'result.json', result)
+    try:
+        with (run/'logs/cover.log').open('a') as log:
+            completed = subprocess.run([sys.executable, str(CODE/'scripts/run_cover.py'),
+                '--run-dir', str(run), '--lock-held'], cwd=CODE, stdout=log, stderr=subprocess.STDOUT)
+        result['cover_status'] = 'complete' if completed.returncode == 0 else 'failed'
+    except Exception as exc:
+        result.update(cover_status='failed', cover_error=str(exc))
+    write_json(run/'result.json', result)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--object', default='stuffed_toy')
     parser.add_argument('--attempt', default='a01')
     parser.add_argument('--config', type=Path, default=CODE/'configs/default.yaml')
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--parent-run')
     parser.add_argument('--images', nargs='+', help='Image stems to reconstruct; default: all')
     args = parser.parse_args()
     root = Path(os.environ['VIEWFORGE_ROOT']).resolve()
@@ -163,17 +217,7 @@ def main():
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
-        if args.images is not None:
-            # Both DA3 and MV must see exactly the selected views, in the same order.
-            subset = run/'input'
-            for folder in ('images', 'masks'):
-                (subset/folder).mkdir(parents=True)
-            for row in inputs['images']:
-                for key, folder in (('image', 'images'), ('mask', 'masks')):
-                    source = Path(row[key])
-                    (subset/folder/source.name).symlink_to(source)
-            inputs['source_input_dir'] = inputs['input_dir']
-            inputs['input_dir'] = str(subset)
+        inputs = stage_inputs(root, run, name, inputs, args.parent_run)
 
         (run/'config.yaml').write_text(yaml.safe_dump(cfg, sort_keys=False))
         write_json(run/'inputs.json', inputs)
@@ -181,6 +225,7 @@ def main():
             'rev-parse', 'HEAD'], text=True).strip(),
             upstream_versions=json.loads((CODE/'configs/upstream_versions.json').read_text()))
         execute(run, stage_commands(root, run, cfg, inputs), result)
+        execute_cover(run, result)
         print(f'COMPLETE {run}', flush=True)
 
 
