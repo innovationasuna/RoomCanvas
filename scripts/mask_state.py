@@ -12,6 +12,8 @@ class Confirmation:
         self.key = selection_key(name, selected)
         self.generation = 0
         self.ready = None
+        self.parent_run_id = None
+        self.displayed_run_id = None
 
     def __deepcopy__(self, memo):
         # Gradio clones the initial value for each browser session.
