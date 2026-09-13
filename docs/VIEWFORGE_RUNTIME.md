@@ -30,3 +30,23 @@ git diff upstream/main -- sam3d_objects run_inference.py run_inference_weighted.
 核心算法源码未修改。DA3 原生脚本仅增加外部路径适配；MV 本地入口仅生成本地权重配置并重定向输出目录。数据、权重、环境、缓存和运行结果均在 checkout 外。上游历史中的公开样例媒体保留，本机 sparse checkout 不展开 `data/`。
 
 旧包装仓库及旧源码归档于 `logs/setup/upstream-repo-20260913/`；历史提交和实验记录不改写。
+
+## 网页
+
+在 code 目录执行：
+
+```bash
+source configs/local.env
+source scripts/env.sh
+python scripts/web.py --host 172.18.0.2 --port 7862
+```
+
+当前容器地址为 `172.18.0.2`（重建容器后用 `hostname -I` 核对），网页监听该内网地址。通过容器 SSH 别名转发网页端口：
+
+```bash
+ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker
+```
+
+本机访问 http://127.0.0.1:7865 。没有开启 Gradio 公网分享；关闭 SSH 连接会断开本机访问。默认 `--host` 仍为 `127.0.0.1`，可用于其他机器的回环部署。
+
+从 `data/inputs/<物体>/images` 选择照片，掩码自动匹配；每次运行的 `input/` 只链接选中照片与掩码，DA3 和 MV 使用相同视角。CLI 也可用 `--images 1 3 5 7` 指定文件名（不含扩展名）。网页重建串行执行，完成后默认使用 `<model-viewer>` 查看 GLB 网格，支持拖动旋转和缩放；切换到 Gaussian 时才向上游同款 `gr.Model3D` 加载 PLY。两种模式均在本地浏览器渲染，重建仍在服务器执行。支持重新打开已有结果。网页只展示运行状态，不显示日志或模型下载入口；文件和日志仍保存在服务器运行目录中。查看器脚本随 `scripts/assets/` 本地提供。

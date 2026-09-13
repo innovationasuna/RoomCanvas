@@ -33,12 +33,19 @@ def natural_name(path):
         return (1, 0, path.stem)
 
 
-def input_manifest(root, name):
+def input_manifest(root, name, selected=None):
     directory = root/'data/inputs'/component(name)
     images = sorted((p for p in (directory/'images').iterdir() if p.is_file()
                      and p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp')), key=natural_name)
     if not images or len({p.stem for p in images}) != len(images):
         raise ValueError('Expected images with distinct filename stems')
+    if selected is not None:
+        if not selected or len(selected) != len(set(selected)):
+            raise ValueError('Select at least one distinct image')
+        unknown = set(selected) - {p.stem for p in images}
+        if unknown:
+            raise ValueError(f'Unknown image names: {sorted(unknown)}')
+        images = [p for p in images if p.stem in selected]
     entries = []
     for path in images:
         if path.suffix not in ('.png', '.jpg'):
@@ -108,11 +115,12 @@ def main():
     parser.add_argument('--attempt', default='a01')
     parser.add_argument('--config', type=Path, default=CODE/'configs/default.yaml')
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--images', nargs='+', help='Image stems to reconstruct; default: all')
     args = parser.parse_args()
     root = Path(os.environ['VIEWFORGE_ROOT']).resolve()
     name, attempt = component(args.object), component(args.attempt)
     cfg = yaml.safe_load(args.config.read_text())
-    inputs = input_manifest(root, name)
+    inputs = input_manifest(root, name, args.images)
     for path in (root/'weights'/cfg['da3']['model'], root/'weights/sam3d/pipeline.yaml',
                  root/'third_party/dinov2/hubconf.py'):
         if not path.exists():
@@ -129,6 +137,18 @@ def main():
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
+        if args.images is not None:
+            # Both DA3 and MV must see exactly the selected views, in the same order.
+            subset = run/'input'
+            for folder in ('images', 'masks'):
+                (subset/folder).mkdir(parents=True)
+            for row in inputs['images']:
+                for key, folder in (('image', 'images'), ('mask', 'masks')):
+                    source = Path(row[key])
+                    (subset/folder/source.name).symlink_to(source)
+            inputs['source_input_dir'] = inputs['input_dir']
+            inputs['input_dir'] = str(subset)
+
         (run/'config.yaml').write_text(yaml.safe_dump(cfg, sort_keys=False))
         write_json(run/'inputs.json', inputs)
         result = dict(gpu=gpu, code_revision=subprocess.check_output(['git', '-C', str(CODE),
