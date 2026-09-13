@@ -43,6 +43,21 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'exactly one matching mask'):
                 runner.input_manifest(root, 'toy')
 
+    def test_selected_views(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "data/inputs/toy"
+            for folder in ("images", "masks"):
+                (directory / folder).mkdir(parents=True)
+            for name in ("1", "2", "10"):
+                Image.new("RGB", (2, 2)).save(directory / "images" / f"{name}.png")
+                Image.new("RGBA", (2, 2), (255, 255, 255, 255)).save(directory / "masks" / f"{name}_mask.png")
+            inputs = runner.input_manifest(root, "toy", ["10", "1"])
+            self.assertEqual([row["name"] for row in inputs["images"]], ["1", "10"])
+            for selected in ([], ["1", "1"], ["missing"]):
+                with self.assertRaises(ValueError):
+                    runner.input_manifest(root, "toy", selected)
+
     def test_no_path_escape(self):
         for value in ('../old', '/absolute', '.', '..', 'x/y'):
             with self.assertRaises(ValueError):
