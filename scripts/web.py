@@ -303,6 +303,7 @@ footer {display:none!important}
             retry = gr.Button('重新计算补拍建议')
         # `.input` defaults to `once`: rapid changes while a callback is pending
         # would be dropped even though the checkboxes already show them.
+        obj.focus(lambda: gr.update(choices=objects()), outputs=obj, queue=False)
         obj.input(choose_object, [obj, confirmation], [selected, gallery, count, start, status], queue=False, trigger_mode='always_last')
         selected.input(choose_images, [obj, selected, confirmation], [gallery, count, start, status], queue=False, trigger_mode='always_last')
         uploads.upload(upload_photos, [uploads, obj, selected, confirmation], [selected, gallery, count, start, status, uploads], queue=False)
