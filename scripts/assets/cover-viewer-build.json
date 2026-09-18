@@ -9,11 +9,11 @@
   ],
   "outputs": {
     "cover-viewer.js": {
-      "bytes": 2055138,
+      "bytes": 2055211,
       "imports": []
     },
     "cover-viewer.css": {
-      "bytes": 3280,
+      "bytes": 3336,
       "imports": []
     }
   }

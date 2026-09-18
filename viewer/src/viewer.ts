@@ -89,6 +89,9 @@ class CoverViewer {
     });
     this.resizeObserver = new ResizeObserver(() => this.engine.resize());
     this.resizeObserver.observe(this.canvas);
+    // Keep wheel gestures inside the embedded viewer: Babylon uses them to
+    // dolly the camera, while the browser default would also scroll Gradio.
+    this.canvas.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
     window.addEventListener("resize", () => this.engine.resize());
     window.addEventListener("message", this.onMessage);
     window.addEventListener("pagehide", () => this.dispose(), { once: true });
@@ -216,7 +219,7 @@ class CoverViewer {
     camera.setPosition(vector(overview.position));
     const forward = vector(overview.position).subtract(center).normalize();
     const right = Vector3.Cross(up, forward).normalize();
-    camera.attachControl(this.canvas, true);
+    camera.attachControl(this.canvas, false);
     const light = new HemisphericLight("sky-light", up, scene);
     light.intensity = 1.0;
     light.groundColor = new Color3(0.58, 0.60, 0.57);
