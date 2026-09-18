@@ -268,7 +268,7 @@ def build_app():
     choices = objects()
     first = choices[0] if choices else None
     rows = images_for(first)
-    with gr.Blocks(analytics_enabled=False, title='ViewForge', theme=gr.themes.Soft(), css="""
+    with gr.Blocks(analytics_enabled=False, title='ViewForge', js=(CODE/'scripts/assets/gallery-retry.js').read_text(), theme=gr.themes.Soft(), css="""
 footer {display:none!important}
 #photo-gallery {flex-grow:0!important;min-height:0!important;height:auto!important;}
 #photo-gallery .grid-wrap.fixed-height {min-height:0!important;max-height:none!important;height:auto!important;overflow-y:visible!important;}
