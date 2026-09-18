@@ -296,11 +296,11 @@ footer {display:none!important}
             with gr.Column(scale=1):
                 mode = gr.Radio(['GLB 网格', 'Gaussian'], value='GLB 网格', label='预览模式')
                 mesh = gr.HTML()
-        with gr.Accordion('查看已有结果与继续补拍', open=False):
-            history = gr.Dropdown(completed_runs(), value=None, label='已完成的重建', interactive=True)
-            refresh = gr.Button('刷新结果列表')
-            resume = gr.Button('基于这次结果补拍')
-            retry = gr.Button('重新计算补拍建议')
+                with gr.Accordion('查看已有结果与继续补拍', open=False):
+                    history = gr.Dropdown(completed_runs(), value=None, label='已完成的重建', interactive=True)
+                    refresh = gr.Button('刷新结果列表')
+                    resume = gr.Button('基于这次结果补拍')
+                    retry = gr.Button('重新计算补拍建议')
         # `.input` defaults to `once`: rapid changes while a callback is pending
         # would be dropped even though the checkboxes already show them.
         obj.focus(lambda: gr.update(choices=objects()), outputs=obj, queue=False)
