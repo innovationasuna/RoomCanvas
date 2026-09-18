@@ -9,6 +9,9 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import tempfile
+
+from PIL import Image, ImageOps
 
 import gradio as gr
 from starlette.middleware import Middleware
@@ -28,12 +31,33 @@ def objects():
                   if p.is_dir() and (p/'images').is_dir())
 
 
+def photo_preview(image):
+    source = Path(image)
+    stat = source.stat()
+    folder = ROOT/'cache/photo_previews'/source.relative_to(ROOT/'data/inputs').parent
+    target = folder/f'{source.name}.{stat.st_mtime_ns}.{stat.st_size}.jpg'
+    if not target.is_file():
+        folder.mkdir(parents=True, exist_ok=True)
+        with Image.open(source) as original:
+            preview = ImageOps.exif_transpose(original).convert('RGB')
+            preview.thumbnail((960, 960), Image.Resampling.LANCZOS)
+            with tempfile.NamedTemporaryFile(dir=folder, suffix='.jpg', delete=False) as temp:
+                temporary = Path(temp.name)
+            try:
+                preview.save(temporary, format='JPEG', quality=82, optimize=True)
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
+    return str(target)
+
+
 def images_for(name):
     # Selection changes only list files; preparation/reconstruction still decode
     # and validate the inputs. Avoid rereading every full-resolution photo here.
     rows = runner.selected_images(ROOT, name, validate=False)['images'] if name else []
     imported = []
     for row in rows:
+        row['image'] = photo_preview(row['image'])
         row['label'] = row['name']
         if row['name'].startswith('capture_'):
             meta = source_metadata(ROOT, name, row['name'])
@@ -246,6 +270,8 @@ def build_app():
     rows = images_for(first)
     with gr.Blocks(analytics_enabled=False, title='ViewForge', theme=gr.themes.Soft(), css="""
 footer {display:none!important}
+#photo-gallery {flex-grow:0!important;min-height:0!important;height:auto!important;}
+#photo-gallery .grid-wrap.fixed-height {min-height:0!important;max-height:none!important;height:auto!important;overflow-y:visible!important;}
 #photo-gallery .grid-container {grid-template-rows:none;grid-auto-rows:max-content;align-items:start;}
 #photo-gallery .gallery-item {height:auto;}
 #photo-gallery .thumbnail-lg {display:flex;flex-direction:column;height:auto;aspect-ratio:auto;}
@@ -295,5 +321,5 @@ if __name__ == '__main__':
     parser.add_argument('--host', default='127.0.0.1')
     args = parser.parse_args()
     build_app().queue().launch(server_name=args.host, server_port=args.port, share=False, show_api=False,
-                              allowed_paths=[str(ROOT/'data/inputs'), str(ROOT/'runs'), str(ROOT/'cache/mask_previews'), str(CODE/'scripts/assets')], show_error=True,
+                              allowed_paths=[str(ROOT/'data/inputs'), str(ROOT/'runs'), str(ROOT/'cache/mask_previews'), str(ROOT/'cache/photo_previews'), str(CODE/'scripts/assets')], show_error=True,
                               app_kwargs={'middleware': [Middleware(GZipMiddleware, minimum_size=1024, compresslevel=3)]})
