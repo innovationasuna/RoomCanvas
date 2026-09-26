@@ -24,6 +24,7 @@ from mask_state import Confirmation, selection_key
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection, source_metadata
 from cover_scene import ensure_preview
+from dimensions import DimensionsMiddleware
 
 ROOT = Path(os.environ['VIEWFORGE_ROOT']).resolve()
 CODE = Path(__file__).resolve().parents[1]
@@ -543,4 +544,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     build_app().queue().launch(server_name=args.host, server_port=args.port, share=False, show_api=False,
                               allowed_paths=[str(ROOT/'data/inputs'), str(ROOT/'runs'), str(ROOT/'cache/mask_previews'), str(ROOT/'cache/photo_previews'), str(CODE/'scripts/assets')], show_error=True,
-                              app_kwargs={'middleware': [Middleware(GZipMiddleware, minimum_size=1024, compresslevel=3)]})
+                              app_kwargs={'middleware': [Middleware(GZipMiddleware, minimum_size=1024, compresslevel=3),
+                                                        Middleware(DimensionsMiddleware, root=ROOT)]})

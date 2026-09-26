@@ -62,6 +62,13 @@ def main():
         mask_prompt=inputs['mask_prompt'], image_names=[row['name'] for row in inputs['images']],
         da3_output_path=str(run/'da3/da3_output.npz'), model_tag='local',
         seed=cfg['seed'], decode_formats=['gaussian', 'mesh'], **cfg['mv'])
+    # A preview is optional: a failed simplification must not discard a valid
+    # reconstruction or prevent the full GLB from being viewed.
+    try:
+        from preview_glb import generate_preview
+        print('GLB preview:', json.dumps(generate_preview(run)), flush=True)
+    except Exception as exc:
+        print(f'GLB preview unavailable: {exc}', flush=True)
 
 
 if __name__ == '__main__':

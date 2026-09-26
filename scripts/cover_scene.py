@@ -168,16 +168,27 @@ def preview_manifest(run,scene=None,recommendation=None,message='尚未计算补
         gt=affine(CANONICAL_TO_GLB); mt=np.eye(4); radius=.7
     else:
         gt=scene['gaussian_transform']; mt=scene['mesh_transform']; radius=scene['radius']
-    return dict(schema_version=1,run_id=run.name,
+    manifest = dict(schema_version=1,run_id=run.name,
         assets=dict(glb=dict(url=file_url(run/'reconstruction/result.glb'),transform=matrix_list(mt)),
                     gaussian=dict(url=file_url(run/'reconstruction/result.ply'),transform=matrix_list(gt))),
         display=dict(center=[0.,0.,0.],radius=radius,up=[0.,1.,0.]),
         recommendation=recommendation,status='complete' if recommendation else 'unavailable',message=message)
+    preview=run/'reconstruction/preview.glb'
+    if preview.is_file():
+        manifest['assets']['glb_preview']=dict(url=file_url(preview),transform=matrix_list(mt))
+    return manifest
 
 
 def ensure_preview(run):
     run=Path(run); path=run/'cover/preview.json'
-    if path.is_file(): return path
+    if path.is_file():
+        manifest=json.loads(path.read_text())
+        preview=run/'reconstruction/preview.glb'
+        if preview.is_file() and not manifest['assets'].get('glb_preview'):
+            manifest['assets']['glb_preview']=dict(url=file_url(preview),
+                                                 transform=manifest['assets']['glb']['transform'])
+            write_json(path,manifest)
+        return path
     try: scene=load_scene(run)
     except Exception: scene=None
     write_json(path,preview_manifest(run,scene))
