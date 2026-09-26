@@ -1,6 +1,20 @@
 () => {
     if (window.__viewforgeGalleryRetry) return;
     window.__viewforgeGalleryRetry = true;
+    // Called by the upload event only after the files reach Gradio's temp storage.
+    window.__viewforgeNameUploadedObject = () => {
+        let name;
+        while (true) {
+            name = window.prompt('请为新物体命名（同名素材目录将使用此名称）', '');
+            if (name === null) {
+                return null;
+            }
+            name = name.trim();
+            if (/^[\p{L}\p{N}_.-]{1,80}$/u.test(name) && name !== '.' && name !== '..') break;
+            window.alert('请输入 1–80 个中文、字母、数字、下划线或连字符，不能包含路径。');
+        }
+        return name;
+    };
     const pending = new WeakMap();
     const inGallery = (img) => img instanceof HTMLImageElement && img.closest('#photo-gallery');
     const sourceKey = (img) => {

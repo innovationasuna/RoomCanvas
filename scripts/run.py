@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 import yaml
 from PIL import Image
@@ -17,7 +18,15 @@ CODE = Path(__file__).resolve().parents[1]
 
 
 def write_json(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+    temporary.replace(path)
+
+
+def finish_timing(result, started):
+    timing = result.setdefault('timing', {})
+    timing.update(finished_at=datetime.now().astimezone().isoformat(),
+                  elapsed_seconds=round(time.monotonic() - started, 3))
 
 
 def component(value):
@@ -176,6 +185,7 @@ def stage_inputs(root, run, object_name, inputs, parent_run_id=None):
 
 
 def execute_cover(run, result):
+    result['current_stage'] = 'cover'
     result['cover_status'] = 'running'
     write_json(run/'result.json', result)
     try:
@@ -185,6 +195,7 @@ def execute_cover(run, result):
         result['cover_status'] = 'complete' if completed.returncode == 0 else 'failed'
     except Exception as exc:
         result.update(cover_status='failed', cover_error=str(exc))
+    result.pop('current_stage', None)
     write_json(run/'result.json', result)
 
 
@@ -217,15 +228,27 @@ def main():
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
-        inputs = stage_inputs(root, run, name, inputs, args.parent_run)
-
-        (run/'config.yaml').write_text(yaml.safe_dump(cfg, sort_keys=False))
-        write_json(run/'inputs.json', inputs)
-        result = dict(gpu=gpu, code_revision=subprocess.check_output(['git', '-C', str(CODE),
-            'rev-parse', 'HEAD'], text=True).strip(),
-            upstream_versions=json.loads((CODE/'configs/upstream_versions.json').read_text()))
-        execute(run, stage_commands(root, run, cfg, inputs), result)
-        execute_cover(run, result)
+        started = time.monotonic()
+        result = dict(status='preparing', current_stage='preparing', gpu=gpu,
+                      timing=dict(started_at=datetime.now().astimezone().isoformat()))
+        write_json(run/'result.json', result)
+        try:
+            inputs = stage_inputs(root, run, name, inputs, args.parent_run)
+            (run/'config.yaml').write_text(yaml.safe_dump(cfg, sort_keys=False))
+            write_json(run/'inputs.json', inputs)
+            result.update(code_revision=subprocess.check_output(['git', '-C', str(CODE),
+                'rev-parse', 'HEAD'], text=True).strip(),
+                upstream_versions=json.loads((CODE/'configs/upstream_versions.json').read_text()))
+            execute(run, stage_commands(root, run, cfg, inputs), result)
+            execute_cover(run, result)
+        except BaseException as exc:
+            if result.get('status') != 'failed':
+                result.update(status='failed', error=str(exc))
+            raise
+        finally:
+            result.pop('current_stage', None)
+            finish_timing(result, started)
+            write_json(run/'result.json', result)
         print(f'COMPLETE {run}', flush=True)
 
 

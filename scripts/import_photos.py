@@ -7,14 +7,15 @@ from PIL import Image, ImageOps
 from run import component
 
 
-def import_photos(root, object_name, files, parent_run_id=None):
+def import_photos(root, object_name, files, parent_run_id=None, image_prefix=None):
     directory = Path(root)/'data/inputs'/component(object_name)
     if not (directory/'images').is_dir():
         raise ValueError('Unknown input object')
     result = dict(images=[], errors=[], parent_run_id=parent_run_id)
-    for source in files or []:
+    for index, source in enumerate(files or [], 1):
         source = Path(source)
-        image_id = 'capture_' + uuid.uuid4().hex
+        image_id = (component(image_prefix) + (f'_{index:03d}' if len(files) > 1 else '')
+                    if image_prefix else 'capture_' + uuid.uuid4().hex)
         original = None
         derived = None
         metadata = None
@@ -36,6 +37,7 @@ def import_photos(root, object_name, files, parent_run_id=None):
             pending = directory/'imports'/f'{image_id}.pending'
             normalized.save(pending, format='PNG')
             row = dict(name=image_id, original=str(original), original_filename=source.name,
+                       display_name=image_id if image_prefix else source.name,
                        image=str(derived), parent_run_id=parent_run_id,
                        created_at=datetime.now(timezone.utc).isoformat(), exif_normalized=True)
             metadata = directory/'imports'/f'{image_id}.json'
