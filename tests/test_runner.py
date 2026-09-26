@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -20,6 +21,12 @@ SPEC_MV.loader.exec_module(reconstruction)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_backend_timing_is_persistable(self):
+        result = {'timing': {'started_at': 'start'}}
+        runner.finish_timing(result, time.monotonic() - 1)
+        self.assertGreaterEqual(result['timing']['elapsed_seconds'], 1)
+        self.assertIn('finished_at', result['timing'])
+
     def test_manifest_order_and_mask_contract(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
