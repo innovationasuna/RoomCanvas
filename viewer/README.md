@@ -2,6 +2,14 @@
 
 独立 Babylon.js **8.2.0** 查看器；GLB、Gaussian 和补拍相机箭头共用右手场景。
 
+GLB 采用渐进预览：有 `assets.glb_preview` 时先显示约 12,000 面的 `reconstruction/preview.glb`，随后后台加载原始 `result.glb`，就绪后在同一场景中替换。切换保留相机、补拍取景和箭头状态；完整模型失败时保留可操作的轻量预览并提供重试。缺少或无法加载轻量文件时直接加载完整模型。只读 state 的 `glbQuality` 为 `preview` / `full`，`assets.glb.status` 表示全量加载状态。构建为脚本和样式添加内容版本，避免浏览器沿用旧查看器。
+
+新重建自动生成轻量文件；已有运行可以在服务器运行环境执行 `python scripts/preview_glb.py --run-dir <运行目录>`，再打开结果。轻量文件保留原场景坐标和顶点颜色，纹理网格在简化时转换为近似顶点颜色；最终显示仍为原始完整 GLB。
+
+实际尺寸标定支持点击彩色三维轴或 X/Y/Z 按钮，输入该方向整体长度（mm/cm/m），保存后统一等比例缩放。用户坐标为右手 Z-up：X 对应显示 +X、Y 对应显示 -Z、Z 对应显示 +Y；模型的 glTF Y-up 坐标约定保持兼容。服务器从原始完整 GLB 的全部网格与节点变换计算包围尺寸，轻量切换不改变尺寸基准。`dimensions-base.json` 缓存基准，`dimensions.json` 保存单轴实测和三轴米制尺寸；每次编辑从原始基准计算，原模型变化后旧标定失效。
+
+`/viewforge/dimensions/<run>` 提供读取与保存/清除接口。GLB、Gaussian、补拍箭头与测量框共享尺寸变换，当前相机和推荐取景同步换算，重新打开会恢复标定。下载实尺 GLB 时给原节点增加米制缩放父节点，保留原二进制几何/纹理；每个导出版本保存为独立 `reconstruction/scaled-<version>.glb`。此功能不改变重建或补拍评分算法。只读 state 的 `metricScale` 与 `dimensions` 可用于检查标定、轴选择和三维标签位置。
+
 ```sh
 cd viewer
 npm ci

@@ -20,8 +20,9 @@ import "@babylonjs/core/Culling/ray";
 import "@babylonjs/loaders/glTF/2.0/glTFLoader";
 import "@babylonjs/loaders/glTF/2.0/Extensions/KHR_materials_unlit";
 import "@babylonjs/loaders/glTF/2.0/Extensions/KHR_texture_transform";
-import { modeFrom, sameOriginUrl, validateEmbeddedGlb, validateManifest, type Asset, type Manifest, type Mode, type Vec3 } from "./manifest";
+import { modeFrom, sameOriginUrl, validateEmbeddedGlb, validateManifest, type Asset, type AssetKind, type Manifest, type Mode, type Vec3 } from "./manifest";
 import { arrowRotation, gaussianDecoderCorrection, overviewCamera, vector } from "./coordinates";
+import { DimensionControls, scaledCameraPoint } from './dimensions';
 import "./styles.css";
 
 declare global {
@@ -40,9 +41,12 @@ interface RunScene {
   scene: Scene;
   camera: ArcRotateCamera;
   manifest: Manifest;
-  assets: Partial<Record<Mode, LoadedAsset>>;
-  loading: Partial<Record<Mode, Promise<void>>>;
-  loadStates: Record<Mode, LoadState>;
+  metricRoot: TransformNode;
+  metricScale: number;
+  dimensions?: DimensionControls;
+  assets: Partial<Record<AssetKind, LoadedAsset>>;
+  loading: Partial<Record<AssetKind, Promise<void>>>;
+  loadStates: Record<AssetKind, LoadState>;
   arrow: TransformNode | null;
   view: "overview" | "recommendation";
   previousCamera: CameraState | null;
@@ -85,6 +89,7 @@ class CoverViewer {
       if (!this.current || this.current.disposed) return;
       this.current.scene.render();
       this.updateCameraLabel();
+      this.current.dimensions?.render();
       this.renderedFrames += 1;
     });
     this.resizeObserver = new ResizeObserver(() => this.engine.resize());
@@ -128,6 +133,7 @@ class CoverViewer {
     element.hidden = !message;
     element.dataset.busy = String(busy);
     element.dataset.error = String(isError);
+    element.dataset.preview = "false";
     $("status-text").textContent = message ?? "";
     $("retry").hidden = !isError;
   }
@@ -195,8 +201,8 @@ class CoverViewer {
     const scene = new Scene(this.engine);
     scene.useRightHandedSystem = true;
     scene.clearColor = new Color4(0.91, 0.94, 0.915, 1);
-    // All geometry shares rendering group 0 and its depth buffer. No overlay scene,
-    // depth clearing between object/marker, or depthFunction=ALWAYS is used.
+    // The reconstruction and recommendation share depth in group 0.
+    // Optional measurement guides are drawn separately so all axes can be selected.
     scene.setRenderingAutoClearDepthStencil(0, false);
     const center = vector(manifest.display.center);
     const up = vector(manifest.display.up).normalize();
@@ -229,12 +235,14 @@ class CoverViewer {
     fill.intensity = 0.6;
     const run: RunScene = {
       scene, camera, manifest,
-      assets: {}, loading: {}, loadStates: { glb: "unloaded", gaussian: "unloaded" },
+      metricRoot: new TransformNode('physical-size', scene), metricScale: 1,
+      assets: {}, loading: {}, loadStates: { glb: "unloaded", gaussian: "unloaded", glb_preview: "unloaded" },
       arrow: null, view: "overview", previousCamera: null, disposed: false,
     };
     if (manifest.recommendation) {
       const recommendation = manifest.recommendation;
       const arrow = new TransformNode("recommended-camera", scene);
+      arrow.parent = run.metricRoot;
       arrow.position.copyFrom(vector(recommendation.position));
       arrow.rotationQuaternion = arrowRotation(recommendation.position, recommendation.target);
       const material = new StandardMaterial("recommended-camera-material", scene);
@@ -257,9 +265,11 @@ class CoverViewer {
       }
       run.arrow = arrow;
       scene.onPointerObservable.add((info) => {
-        if (info.type === PointerEventTypes.POINTERPICK && info.pickInfo?.pickedMesh?.metadata?.viewforgeRecommendation) this.showRecommendation();
+        if (info.type === PointerEventTypes.POINTERPICK && info.pickInfo?.pickedMesh?.metadata?.viewforgeRecommendation && !run.dimensions?.axisAtPointer()) this.showRecommendation();
       });
     }
+    run.dimensions = new DimensionControls(scene, run.metricRoot, camera, manifest.run_id, this.origin,
+      scale => this.applyMetricScale(run, scale));
     return run;
   }
 
@@ -279,29 +289,66 @@ class CoverViewer {
     this.status(`正在载入 ${label(mode)}…`, true);
     this.updateControls();
     try {
-      if (run.loadStates[mode] !== "ready") {
-        if (!run.loading[mode]) {
-          run.loadStates[mode] = "loading";
-          run.loading[mode] = this.loadAsset(run, mode, asset).finally(() => { delete run.loading[mode]; });
+      if (mode === "glb" && run.manifest.assets.glb_preview && run.loadStates.glb !== "ready") {
+        try {
+          await this.ensureAsset(run, "glb_preview", run.manifest.assets.glb_preview);
+          if (this.current !== run || run.disposed || this.desiredMode !== mode) return;
+          this.showAsset(run, "glb_preview", mode);
+          this.status(null);
+        } catch (error) {
+          if (run.disposed || this.current !== run) return;
+          console.warn("[ViewForge viewer] Preview unavailable; loading full GLB", error);
+          this.status("正在载入 GLB 网格…", true);
         }
-        await run.loading[mode];
+      }
+      if (run.loadStates[mode] !== "ready") {
+        await this.ensureAsset(run, mode, asset);
       }
       if (this.current !== run || run.disposed || this.desiredMode !== mode) return;
-      for (const [kind, loaded] of Object.entries(run.assets)) loaded.root.setEnabled(kind === mode);
-      // Mode switches deliberately do not touch camera position, target, up or FOV.
-      this.shownMode = mode;
-      this.phase = "ready";
+      this.showAsset(run, mode, mode);
       this.status(null);
-      this.updateArrow();
-      this.updateControls();
+      if (mode === "glb" && run.assets.glb_preview) {
+        run.assets.glb_preview.container?.dispose();
+        run.assets.glb_preview.root.dispose(false, true);
+        delete run.assets.glb_preview;
+        run.loadStates.glb_preview = "unloaded";
+      }
     } catch (error) {
       if (this.current !== run || run.disposed) return;
       run.loadStates[mode] = "error";
-      if (this.desiredMode === mode) this.fail(`${label(mode)} 预览载入失败，请重试。`, error);
+      if (this.desiredMode === mode) {
+        if (mode === "glb" && run.assets.glb_preview) {
+          this.showAsset(run, "glb_preview", mode);
+          this.error = error instanceof Error ? error.message : String(error);
+          console.warn("[ViewForge viewer] Full GLB unavailable; keeping usable preview", error);
+          this.status(null);
+        } else this.fail(`${label(mode)} 预览载入失败，请重试。`, error);
+      }
     }
   }
 
-  private async loadAsset(run: RunScene, mode: Mode, asset: Asset) {
+  private ensureAsset(run: RunScene, kind: AssetKind, asset: Asset): Promise<void> {
+    if (run.loadStates[kind] === "ready") return Promise.resolve();
+    if (!run.loading[kind]) {
+      run.loadStates[kind] = "loading";
+      run.loading[kind] = this.loadAsset(run, kind, asset).catch((error) => {
+        run.loadStates[kind] = "error";
+        throw error;
+      }).finally(() => { delete run.loading[kind]; });
+    }
+    return run.loading[kind]!;
+  }
+
+  private showAsset(run: RunScene, kind: AssetKind, mode: Mode) {
+    for (const [name, loaded] of Object.entries(run.assets)) loaded.root.setEnabled(name === kind);
+    // Progressive replacement and mode switches share the existing camera.
+    this.shownMode = mode;
+    this.phase = "ready";
+    this.updateArrow();
+    this.updateControls();
+  }
+
+  private async loadAsset(run: RunScene, mode: AssetKind, asset: Asset) {
     const signal = this.abort.signal;
     let root: TransformNode | null = null;
     let container: AssetContainer | undefined;
@@ -312,11 +359,12 @@ class CoverViewer {
       const buffer = await response.arrayBuffer();
       if (signal.aborted || run.disposed) return;
       root = new TransformNode(`${mode}-native-to-display`, run.scene);
+      root.parent = run.metricRoot;
       root.setEnabled(false);
       root.setPreTransformMatrix(Matrix.FromArray(asset.transform));
       let meshes: Mesh[];
       let decoderCorrection: number[] | undefined;
-      if (mode === "glb") {
+      if (mode !== "gaussian") {
         validateEmbeddedGlb(buffer);
         container = await LoadAssetContainerAsync(new Uint8Array(buffer), run.scene, { pluginExtension: ".glb", name: "model.glb" });
         if (run.disposed || signal.aborted) { container.dispose(); root.dispose(); return; }
@@ -351,7 +399,7 @@ class CoverViewer {
       await this.waitForReady(run, meshes);
       if (run.disposed || signal.aborted) { container?.dispose(); gaussian?.dispose(); root.dispose(); return; }
       run.assets[mode] = { root, meshes, container, decoderCorrection };
-      root.setEnabled(this.desiredMode === mode);
+      // Visibility is switched atomically by setMode, after shaders are ready.
       run.loadStates[mode] = "ready";
     } catch (error) {
       container?.dispose();
@@ -380,6 +428,23 @@ class CoverViewer {
     return { position: camera.position.asArray() as Vec3, target: camera.target.asArray() as Vec3, up: camera.upVector.asArray() as Vec3, fov_y: camera.fov };
   }
 
+  private applyMetricScale(run: RunScene, scale: number) {
+    if (run.disposed || !Number.isFinite(scale) || scale <= 0 || scale === run.metricScale) return;
+    const ratio = scale / run.metricScale;
+    const rescaleCamera = (state: CameraState): CameraState => ({ ...state,
+      position: scaledCameraPoint(state.position, ratio), target: scaledCameraPoint(state.target, ratio) });
+    const cameraState = rescaleCamera(this.cameraState(run.camera));
+    run.metricRoot.scaling.setAll(scale);
+    run.metricScale = scale;
+    run.camera.minZ *= ratio; run.camera.maxZ *= ratio;
+    if (run.camera.lowerRadiusLimit != null) run.camera.lowerRadiusLimit *= ratio;
+    if (run.camera.upperRadiusLimit != null) run.camera.upperRadiusLimit *= ratio;
+    run.camera.panningSensibility /= ratio;
+    if (run.previousCamera) run.previousCamera = rescaleCamera(run.previousCamera);
+    this.restoreCamera(run.camera, cameraState);
+    this.updateCameraLabel();
+  }
+
   private restoreCamera(camera: ArcRotateCamera, snapshot: CameraState) {
     camera.inertialAlphaOffset = 0;
     camera.inertialBetaOffset = 0;
@@ -399,7 +464,8 @@ class CoverViewer {
     if (!run || !recommendation || this.phase !== "ready") return;
     if (run.view === "overview") run.previousCamera = this.cameraState(run.camera);
     run.view = "recommendation";
-    this.restoreCamera(run.camera, { position: recommendation.position, target: recommendation.target, up: recommendation.up, fov_y: recommendation.fov_y });
+    this.restoreCamera(run.camera, { position: scaledCameraPoint(recommendation.position, run.metricScale),
+      target: scaledCameraPoint(recommendation.target, run.metricScale), up: recommendation.up, fov_y: recommendation.fov_y });
     this.updateArrow();
     this.updateControls();
   }
@@ -470,6 +536,7 @@ class CoverViewer {
     const run = this.current;
     if (!run) return;
     run.disposed = true;
+    run.dimensions?.dispose();
     run.camera.detachControl();
     run.scene.dispose(); // Includes Gaussian sort worker, textures and asset meshes.
     this.disposedScenes += 1;
@@ -493,7 +560,7 @@ class CoverViewer {
     const run = this.current;
     const assets: Record<string, unknown> = {};
     if (run) {
-      for (const mode of ["glb", "gaussian"] as const) {
+      for (const mode of ["glb", "gaussian", "glb_preview"] as const) {
         const loaded = run.assets[mode];
         assets[mode] = {
           status: run.loadStates[mode],
@@ -506,10 +573,12 @@ class CoverViewer {
       }
     }
     return {
-      version: 1, build: "cover-viewer-1.3.0", renderer: "Babylon.js", babylonVersion: Engine.Version,
+      version: 1, build: "cover-viewer-1.5.0", renderer: "Babylon.js", babylonVersion: Engine.Version,
       phase: this.phase, manifestUrl: this.manifestUrl, generation: this.generation,
       runId: run?.manifest.run_id ?? null, manifestStatus: run?.manifest.status ?? null,
       requestedMode: this.desiredMode, mode: this.shownMode,
+      glbQuality: run?.assets.glb?.root.isEnabled() ? "full" : run?.assets.glb_preview?.root.isEnabled() ? "preview" : null,
+      metricScale: run?.metricScale ?? 1, dimensions: run?.dimensions?.snapshot() ?? null,
       rightHanded: run?.scene.useRightHandedSystem ?? true,
       coordinateContract: "asset native → manifest column-major matrix → shared display; no independent normalization",
       camera: run ? this.cameraState(run.camera) : null,
