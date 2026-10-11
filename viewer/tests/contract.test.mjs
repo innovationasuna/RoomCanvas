@@ -14,13 +14,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 await mkdir(path.join(root, ".test-build"), { recursive: true });
 await build({
   absWorkingDir: root,
-  stdin: { contents: 'export * from "./src/manifest.ts"; export * from "./src/coordinates.ts";', resolveDir: root, sourcefile: "unit.ts" },
+  stdin: { contents: 'export * from "./src/manifest.ts"; export * from "./src/coordinates.ts"; export { AXIS_DIRECTIONS, UNIT_METERS, scaledCameraPoint } from "./src/dimensions.ts";', resolveDir: root, sourcefile: "unit.ts" },
   outfile: path.join(root, ".test-build/contract.mjs"), bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
   plugins: [{ name: "node-babylon-extensions", setup(b) {
     b.onResolve({ filter: /^@babylonjs\/core\// }, (args) => ({ path: args.path.endsWith(".js") ? args.path : `${args.path}.js`, external: true }));
   } }],
 });
 const { arrowRotation, gaussianDecoderCorrection, overviewCamera, modeFrom, sameOriginUrl, validateEmbeddedGlb, validateManifest } = await import("../.test-build/contract.mjs");
+const { AXIS_DIRECTIONS, UNIT_METERS, scaledCameraPoint } = await import("../.test-build/contract.mjs");
 await build({
   absWorkingDir: root,
   entryPoints: ["node_modules/@babylonjs/core/Meshes/GaussianSplatting/gaussianSplattingMesh.js"],
@@ -47,6 +48,14 @@ test("both parent mode labels select the same two modes", () => {
   assert.equal(modeFrom("other"), null);
 });
 
+test("measurement labels form a right-handed Z-up frame and camera scaling is reversible", () => {
+  assert.deepEqual(AXIS_DIRECTIONS.Z, [0, 1, 0]);
+  close(Vector3.Cross(Vector3.FromArray(AXIS_DIRECTIONS.X), Vector3.FromArray(AXIS_DIRECTIONS.Y)).asArray(), AXIS_DIRECTIONS.Z);
+  assert.equal(120 * UNIT_METERS.cm, 1200 * UNIT_METERS.mm);
+  const point = [3, -4, 8];
+  close(scaledCameraPoint(scaledCameraPoint(point, .015), 1 / .015), point);
+});
+
 test("manifest resolves same-origin URLs without mutating native transforms", () => {
   const parsed = validateManifest(manifest(), base, origin);
   assert.equal(parsed.assets.glb.url, `${origin}/runs/example/mesh.glb`);
@@ -63,6 +72,18 @@ test("unavailable results do not expose an unvalidated recommendation", () => {
   data.status = "complete";
   data.recommendation.fov_y = 60;
   assert.throws(() => validateManifest(data, base, origin), /field of view/);
+});
+
+test("optional preview shares full GLB coordinates and supports older manifests", () => {
+  assert.equal(validateManifest(manifest(), base, origin).assets.glb_preview, null);
+  const data = manifest();
+  data.assets.glb_preview = { url: 'preview.glb', transform: [...identity] };
+  assert.equal(validateManifest(data, base, origin).assets.glb_preview.url, `${origin}/runs/example/preview.glb`);
+  data.assets.glb_preview.transform[12] = 1;
+  assert.throws(() => validateManifest(data, base, origin), /same display transform/);
+  data.assets.glb_preview.transform = [...identity];
+  data.assets.glb_preview.url = 'https://example.com/preview.glb';
+  assert.throws(() => validateManifest(data, base, origin), /same origin/);
 });
 
 test("arrow points from camera position toward target including pole cases", () => {

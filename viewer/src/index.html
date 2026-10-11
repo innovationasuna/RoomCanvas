@@ -10,6 +10,9 @@
   <main id="viewer" data-view="overview" aria-label="三维重建与补拍位置预览">
     <canvas id="render-canvas" tabindex="0" aria-label="拖动旋转三维模型，滚轮缩放；可点击橙色箭头查看推荐取景"></canvas>
     <span id="camera-label" class="camera-label" hidden>建议从这里拍摄</span>
+    <button id="axis-label-X" class="axis-label axis-X" aria-label="选择 X 轴" aria-pressed="false" hidden>X</button>
+    <button id="axis-label-Y" class="axis-label axis-Y" aria-label="选择 Y 轴" aria-pressed="false" hidden>Y</button>
+    <button id="axis-label-Z" class="axis-label axis-Z" aria-label="选择 Z 轴（向上）" aria-pressed="false" hidden>Z</button>
     <div class="toolbar">
       <span id="mode-chip" class="mode-chip">GLB 网格</span>
       <div class="actions">
@@ -27,6 +30,22 @@
       <span class="navigation-hint">拖动旋转 · 滚轮缩放</span>
     </div>
   </main>
+  <section id="dimensions-panel" aria-label="实际尺寸标定">
+    <div class="dimension-heading"><strong>实际尺寸</strong><span id="dimension-summary">未标定</span><label class="axes-toggle"><input id="dimension-axes" type="checkbox" checked>显示坐标轴</label></div>
+    <form id="dimension-form">
+      <div class="dimension-axis-picker" role="group" aria-label="选择测量方向">
+        <button type="button" id="dimension-X" class="axis-X" aria-pressed="false" disabled>X</button>
+        <button type="button" id="dimension-Y" class="axis-Y" aria-pressed="false" disabled>Y</button>
+        <button type="button" id="dimension-Z" class="axis-Z" aria-pressed="false" disabled>Z（向上）</button>
+      </div>
+      <label class="dimension-input-label">实际长度<input id="dimension-value" type="number" step="any" min="0" placeholder="输入测量值" required disabled></label>
+      <select id="dimension-unit" aria-label="长度单位"><option value="mm">mm</option><option value="cm">cm</option><option value="m" selected>m</option></select>
+      <button id="dimension-apply" type="submit" disabled>应用并保存</button>
+      <button id="dimension-reset" type="button" disabled>清除标定</button>
+      <a id="dimension-export" hidden>下载实尺 GLB</a>
+    </form>
+    <div class="dimension-feedback"><span id="dimension-message" role="status" aria-live="polite">请选择测量方向。</span><button id="dimension-reload" type="button" hidden>重试</button></div>
+  </section>
   <script defer src="./cover-viewer.js"></script>
 </body>
 </html>

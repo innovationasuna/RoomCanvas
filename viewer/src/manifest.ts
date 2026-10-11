@@ -1,5 +1,6 @@
 export type Vec3 = [number, number, number];
 export type Mode = "glb" | "gaussian";
+export type AssetKind = Mode | "glb_preview";
 
 export interface Asset {
   url: string;
@@ -17,7 +18,7 @@ export interface Recommendation {
 
 export interface Manifest {
   run_id: string;
-  assets: { glb: Asset | null; gaussian: Asset | null };
+  assets: { glb: Asset | null; gaussian: Asset | null; glb_preview: Asset | null };
   display: { center: Vec3; radius: number; up: Vec3 };
   recommendation: Recommendation | null;
   status: "complete" | "unavailable";
@@ -66,8 +67,8 @@ export function validateManifest(input: unknown, base: string, origin: string): 
   if (typeof raw.run_id !== "string" || !raw.run_id) throw new Error("Missing run_id");
   if (raw.status !== "complete" && raw.status !== "unavailable") throw new Error("Invalid manifest status");
   if (typeof display.radius !== "number" || !Number.isFinite(display.radius) || display.radius <= 0) throw new Error("Invalid display radius");
-  const assets = { glb: null, gaussian: null } as Manifest["assets"];
-  for (const kind of ["glb", "gaussian"] as const) {
+  const assets = { glb: null, gaussian: null, glb_preview: null } as Manifest["assets"];
+  for (const kind of ["glb", "gaussian", "glb_preview"] as const) {
     if (sourceAssets[kind] == null) continue;
     const source = record(sourceAssets[kind], kind);
     const transform = numbers(source.transform, 16, `${kind}.transform`);
@@ -75,6 +76,9 @@ export function validateManifest(input: unknown, base: string, origin: string): 
       throw new Error("Asset transform must be an affine column-major matrix");
     }
     assets[kind] = { url: sameOriginUrl(source.url, base, origin), transform };
+  }
+  if (assets.glb_preview && (!assets.glb || assets.glb_preview.transform.some((n, i) => Math.abs(n - assets.glb!.transform[i]) > 1e-6))) {
+    throw new Error("Preview and full GLB must use the same display transform");
   }
   let recommendation: Recommendation | null = null;
   if (raw.recommendation != null && raw.status === "complete") {

@@ -1,7 +1,7 @@
 {
   "renderer": "Babylon.js",
   "version": "8.2.0",
-  "build": "cover-viewer-1.3.0",
+  "build": "cover-viewer-1.5.0",
   "format": "iife",
   "externalRuntimeDependencies": [],
   "compatibilityPatches": [
@@ -9,11 +9,11 @@
   ],
   "outputs": {
     "cover-viewer.js": {
-      "bytes": 2055211,
+      "bytes": 2098351,
       "imports": []
     },
     "cover-viewer.css": {
-      "bytes": 3336,
+      "bytes": 5667,
       "imports": []
     }
   }
