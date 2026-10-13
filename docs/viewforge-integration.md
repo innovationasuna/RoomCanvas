@@ -34,4 +34,8 @@ Vite 同时构建 `index.html` 与 `viewforge.html`，原演示入口继续保�
 
 另用真实 MediaPipe Worker/WASM/模型处理 Chrome 合成摄像头帧，确认识别资源可以初始化、真实服务三个房间正常加载、摄像头默认关闭且停止后释放。没有使用物理摄像头，没有保存服务器布局。
 
-真实摄像头指向、左右手标签、旋转方向/增益、释放手感及长时间性能仍待用户体验。详细场景实现及记录在 ViewForge `code/docs/GESTURE_INTEGRATION.md`。配套分支为本仓库 `codex/viewforge-integration` 与 ViewForge `codex/gesture-integration`，本阶段未提交或推送。
+真实摄像头指向、左右手标签、旋转方向/增益、释放手感及长时间性能仍待用户体验。详细场景实现及记录在 ViewForge `code/docs/GESTURE_INTEGRATION.md`。配套分支为本仓库 `codex/viewforge-integration` 与 ViewForge `codex/gesture-integration`，首版实现已本地提交为 `ee685b6`，尚未推送；ViewForge 按用户要求暂不提交。
+
+## 下一阶段
+
+已规划左手 1/2/3 分别选择移动、旋转、仅观察；观察模式下右手捏合调整相机，平移和环绕都需要，切换手势待后续约定。新功能尚未实现，详见 [下一阶段计划](viewforge-next-plan.md)。
