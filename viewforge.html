@@ -2,6 +2,6 @@
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ViewForge 手势布局</title></head><body>
 <header><h1>ViewForge 手势布局</h1><div class="address"><label for="address">房间布局地址</label><input id="address" type="url"><button id="connect">连接场景</button></div>
 <div class="controls"><button id="start" disabled>开启摄像头</button><button id="stop" disabled>关闭摄像头</button><button data-mode="move" aria-pressed="false" disabled>移动物体</button><button data-mode="rotate" aria-pressed="false" disabled>旋转物体</button><button data-mode="view" aria-pressed="true" disabled>仅观察房间</button><button id="cancel">取消当前操作</button></div>
-<p>先在下方确认尺寸并加入物体，再选移动或旋转。右手指针指向物体，捏合抓取；移动模式拖动，旋转模式左右移动，松手检查碰撞。</p><p id="scene-status" role="status">正在连接…</p></header>
-<div class="workspace"><iframe id="scene" title="ViewForge 房间布局"></iframe><aside class="camera-panel"><video id="camera" autoplay muted playsinline></video><p id="camera-status" role="status">摄像头未开启</p><small>镜像预览；丢手会冻结，持续丢失恢复原位。恢复后先松手再抓取。摄像头画面仅在本机识别。</small></aside></div>
+<p>左手 1（食指）选择移动，2（食指＋中指）选择旋转，3（食指＋中指＋无名指）选择仅观察。保持约 0.4 秒，切换后右手先松开再捏合。</p><p id="gesture-help">仅观察：右手两指捏合环绕，三指合拢平移。</p><p id="scene-status" role="status">正在连接…</p></header>
+<div class="workspace"><iframe id="scene" title="ViewForge 房间布局"></iframe><aside class="camera-panel"><video id="camera" autoplay muted playsinline></video><p id="camera-status" role="status">摄像头未开启</p><p id="left-status" role="status">左手检测未开启</p><progress id="left-progress" max="1" value="0" aria-label="左手数字确认进度"></progress><small>镜像预览；丢手会冻结，持续丢失恢复原位。恢复后先松手再抓取。摄像头画面仅在本机识别。</small></aside></div>
 <script type="module" src="/src/integration/main.ts"></script></body></html>

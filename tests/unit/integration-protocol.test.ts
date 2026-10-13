@@ -14,9 +14,9 @@ describe('ViewForge 最小输入协议', () => {
       const f = frame(); f.operator!.pointer.x = x; expect(gesturePayload(f).operator).toBeUndefined();
     }
   });
-  it('不输出左手和未对齐的菜单/深度接口', () => {
+  it('左手只输出镜像显示指针，不输出菜单/深度接口', () => {
     const f = frame(); f.helper = f.operator; f.operator = undefined;
-    expect(gesturePayload(f)).toEqual({ operator: undefined, interrupted: false, ambiguous: false });
+    expect(gesturePayload(f)).toEqual({ operator: undefined, helper:{u:.2,v:.7}, interrupted: false, ambiguous: false });
   });
   it('连接地址保留原参数，并显式绑定 origin 和会话', () => {
     const url = integrationURL('http://127.0.0.1:7865/layout.html?room=tea', 'http://localhost:8800', 's');
@@ -34,4 +34,13 @@ describe('ViewForge 最小输入协议', () => {
     expect(parseSceneState({ ...state, busy: 'false' }, 's')).toBeNull();
     expect(parseSceneState({ ...state, mode: 'height' }, 's')).toBeNull();
   });
+});
+
+describe('左手显示指针',()=>{
+ it('拒绝越界指针且不发送原始关键点',()=>{
+  const f=frame();f.helper=f.operator;f.helper!.pointer.x=2;
+  expect(gesturePayload(f)).not.toHaveProperty('helper');
+  f.helper!.pointer.x=.3;const payload=gesturePayload(f);
+  expect(payload.helper).toEqual({u:.3,v:.7});expect(payload.helper).not.toHaveProperty('landmarks');
+ });
 });

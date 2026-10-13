@@ -3,12 +3,25 @@ import { Tracker } from '../tracking/tracker';
 import { GestureEngine } from '../gestures/engine';
 import { CONFIG } from '../shared/config';
 import type { GestureFrame } from '../shared/types';
+import { NumberModeSelector, validHand } from '../gestures/number-mode';
+import type { NumberMode, NumberFeedback } from '../gestures/number-mode';
+import { ObservationRecognizer } from '../gestures/observe-pinch';
+import type { ObservationSignal } from '../gestures/observe-pinch';
+import { features } from '../gestures/features';
+export interface IntegrationFrame extends GestureFrame {
+  observation: { operator?: ObservationSignal; interrupted: boolean };
+  modeSelection: NumberMode | null;
+  leftDetection: NumberFeedback;
+  rightHeld: boolean;
+}
 
 // Recognition only: this entry never creates a renderer or the original demo's Controller.
 export class GestureRuntime {
   private camera: CameraSource;
   private tracker = new Tracker();
   private gestures = new GestureEngine();
+  private numbers = new NumberModeSelector();
+  private observation = new ObservationRecognizer();
   private generation = 0;
   private running = false;
   private animation = 0;
@@ -17,7 +30,8 @@ export class GestureRuntime {
   private lastResult = 0;
   private stale = false;
   constructor(private video: HTMLVideoElement, private callbacks: {
-    frame(frame: GestureFrame, sampleTime: number, inferenceMs: number): void;
+    frame(frame: IntegrationFrame, sampleTime: number, inferenceMs: number): void;
+    canSwitch(): boolean;
     interrupted(cancelPending: boolean): void; error(message: string): void;
   }) {
     this.camera = new CameraSource(video);
@@ -35,13 +49,17 @@ export class GestureRuntime {
           this.interrupt(); return;
         }
         this.lastResult = now; this.stale = false;
-        this.callbacks.frame(this.gestures.process(frame, this.video.videoWidth / Math.max(1, this.video.videoHeight)),
-          performance.timeOrigin + frame.timestamp, frame.inferenceMs);
+        const aspect = this.video.videoWidth / Math.max(1, this.video.videoHeight);
+        const gesture = this.gestures.process(frame, aspect);
+        const observation = this.observation.process(frame, aspect);
+        const rightHeld = frame.hands.some(h => h.side === 'Right' && validHand(h) && features(h,aspect).pinchRatio < CONFIG.pinchExit);
+        const modeSelection = this.numbers.process(frame,aspect,this.callbacks.canSwitch() && !rightHeld);
+        this.callbacks.frame({ ...gesture, observation, modeSelection, leftDetection:this.numbers.state, rightHeld }, performance.timeOrigin + frame.timestamp, frame.inferenceMs);
       };
       await this.tracker.start();
       if (generation !== this.generation) return false;
       if (!await this.camera.start(device) || generation !== this.generation) return false;
-      this.gestures.reset(); this.running = true; this.stale = false;
+      this.gestures.reset(); this.observation.reset(); this.numbers.reset(false); this.running = true; this.stale = false;
       this.lastResult = performance.now(); this.lastInference = 0; this.lastVideoTime = -1;
       this.animation = requestAnimationFrame(this.loop);
       return true;
@@ -52,7 +70,7 @@ export class GestureRuntime {
       return false;
     }
   }
-  interrupt(cancelPending = false) { this.gestures.reset(); this.callbacks.interrupted(cancelPending); }
+  interrupt(cancelPending = false, preserveNumbers = false) { this.gestures.reset(); this.observation.reset(); if (!preserveNumbers) this.numbers.reset(); this.callbacks.interrupted(cancelPending); }
   private loop = (now: number) => {
     if (!this.running) return;
     if (!document.hidden && now - this.lastInference >= CONFIG.inferenceInterval && this.video.currentTime !== this.lastVideoTime) {

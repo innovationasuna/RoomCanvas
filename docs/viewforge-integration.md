@@ -20,11 +20,11 @@ npm run dev
 - `src/integration/runtime.ts` 复用 CameraSource、Tracker 和 GestureEngine；原 App 和演示 Controller 不变。
 - `src/integration/main.ts` 提供摄像头、模式和反馈，以及 iframe 握手和发布器。
 - `src/integration/protocol.ts` 输出最小右手状态和校验布局反馈，协议 `viewforge-gesture-v1`。
-- 输出不含原始关键点、视频帧、世界位置、左手或菜单指令。features.ts 已镜像指针，禁止二次翻转。
-- `frame` 只带右手 u/v、pinching/started/ended/releasing、interrupted/ambiguous。u/v 映射目标场景画布，不含布局侧栏。sampleTime 使用 performance.timeOrigin + 输入帧 timestamp。
+- 输出不含原始关键点、视频帧、世界位置或菜单指令。左手数字在本机识别后复用 mode 消息。features.ts 已镜像指针，禁止二次翻转。
+- `frame` 带右手 u/v、pinching/started/ended/releasing、interrupted/ambiguous；观察时增加 observation: orbit/pan。u/v 映射目标场景画布，不含布局侧栏。sampleTime 使用 performance.timeOrigin + 输入帧 timestamp。
 - `hello/mode/stop` 和 `state` 完成连接、view/move/rotate 模式及明确取消/反馈；双方校验 origin、source、会话和序号。
 - 追踪缺失冻结，长中断恢复原位，不能作为提交。松手已提交后丢手保留校验；明确取消、关闭摄像头可取消尚未返回的结果。恢复后松手重抓。
-- 接入页旋转由 ViewForge 连续映射，一画面宽度 π 弧度，不套用原演示的 15°吸附。左手视角、菜单、高度、缩放和 XYZ 深度暂未接入。
+- 接入页旋转由 ViewForge 连续映射，一画面宽度 π 弧度，不套用原演示的 15°吸附。左手数字切换和右手观察已接入；菜单、高度、缩放和 XYZ 深度暂未接入。
 
 Vite 同时构建 `index.html` 与 `viewforge.html`，原演示入口继续保留。生产预览可用 `npm run build` 后 `npm run preview`，访问同一路径。
 
@@ -36,6 +36,31 @@ Vite 同时构建 `index.html` 与 `viewforge.html`，原演示入口继续保�
 
 真实摄像头指向、左右手标签、旋转方向/增益、释放手感及长时间性能仍待用户体验。详细场景实现及记录在 ViewForge `code/docs/GESTURE_INTEGRATION.md`。配套分支为本仓库 `codex/viewforge-integration` 与 ViewForge `codex/gesture-integration`，首版实现已本地提交为 `ee685b6`，尚未推送；ViewForge 按用户要求暂不提交。
 
-## 下一阶段
+## 左手数字切换与右手观察（已实现）
 
-已规划左手 1/2/3 分别选择移动、旋转、仅观察；观察模式下右手捏合调整相机，平移和环绕都需要，切换手势待后续约定。新功能尚未实现，详见 [下一阶段计划](viewforge-next-plan.md)。
+- 左手 1：食指伸直，选择移动；2：食指与中指伸直，选择旋转；3：食指、中指、无名指伸直，选择仅观察。其他手指收拢。
+- 保持约 400ms 确认一次，空闲时可直接稳定切换到另一个数字。持续保持同一数字不重复发送；物体操作、相机操作或碰撞校验期间不切换、不排队。
+- 忙碌或追踪失效后，左手先回中性手型（例如张掌）再给出数字；模式切换后右手先松开再抓取。
+- 仅观察：右手拇指＋食指捏合环绕；拇指＋食指＋中指同时合拢平移。动作在开始抓取时锁定，换动作需完全松开再抓取。
+- 松开第一帧冻结相机，确认释放固定视角；丢手冻结后结束会话，保留最后视角；明确取消/关闭摄像头恢复抓取前视角。
+- 观察不修改物体布局、不调用碰撞 validate；鼠标继续可用。原独立演示及原识别阈值保留。
+
+接收端以 capabilities: [observe-pinch-v1] 宣告相机观察能力；state.phase 新增 observing。没有能力声明时接入页不发送观察动作。
+
+新增实现位于 src/gestures/number-mode.ts、observe-pinch.ts；ViewForge 相机控制位于 viewer/src/layout-observe.ts 与 layout.ts。数字使用稳定确认/关节特征；观察使用原捏合时序，并独立锁定两指或三指动作。
+
+本阶段验证：手势 70 项前端测试、类型检查、资源校验及构建通过；ViewForge 32 项前端测试、类型检查与构建通过。Chrome 合成左右手输入走完整识别/消息/Babylon 链路，验证数字切换、直接数字切换、忙碌忽略与不重放、环绕和平移、动作锁定、释放不漂移、丢手保持、取消恢复，以及原物体操作回归。无页面异常；观察时布局 JSON 不变且没有碰撞请求。
+
+真人手型识别和相机方向/增益手感待用户体验。本轮未提交或推送，未重启 ViewForge 后端；下一步见 [后续计划](viewforge-next-plan.md)。
+
+## 左手检测反馈与水平环绕调整
+
+根据用户反馈，仅观察的水平环绕方向已反转；上下环绕、平移与物体旋转方向保留。左手现在有绿色场景指针，右手保持蓝色；右侧显示左手是否检测到、数字和 400ms 确认进度。即使右手没有入画，左手仍可选择模式。
+
+选择时先松开右手捏合，让整只左手入画、掌心朝向镜头，伸出对应的 1/2/3，其他手指自然收拢。若提示“先张掌”，张开左手再摆数字；若提示“操作结束”，先结束当前拖动或校验。确认进度满后，顶部模式按钮会更新。
+
+旧判断要求收拢指的末端也明显弯曲，会拒绝部分自然握法。已改为结合近端关节和指尖相对掌根的距离识别；继续保留低置信度、歧义、忙碌和丢失恢复保护。不能据此宣称所有真人姿态已验收。
+
+协议新增可选 helper: {u,v}，仅用于左手标记显示，不能拾取或操作物体。右手缺失不清除正在收到的左手标记；停止摄像头、连接中断或过期帧会清除标记。
+
+本轮手势 74 项测试、ViewForge 34 项测试、类型检查和构建、资源校验通过。Chrome 合成自然收拢指姿态确认左手单独入画选模式、绿色指针、进度/禁止切换/张掌恢复提示及反向水平环绕，原操作回归通过；没有物理摄像头或服务器布局保存。

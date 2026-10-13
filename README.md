@@ -80,7 +80,7 @@ npm run preview
 
 ## ViewForge 接入
 
-运行 `npm run dev` 后打开 [ViewForge 手势布局](http://127.0.0.1:8800/viewforge.html)。先在嵌入的房间页确认尺寸并加入物体，再开启摄像头，用右手捏合移动或自由旋转。该入口只运行识别，3D 场景由 ViewForge 渲染；原演示保持独立。环境、操作边界和验收记录见 [接入说明](docs/viewforge-integration.md)；左手数字切换与观察扩展见 [下一阶段计划](docs/viewforge-next-plan.md)。
+运行 `npm run dev` 后打开 [ViewForge 手势布局](http://127.0.0.1:8800/viewforge.html)。先在嵌入的房间页确认尺寸并加入物体，再开启摄像头，用左手 1/2/3 选择移动、旋转、仅观察。右手两指捏合操作物体或环绕观察，观察模式三指合拢平移视角。该入口只运行识别，3D 场景由 ViewForge 渲染；原演示保持独立。环境、操作边界和验收记录见 [接入说明](docs/viewforge-integration.md)；后续验收与调整见 [下一阶段计划](docs/viewforge-next-plan.md)。
 
 ## 参数调整
 
