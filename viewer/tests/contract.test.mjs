@@ -14,7 +14,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 await mkdir(path.join(root, ".test-build"), { recursive: true });
 await build({
   absWorkingDir: root,
-  stdin: { contents: 'export * from "./src/manifest.ts"; export * from "./src/coordinates.ts"; export { AXIS_DIRECTIONS, UNIT_METERS, scaledCameraPoint } from "./src/dimensions.ts";', resolveDir: root, sourcefile: "unit.ts" },
+  stdin: { contents: 'export * from "./src/layout-drag.ts"; export * from "./src/manifest.ts"; export * from "./src/coordinates.ts"; export { AXIS_DIRECTIONS, UNIT_METERS, scaledCameraPoint } from "./src/dimensions.ts";', resolveDir: root, sourcefile: "unit.ts" },
   outfile: path.join(root, ".test-build/contract.mjs"), bundle: true, format: "esm", platform: "node", packages: "external", logLevel: "silent",
   plugins: [{ name: "node-babylon-extensions", setup(b) {
     b.onResolve({ filter: /^@babylonjs\/core\// }, (args) => ({ path: args.path.endsWith(".js") ? args.path : `${args.path}.js`, external: true }));
@@ -176,4 +176,14 @@ test("GLB offline guard allows embedded data and rejects runtime codec/network d
   assert.doesNotThrow(() => validateEmbeddedGlb(makeGlb({ asset: { version: "2.0" }, buffers: [{ byteLength: 12 }], images: [{ bufferView: 0 }] })));
   assert.throws(() => validateEmbeddedGlb(makeGlb({ images: [{ uri: "https://example.com/image.png" }] })), /embed/);
   assert.throws(() => validateEmbeddedGlb(makeGlb({ extensionsUsed: ["KHR_draco_mesh_compression"] })), /codecs/);
+});
+
+const { rotationFromPointer, translationFromPointer } = await import('../.test-build/contract.mjs');
+test('pointer translation preserves the grabbed offset without snapping the model center',()=>{
+ assert.deepEqual(translationFromPointer(-2,1,-1.5,1.3,-.5,.3),{x:-1,z:0});
+});
+test('rotation crosses the angle branch continuously and preserves arbitrary angles',()=>{
+ const yaw=rotationFromPointer(.3,Math.PI-.01,-Math.PI+.01);
+ assert.ok(Math.abs(yaw-.28)<1e-10);
+ assert.ok(Math.abs(rotationFromPointer(0,0,-.3)-.3)<1e-10);
 });
