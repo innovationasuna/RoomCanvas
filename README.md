@@ -78,6 +78,10 @@ npm run preview
 - XYZ 移动模式滚轮调整深度；XYZ 缩放模式滚轮调整大小；其他模式滚轮调整相机距离。
 - `Esc` 关闭菜单并中断操作。鼠标拖动期间暂停手势变换，结束后需松手重抓。
 
+## ViewForge 接入
+
+运行 `npm run dev` 后打开 [ViewForge 手势布局](http://127.0.0.1:8800/viewforge.html)。先在嵌入的房间页确认尺寸并加入物体，再开启摄像头，用右手捏合移动或自由旋转。该入口只运行识别，3D 场景由 ViewForge 渲染；原演示保持独立。环境、操作边界和验收记录见 [接入说明](docs/viewforge-integration.md)。
+
 ## 参数调整
 
 修改 **[`src/shared/config.ts`](src/shared/config.ts)**，开发服务会自动更新；生产模式需要重新构建。
