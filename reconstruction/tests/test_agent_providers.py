@@ -27,11 +27,12 @@ from litereality_agent.agent.providers.codex import _normalise
 # ── 1. selection ───────────────────────────────────────────────────────────────────────────
 
 
-def test_author_defaults_to_codex_without_changing_reconstruction(monkeypatch):
-    monkeypatch.delenv("LR_AGENT_PROVIDER", raising=False)
-    monkeypatch.delenv("LR_AUTHOR_PROVIDER", raising=False)
+def test_every_role_defaults_to_codex(monkeypatch):
+    for name in ("LR_AGENT_PROVIDER", "LR_AUTHOR_PROVIDER", "LR_PROCEDURAL_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
     assert providers.provider_name("author") == "codex"
-    assert providers.provider_name("procedural") == "claude"
+    assert providers.provider_name("procedural") == "codex"
+    assert providers.provider_name("agent") == "codex"
 
 
 def test_role_override_beats_global(monkeypatch):

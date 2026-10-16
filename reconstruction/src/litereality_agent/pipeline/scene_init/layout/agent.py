@@ -155,14 +155,27 @@ def propose(shell: dict[str, Any], violation, batch_dir: Path,
         return None
     prompt = PROMPT.format(context=json.dumps(context, indent=2), scale=MAX_SCALE,
                            shift=MAX_SHIFT, suspicion=suspicion or "moving it a long way")
-    try:
-        done = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text", "--model", model,
-             "--allowed-tools", "Read"],
-            capture_output=True, text=True, timeout=TIMEOUT)
-    except (subprocess.TimeoutExpired, OSError):
-        return {"action": "none", "why": "agent timed out"}
-    text = (done.stdout or "").strip()
+    from litereality_agent.agent.providers.base import provider_name
+    if provider_name("agent") == "codex":
+        import asyncio
+
+        from litereality_agent.agent.providers.vision import ask_images
+        try:
+            text = asyncio.run(ask_images(context["reference_images"], prompt, role="agent",
+                                          cwd=batch_dir, timeout_seconds=TIMEOUT)).strip()
+        except Exception as exc:  # noqa: BLE001 — an unanswered proposal is "none", never fatal
+            return {"action": "none", "why": f"agent failed: {type(exc).__name__}: {exc}"[:300]}
+        returncode = 0
+    else:
+        try:
+            done = subprocess.run(
+                ["claude", "-p", prompt, "--output-format", "text", "--model", model,
+                 "--allowed-tools", "Read"],
+                capture_output=True, text=True, timeout=TIMEOUT)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"action": "none", "why": "agent timed out"}
+        text = (done.stdout or "").strip()
+        returncode = done.returncode
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         return {"action": "none", "why": f"unparseable reply: {text[:120]}"}
@@ -170,7 +183,7 @@ def propose(shell: dict[str, Any], violation, batch_dir: Path,
         out = json.loads(text[start:end + 1])
     except json.JSONDecodeError:
         return {"action": "none", "why": "invalid json"}
-    if not isinstance(out, dict) or done.returncode:
+    if not isinstance(out, dict) or returncode:
         return None
     out["object_id"] = context["object_id"]
     out["wall"] = violation.other

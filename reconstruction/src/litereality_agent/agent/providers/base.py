@@ -103,6 +103,9 @@ class SessionSpec:
     prompt: str
     cwd: Path
     read_roots: tuple[Path, ...] = ()
+    # Images the model must see. Codex attaches them (`--image`); Claude Code reads the paths
+    # named in the prompt with its Read tool.
+    images: tuple[Path, ...] = ()
     capability_tools: tuple[str, ...] = ()
     capability_scene: Path | None = None
     # A bespoke, session-scoped tool host (refine_objects' per-object `render_object`). Only a
@@ -150,7 +153,7 @@ class AgentHarness(Protocol):
 # ── selection ──────────────────────────────────────────────────────────────────────────────
 
 PROVIDERS = ("claude", "codex")
-DEFAULT_PROVIDER = "claude"
+DEFAULT_PROVIDER = "codex"
 
 
 def provider_name(role: str = "", override: str | None = None) -> str:
@@ -171,7 +174,7 @@ def provider_name(role: str = "", override: str | None = None) -> str:
                     f"unsupported agent provider {chosen!r} (expected one of {', '.join(PROVIDERS)})"
                 )
             return chosen
-    return "codex" if role in {"author", "materials", "quality", "refine"} else DEFAULT_PROVIDER
+    return DEFAULT_PROVIDER
 
 
 def resolve(role: str = "", override: str | None = None) -> AgentHarness:

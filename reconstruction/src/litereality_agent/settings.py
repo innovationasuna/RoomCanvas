@@ -57,7 +57,7 @@ class LiteRealitySettings(BaseSettings):
     # WHICH coding agent drives the file-editing sessions. Independent of the model knobs below:
     # the harness is the agent loop, the model is the brain inside it. Per-role overrides default
     # to `agent_provider` in `resolve_dependent_defaults`.
-    agent_provider: str = Field(default="claude", validation_alias="LR_AGENT_PROVIDER")
+    agent_provider: str = Field(default="codex", validation_alias="LR_AGENT_PROVIDER")
     author_provider: str | None = Field(default="codex", validation_alias="LR_AUTHOR_PROVIDER")
     materials_provider: str | None = Field(default="codex", validation_alias="LR_MATERIALS_PROVIDER")
     quality_provider: str | None = Field(default="codex", validation_alias="LR_QUALITY_PROVIDER")

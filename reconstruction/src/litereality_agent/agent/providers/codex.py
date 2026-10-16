@@ -341,6 +341,10 @@ class CodexHarness:
         if model:
             cmd += ["-m", model]
         seconds = spec.timeout_seconds or float(os.environ.get("LR_CODEX_SESSION_SECONDS", "1800"))
+        for image in spec.images:
+            cmd += ["--image", str(image)]
+        if spec.images:
+            cmd.append("--")  # `--image` takes several values; end it before the prompt
         cmd.append(_budgeted_prompt(spec, seconds))
 
         proc = await asyncio.create_subprocess_exec(

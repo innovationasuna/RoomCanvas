@@ -63,7 +63,51 @@ def test_observation_preserves_repair_and_records_search(tmp_path):
     }
 
 
+def test_codex_session_is_saved_and_result_reaches_parser(tmp_path, monkeypatch):
+    import asyncio
+    import sys
+
+    agent = importlib.import_module("litereality_agent.pipeline.scene_init.layout.agent")
+    monkeypatch.delenv("LR_AGENT_PROVIDER", raising=False)
+    references = tmp_path / "references/Storage0"
+    references.mkdir(parents=True)
+    (references / "rank0.jpg").touch()
+    reply = {"action": "none", "why": "The scan supports this size."}
+    program = (
+        "import json; "
+        f"print(json.dumps({{'type': 'item.completed', 'item': {{'type': 'agent_message', "
+        f"'text': {json.dumps(json.dumps(reply))}}}}})); "
+        "print(json.dumps({'type': 'turn.completed', 'usage': {}}))"
+    )
+    real_spawn = asyncio.create_subprocess_exec
+    commands = []
+
+    async def fake_spawn(*args, **kwargs):
+        commands.append(list(args))
+        return await real_spawn(sys.executable, "-u", "-c", program, **kwargs)
+
+    monkeypatch.setattr("shutil.which", lambda _: "/fake/codex")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_spawn)
+    violation = next(v for v in check(room()) if v.object == "Storage0" and v.severity == "error")
+    audit = batch.Audit(tmp_path)
+    with ExitStack() as stack:
+        audit.instrument(stack)
+        result = agent.propose(room(), violation, tmp_path)
+    assert result["why"] == reply["why"]
+    assert result["object_id"] == "Storage0"
+    assert "--image" in commands[0]
+    events = (tmp_path / "agent_001.events.jsonl").read_text().splitlines()
+    assert json.loads(events[-1])["result"] == json.dumps(reply)
+    assert "Storage0" in (tmp_path / "agent_001.prompt.txt").read_text()
+    starts = [json.loads(line) for line in (tmp_path / "steps.jsonl").read_text().splitlines()
+              if json.loads(line)["event"] == "agent_start"]
+    assert starts[0]["provider"] == "codex" and starts[0]["images"]
+    assert audit.calls == 1
+
+
 def test_agent_stream_is_saved_and_result_reaches_parser(tmp_path, monkeypatch):
+    # The Claude path is still audited from its stream-json output.
+    monkeypatch.setenv("LR_AGENT_PROVIDER", "claude")
     agent = importlib.import_module("litereality_agent.pipeline.scene_init.layout.agent")
     references = tmp_path / "references/Storage0"
     references.mkdir(parents=True)

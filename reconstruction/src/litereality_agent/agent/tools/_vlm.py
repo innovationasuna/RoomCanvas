@@ -41,6 +41,7 @@ async def vision(
     spec = providers.SessionSpec(
         prompt=request, cwd=Path(config.ROOT),
         read_roots=tuple(Path(p).resolve().parent for p in images),
+        images=tuple(Path(p).resolve() for p in images),
         file_tools=("Read",), setting_sources=(), model=config.MODEL,
         read_only=True, max_turns=max(8, len(images) + 4),
         step_budget=max(14, len(images) + 4), timeout_seconds=240,

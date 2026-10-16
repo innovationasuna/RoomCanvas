@@ -118,7 +118,17 @@ Output ONLY a fenced ```json block (no prose) with this exact shape:
 Every chair name must appear in exactly one type."""
 
 
-async def _run_agent(montage_dir: Path, names: list[str], model: str) -> tuple[dict, float]:
+async def _run_agent(montage_dir: Path, names: list[str], model: str) -> tuple[dict, float | None]:
+    from litereality_agent.agent.providers.base import provider_name
+    if provider_name("agent") == "codex":
+        from litereality_agent.agent.providers.vision import ask_images
+        result_text = await ask_images(
+            [montage_dir / f"{name}.jpg" for name in names], _build_prompt(montage_dir, names),
+            role="agent", cwd=montage_dir, timeout_seconds=JUDGE_TIMEOUT)
+        m = re.search(r"```json\s*(.+?)```", result_text, re.S) or re.search(r"(\{.*\})", result_text, re.S)
+        if not m:
+            raise RuntimeError(f"judge agent returned no JSON: {result_text[:300]}")
+        return json.loads(m.group(1)), None  # Codex reports no cost
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     options = ClaudeAgentOptions(
@@ -160,7 +170,8 @@ def judge_types(
 
     data, cost = asyncio.run(asyncio.wait_for(_run_agent(montage_dir, names, model), JUDGE_TIMEOUT))
     print(f"  [chair-judge] {model}: {len(names)} chairs -> "
-          f"{len(data.get('types', []))} types  (cost_usd≈{round(cost, 4)}, subscription)", flush=True)
+          f"{len(data.get('types', []))} types  "
+          f"(cost_usd≈{'unreported' if cost is None else round(cost, 4)})", flush=True)
 
     groups: list[dict] = []
     assigned: set[str] = set()

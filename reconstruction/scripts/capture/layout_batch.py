@@ -115,8 +115,10 @@ class Audit:
             self.event("proposal_gate", proposals=proposals, decisions=result[1], shell=result[0])
             return result
 
+        vision = importlib.import_module("litereality_agent.agent.providers.vision")
         original_propose = agent.propose
         original_run = subprocess.run
+        original_resolve = vision.resolve
 
         def propose(shell, violation, batch_dir, *args, **kwargs):
             # Never ask for photographic judgement when this object has no photograph.
@@ -154,7 +156,36 @@ class Audit:
                     raise RuntimeError(f"Layout agent failed; inspect {prefix}.stderr.txt")
                 return subprocess.CompletedProcess(command, done.returncode, answer, done.stderr)
 
-            with patch.object(agent.subprocess, "run", invoke):
+            def resolve(role="", override=None):
+                # Codex proposals go through providers.vision rather than a `claude` subprocess;
+                # record the same prompt and event files from the harness stream.
+                harness = original_resolve(role, override)
+                audit = self
+
+                class Recorded:
+                    name, supports = harness.name, harness.supports
+
+                    def effective_model(self, spec):
+                        return harness.effective_model(spec)
+
+                    async def run(self, spec):
+                        prefix.with_suffix(".prompt.txt").write_text(spec.prompt, encoding="utf-8")
+                        audit.event("agent_start", object=violation.object, prompt=str(prefix),
+                                    provider=harness.name, images=[str(i) for i in spec.images])
+                        lines = []
+                        try:
+                            with audit.phase("agent"):
+                                async for message in harness.run(spec):
+                                    lines.append(json.dumps(dataclasses.asdict(message), default=str))
+                                    yield message
+                        finally:
+                            prefix.with_suffix(".events.jsonl").write_text(
+                                "\n".join(lines), encoding="utf-8")
+
+                return Recorded()
+
+            with (patch.object(agent.subprocess, "run", invoke),
+                  patch.object(vision, "resolve", resolve)):
                 result = original_propose(shell, violation, batch_dir, *args, **kwargs)
             self.event("agent_proposal", proposal=result)
             return result

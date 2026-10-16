@@ -23,6 +23,11 @@ def _model() -> str:
 
 
 async def _ask(image_path: Path, prompt: str) -> str:
+    from litereality_agent.agent.providers.base import provider_name
+    if provider_name("agent") == "codex":
+        from litereality_agent.agent.providers.vision import ask_images
+        return await ask_images([image_path], prompt + "\n\nReply with ONLY the JSON object.",
+                                role="agent", cwd=_ROOT)
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     opts = ClaudeAgentOptions(
