@@ -13,8 +13,26 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # RoomCanvas: the LiteReality-based reconstruction module lives in reconstruction/.
+    defaults:
+      run:
+        working-directory: reconstruction
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # RoomCanvas: full history, for the secret scan below
+
+      # RoomCanvas: scan every commit for leaked keys. The binary is pinned and checked against the
+      # release checksum; --redact keeps any hit out of the public log.
+      - name: Scan full history for secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfLo gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git --redact --verbose .
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -28,3 +46,20 @@ jobs:
       # The default marker filter in pyproject already excludes anything needing Blender, a real
       # scan, or a paid model call, so this run is offline and needs no secrets.
       - run: uv run pytest -n auto
+
+  # RoomCanvas: the web editor in web/ (plain ES modules, no build step) on the sample rooms.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs; do node --check "$f"; done
+      - run: node --test 'web/editor/tests/*.mjs'
+      - run: python3 -m unittest discover -s web/scripts -v
+      - name: Check the sample rooms with their real models (CPU)
+        run: |
+          for check in collision wall_mount seat_support gravity; do node web/scripts/check_$check.mjs --scene-dir samples/office; done
+          node web/scripts/check_room.mjs --scene-dir samples/office
+          node web/scripts/check_room.mjs --scene-dir samples/room3

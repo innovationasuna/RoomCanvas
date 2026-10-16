@@ -1,0 +1,15 @@
+RoomCanvas
+Copyright 2026 innovationAusna
+
+The reconstruction/ directory is a modified version of LiteReality-Agent
+(https://github.com/LiteReality/LiteReality-Agent), imported from upstream
+commit 28ffe1f4 (2026-10-03).
+LiteReality-Agent is copyright Zhening Huang and the LiteReality contributors,
+and is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The RoomCanvas authors have modified the upstream files. Each modification is
+recorded in the git history of this repository, starting after the baseline
+import commit, and summarised in README.md.
+
+web/vendor/ contains files from three.js (https://threejs.org), copyright the
+three.js authors, licensed under the MIT License (see web/vendor/LICENSE).
