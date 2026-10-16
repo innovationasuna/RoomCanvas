@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#eceee7"><title>RoomCanvas</title>
+<link rel="stylesheet" href="./editor.css?v=unified-28">
+<script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
+</head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
+    <symbol id="icon-chair" viewBox="0 0 24 24"><path d="M7 12V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v7M6 12h12v5H6zM8 17v4m8-4v4M4 9v5h2m14-5v5h-2"/></symbol>
+    <symbol id="icon-table" viewBox="0 0 24 24"><path d="M3 7h18v4H3zM5 11v9m14-9v9M5 15h14"/></symbol>
+    <symbol id="icon-shelf" viewBox="0 0 24 24"><path d="M5 3h14v18M5 3v18M5 9h14M5 16h14M8 5v4m3-5v5m3 3v4m3-5v5"/></symbol>
+    <symbol id="icon-cabinet" viewBox="0 0 24 24"><path d="M4 4h16v15H4zM12 4v15M7 19v2m10-2v2M9 10v3m6-3v3"/></symbol>
+    <symbol id="icon-panel" viewBox="0 0 24 24"><path d="M4 4h16v14H4zM8 21h8m-4-3v3M7 7h10"/></symbol>
+    <symbol id="icon-appliance" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 8h14M8 5.5h.1m3 0h.1"/><circle cx="12" cy="14" r="3.5"/></symbol>
+    <symbol id="icon-footrest" viewBox="0 0 24 24"><path d="M4 9h16v7H4zM7 16v4m10-4v4M7 9V6h10v3"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="icon-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="icon-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></symbol>
+    <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/></symbol>
+    <symbol id="icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+    <symbol id="icon-undo" viewBox="0 0 24 24"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 6 6v3"/></symbol>
+    <symbol id="icon-redo" viewBox="0 0 24 24"><path d="m15 5 5 5-5 5m5-5h-9a6 6 0 0 0 0 12" transform="translate(0 -2)"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
+    <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 16v4h16v-4"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M9 4H4v16h16v-5"/></symbol>
+    <symbol id="icon-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></symbol>
+    <symbol id="icon-rotate-left" viewBox="0 0 24 24"><path d="M5 9a8 8 0 1 1 1 10M5 3v6h6"/><path d="m10 15 2-3 2 3"/></symbol>
+    <symbol id="icon-rotate-right" viewBox="0 0 24 24"><path d="M19 9a8 8 0 1 0-1 10m1-16v6h-6"/><path d="m10 15 2-3 2 3"/></symbol>
+    <symbol id="icon-focus" viewBox="0 0 24 24"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="icon-top" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 15h6V9h10"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/></symbol>
+    <symbol id="icon-cursor" viewBox="0 0 24 24"><path d="m5 3 14 10-7 1-3 7-4-18Z"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-mouse" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 2v7"/></symbol>
+  </svg>
+<div id="rc-placement-demo" data-room-selection="true" aria-label="RoomCanvas 房间编辑器">
+<section class="rc-room-picker" aria-label="载入房间"><div class="rc-brand"><span class="rc-logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</div><h1>载入房间</h1><p>选择一个房间，开始布置。</p><button id="open-office" class="rc-room-card"><svg aria-hidden="true"><use href="#icon-room"/></svg><strong>房间</strong><span>打开原始布置 →</span></button></section>
+<header class="rc-top">
+ <div class="rc-brand"><span class="rc-logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</div>
+ <div class="rc-project"><strong>房间</strong></div>
+ <div class="rc-modes" aria-label="工作模式"><button class="rc-mode" data-mode="edit" aria-pressed="true">布置</button><button class="rc-mode" data-mode="preview" aria-pressed="false">预览</button></div>
+</header>
+<main class="rc-stage">
+ <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择家具后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
+ <nav class="rc-tools" aria-label="布置工具">
+  <button class="rc-tool" id="undo" disabled aria-label="撤销"><svg aria-hidden="true"><use href="#icon-undo"/></svg>撤销</button>
+  <button class="rc-tool" id="clear-room" title="将房间中的家具全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
+  <button class="rc-tool" id="reset-layout" title="恢复原始家具、位置和朝向，可撤销">↻ 一键还原</button>
+  <button class="rc-tool" id="list-toggle" aria-controls="object-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
+  <button class="rc-tool" id="light" aria-label="切换日光与暖光" aria-pressed="false"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</button>
+  <details class="rc-menu" id="tools-menu">
+   <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
+   <div class="rc-menu-panel">
+    <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中家具" data-view="focus">聚焦家具</button></div>
+    <div class="rc-footer-tools"><label><input id="cut" type="checkbox" checked>自动隐藏近侧墙</label><label><input id="ceiling" type="checkbox">天花板</label>
+ <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
+ <a href="../?model=authored" target="_blank" rel="noopener">原始重建 ↗</a><input id="layout-file" type="file" accept=".json,application/json" hidden></div>
+    <p class="rc-scale-note">单位：米</p>
+   </div>
+  </details>
+ </nav>
+ <aside class="rc-controls" aria-label="家具摆放控制" hidden>
+  <p id="selected-name" class="rc-object-title">挑一件家具，试着摆放</p>
+  <p id="selected-category" class="rc-object-size">从房间或下方仓库开始</p>
+  <div class="rc-state"><span class="rc-state-dot"></span><span id="session-status" aria-live="polite">选择 → 虚影预览 → 确认放置</span></div>
+  <p id="empty-selection" class="rc-idle-tip">单击已有家具可调整位置。拖动空白处环绕观察，滚轮缩放。</p>
+  <div id="selection-controls" hidden>
+   <div class="rc-pending-actions">
+    <button class="rc-action" hidden id="session-rotate-left">↶ 左转 15°</button><button class="rc-action" hidden id="session-rotate-right">↷ 右转 15°</button>
+    <button class="rc-action rc-action-wide rc-confirm" id="confirm-placement">确认放置</button>
+    <button class="rc-action rc-action-wide rc-cancel" id="cancel-placement">取消</button>
+    <button class="rc-action rc-action-wide rc-store" id="store-object" title="从房间移除，并收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>收回仓库</button>
+   </div>
+          <section id="wall-section" class="wall-section" aria-label="墙面安装" hidden>
+            <div class="wall-section-heading"><div><h3>安装墙面</h3><p id="wall-current">当前墙面</p></div><button id="change-wall" class="button button-secondary" type="button" aria-expanded="false">换一面墙</button></div>
+            <div id="wall-picker-controls" hidden>
+              <p class="wall-picker-note">在场景中点选目标墙的位置，也可以先从列表选择墙面。物体会自动转向并贴墙。</p>
+              <label class="wall-target-field" for="wall-target">目标墙面<select id="wall-target"><option value="">在场景中点选</option></select></label>
+              <p id="wall-preview-status" class="wall-preview-status" role="status">请选择目标墙面</p>
+              <button id="apply-wall" class="button button-primary wall-apply" type="button" disabled>锁定后微调</button>
+            </div>
+          </section>
+   <!-- Retain legacy control IDs for existing keyboard and scene bindings. -->
+   <div id="legacy-selection-controls" hidden><p class="rc-coordinate" id="candidate-coordinate"></p><button class="rc-action rc-action-wide" id="lock-preview">锁定预览</button><fieldset id="selection-fieldset" disabled>
+          <section class="move-section"><div class="control-heading"><h3>移动位置</h3><span class="control-shortcut">↑ ↓ ← →</span></div><p id="direction-note" class="control-note">按当前视角移动 · 可调整高度</p>
+            <div class="direction-pad" aria-label="沿地面移动选中物体">
+              <button data-move="forward" class="move-button move-forward" type="button" aria-label="向前移动"><svg aria-hidden="true"><use href="#icon-arrow-up"/></svg><span>前</span></button>
+              <button data-move="left" class="move-button move-left" type="button" aria-label="向左移动"><svg aria-hidden="true"><use href="#icon-arrow-left"/></svg><span>左</span></button>
+              <div class="pad-center" aria-hidden="true"><svg><use href="#icon-move"/></svg></div>
+              <button data-move="right" class="move-button move-right" type="button" aria-label="向右移动"><svg aria-hidden="true"><use href="#icon-arrow-right"/></svg><span>右</span></button>
+              <button data-move="back" class="move-button move-back" type="button" aria-label="向后移动"><svg aria-hidden="true"><use href="#icon-arrow-down"/></svg><span>后</span></button>
+            </div>
+            <label class="step-field" for="step"><span>每次移动</span><span class="step-input"><select id="step"><option value="0.01">0.01</option><option value="0.05">0.05</option><option value="0.1" selected>0.10</option><option value="0.25">0.25</option></select><span>米</span></span></label>
+          </section>
+          <section class="placement-section" aria-label="物体放置状态">
+            <div class="control-heading"><h3>接触与支撑</h3><span id="placement-state" class="placement-state" data-state="draft" role="status">检查放置面</span></div>
+            <p id="placement-detail" class="placement-detail">选择物体后检查其支撑面。</p>
+            <button id="settle-object" class="settle-button" type="button"><svg aria-hidden="true"><use href="#icon-arrow-down"/></svg><span>落到支撑面</span></button>
+            <p class="placement-hint">靠近支撑面自动贴合，碰到物体时停止</p>
+          </section>
+          <section class="rotate-section"><div class="control-heading"><h3>调整朝向</h3><span class="control-note">每次 15°</span></div><div class="rotation-buttons"><button type="button" id="rotate-left"><svg aria-hidden="true"><use href="#icon-rotate-left"/></svg>左转</button><button type="button" id="rotate-right"><svg aria-hidden="true"><use href="#icon-rotate-right"/></svg>右转</button></div></section>
+          <details class="advanced-controls"><summary>高度与位置详情</summary>
+            <div class="height-heading"><span>高度偏移</span><output id="offset-y">0.00</output></div>
+            <div class="height-buttons" aria-label="调整选中物体的高度">
+              <button id="depth-forward" data-move="up" class="move-button height-button" type="button" aria-label="向上移动"><svg aria-hidden="true"><use href="#icon-arrow-up"/></svg><span>上升</span></button>
+              <button id="depth-back" data-move="down" class="move-button height-button" type="button" aria-label="向下移动"><svg aria-hidden="true"><use href="#icon-arrow-down"/></svg><span>下降</span></button>
+            </div>
+          <section class="transform-section"><div class="control-heading"><h3>相对初始位置</h3><button class="text-button" id="reset-object" type="button" title="还原此物体的初始位置与朝向"><svg aria-hidden="true"><use href="#icon-reset"/></svg>还原</button></div><div class="readouts"><div><span>水平 X</span><output id="offset-x">0.00</output></div><div><span>水平 Z</span><output id="offset-z">0.00</output></div><div><span>旋转</span><output id="rotation">0°</output></div></div></section>
+          </details>
+        </fieldset></div>
+  </div>
+  <span id="selected-count" hidden>0</span>
+ </aside>
+ <div id="drop-label" class="rc-drop-label" hidden></div>
+ <div id="selection-label" class="selection-label" hidden></div>
+ <div class="rc-help"><span id="interaction-help">拖动空白处转动视角 · 滚轮缩放</span></div>
+ <nav class="rc-view-tools" aria-label="场景与视角">
+  <button class="rc-tool" id="overview" aria-label="恢复整体视角" data-view="overview">整体</button>
+  <button class="rc-tool" id="top" aria-label="俯视房间" data-view="top">俯视</button>
+ </nav>
+ <div id="loading" class="rc-loading" role="status"><strong>正在打开你的房间</strong><progress id="load-progress" max="100" value="0" aria-label="房间加载进度"></progress></div>
+ <div id="toast" class="rc-toast" role="status" hidden></div>
+</main>
+<section class="rc-shelf" id="object-panel" aria-label="仓库">
+ <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件家具</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索家具" aria-label="搜索场景物体"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
+ <div class="rc-catalog" id="object-list" aria-label="可编辑物体"></div>
+</section>
+<footer class="rc-footer">
+
+ <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
+</footer>
+
+</div><script type="module" src="./editor.js?v=unified-28"></script></body></html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoomCanvas · 示例房间</title>
+<style>
+  :root {--bg: #eceee7; --card: #fbfcf9; --ink: #1f2b26; --muted: #5d6b64; --line: #d6ddd3; --accent: #2c8772;}
+  * {box-sizing: border-box;}
+  body {margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
+  main {max-width: 760px; margin: 0 auto; padding: 48px 16px;}
+  h1 {font-size: 24px; margin: 0 0 4px;}
+  p {color: var(--muted); margin: 0 0 28px;}
+  .rooms {display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;}
+  a.room {display: block; padding: 20px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: inherit; text-decoration: none;}
+  a.room:hover, a.room:focus-visible {border-color: var(--accent); outline: none;}
+  a.room strong {display: block; font-size: 17px; margin-bottom: 4px;}
+  a.room span {color: var(--muted); font-size: 14px;}
+  a.room em {display: block; margin-top: 12px; color: var(--accent); font-style: normal; font-size: 14px;}
+</style></head>
+<body><main>
+  <h1>RoomCanvas 示例房间</h1>
+  <p>在仓库根目录运行 <code>python3 -m http.server 7870 --bind 127.0.0.1</code>，打开本页，选一个房间进入家具布置编辑器。</p>
+  <div class="rooms">
+    <a class="room" href="editor/?scene=../../samples/room3"><strong>room3 · 卧室</strong><span>手机扫描的卧室：17 组可移动家具，床、钢琴、衣柜、书架等。模型约 40 MB。</span><em>打开 →</em></a>
+    <a class="room" href="editor/?scene=../../samples/office"><strong>office · 办公室</strong><span>LiteReality 官方样例：15 组可移动家具，办公桌、会客桌椅、墙面层架等。模型约 36 MB。</span><em>打开 →</em></a>
+  </div>
+</main></body></html>
