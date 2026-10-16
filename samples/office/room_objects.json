@@ -1,0 +1,3669 @@
+{
+ "format": "roomcanvas-room-objects",
+ "version": 1,
+ "scene": "office_room",
+ "frame": {
+  "up": "Y",
+  "units": "meters",
+  "from": "room_layout.json Z-up via (x, y, z) -> (x, z, -y)"
+ },
+ "floor": "Floor0",
+ "walls": [
+  "Wall0",
+  "Wall1",
+  "Wall2",
+  "Wall3",
+  "Wall4",
+  "Wall5",
+  "Wall6",
+  "Wall7",
+  "Wall8"
+ ],
+ "ceiling": [
+  "Ceiling0"
+ ],
+ "openings": {
+  "Wall1": [
+   "Door0"
+  ],
+  "Wall5": [
+   "Window0"
+  ]
+ },
+ "groups": [
+  {
+   "id": "Chair0",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair0"
+   ],
+   "support_parts": [],
+   "name": "会客椅 1"
+  },
+  {
+   "id": "Chair1",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair1"
+   ],
+   "support_parts": [],
+   "name": "办公椅"
+  },
+  {
+   "id": "Chair2",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair2"
+   ],
+   "support_parts": [],
+   "name": "会客椅 2"
+  },
+  {
+   "id": "Chair3",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair3"
+   ],
+   "support_parts": [],
+   "name": "会客椅 3"
+  },
+  {
+   "id": "Chair4",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair4"
+   ],
+   "support_parts": [],
+   "name": "会客椅 4"
+  },
+  {
+   "id": "Footrest0",
+   "category": "footrest",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Footrest0"
+   ],
+   "support_parts": [],
+   "name": "脚踏"
+  },
+  {
+   "id": "Noticeboard0",
+   "category": "board",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "Noticeboard0"
+   ],
+   "support_parts": [],
+   "name": "告示板"
+  },
+  {
+   "id": "Pedestal0",
+   "category": "cabinet",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "CycleHelmet0",
+    "Pedestal0",
+    "PedestalNotebook0"
+   ],
+   "support_parts": [
+    "Pedestal0"
+   ],
+   "name": "抽屉柜"
+  },
+  {
+   "id": "PortableHeater0",
+   "category": "heater",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "HeaterCable0",
+    "PortableHeater0"
+   ],
+   "support_parts": [],
+   "name": "便携暖气"
+  },
+  {
+   "id": "ShelfStandards_Desk",
+   "category": "shelf_brackets",
+   "mount": "wall",
+   "wall": "Wall1",
+   "members": [
+    "Bookends_Desk_0",
+    "Bookends_Desk_1",
+    "ShelfBlackTray",
+    "ShelfGreenBox",
+    "ShelfMug0",
+    "ShelfPacket0",
+    "ShelfPapers0",
+    "ShelfStandards_Desk",
+    "Shelf_Desk_0",
+    "Shelf_Desk_1",
+    "TissueBox0",
+    "Tissues0"
+   ],
+   "support_parts": [
+    "Shelf_Desk_0",
+    "Shelf_Desk_1"
+   ],
+   "name": "办公区置物架"
+  },
+  {
+   "id": "ShelfStandards_Meeting",
+   "category": "shelf_brackets",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "Bookends_Meeting_0",
+    "Bookends_Meeting_1",
+    "ShelfCardboard0",
+    "ShelfStandards_Meeting",
+    "Shelf_Meeting_0",
+    "Shelf_Meeting_1"
+   ],
+   "support_parts": [
+    "Shelf_Meeting_0",
+    "Shelf_Meeting_1"
+   ],
+   "name": "会客区置物架"
+  },
+  {
+   "id": "ShelfStandards_Photo",
+   "category": "shelf_brackets",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "AerosolCan0",
+    "Bookends_Photo_0",
+    "Bookends_Photo_1",
+    "FoldedCloth0",
+    "GreenBottle0",
+    "GreenShelfCup0",
+    "HorseFigurine0",
+    "ShelfMarker0",
+    "ShelfPhoto0",
+    "ShelfPhoto1",
+    "ShelfPhoto2",
+    "ShelfPhoto3",
+    "ShelfStandards_Photo",
+    "Shelf_Photo_0",
+    "Shelf_Photo_1"
+   ],
+   "support_parts": [
+    "Shelf_Photo_0",
+    "Shelf_Photo_1"
+   ],
+   "name": "相片展示架"
+  },
+  {
+   "id": "Table0",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Table0"
+   ],
+   "support_parts": [
+    "Table0"
+   ],
+   "name": "圆形会客桌"
+  },
+  {
+   "id": "Table1",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "DeskAdapter0",
+    "DeskCable0",
+    "DeskPhone0",
+    "DeskPuck0",
+    "DrinkingGlass0",
+    "Keyboard0",
+    "Laptop0",
+    "Monitor0",
+    "Mouse0",
+    "MouseMat0",
+    "MouseMatLead0",
+    "Remote0",
+    "Table1",
+    "Thermos0",
+    "TravelCup0",
+    "WristRest0"
+   ],
+   "support_parts": [
+    "Table1"
+   ],
+   "name": "办公桌"
+  },
+  {
+   "id": "Whiteboard0",
+   "category": "board",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "Whiteboard0"
+   ],
+   "support_parts": [],
+   "name": "白板"
+  }
+ ],
+ "objects": [
+  {
+   "id": "ACConduit0",
+   "node": "ACConduit0",
+   "category": "conduit",
+   "role": "fixture",
+   "group": "ACConduit0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9745,
+    -0.2996,
+    1.6523
+   ],
+   "bbox_max": [
+    -2.8687,
+    0.9534,
+    1.7326
+   ]
+  },
+  {
+   "id": "AerosolCan0",
+   "node": "AerosolCan0",
+   "category": "can",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2227,
+    -0.1896,
+    -1.3096
+   ],
+   "bbox_max": [
+    -2.1627,
+    0.0704,
+    -1.2496
+   ]
+  },
+  {
+   "id": "AirConditioner0",
+   "node": "AirConditioner0",
+   "category": "air_conditioner",
+   "role": "fixture",
+   "group": "AirConditioner0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6577,
+    0.6579,
+    1.3841
+   ],
+   "bbox_max": [
+    -1.8028,
+    0.9429,
+    1.7023
+   ]
+  },
+  {
+   "id": "Bookends_Desk_0",
+   "node": "Bookends_Desk_0",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Desk",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7323,
+    -0.142,
+    1.3196
+   ],
+   "bbox_max": [
+    -0.9649,
+    0.0228,
+    1.6906
+   ]
+  },
+  {
+   "id": "Bookends_Desk_1",
+   "node": "Bookends_Desk_1",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Desk",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7323,
+    0.258,
+    1.3196
+   ],
+   "bbox_max": [
+    -0.9649,
+    0.4228,
+    1.6906
+   ]
+  },
+  {
+   "id": "Bookends_Meeting_0",
+   "node": "Bookends_Meeting_0",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Meeting",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4228,
+    -0.122,
+    -1.6116
+   ],
+   "bbox_max": [
+    0.7733,
+    0.0428,
+    -0.0833
+   ]
+  },
+  {
+   "id": "Bookends_Meeting_1",
+   "node": "Bookends_Meeting_1",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Meeting",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4228,
+    0.278,
+    -1.6116
+   ],
+   "bbox_max": [
+    0.7733,
+    0.4428,
+    -0.0833
+   ]
+  },
+  {
+   "id": "Bookends_Photo_0",
+   "node": "Bookends_Photo_0",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Photo",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3905,
+    -0.152,
+    -1.5064
+   ],
+   "bbox_max": [
+    -1.8005,
+    0.0128,
+    -0.6963
+   ]
+  },
+  {
+   "id": "Bookends_Photo_1",
+   "node": "Bookends_Photo_1",
+   "category": "bookends",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Photo",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3905,
+    0.248,
+    -1.5064
+   ],
+   "bbox_max": [
+    -1.8005,
+    0.4128,
+    -0.6963
+   ]
+  },
+  {
+   "id": "Ceiling0",
+   "node": "Ceiling0",
+   "category": "ceiling",
+   "role": "structure",
+   "group": "Ceiling0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9822,
+    1.0754,
+    -2.3286
+   ],
+   "bbox_max": [
+    0.904,
+    1.1204,
+    1.7729
+   ]
+  },
+  {
+   "id": "CeilingGrid0",
+   "node": "CeilingGrid0",
+   "category": "ceiling_grid",
+   "role": "fixture",
+   "group": "CeilingGrid0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9377,
+    1.0694,
+    -2.3037
+   ],
+   "bbox_max": [
+    0.8491,
+    1.0754,
+    1.5826
+   ]
+  },
+  {
+   "id": "CeilingLight0",
+   "node": "CeilingLight0",
+   "category": "light_fixture",
+   "role": "fixture",
+   "group": "CeilingLight0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0546,
+    1.0334,
+    -0.1846
+   ],
+   "bbox_max": [
+    -0.4054,
+    1.0754,
+    0.4646
+   ]
+  },
+  {
+   "id": "CeilingLight1",
+   "node": "CeilingLight1",
+   "category": "light_fixture",
+   "role": "fixture",
+   "group": "CeilingLight1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5886,
+    1.0334,
+    -0.1256
+   ],
+   "bbox_max": [
+    -1.9394,
+    1.0754,
+    0.5236
+   ]
+  },
+  {
+   "id": "Chair0",
+   "node": "Chair0",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.7251,
+    -1.5946,
+    -1.0546
+   ],
+   "bbox_max": [
+    -1.0021,
+    -0.6364,
+    -0.4128
+   ]
+  },
+  {
+   "id": "Chair1",
+   "node": "Chair1",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0826,
+    -1.5945,
+    -0.198
+   ],
+   "bbox_max": [
+    -2.287,
+    -0.5001,
+    0.5794
+   ]
+  },
+  {
+   "id": "Chair2",
+   "node": "Chair2",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair2",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6467,
+    -1.5946,
+    -0.4695
+   ],
+   "bbox_max": [
+    0.1445,
+    -0.6364,
+    0.2771
+   ]
+  },
+  {
+   "id": "Chair3",
+   "node": "Chair3",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair3",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5614,
+    -1.5946,
+    -1.2442
+   ],
+   "bbox_max": [
+    0.2386,
+    -0.6364,
+    -0.4792
+   ]
+  },
+  {
+   "id": "Chair4",
+   "node": "Chair4",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair4",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.5187,
+    -1.5946,
+    -0.5057
+   ],
+   "bbox_max": [
+    -0.7187,
+    -0.6364,
+    0.2593
+   ]
+  },
+  {
+   "id": "CycleHelmet0",
+   "node": "CycleHelmet0",
+   "category": "helmet",
+   "role": "furniture",
+   "group": "Pedestal0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Pedestal0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.5319,
+    -1.0146,
+    1.228
+   ],
+   "bbox_max": [
+    -1.2681,
+    -0.8469,
+    1.4609
+   ]
+  },
+  {
+   "id": "Data_Wall0_0",
+   "node": "Data_Wall0_0",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.5935,
+    -0.6116,
+    -0.8223
+   ],
+   "bbox_max": [
+    -3.5255,
+    -0.5476,
+    -0.7888
+   ]
+  },
+  {
+   "id": "Data_Wall0_1",
+   "node": "Data_Wall0_1",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5354,
+    -0.6116,
+    -1.2468
+   ],
+   "bbox_max": [
+    -2.4675,
+    -0.5476,
+    -1.2133
+   ]
+  },
+  {
+   "id": "Data_Wall0_2",
+   "node": "Data_Wall0_2",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.7837,
+    -0.6116,
+    -1.5484
+   ],
+   "bbox_max": [
+    -1.7157,
+    -0.5476,
+    -1.5149
+   ]
+  },
+  {
+   "id": "Data_Wall0_3",
+   "node": "Data_Wall0_3",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1317,
+    -0.6116,
+    -2.2112
+   ],
+   "bbox_max": [
+    -0.0637,
+    -0.5476,
+    -2.1777
+   ]
+  },
+  {
+   "id": "Data_Wall1_0",
+   "node": "Data_Wall1_0",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1692,
+    -0.6116,
+    1.5212
+   ],
+   "bbox_max": [
+    -1.0988,
+    -0.5476,
+    1.5358
+   ]
+  },
+  {
+   "id": "Data_Wall1_1",
+   "node": "Data_Wall1_1",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.0161,
+    -0.6116,
+    1.594
+   ],
+   "bbox_max": [
+    -1.9457,
+    -0.5476,
+    1.6086
+   ]
+  },
+  {
+   "id": "Data_Wall1_2",
+   "node": "Data_Wall1_2",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0523,
+    -0.6116,
+    1.683
+   ],
+   "bbox_max": [
+    -2.9819,
+    -0.5476,
+    1.6976
+   ]
+  },
+  {
+   "id": "Data_Wall2_0",
+   "node": "Data_Wall2_0",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6193,
+    -0.6116,
+    -1.5375
+   ],
+   "bbox_max": [
+    0.6338,
+    -0.5476,
+    -1.467
+   ]
+  },
+  {
+   "id": "Data_Wall2_1",
+   "node": "Data_Wall2_1",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7246,
+    -0.6116,
+    -0.312
+   ],
+   "bbox_max": [
+    0.7392,
+    -0.5476,
+    -0.2416
+   ]
+  },
+  {
+   "id": "Data_Wall2_2",
+   "node": "Data_Wall2_2",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8042,
+    -0.6116,
+    0.6146
+   ],
+   "bbox_max": [
+    0.8188,
+    -0.5476,
+    0.685
+   ]
+  },
+  {
+   "id": "Data_Wall5_0",
+   "node": "Data_Wall5_0",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.8442,
+    -0.6116,
+    0.3647
+   ],
+   "bbox_max": [
+    -3.8297,
+    -0.5476,
+    0.4351
+   ]
+  },
+  {
+   "id": "DeskAdapter0",
+   "node": "DeskAdapter0",
+   "category": "adapter",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.4318,
+    -0.849,
+    1.1201
+   ],
+   "bbox_max": [
+    -2.3777,
+    -0.839,
+    1.1663
+   ]
+  },
+  {
+   "id": "DeskCable0",
+   "node": "DeskCable0",
+   "category": "cable",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Monitor0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7431,
+    -0.8449,
+    1.2797
+   ],
+   "bbox_max": [
+    -2.2228,
+    -0.7264,
+    1.4399
+   ]
+  },
+  {
+   "id": "DeskPhone0",
+   "node": "DeskPhone0",
+   "category": "phone",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9435,
+    -0.849,
+    0.739
+   ],
+   "bbox_max": [
+    -1.838,
+    -0.841,
+    0.8971
+   ]
+  },
+  {
+   "id": "DeskPuck0",
+   "node": "DeskPuck0",
+   "category": "desk_accessory",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9855,
+    -0.849,
+    1.2777
+   ],
+   "bbox_max": [
+    -2.9195,
+    -0.803,
+    1.3437
+   ]
+  },
+  {
+   "id": "Door0",
+   "node": "Door0",
+   "category": "door",
+   "role": "opening",
+   "group": "Door0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3134,
+    -1.5946,
+    1.3709
+   ],
+   "bbox_max": [
+    0.4931,
+    0.4878,
+    1.5838
+   ]
+  },
+  {
+   "id": "DoorCoat0",
+   "node": "DoorCoat0",
+   "category": "coat",
+   "role": "fixture",
+   "group": "Door0",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Door0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0946,
+    -0.7326,
+    1.2615
+   ],
+   "bbox_max": [
+    0.3124,
+    0.1821,
+    1.4303
+   ]
+  },
+  {
+   "id": "DoorServiceConduit0",
+   "node": "DoorServiceConduit0",
+   "category": "conduit",
+   "role": "fixture",
+   "group": "DoorServiceConduit0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4619,
+    -0.5126,
+    1.4295
+   ],
+   "bbox_max": [
+    -0.2182,
+    0.9734,
+    1.52
+   ]
+  },
+  {
+   "id": "DrinkingGlass0",
+   "node": "DrinkingGlass0",
+   "category": "cup",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.8931,
+    -0.849,
+    1.0035
+   ],
+   "bbox_max": [
+    -1.8091,
+    -0.698,
+    1.0875
+   ]
+  },
+  {
+   "id": "Floor0",
+   "node": "Floor0",
+   "category": "floor",
+   "role": "structure",
+   "group": "Floor0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9822,
+    -1.5947,
+    -2.3286
+   ],
+   "bbox_max": [
+    0.904,
+    -1.5946,
+    1.7729
+   ]
+  },
+  {
+   "id": "FoldedCloth0",
+   "node": "FoldedCloth0",
+   "category": "textile",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.151,
+    -0.1896,
+    -1.4209
+   ],
+   "bbox_max": [
+    -1.9188,
+    -0.1561,
+    -1.211
+   ]
+  },
+  {
+   "id": "Footrest0",
+   "node": "Footrest0",
+   "category": "footrest",
+   "role": "furniture",
+   "group": "Footrest0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0014,
+    -1.5946,
+    0.9622
+   ],
+   "bbox_max": [
+    -2.5586,
+    -1.4846,
+    1.2778
+   ]
+  },
+  {
+   "id": "GreenBottle0",
+   "node": "GreenBottle0",
+   "category": "bottle",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5849,
+    -0.1896,
+    -1.1591
+   ],
+   "bbox_max": [
+    -2.5112,
+    0.1124,
+    -1.0803
+   ]
+  },
+  {
+   "id": "GreenShelfCup0",
+   "node": "GreenShelfCup0",
+   "category": "cup",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9266,
+    -0.1896,
+    -1.425
+   ],
+   "bbox_max": [
+    -1.8406,
+    -0.1506,
+    -1.339
+   ]
+  },
+  {
+   "id": "HeaterCable0",
+   "node": "HeaterCable0",
+   "category": "cable",
+   "role": "furniture",
+   "group": "PortableHeater0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "PortableHeater0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.8029,
+    -1.5895,
+    -0.2228
+   ],
+   "bbox_max": [
+    -3.277,
+    -0.7442,
+    0.7512
+   ]
+  },
+  {
+   "id": "HorseFigurine0",
+   "node": "HorseFigurine0",
+   "category": "ornament",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.2233,
+    -0.1896,
+    -0.875
+   ],
+   "bbox_max": [
+    -3.1193,
+    -0.0594,
+    -0.839
+   ]
+  },
+  {
+   "id": "Keyboard0",
+   "node": "Keyboard0",
+   "category": "keyboard",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0189,
+    -0.849,
+    0.9379
+   ],
+   "bbox_max": [
+    -2.5735,
+    -0.815,
+    1.1146
+   ]
+  },
+  {
+   "id": "Laptop0",
+   "node": "Laptop0",
+   "category": "laptop",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.251,
+    -0.849,
+    0.8496
+   ],
+   "bbox_max": [
+    -1.9207,
+    -0.6024,
+    1.1127
+   ]
+  },
+  {
+   "id": "Monitor0",
+   "node": "Monitor0",
+   "category": "monitor",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.1236,
+    -0.849,
+    1.1662
+   ],
+   "bbox_max": [
+    -2.3583,
+    -0.2336,
+    1.4093
+   ]
+  },
+  {
+   "id": "Mouse0",
+   "node": "Mouse0",
+   "category": "mouse",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.1851,
+    -0.849,
+    1.0171
+   ],
+   "bbox_max": [
+    -3.1231,
+    -0.801,
+    1.1171
+   ]
+  },
+  {
+   "id": "MouseMat0",
+   "node": "MouseMat0",
+   "category": "desk_accessory",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.2581,
+    -0.849,
+    1.1224
+   ],
+   "bbox_max": [
+    -3.0201,
+    -0.845,
+    1.3604
+   ]
+  },
+  {
+   "id": "MouseMatLead0",
+   "node": "MouseMatLead0",
+   "category": "cable",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "MouseMat0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.2111,
+    -0.8449,
+    1.1767
+   ],
+   "bbox_max": [
+    -3.0517,
+    -0.8421,
+    1.335
+   ]
+  },
+  {
+   "id": "Noticeboard0",
+   "node": "Noticeboard0",
+   "category": "board",
+   "role": "furniture",
+   "group": "Noticeboard0",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7962,
+    -0.5016,
+    0.2565
+   ],
+   "bbox_max": [
+    0.8746,
+    0.4224,
+    0.8694
+   ]
+  },
+  {
+   "id": "Pedestal0",
+   "node": "Pedestal0",
+   "category": "cabinet",
+   "role": "furniture",
+   "group": "Pedestal0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -1.6339,
+    -1.5946,
+    1.0852
+   ],
+   "bbox_max": [
+    -1.1661,
+    -1.0146,
+    1.5976
+   ]
+  },
+  {
+   "id": "PedestalNotebook0",
+   "node": "PedestalNotebook0",
+   "category": "notebook",
+   "role": "furniture",
+   "group": "Pedestal0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Pedestal0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4619,
+    -1.0146,
+    1.0854
+   ],
+   "bbox_max": [
+    -1.2781,
+    -0.9966,
+    1.2146
+   ]
+  },
+  {
+   "id": "PortableHeater0",
+   "node": "PortableHeater0",
+   "category": "heater",
+   "role": "furniture",
+   "group": "PortableHeater0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.765,
+    -1.5946,
+    0.725
+   ],
+   "bbox_max": [
+    -3.375,
+    -0.9746,
+    1.136
+   ]
+  },
+  {
+   "id": "Radiator0",
+   "node": "Radiator0",
+   "category": "radiator",
+   "role": "fixture",
+   "group": "Radiator0",
+   "mount": "wall",
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9541,
+    -1.5301,
+    -0.6107
+   ],
+   "bbox_max": [
+    -3.6603,
+    -0.8381,
+    1.4137
+   ]
+  },
+  {
+   "id": "Remote0",
+   "node": "Remote0",
+   "category": "remote",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.1486,
+    -0.849,
+    0.7398
+   ],
+   "bbox_max": [
+    -2.0218,
+    -0.829,
+    0.8092
+   ]
+  },
+  {
+   "id": "ShelfBlackTray",
+   "node": "ShelfBlackTray.001",
+   "category": "container",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Shelf_Desk_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2415,
+    -0.1796,
+    1.4021
+   ],
+   "bbox_max": [
+    -1.8847,
+    -0.1126,
+    1.6405
+   ]
+  },
+  {
+   "id": "ShelfCardboard0",
+   "node": "ShelfCardboard0",
+   "category": "package",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": "Shelf_Meeting_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5929,
+    -0.1596,
+    -0.4176
+   ],
+   "bbox_max": [
+    0.7575,
+    -0.1101,
+    -0.1113
+   ]
+  },
+  {
+   "id": "ShelfGreenBox",
+   "node": "ShelfGreenBox.001",
+   "category": "container",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Shelf_Desk_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.8096,
+    -0.1796,
+    1.412
+   ],
+   "bbox_max": [
+    -1.536,
+    -0.1146,
+    1.6037
+   ]
+  },
+  {
+   "id": "ShelfMarker0",
+   "node": "ShelfMarker0",
+   "category": "pen",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.381,
+    -0.1896,
+    -1.1662
+   ],
+   "bbox_max": [
+    -2.2537,
+    -0.1716,
+    -1.1011
+   ]
+  },
+  {
+   "id": "ShelfMug0",
+   "node": "ShelfMug0",
+   "category": "cup",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Shelf_Desk_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2437,
+    -0.1796,
+    1.4158
+   ],
+   "bbox_max": [
+    -1.1457,
+    -0.0786,
+    1.5138
+   ]
+  },
+  {
+   "id": "ShelfPacket0",
+   "node": "ShelfPacket0",
+   "category": "packet",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "ShelfPapers0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6626,
+    -0.1709,
+    1.5981
+   ],
+   "bbox_max": [
+    -2.5093,
+    0.0291,
+    1.6558
+   ]
+  },
+  {
+   "id": "ShelfPapers0",
+   "node": "ShelfPapers0",
+   "category": "paper_stack",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Shelf_Desk_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7253,
+    -0.1796,
+    1.4465
+   ],
+   "bbox_max": [
+    -2.4814,
+    -0.1709,
+    1.695
+   ]
+  },
+  {
+   "id": "ShelfPhoto0",
+   "node": "ShelfPhoto0",
+   "category": "picture_frame",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.003,
+    -0.1896,
+    -1.0932
+   ],
+   "bbox_max": [
+    -2.84,
+    0.0504,
+    -1.0169
+   ]
+  },
+  {
+   "id": "ShelfPhoto1",
+   "node": "ShelfPhoto1",
+   "category": "picture_frame",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0715,
+    -0.1896,
+    -0.9
+   ],
+   "bbox_max": [
+    -2.9457,
+    -0.0896,
+    -0.8386
+   ]
+  },
+  {
+   "id": "ShelfPhoto2",
+   "node": "ShelfPhoto2",
+   "category": "picture_frame",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.872,
+    -0.1896,
+    -0.9688
+   ],
+   "bbox_max": [
+    -2.774,
+    -0.0696,
+    -0.9186
+   ]
+  },
+  {
+   "id": "ShelfPhoto3",
+   "node": "ShelfPhoto3",
+   "category": "picture_frame",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": "Shelf_Photo_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7142,
+    -0.1896,
+    -1.0321
+   ],
+   "bbox_max": [
+    -2.6162,
+    -0.0796,
+    -0.9819
+   ]
+  },
+  {
+   "id": "ShelfStandards_Desk",
+   "node": "ShelfStandards_Desk",
+   "category": "shelf_brackets",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7226,
+    -0.5166,
+    1.5487
+   ],
+   "bbox_max": [
+    -0.953,
+    0.4954,
+    1.7144
+   ]
+  },
+  {
+   "id": "ShelfStandards_Meeting",
+   "node": "ShelfStandards_Meeting",
+   "category": "shelf_brackets",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6519,
+    -0.5166,
+    -1.6235
+   ],
+   "bbox_max": [
+    0.7971,
+    0.4954,
+    -0.0931
+   ]
+  },
+  {
+   "id": "ShelfStandards_Photo",
+   "node": "ShelfStandards_Photo",
+   "category": "shelf_brackets",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.4084,
+    -0.5166,
+    -1.5315
+   ],
+   "bbox_max": [
+    -1.8768,
+    0.4954,
+    -0.9069
+   ]
+  },
+  {
+   "id": "Shelf_Desk_0",
+   "node": "Shelf_Desk_0",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Desk",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -2.8418,
+    -0.3066,
+    1.2841
+   ],
+   "bbox_max": [
+    -0.8572,
+    -0.1796,
+    1.7068
+   ]
+  },
+  {
+   "id": "Shelf_Desk_1",
+   "node": "Shelf_Desk_1",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Desk",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -2.8418,
+    0.0934,
+    1.2841
+   ],
+   "bbox_max": [
+    -0.8572,
+    0.2204,
+    1.7068
+   ]
+  },
+  {
+   "id": "Shelf_Meeting_0",
+   "node": "Shelf_Meeting_0",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Meeting",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    0.3872,
+    -0.2866,
+    -1.7193
+   ],
+   "bbox_max": [
+    0.7895,
+    -0.1596,
+    0.0262
+   ]
+  },
+  {
+   "id": "Shelf_Meeting_1",
+   "node": "Shelf_Meeting_1",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Meeting",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Meeting",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    0.3872,
+    0.1134,
+    -1.7193
+   ],
+   "bbox_max": [
+    0.7895,
+    0.2404,
+    0.0262
+   ]
+  },
+  {
+   "id": "Shelf_Photo_0",
+   "node": "Shelf_Photo_0",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Photo",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -3.4929,
+    -0.3166,
+    -1.553
+   ],
+   "bbox_max": [
+    -1.6903,
+    -0.1896,
+    -0.6312
+   ]
+  },
+  {
+   "id": "Shelf_Photo_1",
+   "node": "Shelf_Photo_1",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "ShelfStandards_Photo",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "ShelfStandards_Photo",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -3.4929,
+    0.0834,
+    -1.553
+   ],
+   "bbox_max": [
+    -1.6903,
+    0.2104,
+    -0.6312
+   ]
+  },
+  {
+   "id": "Skirting_Wall0",
+   "node": "Skirting_Wall0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9809,
+    -1.5946,
+    -2.272
+   ],
+   "bbox_max": [
+    -0.0347,
+    -1.4846,
+    -0.6793
+   ]
+  },
+  {
+   "id": "Skirting_Wall1",
+   "node": "Skirting_Wall1",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall1",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3777,
+    -1.5946,
+    1.4155
+   ],
+   "bbox_max": [
+    0.5876,
+    -1.4846,
+    1.7718
+   ]
+  },
+  {
+   "id": "Skirting_Wall2",
+   "node": "Skirting_Wall2",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall2",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5906,
+    -1.5946,
+    -2.3272
+   ],
+   "bbox_max": [
+    0.9029,
+    -1.4846,
+    1.1255
+   ]
+  },
+  {
+   "id": "Skirting_Wall3",
+   "node": "Skirting_Wall3",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall3",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5461,
+    -1.5946,
+    1.1103
+   ],
+   "bbox_max": [
+    0.9026,
+    -1.4846,
+    1.1549
+   ]
+  },
+  {
+   "id": "Skirting_Wall4",
+   "node": "Skirting_Wall4",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall4",
+   "mount": "wall",
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": "Wall4",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5459,
+    -1.5946,
+    1.1397
+   ],
+   "bbox_max": [
+    0.5879,
+    -1.4846,
+    1.4307
+   ]
+  },
+  {
+   "id": "Skirting_Wall5",
+   "node": "Skirting_Wall5",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall5",
+   "mount": "wall",
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9811,
+    -1.5946,
+    -0.6899
+   ],
+   "bbox_max": [
+    -3.7702,
+    -1.4846,
+    1.5835
+   ]
+  },
+  {
+   "id": "Skirting_Wall6",
+   "node": "Skirting_Wall6",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall6",
+   "mount": "wall",
+   "wall": "Wall6",
+   "rests_on": null,
+   "attached_to": "Wall6",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0381,
+    -1.5946,
+    -2.3275
+   ],
+   "bbox_max": [
+    0.6058,
+    -1.4846,
+    -2.2554
+   ]
+  },
+  {
+   "id": "Skirting_Wall7",
+   "node": "Skirting_Wall7",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall7",
+   "mount": "wall",
+   "wall": "Wall7",
+   "rests_on": null,
+   "attached_to": "Wall7",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.7854,
+    -1.5946,
+    1.5321
+   ],
+   "bbox_max": [
+    -3.3818,
+    -1.4846,
+    1.5838
+   ]
+  },
+  {
+   "id": "Skirting_Wall8",
+   "node": "Skirting_Wall8",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall8",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": "Wall8",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.397,
+    -1.5946,
+    1.5323
+   ],
+   "bbox_max": [
+    -3.3625,
+    -1.4846,
+    1.7715
+   ]
+  },
+  {
+   "id": "SmokeDetector0",
+   "node": "SmokeDetector0",
+   "category": "detector",
+   "role": "fixture",
+   "group": "SmokeDetector0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.146,
+    1.0179,
+    0.464
+   ],
+   "bbox_max": [
+    -0.034,
+    1.0754,
+    0.576
+   ]
+  },
+  {
+   "id": "Socket_Wall0_00",
+   "node": "Socket_Wall0_00",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.8635,
+    -0.7706,
+    -0.7407
+   ],
+   "bbox_max": [
+    -3.7284,
+    -0.6986,
+    -0.6795
+   ]
+  },
+  {
+   "id": "Socket_Wall0_01",
+   "node": "Socket_Wall0_01",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.6872,
+    -0.7706,
+    -0.8115
+   ],
+   "bbox_max": [
+    -3.5521,
+    -0.6986,
+    -0.7503
+   ]
+  },
+  {
+   "id": "Socket_Wall0_02",
+   "node": "Socket_Wall0_02",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.5016,
+    -0.7706,
+    -0.886
+   ],
+   "bbox_max": [
+    -3.3664,
+    -0.6986,
+    -0.8247
+   ]
+  },
+  {
+   "id": "Socket_Wall0_03",
+   "node": "Socket_Wall0_03",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0375,
+    -0.7706,
+    -1.0721
+   ],
+   "bbox_max": [
+    -2.9024,
+    -0.6986,
+    -1.0109
+   ]
+  },
+  {
+   "id": "Socket_Wall0_04",
+   "node": "Socket_Wall0_04",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6292,
+    -0.7706,
+    -1.236
+   ],
+   "bbox_max": [
+    -2.494,
+    -0.6986,
+    -1.1747
+   ]
+  },
+  {
+   "id": "Socket_Wall0_05",
+   "node": "Socket_Wall0_05",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.4528,
+    -0.7706,
+    -1.3067
+   ],
+   "bbox_max": [
+    -2.3177,
+    -0.6986,
+    -1.2455
+   ]
+  },
+  {
+   "id": "Socket_Wall0_06",
+   "node": "Socket_Wall0_06",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.063,
+    -0.7706,
+    -1.4631
+   ],
+   "bbox_max": [
+    -1.9279,
+    -0.6986,
+    -1.4019
+   ]
+  },
+  {
+   "id": "Socket_Wall0_07",
+   "node": "Socket_Wall0_07",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.8774,
+    -0.7706,
+    -1.5376
+   ],
+   "bbox_max": [
+    -1.7423,
+    -0.6986,
+    -1.4764
+   ]
+  },
+  {
+   "id": "Socket_Wall0_08",
+   "node": "Socket_Wall0_08",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4412,
+    -0.7706,
+    -1.7126
+   ],
+   "bbox_max": [
+    -1.3061,
+    -0.6986,
+    -1.6514
+   ]
+  },
+  {
+   "id": "Socket_Wall0_09",
+   "node": "Socket_Wall0_09",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4018,
+    -0.7706,
+    -2.1296
+   ],
+   "bbox_max": [
+    -0.2666,
+    -0.6986,
+    -2.0684
+   ]
+  },
+  {
+   "id": "Socket_Wall0_10",
+   "node": "Socket_Wall0_10",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.2254,
+    -0.7706,
+    -2.2004
+   ],
+   "bbox_max": [
+    -0.0903,
+    -0.6986,
+    -2.1391
+   ]
+  },
+  {
+   "id": "Socket_Wall1_00",
+   "node": "Socket_Wall1_00",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9511,
+    -0.7706,
+    1.4959
+   ],
+   "bbox_max": [
+    -0.8089,
+    -0.6986,
+    1.517
+   ]
+  },
+  {
+   "id": "Socket_Wall1_01",
+   "node": "Socket_Wall1_01",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1404,
+    -0.7706,
+    1.5122
+   ],
+   "bbox_max": [
+    -0.9982,
+    -0.6986,
+    1.5333
+   ]
+  },
+  {
+   "id": "Socket_Wall1_02",
+   "node": "Socket_Wall1_02",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.3397,
+    -0.7706,
+    1.5293
+   ],
+   "bbox_max": [
+    -1.1975,
+    -0.6986,
+    1.5504
+   ]
+  },
+  {
+   "id": "Socket_Wall1_03",
+   "node": "Socket_Wall1_03",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.798,
+    -0.7706,
+    1.5687
+   ],
+   "bbox_max": [
+    -1.6558,
+    -0.6986,
+    1.5898
+   ]
+  },
+  {
+   "id": "Socket_Wall1_04",
+   "node": "Socket_Wall1_04",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9873,
+    -0.7706,
+    1.5849
+   ],
+   "bbox_max": [
+    -1.8451,
+    -0.6986,
+    1.6061
+   ]
+  },
+  {
+   "id": "Socket_Wall1_05",
+   "node": "Socket_Wall1_05",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.1866,
+    -0.7706,
+    1.6021
+   ],
+   "bbox_max": [
+    -2.0443,
+    -0.6986,
+    1.6232
+   ]
+  },
+  {
+   "id": "Socket_Wall1_06",
+   "node": "Socket_Wall1_06",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.8342,
+    -0.7706,
+    1.6577
+   ],
+   "bbox_max": [
+    -2.6919,
+    -0.6986,
+    1.6788
+   ]
+  },
+  {
+   "id": "Socket_Wall1_07",
+   "node": "Socket_Wall1_07",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0235,
+    -0.7706,
+    1.674
+   ],
+   "bbox_max": [
+    -2.8812,
+    -0.6986,
+    1.6951
+   ]
+  },
+  {
+   "id": "Socket_Wall1_08",
+   "node": "Socket_Wall1_08",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.2228,
+    -0.7706,
+    1.6911
+   ],
+   "bbox_max": [
+    -3.0805,
+    -0.6986,
+    1.7122
+   ]
+  },
+  {
+   "id": "Socket_Wall2_00",
+   "node": "Socket_Wall2_00",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5939,
+    -0.7706,
+    -1.8274
+   ],
+   "bbox_max": [
+    0.6151,
+    -0.6986,
+    -1.6852
+   ]
+  },
+  {
+   "id": "Socket_Wall2_01",
+   "node": "Socket_Wall2_01",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6102,
+    -0.7706,
+    -1.6381
+   ],
+   "bbox_max": [
+    0.6313,
+    -0.6986,
+    -1.4959
+   ]
+  },
+  {
+   "id": "Socket_Wall2_02",
+   "node": "Socket_Wall2_02",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6547,
+    -0.7706,
+    -1.12
+   ],
+   "bbox_max": [
+    0.6759,
+    -0.6986,
+    -0.9778
+   ]
+  },
+  {
+   "id": "Socket_Wall2_03",
+   "node": "Socket_Wall2_03",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.671,
+    -0.7706,
+    -0.9307
+   ],
+   "bbox_max": [
+    0.6921,
+    -0.6986,
+    -0.7885
+   ]
+  },
+  {
+   "id": "Socket_Wall2_04",
+   "node": "Socket_Wall2_04",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7155,
+    -0.7706,
+    -0.4126
+   ],
+   "bbox_max": [
+    0.7367,
+    -0.6986,
+    -0.2704
+   ]
+  },
+  {
+   "id": "Socket_Wall2_05",
+   "node": "Socket_Wall2_05",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7318,
+    -0.7706,
+    -0.2233
+   ],
+   "bbox_max": [
+    0.7529,
+    -0.6986,
+    -0.0811
+   ]
+  },
+  {
+   "id": "Socket_Wall2_06",
+   "node": "Socket_Wall2_06",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7789,
+    -0.7706,
+    0.3247
+   ],
+   "bbox_max": [
+    0.8,
+    -0.6986,
+    0.4669
+   ]
+  },
+  {
+   "id": "Socket_Wall2_07",
+   "node": "Socket_Wall2_07",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7952,
+    -0.7706,
+    0.514
+   ],
+   "bbox_max": [
+    0.8163,
+    -0.6986,
+    0.6562
+   ]
+  },
+  {
+   "id": "Socket_Wall5_00",
+   "node": "Socket_Wall5_00",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.7852,
+    -0.7706,
+    1.0511
+   ],
+   "bbox_max": [
+    -3.7641,
+    -0.6986,
+    1.1933
+   ]
+  },
+  {
+   "id": "Socket_Wall5_01",
+   "node": "Socket_Wall5_01",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.8418,
+    -0.7706,
+    0.3935
+   ],
+   "bbox_max": [
+    -3.8206,
+    -0.6986,
+    0.5357
+   ]
+  },
+  {
+   "id": "Socket_Wall5_02",
+   "node": "Socket_Wall5_02",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.858,
+    -0.7706,
+    0.2042
+   ],
+   "bbox_max": [
+    -3.8369,
+    -0.6986,
+    0.3464
+   ]
+  },
+  {
+   "id": "Socket_Wall5_03",
+   "node": "Socket_Wall5_03",
+   "category": "socket",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Trunking_Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9137,
+    -0.7706,
+    -0.4434
+   ],
+   "bbox_max": [
+    -3.8926,
+    -0.6986,
+    -0.3012
+   ]
+  },
+  {
+   "id": "Table0",
+   "node": "Table0",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -1.3455,
+    -1.5946,
+    -1.2878
+   ],
+   "bbox_max": [
+    -0.0175,
+    -0.8124,
+    0.0402
+   ]
+  },
+  {
+   "id": "Table1",
+   "node": "Table1",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -3.3958,
+    -1.5946,
+    0.6439
+   ],
+   "bbox_max": [
+    -1.6892,
+    -0.849,
+    1.7671
+   ]
+  },
+  {
+   "id": "Thermos0",
+   "node": "Thermos0",
+   "category": "cup",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.8741,
+    -0.849,
+    1.2883
+   ],
+   "bbox_max": [
+    -1.8001,
+    -0.568,
+    1.3623
+   ]
+  },
+  {
+   "id": "TissueBox0",
+   "node": "TissueBox0.001",
+   "category": "container",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Shelf_Desk_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.4488,
+    -0.1796,
+    1.5165
+   ],
+   "bbox_max": [
+    -2.2882,
+    -0.1126,
+    1.6589
+   ]
+  },
+  {
+   "id": "Tissues0",
+   "node": "Tissues0",
+   "category": "paper",
+   "role": "furniture",
+   "group": "ShelfStandards_Desk",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "TissueBox0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.4002,
+    -0.1126,
+    1.5929
+   ],
+   "bbox_max": [
+    -2.3333,
+    -0.0326,
+    1.6234
+   ]
+  },
+  {
+   "id": "TravelCup0",
+   "node": "TravelCup0",
+   "category": "cup",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5339,
+    -0.849,
+    1.0751
+   ],
+   "bbox_max": [
+    -2.4619,
+    -0.703,
+    1.1471
+   ]
+  },
+  {
+   "id": "Trunking_Wall0",
+   "node": "Trunking_Wall0",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9809,
+    -0.7771,
+    -2.272
+   ],
+   "bbox_max": [
+    -0.0281,
+    -0.5321,
+    -0.661
+   ]
+  },
+  {
+   "id": "Trunking_Wall1",
+   "node": "Trunking_Wall1",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall1",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3777,
+    -0.7771,
+    1.39
+   ],
+   "bbox_max": [
+    0.5876,
+    -0.5321,
+    1.7718
+   ]
+  },
+  {
+   "id": "Trunking_Wall2",
+   "node": "Trunking_Wall2",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall2",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5651,
+    -0.7771,
+    -2.3272
+   ],
+   "bbox_max": [
+    0.9029,
+    -0.5321,
+    1.1255
+   ]
+  },
+  {
+   "id": "Trunking_Wall3",
+   "node": "Trunking_Wall3",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall3",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5158,
+    -0.7771,
+    1.0848
+   ],
+   "bbox_max": [
+    0.9026,
+    -0.5321,
+    1.1549
+   ]
+  },
+  {
+   "id": "Trunking_Wall4",
+   "node": "Trunking_Wall4",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall4",
+   "mount": "wall",
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": "Wall4",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5156,
+    -0.7771,
+    1.1142
+   ],
+   "bbox_max": [
+    0.5879,
+    -0.5321,
+    1.4307
+   ]
+  },
+  {
+   "id": "Trunking_Wall5",
+   "node": "Trunking_Wall5",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall5",
+   "mount": "wall",
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9811,
+    -0.7771,
+    -0.6899
+   ],
+   "bbox_max": [
+    -3.7447,
+    -0.5321,
+    1.5835
+   ]
+  },
+  {
+   "id": "Trunking_Wall6",
+   "node": "Trunking_Wall6",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall6",
+   "mount": "wall",
+   "wall": "Wall6",
+   "rests_on": null,
+   "attached_to": "Wall6",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0381,
+    -0.7771,
+    -2.3275
+   ],
+   "bbox_max": [
+    0.6058,
+    -0.5321,
+    -2.2279
+   ]
+  },
+  {
+   "id": "Trunking_Wall7",
+   "node": "Trunking_Wall7",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall7",
+   "mount": "wall",
+   "wall": "Wall7",
+   "rests_on": null,
+   "attached_to": "Wall7",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.7854,
+    -0.7771,
+    1.5018
+   ],
+   "bbox_max": [
+    -3.3563,
+    -0.5321,
+    1.5838
+   ]
+  },
+  {
+   "id": "Trunking_Wall8",
+   "node": "Trunking_Wall8",
+   "category": "electrical_trunking",
+   "role": "fixture",
+   "group": "Trunking_Wall8",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": "Wall8",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.397,
+    -0.7771,
+    1.502
+   ],
+   "bbox_max": [
+    -3.337,
+    -0.5321,
+    1.7715
+   ]
+  },
+  {
+   "id": "Wall0",
+   "node": "Wall0",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0192,
+    -1.5946,
+    -2.3654
+   ],
+   "bbox_max": [
+    -0.0384,
+    1.0754,
+    -0.6904
+   ]
+  },
+  {
+   "id": "Wall1",
+   "node": "Wall1",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3789,
+    -1.5946,
+    1.4314
+   ],
+   "bbox_max": [
+    0.5975,
+    1.0754,
+    1.872
+   ]
+  },
+  {
+   "id": "Wall1CeilingBulkhead0",
+   "node": "Wall1CeilingBulkhead0",
+   "category": "boxed_services",
+   "role": "structure",
+   "group": "Wall1CeilingBulkhead0",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3777,
+    0.9754,
+    1.3582
+   ],
+   "bbox_max": [
+    0.5876,
+    1.0754,
+    1.7718
+   ]
+  },
+  {
+   "id": "Wall2",
+   "node": "Wall2",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6065,
+    -1.5946,
+    -2.3371
+   ],
+   "bbox_max": [
+    1.0031,
+    1.0754,
+    1.1267
+   ]
+  },
+  {
+   "id": "Wall3",
+   "node": "Wall3",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall3",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5653,
+    -1.5946,
+    1.1262
+   ],
+   "bbox_max": [
+    0.9125,
+    1.0754,
+    1.2549
+   ]
+  },
+  {
+   "id": "Wall4",
+   "node": "Wall4",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall4",
+   "mount": null,
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5648,
+    -1.5946,
+    1.1473
+   ],
+   "bbox_max": [
+    0.6881,
+    1.0754,
+    1.4319
+   ]
+  },
+  {
+   "id": "Wall5",
+   "node": "Wall5",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0813,
+    -1.5946,
+    -0.6909
+   ],
+   "bbox_max": [
+    -3.7861,
+    1.0754,
+    1.5934
+   ]
+  },
+  {
+   "id": "Wall6",
+   "node": "Wall6",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall6",
+   "mount": null,
+   "wall": "Wall6",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0471,
+    -1.5946,
+    -2.4277
+   ],
+   "bbox_max": [
+    0.607,
+    1.0754,
+    -2.2726
+   ]
+  },
+  {
+   "id": "Wall7",
+   "node": "Wall7",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall7",
+   "mount": null,
+   "wall": "Wall7",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.7866,
+    -1.5946,
+    1.551
+   ],
+   "bbox_max": [
+    -3.3894,
+    1.0754,
+    1.684
+   ]
+  },
+  {
+   "id": "Wall8",
+   "node": "Wall8",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall8",
+   "mount": null,
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.497,
+    -1.5946,
+    1.5515
+   ],
+   "bbox_max": [
+    -3.3784,
+    1.0754,
+    1.7814
+   ]
+  },
+  {
+   "id": "Whiteboard0",
+   "node": "Whiteboard0",
+   "category": "board",
+   "role": "furniture",
+   "group": "Whiteboard0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4897,
+    -0.5316,
+    -2.1338
+   ],
+   "bbox_max": [
+    -0.3485,
+    0.4024,
+    -1.6574
+   ]
+  },
+  {
+   "id": "Window0",
+   "node": "Window0",
+   "category": "window",
+   "role": "opening",
+   "group": "Window0",
+   "mount": "wall",
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0296,
+    -0.5502,
+    -0.3789
+   ],
+   "bbox_max": [
+    -3.7138,
+    1.108,
+    1.5692
+   ]
+  },
+  {
+   "id": "WindowDaylightBackdrop0",
+   "node": "WindowDaylightBackdrop0",
+   "category": "environment",
+   "role": "fixture",
+   "group": "Window0",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Window0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.1342,
+    -0.5502,
+    -0.3571
+   ],
+   "bbox_max": [
+    -3.9678,
+    1.108,
+    1.5782
+   ]
+  },
+  {
+   "id": "WristRest0",
+   "node": "WristRest0",
+   "category": "desk_accessory",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0249,
+    -0.849,
+    0.8687
+   ],
+   "bbox_max": [
+    -2.5859,
+    -0.827,
+    0.9707
+   ]
+  }
+ ]
+}

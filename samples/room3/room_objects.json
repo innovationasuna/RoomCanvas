@@ -1,0 +1,2517 @@
+{
+ "format": "roomcanvas-room-objects",
+ "version": 1,
+ "scene": "hausen_room3",
+ "frame": {
+  "up": "Y",
+  "units": "meters",
+  "from": "room_layout.json Z-up via (x, y, z) -> (x, z, -y)"
+ },
+ "floor": "Floor0",
+ "walls": [
+  "Wall0",
+  "Wall1",
+  "Wall2",
+  "Wall3"
+ ],
+ "ceiling": [
+  "Ceiling0"
+ ],
+ "openings": {
+  "Wall0": [
+   "Door0"
+  ],
+  "Wall1": [
+   "Window0"
+  ]
+ },
+ "groups": [
+  {
+   "id": "Bed0",
+   "category": "bed",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Bed0",
+    "FittedSheet",
+    "FloralPillow",
+    "FoldedQuilt",
+    "PinkFoldedCloth"
+   ],
+   "support_parts": [
+    "White_Cotton_Mattress"
+   ]
+  },
+  {
+   "id": "BladelessFan",
+   "category": "fan",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "BladelessFan"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "BlueShoppingBag",
+   "category": "bag",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "BlueShoppingBag"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair0",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair0"
+   ],
+   "support_parts": [],
+   "name": "琴凳"
+  },
+  {
+   "id": "HeadboardLedge",
+   "category": "shelf",
+   "mount": "wall",
+   "wall": "Wall3",
+   "members": [
+    "HeadboardLedge",
+    "PinkHeadboardBag",
+    "ToiletryBottle"
+   ],
+   "support_parts": [
+    "HeadboardLedge"
+   ],
+   "name": "床头搁板"
+  },
+  {
+   "id": "HorsePanorama",
+   "category": "picture",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "HorsePanorama"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "MobileWhiteboard",
+   "category": "whiteboard",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "BoardMagnets",
+    "MobileWhiteboard",
+    "WhiteboardMarkers"
+   ],
+   "support_parts": [
+    "Whiteboard_marker_tray"
+   ]
+  },
+  {
+   "id": "MusicStand",
+   "category": "stand",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "MusicStand"
+   ],
+   "support_parts": [],
+   "name": "谱架"
+  },
+  {
+   "id": "NarrowBookcase",
+   "category": "bookcase",
+   "mount": "wall",
+   "wall": "Wall3",
+   "members": [
+    "NarrowBookcase",
+    "ShelfBook1_0",
+    "ShelfBook1_1",
+    "ShelfBook1_2",
+    "ShelfBook1_3",
+    "ShelfBook1_4",
+    "ShelfBook2_0",
+    "ShelfBook2_1",
+    "ShelfBook2_2",
+    "ShelfBook2_3",
+    "ShelfBook2_4",
+    "ShelfBook3_0",
+    "ShelfBook3_1",
+    "ShelfBook3_2",
+    "ShelfBook3_3",
+    "ShelfBook3_4",
+    "ShelfCamera"
+   ],
+   "support_parts": [
+    "Bookcase_shelf_1",
+    "Bookcase_shelf_2",
+    "Bookcase_shelf_3",
+    "Bookcase_shelf_4"
+   ]
+  },
+  {
+   "id": "Slipper0",
+   "category": "shoe",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Slipper0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Slipper1",
+   "category": "shoe",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Slipper1"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "StackedBook00",
+   "category": "book",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "StackLooseScore",
+    "StackedBook00",
+    "StackedBook01",
+    "StackedBook02",
+    "StackedBook03",
+    "StackedBook04",
+    "StackedBook05",
+    "StackedBook06",
+    "StackedBook07",
+    "StackedBook08",
+    "StackedBook09",
+    "StackedBook10",
+    "StackedBook11",
+    "StackedBook12",
+    "StackedBook13",
+    "StackedBook14",
+    "StackedBook15",
+    "StackedBook16",
+    "StackedBook17",
+    "StackedBook18",
+    "StackedBook19",
+    "StackedBook20",
+    "StackedBook21",
+    "StackedBook22",
+    "StackedBook23"
+   ],
+   "support_parts": [],
+   "name": "一摞书"
+  },
+  {
+   "id": "Storage0",
+   "category": "storage",
+   "mount": "wall",
+   "wall": "Wall3",
+   "members": [
+    "Storage0"
+   ],
+   "support_parts": [
+    "Storage0"
+   ],
+   "name": "吊柜"
+  },
+  {
+   "id": "Storage1",
+   "category": "storage",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "RightBedsideSocket",
+    "Storage1"
+   ],
+   "support_parts": [
+    "Storage1"
+   ],
+   "name": "衣柜 1"
+  },
+  {
+   "id": "Storage2",
+   "category": "storage",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "LeftBedsideSocket",
+    "LeftCabinetInfill",
+    "Storage2"
+   ],
+   "support_parts": [
+    "Storage2"
+   ],
+   "name": "衣柜 2"
+  },
+  {
+   "id": "Table0",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "PianoGreenBook",
+    "PianoLooseScore0",
+    "PianoLooseScore1",
+    "PianoLooseScore2",
+    "PianoLooseScore3",
+    "PianoMusicScore",
+    "Table0"
+   ],
+   "support_parts": [
+    "Table0_Static"
+   ],
+   "name": "钢琴"
+  },
+  {
+   "id": "Wastebasket",
+   "category": "bin",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Wastebasket"
+   ],
+   "support_parts": []
+  }
+ ],
+ "objects": [
+  {
+   "id": "Bed0",
+   "node": "Bed0",
+   "category": "bed",
+   "role": "furniture",
+   "group": "Bed0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.5246,
+    -1.5003,
+    -2.1925
+   ],
+   "bbox_max": [
+    0.9174,
+    -0.3903,
+    0.4381
+   ]
+  },
+  {
+   "id": "BladelessFan",
+   "node": "BladelessFan",
+   "category": "fan",
+   "role": "furniture",
+   "group": "BladelessFan",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.0671,
+    -1.5003,
+    0.4664
+   ],
+   "bbox_max": [
+    -1.8271,
+    -0.7703,
+    0.7064
+   ]
+  },
+  {
+   "id": "BlueShoppingBag",
+   "node": "BlueShoppingBag",
+   "category": "bag",
+   "role": "furniture",
+   "group": "BlueShoppingBag",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.9012,
+    -1.5003,
+    -0.8945
+   ],
+   "bbox_max": [
+    1.1648,
+    -1.1343,
+    -0.6779
+   ]
+  },
+  {
+   "id": "BoardMagnets",
+   "node": "BoardMagnets",
+   "category": "magnet",
+   "role": "furniture",
+   "group": "MobileWhiteboard",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "MobileWhiteboard",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1522,
+    -0.6363,
+    -0.2916
+   ],
+   "bbox_max": [
+    1.1981,
+    -0.6143,
+    -0.2268
+   ]
+  },
+  {
+   "id": "Ceiling0",
+   "node": "Ceiling0",
+   "category": "ceiling",
+   "role": "structure",
+   "group": "Ceiling0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5866,
+    1.1847,
+    -2.6154
+   ],
+   "bbox_max": [
+    1.8818,
+    1.2647,
+    2.0102
+   ]
+  },
+  {
+   "id": "Chair0",
+   "node": "Chair0",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1093,
+    -1.5003,
+    0.0602
+   ],
+   "bbox_max": [
+    -0.3218,
+    -0.9703,
+    0.7721
+   ]
+  },
+  {
+   "id": "Door0",
+   "node": "Door0",
+   "category": "door",
+   "role": "opening",
+   "group": "Door0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3193,
+    -1.5003,
+    0.706
+   ],
+   "bbox_max": [
+    0.8663,
+    0.9926,
+    1.4667
+   ]
+  },
+  {
+   "id": "DoorBulkhead",
+   "node": "DoorBulkhead",
+   "category": "bulkhead",
+   "role": "structure",
+   "group": "DoorBulkhead",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.2575,
+    0.8247,
+    -0.8046
+   ],
+   "bbox_max": [
+    1.6488,
+    1.1847,
+    2.0102
+   ]
+  },
+  {
+   "id": "DoorDrapeNarrow",
+   "node": "DoorDrapeNarrow",
+   "category": "curtain",
+   "role": "fixture",
+   "group": "DoorDrapeNarrow",
+   "mount": "ceiling",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "DoorBulkhead",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0075,
+    -1.4053,
+    1.647
+   ],
+   "bbox_max": [
+    0.2154,
+    0.8297,
+    1.9536
+   ]
+  },
+  {
+   "id": "DoorDrapeWide",
+   "node": "DoorDrapeWide",
+   "category": "curtain",
+   "role": "fixture",
+   "group": "DoorDrapeWide",
+   "mount": "ceiling",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "DoorBulkhead",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7256,
+    -1.4053,
+    -0.6106
+   ],
+   "bbox_max": [
+    1.6032,
+    0.8297,
+    0.7609
+   ]
+  },
+  {
+   "id": "DoorSwitches",
+   "node": "DoorSwitches",
+   "category": "socket",
+   "role": "fixture",
+   "group": "DoorSwitches",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0971,
+    -0.4613,
+    1.6466
+   ],
+   "bbox_max": [
+    0.2437,
+    -0.3793,
+    1.8714
+   ]
+  },
+  {
+   "id": "Downlight0",
+   "node": "Downlight0",
+   "category": "light",
+   "role": "fixture",
+   "group": "Downlight0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9223,
+    1.1687,
+    0.3421
+   ],
+   "bbox_max": [
+    -1.8543,
+    1.1847,
+    0.4101
+   ]
+  },
+  {
+   "id": "Downlight1",
+   "node": "Downlight1",
+   "category": "light",
+   "role": "fixture",
+   "group": "Downlight1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.383,
+    1.1687,
+    1.0653
+   ],
+   "bbox_max": [
+    -0.315,
+    1.1847,
+    1.1333
+   ]
+  },
+  {
+   "id": "Downlight2",
+   "node": "Downlight2",
+   "category": "light",
+   "role": "fixture",
+   "group": "Downlight2",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6273,
+    1.1687,
+    -1.5734
+   ],
+   "bbox_max": [
+    -0.5593,
+    1.1847,
+    -1.5054
+   ]
+  },
+  {
+   "id": "Downlight3",
+   "node": "Downlight3",
+   "category": "light",
+   "role": "fixture",
+   "group": "Downlight3",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7272,
+    1.1687,
+    -0.7408
+   ],
+   "bbox_max": [
+    0.7952,
+    1.1847,
+    -0.6728
+   ]
+  },
+  {
+   "id": "FanPowerLead",
+   "node": "FanPowerLead",
+   "category": "cable",
+   "role": "fixture",
+   "group": "PianoHighSocket",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "PianoHighSocket",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2853,
+    -1.3022,
+    0.5353
+   ],
+   "bbox_max": [
+    -1.98,
+    -0.5713,
+    0.6473
+   ]
+  },
+  {
+   "id": "FittedSheet",
+   "node": "FittedSheet",
+   "category": "textile",
+   "role": "furniture",
+   "group": "Bed0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Bed0",
+   "attached_to": null,
+   "support_part": "White_Cotton_Mattress",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4562,
+    -0.9468,
+    -2.0728
+   ],
+   "bbox_max": [
+    0.814,
+    -0.941,
+    0.3615
+   ]
+  },
+  {
+   "id": "Floor0",
+   "node": "Floor0",
+   "category": "floor",
+   "role": "structure",
+   "group": "Floor0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5866,
+    -1.5004,
+    -2.6153
+   ],
+   "bbox_max": [
+    1.8813,
+    -1.5003,
+    2.0099
+   ]
+  },
+  {
+   "id": "FloralPillow",
+   "node": "FloralPillow",
+   "category": "pillow",
+   "role": "furniture",
+   "group": "Bed0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "FittedSheet",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.225,
+    -0.9409,
+    -1.6722
+   ],
+   "bbox_max": [
+    0.3394,
+    -0.8021,
+    -1.1937
+   ]
+  },
+  {
+   "id": "FoldedQuilt",
+   "node": "FoldedQuilt",
+   "category": "duvet",
+   "role": "furniture",
+   "group": "Bed0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "FittedSheet",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0296,
+    -0.9426,
+    -1.2163
+   ],
+   "bbox_max": [
+    -0.2455,
+    -0.8831,
+    -0.344
+   ]
+  },
+  {
+   "id": "HeadboardLedge",
+   "node": "HeadboardLedge",
+   "category": "shelf",
+   "role": "furniture",
+   "group": "HeadboardLedge",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -0.3786,
+    -0.6303,
+    -2.3379
+   ],
+   "bbox_max": [
+    1.0163,
+    -0.3653,
+    -1.3791
+   ]
+  },
+  {
+   "id": "HorsePanorama",
+   "node": "HorsePanorama",
+   "category": "picture",
+   "role": "furniture",
+   "group": "HorsePanorama",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2458,
+    -0.0368,
+    0.5774
+   ],
+   "bbox_max": [
+    -0.1412,
+    0.8112,
+    1.8919
+   ]
+  },
+  {
+   "id": "LeftBedsideSocket",
+   "node": "LeftBedsideSocket",
+   "category": "socket",
+   "role": "furniture",
+   "group": "Storage2",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Storage2",
+   "support_part": "Storage2_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5445,
+    -0.6203,
+    -2.1547
+   ],
+   "bbox_max": [
+    -0.4479,
+    -0.5403,
+    -2.0079
+   ]
+  },
+  {
+   "id": "LeftCabinetInfill",
+   "node": "LeftCabinetInfill",
+   "category": "panel",
+   "role": "furniture",
+   "group": "Storage2",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Storage2",
+   "support_part": "Storage2_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9641,
+    -0.8393,
+    -2.1795
+   ],
+   "bbox_max": [
+    -0.5969,
+    0.7707,
+    -1.9442
+   ]
+  },
+  {
+   "id": "LinearVent",
+   "node": "LinearVent",
+   "category": "vent",
+   "role": "fixture",
+   "group": "LinearVent",
+   "mount": "ceiling",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "DoorBulkhead",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0642,
+    0.7967,
+    -0.6627
+   ],
+   "bbox_max": [
+    1.3051,
+    0.8867,
+    1.5411
+   ]
+  },
+  {
+   "id": "MobileWhiteboard",
+   "node": "MobileWhiteboard",
+   "category": "whiteboard",
+   "role": "furniture",
+   "group": "MobileWhiteboard",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5006,
+    -1.5003,
+    -0.7749
+   ],
+   "bbox_max": [
+    1.6284,
+    0.2375,
+    0.6545
+   ]
+  },
+  {
+   "id": "MusicStand",
+   "node": "MusicStand",
+   "category": "stand",
+   "role": "furniture",
+   "group": "MusicStand",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3168,
+    -1.501,
+    1.3323
+   ],
+   "bbox_max": [
+    0.0633,
+    -0.1753,
+    1.6191
+   ]
+  },
+  {
+   "id": "NarrowBookcase",
+   "node": "NarrowBookcase",
+   "category": "bookcase",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.25,
+    -1.5003,
+    -1.2449
+   ],
+   "bbox_max": [
+    1.8818,
+    0.8197,
+    -0.6043
+   ]
+  },
+  {
+   "id": "PianoGreenBook",
+   "node": "PianoGreenBook",
+   "category": "book",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "PianoLooseScore0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.764,
+    -0.1872,
+    0.6895
+   ],
+   "bbox_max": [
+    -1.5142,
+    -0.1632,
+    0.9325
+   ]
+  },
+  {
+   "id": "PianoHighSocket",
+   "node": "PianoHighSocket",
+   "category": "socket",
+   "role": "fixture",
+   "group": "PianoHighSocket",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.3174,
+    -0.6313,
+    0.5565
+   ],
+   "bbox_max": [
+    -2.1659,
+    -0.5493,
+    0.6581
+   ]
+  },
+  {
+   "id": "PianoLooseScore0",
+   "node": "PianoLooseScore0",
+   "category": "paper",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table0",
+   "attached_to": null,
+   "support_part": "Table0_Static",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.7157,
+    -0.1903,
+    0.6343
+   ],
+   "bbox_max": [
+    -1.3398,
+    -0.1754,
+    1.0072
+   ]
+  },
+  {
+   "id": "PianoLooseScore1",
+   "node": "PianoLooseScore1",
+   "category": "paper",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table0",
+   "attached_to": null,
+   "support_part": "Table0_Static",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4729,
+    -0.1903,
+    0.8202
+   ],
+   "bbox_max": [
+    -1.1094,
+    -0.1754,
+    1.1591
+   ]
+  },
+  {
+   "id": "PianoLooseScore2",
+   "node": "PianoLooseScore2",
+   "category": "paper",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table0",
+   "attached_to": null,
+   "support_part": "Table0_Static",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2216,
+    -0.1903,
+    0.9417
+   ],
+   "bbox_max": [
+    -0.8457,
+    -0.1754,
+    1.3073
+   ]
+  },
+  {
+   "id": "PianoLooseScore3",
+   "node": "PianoLooseScore3",
+   "category": "paper",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table0",
+   "attached_to": null,
+   "support_part": "Table0_Static",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9653,
+    -0.1903,
+    1.137
+   ],
+   "bbox_max": [
+    -0.6117,
+    -0.1754,
+    1.4603
+   ]
+  },
+  {
+   "id": "PianoLowSocket",
+   "node": "PianoLowSocket",
+   "category": "socket",
+   "role": "fixture",
+   "group": "PianoLowSocket",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.3344,
+    -1.1613,
+    0.546
+   ],
+   "bbox_max": [
+    -2.1829,
+    -1.0793,
+    0.6476
+   ]
+  },
+  {
+   "id": "PianoMusicScore",
+   "node": "PianoMusicScore",
+   "category": "paper",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Table0",
+   "support_part": "Table0_Static",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4566,
+    -0.5868,
+    0.6132
+   ],
+   "bbox_max": [
+    -0.4221,
+    -0.2718,
+    1.2528
+   ]
+  },
+  {
+   "id": "PinkFoldedCloth",
+   "node": "PinkFoldedCloth",
+   "category": "textile",
+   "role": "furniture",
+   "group": "Bed0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "FittedSheet",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.2905,
+    -0.9449,
+    -1.3698
+   ],
+   "bbox_max": [
+    0.6116,
+    -0.9229,
+    -1.059
+   ]
+  },
+  {
+   "id": "PinkHeadboardBag",
+   "node": "PinkHeadboardBag",
+   "category": "bag",
+   "role": "furniture",
+   "group": "HeadboardLedge",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "HeadboardLedge",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6165,
+    -0.3653,
+    -1.7108
+   ],
+   "bbox_max": [
+    0.9549,
+    -0.2027,
+    -1.3865
+   ]
+  },
+  {
+   "id": "RightBedsideSocket",
+   "node": "RightBedsideSocket",
+   "category": "socket",
+   "role": "furniture",
+   "group": "Storage1",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Storage1",
+   "support_part": "Storage1_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7964,
+    -0.6203,
+    -1.3305
+   ],
+   "bbox_max": [
+    0.893,
+    -0.5403,
+    -1.1836
+   ]
+  },
+  {
+   "id": "ShelfBook1_0",
+   "node": "ShelfBook1_0",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "NarrowBookcase",
+   "attached_to": null,
+   "support_part": "Bookcase_shelf_1",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3301,
+    -0.9303,
+    -1.0553
+   ],
+   "bbox_max": [
+    1.7238,
+    -0.9083,
+    -0.6728
+   ]
+  },
+  {
+   "id": "ShelfBook1_1",
+   "node": "ShelfBook1_1",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook1_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3311,
+    -0.9083,
+    -1.0534
+   ],
+   "bbox_max": [
+    1.7228,
+    -0.8863,
+    -0.6748
+   ]
+  },
+  {
+   "id": "ShelfBook1_2",
+   "node": "ShelfBook1_2",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook1_1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3323,
+    -0.8863,
+    -1.0512
+   ],
+   "bbox_max": [
+    1.7216,
+    -0.8643,
+    -0.677
+   ]
+  },
+  {
+   "id": "ShelfBook1_3",
+   "node": "ShelfBook1_3",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook1_2",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3338,
+    -0.8643,
+    -1.0487
+   ],
+   "bbox_max": [
+    1.7201,
+    -0.8423,
+    -0.6794
+   ]
+  },
+  {
+   "id": "ShelfBook1_4",
+   "node": "ShelfBook1_4",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook1_3",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3355,
+    -0.8423,
+    -1.0461
+   ],
+   "bbox_max": [
+    1.7184,
+    -0.8203,
+    -0.682
+   ]
+  },
+  {
+   "id": "ShelfBook2_0",
+   "node": "ShelfBook2_0",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "NarrowBookcase",
+   "attached_to": null,
+   "support_part": "Bookcase_shelf_2",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3301,
+    -0.5503,
+    -1.0553
+   ],
+   "bbox_max": [
+    1.7238,
+    -0.5283,
+    -0.6728
+   ]
+  },
+  {
+   "id": "ShelfBook2_1",
+   "node": "ShelfBook2_1",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook2_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3311,
+    -0.5283,
+    -1.0534
+   ],
+   "bbox_max": [
+    1.7228,
+    -0.5063,
+    -0.6748
+   ]
+  },
+  {
+   "id": "ShelfBook2_2",
+   "node": "ShelfBook2_2",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook2_1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3323,
+    -0.5063,
+    -1.0512
+   ],
+   "bbox_max": [
+    1.7216,
+    -0.4843,
+    -0.677
+   ]
+  },
+  {
+   "id": "ShelfBook2_3",
+   "node": "ShelfBook2_3",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook2_2",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3338,
+    -0.4843,
+    -1.0487
+   ],
+   "bbox_max": [
+    1.7201,
+    -0.4623,
+    -0.6794
+   ]
+  },
+  {
+   "id": "ShelfBook2_4",
+   "node": "ShelfBook2_4",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook2_3",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3355,
+    -0.4623,
+    -1.0461
+   ],
+   "bbox_max": [
+    1.7184,
+    -0.4403,
+    -0.682
+   ]
+  },
+  {
+   "id": "ShelfBook3_0",
+   "node": "ShelfBook3_0",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "NarrowBookcase",
+   "attached_to": null,
+   "support_part": "Bookcase_shelf_3",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3301,
+    -0.0403,
+    -1.0553
+   ],
+   "bbox_max": [
+    1.7238,
+    -0.0183,
+    -0.6728
+   ]
+  },
+  {
+   "id": "ShelfBook3_1",
+   "node": "ShelfBook3_1",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook3_0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3311,
+    -0.0183,
+    -1.0534
+   ],
+   "bbox_max": [
+    1.7228,
+    0.0037,
+    -0.6748
+   ]
+  },
+  {
+   "id": "ShelfBook3_2",
+   "node": "ShelfBook3_2",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook3_1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3323,
+    0.0037,
+    -1.0512
+   ],
+   "bbox_max": [
+    1.7216,
+    0.0257,
+    -0.677
+   ]
+  },
+  {
+   "id": "ShelfBook3_3",
+   "node": "ShelfBook3_3",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook3_2",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3338,
+    0.0257,
+    -1.0487
+   ],
+   "bbox_max": [
+    1.7201,
+    0.0477,
+    -0.6794
+   ]
+  },
+  {
+   "id": "ShelfBook3_4",
+   "node": "ShelfBook3_4",
+   "category": "book",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "ShelfBook3_3",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3355,
+    0.0477,
+    -1.0461
+   ],
+   "bbox_max": [
+    1.7184,
+    0.0697,
+    -0.682
+   ]
+  },
+  {
+   "id": "ShelfCamera",
+   "node": "ShelfCamera",
+   "category": "camera",
+   "role": "furniture",
+   "group": "NarrowBookcase",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "NarrowBookcase",
+   "attached_to": null,
+   "support_part": "Bookcase_shelf_4",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3596,
+    0.4397,
+    -0.9944
+   ],
+   "bbox_max": [
+    1.6786,
+    0.6397,
+    -0.694
+   ]
+  },
+  {
+   "id": "Slipper0",
+   "node": "Slipper0",
+   "category": "shoe",
+   "role": "furniture",
+   "group": "Slipper0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7802,
+    -1.5003,
+    -0.5763
+   ],
+   "bbox_max": [
+    1.0216,
+    -1.4513,
+    -0.3369
+   ]
+  },
+  {
+   "id": "Slipper1",
+   "node": "Slipper1",
+   "category": "shoe",
+   "role": "furniture",
+   "group": "Slipper1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8945,
+    -1.5003,
+    -0.4399
+   ],
+   "bbox_max": [
+    1.079,
+    -1.4513,
+    -0.1799
+   ]
+  },
+  {
+   "id": "StackLooseScore",
+   "node": "StackLooseScore",
+   "category": "paper",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook23",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9663,
+    -0.9963,
+    0.205
+   ],
+   "bbox_max": [
+    -1.6078,
+    -0.9897,
+    0.5425
+   ]
+  },
+  {
+   "id": "StackedBook00",
+   "node": "StackedBook00",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9553,
+    -1.5003,
+    0.2058
+   ],
+   "bbox_max": [
+    -1.6146,
+    -1.4853,
+    0.5349
+   ]
+  },
+  {
+   "id": "StackedBook01",
+   "node": "StackedBook01",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook00",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9602,
+    -1.4853,
+    0.2098
+   ],
+   "bbox_max": [
+    -1.6092,
+    -1.4663,
+    0.5453
+   ]
+  },
+  {
+   "id": "StackedBook02",
+   "node": "StackedBook02",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook01",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.969,
+    -1.4663,
+    0.2046
+   ],
+   "bbox_max": [
+    -1.6089,
+    -1.4433,
+    0.5452
+   ]
+  },
+  {
+   "id": "StackedBook03",
+   "node": "StackedBook03",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook02",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9654,
+    -1.4433,
+    0.1941
+   ],
+   "bbox_max": [
+    -1.6108,
+    -1.4163,
+    0.5427
+   ]
+  },
+  {
+   "id": "StackedBook04",
+   "node": "StackedBook04",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook03",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9598,
+    -1.4163,
+    0.2122
+   ],
+   "bbox_max": [
+    -1.6131,
+    -1.4013,
+    0.5409
+   ]
+  },
+  {
+   "id": "StackedBook05",
+   "node": "StackedBook05",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook04",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9634,
+    -1.4013,
+    0.2102
+   ],
+   "bbox_max": [
+    -1.6072,
+    -1.3823,
+    0.5439
+   ]
+  },
+  {
+   "id": "StackedBook06",
+   "node": "StackedBook06",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook05",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9623,
+    -1.3823,
+    0.1979
+   ],
+   "bbox_max": [
+    -1.6124,
+    -1.3593,
+    0.5399
+   ]
+  },
+  {
+   "id": "StackedBook07",
+   "node": "StackedBook07",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook06",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9701,
+    -1.3593,
+    0.1998
+   ],
+   "bbox_max": [
+    -1.6105,
+    -1.3323,
+    0.5487
+   ]
+  },
+  {
+   "id": "StackedBook08",
+   "node": "StackedBook08",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook07",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9612,
+    -1.3323,
+    0.2138
+   ],
+   "bbox_max": [
+    -1.609,
+    -1.3173,
+    0.5405
+   ]
+  },
+  {
+   "id": "StackedBook09",
+   "node": "StackedBook09",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook08",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9562,
+    -1.3173,
+    0.2034
+   ],
+   "bbox_max": [
+    -1.611,
+    -1.2983,
+    0.539
+   ]
+  },
+  {
+   "id": "StackedBook10",
+   "node": "StackedBook10",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook09",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9691,
+    -1.2983,
+    0.2025
+   ],
+   "bbox_max": [
+    -1.6138,
+    -1.2753,
+    0.5447
+   ]
+  },
+  {
+   "id": "StackedBook11",
+   "node": "StackedBook11",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook10",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9705,
+    -1.2753,
+    0.2012
+   ],
+   "bbox_max": [
+    -1.6064,
+    -1.2483,
+    0.5487
+   ]
+  },
+  {
+   "id": "StackedBook12",
+   "node": "StackedBook12",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook11",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9519,
+    -1.2483,
+    0.2079
+   ],
+   "bbox_max": [
+    -1.6112,
+    -1.2333,
+    0.537
+   ]
+  },
+  {
+   "id": "StackedBook13",
+   "node": "StackedBook13",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook12",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9641,
+    -1.2333,
+    0.2077
+   ],
+   "bbox_max": [
+    -1.6131,
+    -1.2143,
+    0.5432
+   ]
+  },
+  {
+   "id": "StackedBook14",
+   "node": "StackedBook14",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook13",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9713,
+    -1.2143,
+    0.2029
+   ],
+   "bbox_max": [
+    -1.6112,
+    -1.1913,
+    0.5435
+   ]
+  },
+  {
+   "id": "StackedBook15",
+   "node": "StackedBook15",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook14",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.961,
+    -1.1913,
+    0.1968
+   ],
+   "bbox_max": [
+    -1.6064,
+    -1.1643,
+    0.5454
+   ]
+  },
+  {
+   "id": "StackedBook16",
+   "node": "StackedBook16",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook15",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9586,
+    -1.1643,
+    0.2132
+   ],
+   "bbox_max": [
+    -1.6119,
+    -1.1493,
+    0.5419
+   ]
+  },
+  {
+   "id": "StackedBook17",
+   "node": "StackedBook17",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook16",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.968,
+    -1.1493,
+    0.2071
+   ],
+   "bbox_max": [
+    -1.6118,
+    -1.1303,
+    0.5408
+   ]
+  },
+  {
+   "id": "StackedBook18",
+   "node": "StackedBook18",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook17",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9624,
+    -1.1303,
+    0.1978
+   ],
+   "bbox_max": [
+    -1.6125,
+    -1.1073,
+    0.5399
+   ]
+  },
+  {
+   "id": "StackedBook19",
+   "node": "StackedBook19",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook18",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9654,
+    -1.1073,
+    0.2029
+   ],
+   "bbox_max": [
+    -1.6058,
+    -1.0803,
+    0.5518
+   ]
+  },
+  {
+   "id": "StackedBook20",
+   "node": "StackedBook20",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook19",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9622,
+    -1.0803,
+    0.2129
+   ],
+   "bbox_max": [
+    -1.6099,
+    -1.0653,
+    0.5396
+   ]
+  },
+  {
+   "id": "StackedBook21",
+   "node": "StackedBook21",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook20",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9607,
+    -1.0653,
+    0.2007
+   ],
+   "bbox_max": [
+    -1.6154,
+    -1.0463,
+    0.5362
+   ]
+  },
+  {
+   "id": "StackedBook22",
+   "node": "StackedBook22",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook21",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9669,
+    -1.0463,
+    0.2041
+   ],
+   "bbox_max": [
+    -1.6117,
+    -1.0233,
+    0.5463
+   ]
+  },
+  {
+   "id": "StackedBook23",
+   "node": "StackedBook23",
+   "category": "book",
+   "role": "furniture",
+   "group": "StackedBook00",
+   "mount": null,
+   "wall": null,
+   "rests_on": "StackedBook22",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9665,
+    -1.0233,
+    0.2034
+   ],
+   "bbox_max": [
+    -1.6024,
+    -0.9963,
+    0.5509
+   ]
+  },
+  {
+   "id": "Storage0",
+   "node": "Storage0",
+   "category": "storage",
+   "role": "furniture",
+   "group": "Storage0",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -0.5929,
+    0.7147,
+    -2.3622
+   ],
+   "bbox_max": [
+    1.0102,
+    1.1797,
+    -1.0994
+   ]
+  },
+  {
+   "id": "Storage1",
+   "node": "Storage1",
+   "category": "storage",
+   "role": "furniture",
+   "group": "Storage1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    0.7717,
+    -1.5003,
+    -1.5363
+   ],
+   "bbox_max": [
+    1.492,
+    1.1797,
+    -0.8302
+   ]
+  },
+  {
+   "id": "Storage2",
+   "node": "Storage2",
+   "category": "storage",
+   "role": "furniture",
+   "group": "Storage2",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -0.9703,
+    -1.5003,
+    -2.604
+   ],
+   "bbox_max": [
+    -0.3275,
+    1.1797,
+    -1.9454
+   ]
+  },
+  {
+   "id": "Table0",
+   "node": "Table0",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -1.7812,
+    -1.5003,
+    0.3592
+   ],
+   "bbox_max": [
+    -0.1892,
+    -0.1903,
+    1.6559
+   ]
+  },
+  {
+   "id": "ToiletryBottle",
+   "node": "ToiletryBottle",
+   "category": "bottle",
+   "role": "furniture",
+   "group": "HeadboardLedge",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": "HeadboardLedge",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.9656,
+    -0.3653,
+    -1.5506
+   ],
+   "bbox_max": [
+    1.0016,
+    -0.2613,
+    -1.5146
+   ]
+  },
+  {
+   "id": "Wall0",
+   "node": "Wall0",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0248,
+    -1.5003,
+    -1.0103
+   ],
+   "bbox_max": [
+    1.9661,
+    1.1847,
+    2.062
+   ]
+  },
+  {
+   "id": "Wall1",
+   "node": "Wall1",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6714,
+    -1.5003,
+    -2.6674
+   ],
+   "bbox_max": [
+    -0.7301,
+    1.1847,
+    0.4049
+   ]
+  },
+  {
+   "id": "Wall2",
+   "node": "Wall2",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6387,
+    -1.5003,
+    0.4042
+   ],
+   "bbox_max": [
+    0.0255,
+    1.1847,
+    2.0947
+   ]
+  },
+  {
+   "id": "Wall3",
+   "node": "Wall3",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall3",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7308,
+    -1.5003,
+    -2.7001
+   ],
+   "bbox_max": [
+    1.9334,
+    1.1847,
+    -1.0096
+   ]
+  },
+  {
+   "id": "Wastebasket",
+   "node": "Wastebasket",
+   "category": "bin",
+   "role": "furniture",
+   "group": "Wastebasket",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.1059,
+    -1.5003,
+    0.0227
+   ],
+   "bbox_max": [
+    -1.8799,
+    -1.2403,
+    0.2487
+   ]
+  },
+  {
+   "id": "WhiteboardMarkers",
+   "node": "WhiteboardMarkers",
+   "category": "stationery",
+   "role": "furniture",
+   "group": "MobileWhiteboard",
+   "mount": null,
+   "wall": null,
+   "rests_on": "MobileWhiteboard",
+   "attached_to": null,
+   "support_part": "Whiteboard_marker_tray",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0902,
+    -0.6658,
+    -0.4251
+   ],
+   "bbox_max": [
+    1.2392,
+    -0.6538,
+    -0.1931
+   ]
+  },
+  {
+   "id": "Window0",
+   "node": "Window0",
+   "category": "window",
+   "role": "opening",
+   "group": "Window0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.4854,
+    -1.4322,
+    -2.1456
+   ],
+   "bbox_max": [
+    -0.9436,
+    0.953,
+    0.117
+   ]
+  },
+  {
+   "id": "WindowDrapeBed",
+   "node": "WindowDrapeBed",
+   "category": "curtain",
+   "role": "fixture",
+   "group": "WindowDrapeBed",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.3399,
+    -1.4753,
+    -2.0608
+   ],
+   "bbox_max": [
+    -0.8132,
+    1.1847,
+    -1.26
+   ]
+  },
+  {
+   "id": "WindowDrapePiano",
+   "node": "WindowDrapePiano",
+   "category": "curtain",
+   "role": "fixture",
+   "group": "WindowDrapePiano",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.3978,
+    -1.4753,
+    -0.3655
+   ],
+   "bbox_max": [
+    -1.8553,
+    1.1847,
+    0.4608
+   ]
+  },
+  {
+   "id": "WindowSheer",
+   "node": "WindowSheer",
+   "category": "curtain",
+   "role": "fixture",
+   "group": "WindowSheer",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.5629,
+    -1.4753,
+    -1.3537
+   ],
+   "bbox_max": [
+    -1.3242,
+    1.1847,
+    -1.0215
+   ]
+  }
+ ]
+}
