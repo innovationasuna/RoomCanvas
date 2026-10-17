@@ -1,18 +1,18 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=unified-28';
-import {createPlacement} from './placement.mjs?v=unified-28';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=unified-28';
-import {PlacementSession} from './placement-session.mjs?v=unified-28';
-import {createCollision} from './collision.mjs?v=unified-28';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=unified-28';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=unified-28';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=fast-30';
+import {createPlacement} from './placement.mjs?v=fast-30';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=fast-30';
+import {PlacementSession} from './placement-session.mjs?v=fast-30';
+import {createCollision} from './collision.mjs?v=fast-30';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=fast-30';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=fast-30';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=unified-28';
-import {analogDelta} from './placement-motion.mjs?v=unified-28';
+import {mountJoysticks} from './joystick-ui.mjs?v=fast-30';
+import {analogDelta} from './placement-motion.mjs?v=fast-30';
 
-import {predictDrop, fallFraction} from './drop-placement.mjs?v=unified-28';
+import {predictDrop, fallFraction} from './drop-placement.mjs?v=fast-30';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -973,11 +973,21 @@ function restoreGhostMaterials() {
   if (renderer) renderer.shadowMap.needsUpdate = true;
 }
 
+// A piece still where it was, resting there, needs no new drop check: that pose was checked
+// when it was placed. Selecting it, or confirming without moving it, is then immediate.
+function planDrop(options) {
+  const before = pending.before[selected], now = layout[selected], state = placementStates.get(selected);
+  const inPlace = before.visible !== false && state?.state === 'stable' && ['x', 'y', 'z', 'yaw'].every((key) => Math.abs((now[key] || 0) - (before[key] || 0)) < 1e-9);
+  if (!inPlace) return predictDrop(selected, layout, placement, collision, options);
+  const label = state.label.replace(/^已放稳 · /, '');
+  return {ok: true, checked: true, candidate: copyLayout(layout), moved: [selected], state, height: state.height, label, distance: 0, message: `保持在${label}`};
+}
+
 function refreshSession() {
   if (!pending) return;
   const state = placementStates.get(selected);
   const installing = pending.before[selected].visible === false;
-  dropPlan = pending.gravity ? predictDrop(selected, layout, placement, collision, {previewOnly:analogActive}) : null;
+  dropPlan = pending.gravity ? planDrop({previewOnly:analogActive}) : null;
   const contact = !analogActive && !pending.gravity && (installing || placement.isWall(selected)) ? collision.checkPlacement(layout, [selected]) : null;
   const valid = !analogActive && (pending.gravity ? dropPlan.ok : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
   if (valid) pending.lastReachable = copyLayout(layout);
@@ -1064,7 +1074,7 @@ function confirmSession() {
     if (!lockWallPreview()) return;
   }
   if (pending.gravity) {
-    dropPlan = predictDrop(selected, layout, placement, collision);
+    dropPlan = planDrop();
     if (!dropPlan.ok) {showToast(dropPlan.message); applyLayout(); return;}
     const landing = dropPlan;
     if (landing.distance > .005) {startFall(landing); return;}
