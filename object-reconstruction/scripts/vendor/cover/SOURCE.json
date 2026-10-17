@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/chengine/nbv_gym",
+  "commit": "6e5e5ef48a59f369a821802842504668eac23325",
+  "files": {
+    "coverage.py": "nbv_gym/util/coverage.py",
+    "more_rendering.py": "nbv_gym/util/more_rendering.py",
+    "LICENSE": "LICENSE"
+  },
+  "gsplat_version": "1.5.3",
+  "nerfstudio_gitlink": "50e0e3c70c775e89333256213363badbf074f29d",
+  "note": "Upstream source files are unmodified. Runtime extracts only COVER functions to avoid importing unrelated Nerfstudio training modules.",
+  "additional_license": {
+    "file": "LICENSE_GSPLAT",
+    "source": "https://raw.githubusercontent.com/nerfstudio-project/gsplat/v1.5.3/LICENSE",
+    "reason": "more_rendering.py is derived from gsplat rendering utilities."
+  },
+  "scoring_reference": "https://github.com/chengine/nbv_gym/blob/6e5e5ef48a59f369a821802842504668eac23325/nbv_gym/model.py#L618-L661"
+}

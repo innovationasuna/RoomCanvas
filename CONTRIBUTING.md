@@ -13,8 +13,10 @@
    改了网页界面的，本地打开看一眼，见 [README](README.md#打开网页)。
 3. 开 PR，写清改了什么、怎么验证的。CI 通过、仓库所有者确认后，squash 合并并删除分支。`main` 不能直接推送。
 
+导入完整历史的 `feat/integrate-viewforge` 是例外：审阅通过后应使用普通 merge commit，保留 ViewForge 和手势提交的父链；不要 squash 或 rebase 合并此分支。其他功能沿用上面的流程。
+
 注意：
 
 - `reconstruction/` 里的官方文件尽量少改，必须改的保持官方写法，并在 README 的“对 LiteReality-Agent 改了什么”里补一句。
-- 扫描数据、照片、运行结果、模型权重、`.env` 不进仓库。`samples/` 是唯一的例外，规则见 README。
+- 新的扫描数据、照片、运行结果、重建模型权重、`.env` 不进仓库。已有 `samples/`、ViewForge 原上游公开示例，以及手势工程随版本提供的识别模型/WASM 资源保留，来源与规则见各模块 README。
 - 3090 上一个作业只用一张空闲 GPU，结果写到新目录，不覆盖旧结果。
