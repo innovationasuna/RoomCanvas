@@ -192,3 +192,12 @@ test('destination validation rejects invalid object poses explicitly', () => {
     assert.equal(c.checkPlacement(layout, ids).reason, 'invalid-pose');
   }
 });
+
+test('the same placement question is answered once, a changed pose is checked again', () => {
+  const c = buildCollision([owner('moving', box(0, 0, 0, 1, 1, 1)), owner('fixed', box(2, 0, 0, 3, 1, 1))]);
+  const clear = c.checkPlacement({moving: pose()}, ['moving']);
+  assert.equal(c.checkPlacement({moving: pose()}, ['moving']), clear);
+  const blocked = c.checkPlacement({moving: pose(2)}, ['moving']);
+  assert.equal(blocked.ok, false); assert.equal(blocked.other.id, 'fixed');
+  assert.equal(c.checkPlacement({moving: pose()}, ['moving']).ok, true);
+});
