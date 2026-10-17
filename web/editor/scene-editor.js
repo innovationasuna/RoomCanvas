@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=fast-30';
-import {createPlacement} from './placement.mjs?v=fast-30';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=fast-30';
-import {PlacementSession} from './placement-session.mjs?v=fast-30';
-import {createCollision} from './collision.mjs?v=fast-30';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=fast-30';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=fast-30';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-31';
+import {createPlacement} from './placement.mjs?v=gesture-31';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-31';
+import {PlacementSession} from './placement-session.mjs?v=gesture-31';
+import {createCollision} from './collision.mjs?v=gesture-31';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-31';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-31';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=fast-30';
-import {analogDelta} from './placement-motion.mjs?v=fast-30';
+import {mountJoysticks} from './joystick-ui.mjs?v=gesture-31';
+import {analogDelta} from './placement-motion.mjs?v=gesture-31';
 
-import {predictDrop, fallFraction} from './drop-placement.mjs?v=fast-30';
+import {predictDrop, fallFraction} from './drop-placement.mjs?v=gesture-31';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-31';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-31';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -24,7 +26,12 @@ const modelURL = `${sceneDir}/Room.glb`;
 // What can be moved, and how, comes from the room's room_objects.json (web/scripts/room_objects.py).
 const objectsURL = `${sceneDir}/room_objects.json`;
 let config;
-const ids = [];
+// ids: everything editable; roomIds: the room's own furniture. Objects imported from ViewForge
+// are added to ids only, so saved and exported layouts still fit the room on its own.
+const ids = [], roomIds = [];
+const roomPart = (value) => Object.fromEntries(roomIds.map((id) => [id, value[id]]));
+const addedPart = (value) => Object.fromEntries(ids.filter((id) => !roomIds.includes(id)).map((id) => [id, value[id]]));
+const stored = () => ({x: 0, y: 0, z: 0, yaw: 0, visible: false});
 const history = new History();
 let layout = {};
 const placementSpecs = {};
@@ -32,7 +39,7 @@ let dropPlan = null, falling = null;
 let pending = null, mode = 'edit', warm = false;
 const ghostMaterials = [];
 
-let sceneKey, storageKey, room, floorY, center, roomSize, placement, collision, wallVisibility;
+let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
@@ -554,7 +561,7 @@ function select(id, announce = true) {
 function persist() {
   if (!ready || !hasEdited) return;
   try {
-    localStorage.setItem(storageKey, JSON.stringify(encodeLayout(pending ? pending.committed() : layout, sceneKey)));
+    localStorage.setItem(storageKey, JSON.stringify(encodeLayout(roomPart(pending ? pending.committed() : layout), sceneKey)));
     $('#resume-layout').disabled = false;
     const drafts = [...placementStates.values()].filter((state) => state.state !== 'stable').length;
     $('#save-state').textContent = drafts ? `已保存草稿 · ${drafts} 件待落位` : '已保存到此浏览器';
@@ -746,11 +753,11 @@ function bindEvents() {
   $('#rotate-right').onclick = () => act(() => editObject((next) => rotate(next, selected, -Math.PI / 12), 'rotate'));
   $('#settle-object').onclick = () => act(() => {if (editObject(() => {}, 'settle')) showToast(placementStates.get(selected).label);});
   $('#reset-object').onclick = () => act(() => editObject((next) => {next[selected] = {x: 0, y: 0, z: 0, yaw: 0};}, 'reset'));
-  $('#reset-layout').onclick = () => {joysticks?.stop(); cancelSession(false); hasEdited = true; act(() => {layout = initialLayout(ids);}); persist(); showToast('已恢复原始布置，可撤销');};
+  $('#reset-layout').onclick = () => {joysticks?.stop(); cancelSession(false); hasEdited = true; act(() => {layout = {...initialLayout(roomIds), ...Object.fromEntries(Object.keys(addedPart(layout)).map((id) => [id, stored()]))};}); persist(); showToast('已恢复原始布置，可撤销');};
   $('#resume-layout').onclick = () => {
     try {
-      const saved = decodeLayout(JSON.parse(localStorage.getItem(storageKey)), sceneKey, ids);
-      joysticks?.stop(); cancelSession(false); act(() => {layout = saved;}); showToast('已继续上次确认的布置');
+      const saved = decodeLayout(JSON.parse(localStorage.getItem(storageKey)), sceneKey, roomIds);
+      joysticks?.stop(); cancelSession(false); act(() => {layout = {...saved, ...addedPart(layout)};}); showToast('已继续上次确认的布置');
     } catch (error) {showToast(error.message || '没有可恢复的布局');}
   };
   const undo = () => {
@@ -816,7 +823,7 @@ function bindEvents() {
   $('#export-layout').onclick = () => {
     if (!ready) return;
     finishHold();
-    const blob = new Blob([JSON.stringify(encodeLayout(pending ? pending.committed() : layout, sceneKey), null, 2)], {type: 'application/json'});
+    const blob = new Blob([JSON.stringify(encodeLayout(roomPart(pending ? pending.committed() : layout), sceneKey), null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url; anchor.download = `RoomCanvas-${config.sceneId}-layout.json`; anchor.click();
@@ -829,9 +836,9 @@ function bindEvents() {
     if (!file) return;
     try {
       if (file.size > 1024 * 1024) throw new Error('布局文件过大');
-      const next = decodeLayout(JSON.parse(await file.text()), sceneKey, ids);
+      const next = decodeLayout(JSON.parse(await file.text()), sceneKey, roomIds);
       cancelSession(false);
-      act(() => {layout = next;});
+      act(() => {layout = {...next, ...addedPart(layout)};});
       showToast('布局已导入，可撤销');
     } catch (error) {showToast(`导入失败：${error.message}`);}
     event.target.value = '';
@@ -929,7 +936,7 @@ function appendWarehouseRow(entity, first = false) {
     if (first) $('#object-list').prepend(row); else $('#object-list').appendChild(row);
 }
 
-function renderFurnitureThumbnails() {
+function renderFurnitureThumbnails(list = entities.values()) {
   // Render the actual grouped model, sharing its geometry/materials without mutating them.
   // One temporary context serves the entire shelf and is released after rendering.
   const previewRenderer = new THREE.WebGLRenderer({antialias: true, alpha: true, preserveDrawingBuffer: true});
@@ -942,7 +949,7 @@ function renderFurnitureThumbnails() {
   scene.children.filter((object) => object.isLight).forEach((light) => previewScene.add(light.clone()));
   const previewCamera = new THREE.PerspectiveCamera(36, 264 / 144, .01, 1000);
   try {
-    for (const entity of entities.values()) {
+    for (const entity of list) {
       const bounds = new THREE.Box3().setFromObject(entity.group);
       const target = bounds.getCenter(new THREE.Vector3());
       const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, .01);
@@ -996,7 +1003,7 @@ function refreshSession() {
   const originals = new Map(ghostMaterials.map(record => [record[0], record]));
   const activeMeshes = new Set();
   for (const id of moved) entities.get(id).group.traverse(mesh => {
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh || mesh.userData.contactOnly) return;
     activeMeshes.add(mesh);
     let record = originals.get(mesh);
     if (!record) {
@@ -1100,8 +1107,8 @@ function completePlacement() {
   showToast('家具已放置，布局已保存');
 }
 
-function followPointer(clientX, clientY) {
-  if (!pending || pending.locked) return;
+function followPointer(clientX, clientY, force = false) {
+  if (!pending || (pending.locked && !force)) return;
   if (placement.isWall(selected)) {
     if (!wallRelocation) beginWallRelocation();
     const hit = pickWall(clientX, clientY);
@@ -1138,7 +1145,8 @@ function followPointer(clientX, clientY) {
     // Warehouse entries are installed at their destination; placed furniture moves
     // continuously from its last reachable pose, including carried objects.
     const relocating = pending.before[selected].visible === false || pending.gravity || pending.surfaceChoice;
-    const contact = relocating ? {...collision.checkPlacement(next, carried.moved), layout:next} : collision.limit(before, next, carried.moved);
+    // While a hand drags it (analogActive) this is a preview; release checks it in full.
+    const contact = analogActive ? {layout:next, blocked:false} : relocating ? {...collision.checkPlacement(next, carried.moved), layout:next} : collision.limit(before, next, carried.moved);
     layout = contact.layout;
     if (contact.blocked) motionNotice = {id:selected, previewInvalid:relocating, message:`碰到${contact.other?.name || '物体'}，请调整预览位置`};
     if (!contact.blocked || pending.before[selected].visible !== false) pending.lastReachable = copyLayout(layout);
@@ -1190,6 +1198,211 @@ function bindPlacementEvents() {
   });
 }
 
+// The gesture page (gesture/, see gesture-bridge.mjs) embeds this editor and sends hand frames.
+// Move and rotate run the same preview → release → drop-and-check transaction as the mouse and
+// joystick; a release that cannot be placed puts the piece back, as ViewForge's layout page does.
+let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null;
+const handPointer = Object.assign(document.createElement('div'), {className: 'rc-hand-pointer', hidden: true});
+$('.rc-stage').appendChild(handPointer);
+const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移', move: '移动：右手指向家具捏合拖动，松开落下', rotate: '旋转：右手指向家具捏合，左右移动转向，松开确认'};
+function handClient({u, v}) {
+  const rect = host.getBoundingClientRect();
+  return {x: rect.left + u * rect.width, y: rect.top + v * rect.height};
+}
+function gestureStep(step) {
+  if (!gesture) return;
+  gesture.step = step;
+  // Frames arrive faster than a heavy piece can be checked; apply only the latest one.
+  gestureFrame ||= requestAnimationFrame(() => {gestureFrame = 0; const next = gesture?.step; if (next) {gesture.step = null; next();}});
+}
+function endGesture() {
+  cancelAnimationFrame(gestureFrame); gestureFrame = 0;
+  gesture = null; analogActive = false; controls.enabled = true;
+}
+function cameraState() {
+  controls.update(); camera.updateMatrixWorld();
+  const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+  return {theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, minPhi: Math.min(.02, orbit.phi), maxPhi: controls.maxPolarAngle,
+    target: controls.target.toArray(), right: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).toArray(),
+    up: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).toArray(),
+    width: (camera.right - camera.left) / camera.zoom, height: (camera.top - camera.bottom) / camera.zoom};
+}
+function applyCamera(pose) {
+  controls.target.fromArray(pose.target);
+  camera.position.setFromSpherical(new THREE.Spherical(pose.radius, pose.phi, pose.theta)).add(controls.target);
+  controls.update(); requestRender();
+}
+const gesturePort = {
+  blocked: () => !ready || !!falling,
+  mode: () => gestureMode,
+  begin(hand, kind) {
+    const {x, y} = handClient(hand), id = pick(x, y);
+    if (!id) {$('#status').textContent = '没有指到家具：指向家具后再捏合'; return false;}
+    if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
+    beginSession(id);
+    if (!pending) return false;
+    analogActive = true; controls.enabled = false;
+    gesture = {id, kind, yaw: layout[id].yaw, step: null};
+    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entities.get(id).name} · 松开放下`;
+    return true;
+  },
+  move(hand) {
+    const {x, y} = handClient(hand);
+    gestureStep(() => followPointer(x, y, true));
+  },
+  rotate(angle) {
+    const {id, yaw} = gesture || {};
+    gestureStep(() => editObject((next) => {next[id].yaw = Math.atan2(Math.sin(yaw + angle), Math.cos(yaw + angle));}, 'rotate'));
+  },
+  commit() {
+    if (!gesture) return;
+    // Apply the last pending frame as a preview, then check the release in full.
+    cancelAnimationFrame(gestureFrame); gestureFrame = 0;
+    const step = gesture.step; gesture.step = null; step?.();
+    endGesture();
+    if (!pending) return;
+    confirmSession();
+    if (pending && !falling) {
+      const reason = dropPlan?.message || pending.message || '这里放不下';
+      cancelSession(false); showToast(`${reason}，已放回原位`);
+    }
+  },
+  cancel() {
+    if (!gesture) return;
+    endGesture(); cancelSession(false);
+  },
+  pointer(hand) {
+    handPointer.hidden = !hand;
+    if (!hand) return;
+    handPointer.style.left = `${hand.u * 100}%`; handPointer.style.top = `${hand.v * 100}%`;
+    handPointer.dataset.pinching = String(!!hand.pinching);
+  },
+  observe: {
+    begin(hand, action) {
+      if (gestureView || !ready) return false;
+      gestureView = {base: cameraState(), start: {u: hand.u, v: hand.v}, action};
+      controls.enabled = false; return true;
+    },
+    update(hand) {if (gestureView) applyCamera(observationPose(gestureView.base, gestureView.start, hand, gestureView.action));},
+    finish(cancel) {
+      if (!gestureView) return;
+      if (cancel) applyCamera(gestureView.base);
+      gestureView = null; controls.enabled = true;
+    },
+  },
+};
+const embedded = connectGestureBridge({
+  input: new GestureInput(gesturePort),
+  setMode(next) {
+    gestureMode = next;
+    if (next !== 'view' && mode !== 'edit') setMode('edit');
+    $('#status').textContent = GESTURE_HELP[next]; $('#interaction-help').textContent = GESTURE_HELP[next];
+    return true;
+  },
+  state: () => ({busy: !ready || !!falling, mode: gestureMode, selectedId: selected, layoutReady: ready,
+    phase: gestureView ? 'observing' : falling ? 'validating' : gesture ? 'preview' : 'idle',
+    message: $('#status').textContent || '', capabilities: ['observe-pinch-v1']}),
+});
+
+// Objects rebuilt by ViewForge, at their measured size. The full model is shown; its light
+// preview (same frame, ~1/40 of the triangles) stands in for contact and collision checks.
+let addedCount = 0, importAsset = null;
+async function openImports() {
+  let catalog;
+  try {catalog = await readCatalog();} catch {return;}
+  if (!catalog.runs?.length) return;
+  for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
+  $('#import-menu').hidden = false;
+  $('#import-run').onchange = () => void chooseImport();
+  $('#import-axis').onchange = $('#import-meters').oninput = describeImport;
+  $('#import-object').onclick = () => void importObject().catch((error) => {
+    console.error(error); showToast(`导入失败：${error.message || error}`); $('#import-object').disabled = false;
+  });
+  await chooseImport();
+}
+async function chooseImport() {
+  const run = $('#import-run').value;
+  importAsset = null; $('#import-object').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
+  const asset = await readAsset(run).catch(() => null);
+  if ($('#import-run').value !== run) return;
+  if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
+  importAsset = {...asset, run};
+  const saved = savedMeasurement(asset);
+  if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
+  else $('#import-meters').value = '';
+  describeImport();
+}
+function describeImport() {
+  if (!importAsset) return;
+  let size;
+  try {size = sizeInMeters(importAsset.base, metricScale(importAsset.base, $('#import-axis').value, Number($('#import-meters').value)));}
+  catch {$('#import-note').textContent = savedMeasurement(importAsset) ? '请输入实测长度' : 'ViewForge 里还没标定：填一条实测边长'; $('#import-object').disabled = true; return;}
+  $('#import-note').textContent = `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} 米（宽 × 深 × 高）`;
+  $('#import-object').disabled = false;
+}
+// The free floor spot nearest the middle of the room where a new piece can stand.
+function freeSpot(id) {
+  const step = .2, reach = Math.max(roomSize.x, roomSize.z) / 2, spots = [];
+  for (let x = -reach; x <= reach; x += step) for (let z = -reach; z <= reach; z += step) spots.push([x, z]);
+  spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+  for (const [x, z] of spots) {
+    const candidate = copyLayout(layout);
+    candidate[id] = {x, y: 0, z, yaw: 0};
+    const drop = predictDrop(id, candidate, placement, collision);
+    if (drop.ok) return drop.candidate[id];
+  }
+  return null;
+}
+async function importObject() {
+  if (!ready || !importAsset) return;
+  const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
+  $('#import-object').disabled = true; $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
+  const loader = new GLTFLoader();
+  const [full, light] = await Promise.all(['result.glb', 'preview.glb'].map((file) => loader.loadAsync(viewforgeModel(run, file))));
+  cancelSession(false);
+  const id = `added-${++addedCount}`, contact = `${id}:contact`;
+  const shape = new THREE.Group();
+  shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, scale)));
+  full.scene.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    // Colours are baked into the vertices; light them as ViewForge does (unlit).
+    mesh.material = new THREE.MeshBasicMaterial({vertexColors: !!mesh.geometry.attributes.color, side: THREE.DoubleSide});
+    mesh.userData.collision = false; mesh.raycast = () => {};
+    mesh.castShadow = true;
+  });
+  light.scene.name = light.scene.userData.name = contact;
+  light.scene.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    mesh.material = new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false});
+    mesh.userData.contactOnly = true; mesh.castShadow = mesh.receiveShadow = false;
+  });
+  shape.add(full.scene, light.scene);
+  const origin = new THREE.Vector3(center.x, floorY, center.z);
+  const group = new THREE.Group();
+  group.name = `Editable_${id}`; group.position.copy(origin);
+  group.add(shape); room.add(group); room.updateMatrixWorld(true);
+  group.traverse((object) => {if (object.isMesh) object.userData.editorId = id;});
+  const size = sizeInMeters(base, scale), name = objectLabel(run);
+  const entity = {id, name, category: '导入物体 · 真实尺寸', roots: [contact], group, origin, added: true,
+    sizeLabel: `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} ${config.units}`};
+  entities.set(id, entity); ids.push(id);
+  placementSpecs[id] = {body: [contact]};
+  layout[id] = stored();
+  for (const past of [...history.past, ...history.future]) past[id] = stored();
+  appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity]);
+  group.visible = false;
+  // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
+  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  collision = createCollision(THREE, room, entities, placementSpecs, {label: config.label, keepAuthoredOverlaps: true});
+  $('#import-menu').open = false; $('#import-object').disabled = false;
+  renderer.shadowMap.needsUpdate = true;
+  beginSession(id);
+  const spot = freeSpot(id);
+  if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
+  showToast(`已导入${name}：${embedded ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
+  if (!embedded) pending.locked = false;
+}
+
 async function load() {
   renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'low-power'});
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -1234,7 +1447,7 @@ async function load() {
     else progress.removeAttribute('value');
   };
   config = await roomConfigReady;
-  ids.push(...config.catalog.map((item) => item.id));
+  ids.push(...config.catalog.map((item) => item.id)); roomIds.push(...ids);
   Object.assign(placementSpecs, config.placement);
   const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80));
   progress.value = 80;
@@ -1263,7 +1476,7 @@ async function load() {
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
   renderFurnitureThumbnails();
-  const ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
+  ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
   for (const wall of placement.wallTargets()) {
     const option = document.createElement('option'); option.value = wall.name; option.textContent = wallLabel(wall.name);
@@ -1328,6 +1541,7 @@ async function load() {
   $('#loading').hidden = true;
   $('#status').textContent = `${entities.size} 件物体可布置 · 点选房间或下方家具卡片`;
   view('overview');
+  void openImports();
   // Read-only diagnostics for real-browser verification; no controls or mutable scene exposed.
   window.roomEditor = Object.freeze({
     get ready() {return ready;},
@@ -1384,3 +1598,5 @@ $('#open-office').onclick = () => {
   $('#rc-placement-demo').dataset.roomSelection = 'false';
   load().catch(fail);
 };
+// Inside the gesture page there is no one to press the room card; open the room directly.
+if (embedded) $('#open-office').click();

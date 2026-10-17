@@ -308,7 +308,8 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   // first use and cached; a full pass over every pair at load takes seconds.
   const authored = new Map();
   function known(meshA, ownerA, meshB, ownerB) {
-    if (!keepAuthoredOverlaps) return false;
+    // An object brought in later (owner.added) was never part of the scan.
+    if (!keepAuthoredOverlaps || ownerA.added || ownerB.added) return false;
     if (!authored.has(meshA)) authored.set(meshA, new Map());
     const row = authored.get(meshA);
     if (!row.has(meshB)) {
@@ -502,12 +503,13 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
 
 export function createCollision(THREE, room, entities, specs, {label = () => null, keepAuthoredOverlaps = false} = {}) {
   room.updateMatrixWorld(true);
-  const owners = [...entities].map(([id, entity]) => ({id, name: entity.name, origin: entity.origin.toArray(), meshes: [], group: entity.group}));
+  const owners = [...entities].map(([id, entity]) => ({id, name: entity.name, origin: entity.origin.toArray(), meshes: [], group: entity.group, added: !!entity.added}));
   const meshOwners = new Map();
   for (const owner of owners) owner.group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);});
   const staticOwners = new Map();
   room.traverse((mesh) => {
-    if (!mesh.isMesh) return;
+    // A display mesh with a lighter stand-in for contact (userData.collision === false) is skipped.
+    if (!mesh.isMesh || mesh.userData.collision === false) return;
     let owner = meshOwners.get(mesh);
     if (!owner) {
       let root = mesh; while (root.parent && root.parent !== room) root = root.parent;

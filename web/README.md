@@ -15,6 +15,13 @@
 
 打开方式：`editor/?scene=<房间目录相对 editor/ 的路径>`，例如 `editor/?scene=../../samples/room3`。要放到仓库外的某个房间目录旁边，用 `python3 web/scripts/publish.py --scene-dir <房间目录>`。
 
+## 手势和导入物体
+
+`scripts/serve.py` 在仓库根目录起网页服务，同时把 `/viewforge/layouts/` 下的读请求（物体目录、尺寸、模型）转给 ViewForge 服务器（默认 SSH 隧道 `127.0.0.1:7865`）。
+
+- **手势**：手势页（`gesture/`，ViewForge 带来的）用 iframe 嵌入编辑器，在浏览器里识别手势，按 `viewforge-gesture-v1` 协议发指针帧；编辑器的接收端在 `editor/gesture-bridge.mjs`，消息和 ViewForge 布局页的接收端一致，手势页不用改。移动、旋转走和鼠标、摇杆同一个“预览 → 松手 → 落下并检查”的流程，拖动中只预览，松手才做完整碰撞和支撑检查，放不下就放回原位。旋转是手横扫整个画面转一圈。观察模式两指捏合环绕、三指平移。嵌在手势页里时编辑器直接打开房间。
+- **导入物体**：工具栏“导入物体”列出 ViewForge 的重建结果；在 ViewForge 里标定过的自动填好尺寸，没标定的填一条实测边长（和 ViewForge 布局页一样）。显示用完整模型，碰撞和支撑用它的轻量预览（同一坐标，三角面约 1/40）。导入后放在离房间中心最近的空地上，再用手势或鼠标摆放。导入要重建碰撞索引，room3 约 10 秒。
+
 ## 文件
 
 | 位置 | 内容 |
@@ -27,10 +34,13 @@
 | `editor/wall-visibility.mjs` | 剖墙、墙角连接 |
 | `editor/layout.mjs` | 布局数据、撤销重做、导入导出 |
 | `editor/placement-*.mjs`、`joystick-ui.mjs` | 预览后确认的放置流程、控制卡、摇杆 |
+| `editor/gesture-bridge.mjs` | 手势页协议的接收端：抓取、移动、旋转、松手，相机环绕和平移 |
+| `editor/viewforge-import.mjs` | 读 ViewForge 物体目录和尺寸，算真实尺寸的放置矩阵 |
 | `editor/tests/` | 单元测试（Node 自带测试框架） |
 | `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
 | `scripts/check_*.mjs` | 用真实模型在 CPU 上检查：`check_room` 适用于任何房间，其余四个针对 office |
 | `scripts/publish.py` | 把编辑器复制到某个房间目录旁边 |
+| `scripts/serve.py` | 本机网页服务，转发 ViewForge 的读请求 |
 
 ## 测试
 
@@ -44,6 +54,8 @@ for c in collision wall_mount seat_support gravity; do node web/scripts/check_$c
 CI 全部都跑。
 
 ## 已知问题
+
+- **导入的物体不保存**：布局保存、导出只含房间原有家具；刷新后导入的物体要重新导入。以后有了后端再存。
 
 - **重模型移动时会顿一下**：选中、原位确认是即时的；但每移动一步都要对真实网格做完整检查，room3 的琴凳（TRELLIS 生成的重网格）每步约 2 秒，床、钢琴 0.1–0.5 秒，小物件几十毫秒。再快需要给重网格做简化的碰撞外形，或者把检查放到后台线程。
 - **重建本身的误差**：重建结果里家具之间常有几毫米到几厘米的互相穿插（room3 有 9 处）。这些原本就交叠的网格对不算碰撞，其余照常检查。白板、书架这类插进墙的，打开时显示“待调整”，挪开即可。
