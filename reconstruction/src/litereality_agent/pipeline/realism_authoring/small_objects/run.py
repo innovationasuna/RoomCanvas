@@ -240,7 +240,7 @@ class Pass:
                 camera = self.cameras[item["views"][0]["frame"]]["position"]
                 replace.append({"id": item["id"], "members": item["members"],
                                 "category": item["category"], "glb": item["glb"],
-                                "camera": camera})
+                                "camera": camera, "material": item.get("material")})
         return drop, replace
 
     def apply(self):

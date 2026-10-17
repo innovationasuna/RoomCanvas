@@ -144,9 +144,11 @@ def test_dominant_hue_ignores_grey_and_reads_magenta_vs_red():
     from litereality_agent.pipeline.realism_authoring.small_objects.rebuild import dominant_hue
 
     magenta = np.array([[187, 24, 84]] * 50 + [[200, 200, 200]] * 50)
-    hue, share = dominant_hue(magenta)
-    assert 330 < hue < 345 and share == pytest.approx(0.5)
+    hue, share, agreement = dominant_hue(magenta)
+    assert 330 < hue < 345 and share == pytest.approx(0.5) and agreement == pytest.approx(1)
     assert dominant_hue(np.array([[200, 200, 200]] * 10))[0] is None
+    spines = np.array([[220, 200, 30]] * 30 + [[40, 150, 60]] * 30 + [[30, 140, 150]] * 30)
+    assert dominant_hue(spines)[2] < 0.85  # yellow, green and teal books do not agree
 
 
 def test_material_correction_turns_a_drifted_texture_back_and_zeroes_metal(tmp_path):
@@ -173,9 +175,17 @@ def test_material_correction_turns_a_drifted_texture_back_and_zeroes_metal(tmp_p
     report = correct_material(tmp_path / "bag.glb", tmp_path / "ref.png", "bag", tmp_path / "out.glb")
     assert report["hue_corrected"] and report["metallic_zeroed"]
     mesh = next(iter(trimesh.load(tmp_path / "out.glb", process=False).geometry.values()))
-    hue, _ = dominant_hue(np.asarray(mesh.visual.material.baseColorTexture.convert("RGB")).reshape(-1, 3))
+    hue = dominant_hue(np.asarray(mesh.visual.material.baseColorTexture.convert("RGB")).reshape(-1, 3))[0]
     assert abs((hue - report["reference_hue"] + 180) % 360 - 180) < 3
     assert np.asarray(mesh.visual.material.metallicRoughnessTexture)[..., 2].max() == 0
 
     fan = correct_material(tmp_path / "bag.glb", tmp_path / "ref.png", "fan", tmp_path / "fan.glb")
     assert not fan["metallic_zeroed"]
+
+    # A many-coloured reference (a pile of books) is never turned.
+    books = Image.new("RGB", (30, 10))
+    for x, colour in ((0, (220, 200, 30)), (10, (40, 150, 60)), (20, (30, 140, 150))):
+        books.paste(colour, (x, 0, x + 10, 10))
+    books.save(tmp_path / "books.png")
+    pile = correct_material(tmp_path / "bag.glb", tmp_path / "books.png", "book", tmp_path / "pile.glb")
+    assert pile["reference_hue"] is None and not pile.get("hue_corrected")
