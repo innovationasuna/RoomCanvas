@@ -1,2 +1,2 @@
 // Entry point: sample-based UI with the existing office scene adapter.
-import './scene-editor.js?v=fast-30';
+import './scene-editor.js?v=gesture-31';
