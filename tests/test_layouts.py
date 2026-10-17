@@ -103,3 +103,13 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(self.client.get('/viewforge/layouts/rooms/office.glb').status_code,200)
         self.assertEqual(self.client.get('/viewforge/layouts/assets/chair/result.glb').status_code,200)
         self.assertEqual(self.client.post('/viewforge/layouts/save',json=self.layout([]),headers={'origin':'https://evil.invalid'}).status_code,400)
+    def test_viewer_entry_uses_checkout_location_and_preserves_gesture_session(self):
+        from urllib.parse import parse_qs, unquote, urlsplit
+        script=self.root/'checkout with spaces/scripts/layouts.py'
+        params={'gesture_origin':'http://127.0.0.1:8800','gesture_session':'session+/?'}
+        with patch('layouts.__file__',str(script)):
+            response=self.client.get('/viewforge/layouts/viewer',params=params,follow_redirects=False)
+        self.assertEqual(response.status_code,307)
+        target=urlsplit(response.headers['location'])
+        self.assertEqual(unquote(target.path),'/gradio_api/file='+str(script.parent/'assets/room-layout.html'))
+        self.assertEqual(parse_qs(target.query),{key:[value] for key,value in params.items()})

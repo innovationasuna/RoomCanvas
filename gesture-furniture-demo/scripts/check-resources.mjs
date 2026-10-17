@@ -21,5 +21,5 @@ if(manifest.backend) {
  }
 }
 for(const name of ['room/room.glb','furniture/sofa.glb','furniture/table.glb','furniture/chair.glb']) { const b=await readFile('public/models/'+name); if(b.toString('ascii',0,4)!=='glTF' || b.readUInt32LE(8)!==b.length) throw new Error(`GLB 无效 ${name}`); }
-const outputs=await readdir('outputs'); if(outputs.length) console.log('outputs 包含用户输出',outputs.length);
+const outputs=await readdir('outputs').catch(error=>{if(error.code==='ENOENT')return [];throw error;}); if(outputs.length) console.log('outputs 包含用户输出',outputs.length);
 console.log('模型、WASM、GLB、依赖版本与许可清单校验通过');

@@ -1,15 +1,19 @@
 # ViewForge 手势接入
 
-更新：2026-10-13。入口只启动浏览器摄像头、Worker 和手势识别，不启动原 Three.js 演示场景。3D 渲染、承托、碰撞校验由嵌入的 ViewForge Babylon.js 布局页处理。
+更新：2026-10-17。本目录已随 ViewForge 代码仓库提供，不依赖平级的独立手势仓库。入口只启动浏览器摄像头、Worker 和手势识别，不启动原 Three.js 演示场景。3D 渲染由同一浏览器内嵌入的 ViewForge Babylon.js 布局页处理，承托和碰撞校验请求服务器执行。
 
 ## 启动与操作
 
+在本机拉取的 ViewForge 代码仓库根目录执行（需要 Node.js 22.12+ 和 npm）：
+
 ```bash
-npm ci
-npm run dev
+sh scripts/gesture.sh install
+sh scripts/gesture.sh dev
 ```
 
-打开 http://127.0.0.1:8800/viewforge.html，保持已有 ViewForge SSH 隧道 127.0.0.1:7865 可用。默认布局地址使用服务器 `/workspace/geyinuo/ViewForge/code/scripts/assets/room-layout.html`；环境变化时在页面修改地址再连接。也可通过 `?layout=<编码后的布局 URL>` 配置。
+也可进入本目录运行 `npm ci`、`npm run dev`。打开 http://127.0.0.1:8800/viewforge.html，保持已有 ViewForge SSH 隧道 127.0.0.1:7865 可用。默认场景入口是 `http://127.0.0.1:7865/viewforge/layouts/viewer`，由更新后的后端解析实际布局文件位置；端口变化时在页面修改地址再连接。也可通过 `?layout=<编码后的布局 URL>` 配置。
+
+摄像头、识别和场景渲染都在本机浏览器执行，手势信号通过 postMessage 在两个页面间传递；服务器提供场景和模型资源，执行物体重建、操作结束后的碰撞校验及布局保存。高频手势帧不会发到服务器。
 
 在嵌入布局页确认房间尺寸、加入已标定物体。点击开启摄像头并授权，再选移动或旋转，先松手再捏合。右手中点指向物体，捏合抓取；移动沿地面/承托面，旋转左右拖动。开始释放即冻结，确认释放后检查碰撞，通过才应用，失败恢复原位。可点击取消或 Esc；鼠标继续可用。
 

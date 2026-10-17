@@ -86,13 +86,17 @@ class LayoutsMiddleware:
         prefix='/viewforge/layouts/'
         if scope['type']!='http' or not scope['path'].startswith(prefix): return await self.app(scope,receive,send)
         from starlette.requests import Request
-        from starlette.responses import JSONResponse,FileResponse
+        from starlette.responses import JSONResponse,FileResponse,RedirectResponse
         from starlette.concurrency import run_in_threadpool
         from urllib.parse import urlsplit
         req=Request(scope,receive); route=scope['path'][len(prefix):]
         directory=self.root/'data/layouts'; directory.mkdir(parents=True,exist_ok=True)
         try:
-            if req.method=='GET' and route=='catalog':
+            if req.method=='GET' and route=='viewer':
+                from urllib.parse import quote
+                target='/gradio_api/file='+quote(str(Path(__file__).parent/'assets/room-layout.html'),safe='/')
+                response=RedirectResponse(target+('?' + req.url.query if req.url.query else ''))
+            elif req.method=='GET' and route=='catalog':
                 rooms=[]
                 for name in ROOMS:
                     try: rooms.append(room(self.root,name))

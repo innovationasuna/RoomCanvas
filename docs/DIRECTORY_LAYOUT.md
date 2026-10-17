@@ -8,6 +8,7 @@
 ViewForge/
 ├── README.md          项目入口
 ├── code/              Git 仓库：源码、scripts、configs、tests、docs
+│   └── gesture-furniture-demo/  随仓库提供的本机手势入口、识别资源和测试
 ├── data/inputs/        按物体保存 images/ 与 masks/
 ├── weights/           BiRefNet、SAM3D、DA3、DINO 权重
 ├── envs/              birefnet 与 mvsam3d 独立环境
