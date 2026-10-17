@@ -1,0 +1,18 @@
+schema_version: 1
+seed: 42
+da3:
+  model: da3-nested-giant-large
+  process_res: 504
+mv:
+  stage1_steps: 50
+  stage2_steps: 25
+  stage1_weighting: true
+  stage1_entropy_layer: 9
+  stage1_entropy_alpha: 30.0
+  stage2_weighting: true
+  stage2_weight_source: entropy
+  stage2_entropy_alpha: 30.0
+  stage2_attention_layer: 6
+  stage2_attention_step: 0
+runtime:
+  min_free_gib: 22
