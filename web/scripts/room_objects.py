@@ -6,7 +6,7 @@ python3 web/scripts/room_objects.py <dir> --out other.json
 
 Input: room_layout.json (Blender Z-up, metres) and, when present, Room.glb next to it.
 Output: every object with its role (structure / opening / fixture / furniture), the movable
-group it belongs to, how it is mounted (floor / wall / ceiling), the wall it hangs on, and its
+group it belongs to (an object rebuilt on its own, `rebuilt` in the layout, is its own group), how it is mounted (floor / wall / ceiling), the wall it hangs on, and its
 bounding box converted to the glTF frame the web editor uses (Y-up: (x, y, z) -> (x, z, -y)).
 Standard library only; the GLB is read for its node names, never modified.
 """
@@ -109,8 +109,11 @@ def build(layout, node_names=None, names=None):
     records = []
     for item in layout['objects']:
         path = chain(item)
-        # Group owner: the outermost object that is not shell. Contents move with it.
-        owner = next((step for step in reversed(path) if step['category'] not in STRUCTURE), item)
+        # Group owner: the outermost object that is not shell. Contents move with it. An object
+        # rebuilt on its own (the small-object pass) is its own group, with what stands on it:
+        # it moves alone, and the editor still carries it along when its support moves.
+        owner = next((step for step in path if step.get('rebuilt') and step['category'] not in STRUCTURE),
+                     next((step for step in reversed(path) if step['category'] not in STRUCTURE), item))
         if item['category'] in STRUCTURE:
             owner = item
         role, mount = classify(owner)
@@ -130,6 +133,7 @@ def build(layout, node_names=None, names=None):
             'attached_to': item.get('attached_to'),
             'support_part': item.get('support_part'),
             'placeable_surface': bool(item.get('placeable_surface')),
+            **({'rebuilt': item['rebuilt']} if item.get('rebuilt') else {}),
             'bbox_min': [min(a, b) for a, b in zip(low, high)],
             'bbox_max': [max(a, b) for a, b in zip(low, high)],
         })
