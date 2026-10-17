@@ -8,7 +8,8 @@ goes to realism_authoring/small_objects/ and never touches room_preview/:
     items.json              every candidate with its evidence, decision and rebuild
     evidence/<id>/          photo crops, the outlined frame, photo/render pairs
     renders/{before,after}/ the room rendered from the frames used as evidence
-    rebuild/<id>/           evidence sheet, prompt, reference image, TRELLIS mesh (cleaned)
+    rebuild/<id>/           evidence sheet, prompt, reference image, TRELLIS mesh (cleaned,
+                            then model.glb: hue turned back to the reference, metal zeroed)
     room_preview/           the result: Room.blend, Room.glb, room_layout.json, apply.json
     summary.md, overview.jpg
 
@@ -220,6 +221,14 @@ class Pass:
                 elif item["id"] in pending:
                     item["glb_error"] = "TRELLIS wrote no mesh"
             self.save()
+        for item in wanted:  # also meshes made before this correction existed
+            if item.get("glb") and "material" not in item:
+                model = self.out / "rebuild" / item["id"] / "model.glb"
+                item["material"] = rebuild.correct_material(
+                    Path(item["glb"]), Path(item["reference"]), item["category"], model)
+                item["glb"] = str(model)
+                self.log(f"material {item['id']}: {item['material']}")
+                self.save()
 
     def plan(self, items):
         drop, replace = [], []

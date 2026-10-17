@@ -24,6 +24,9 @@ from litereality_agent.pipeline.scene_init.reconstruct.flow import LAUNCHER, res
 from litereality_agent.settings import load_settings
 
 FRAGMENT_SHARE = 0.01
+# TRELLIS predicts PBR maps itself and gave a fabric bag metallic 0.4; only these keep its guess.
+MAY_BE_METAL = {"fan", "lamp", "camera", "clock", "appliance", "tool", "monitor", "television"}
+HUE_TOLERANCE = 8.0  # degrees between the reference's and the texture's dominant colour
 
 
 def make_reference(item: dict, tiles: list[dict], description: str, out: Path) -> dict:
@@ -113,3 +116,63 @@ def drop_fragments(source: Path, target: Path) -> dict:
     target.parent.mkdir(parents=True, exist_ok=True)
     scene.export(target)
     return counts
+
+
+def dominant_hue(rgb: np.ndarray, weight: np.ndarray | None = None):
+    """Circular mean hue (degrees) of the saturated pixels, and their share; None if too few."""
+    rgb = rgb.astype(np.float64) / 255
+    high, low = rgb.max(1), rgb.min(1)
+    sat = np.where(high > 0, (high - low) / np.maximum(high, 1e-9), 0)
+    weight = np.ones(len(rgb)) if weight is None else weight
+    keep = (sat > 0.35) & (high > 0.15)
+    share = weight[keep].sum() / max(weight.sum(), 1e-12)
+    if share < 0.1:
+        return None, share
+    r, g, b = rgb[keep].T
+    hue = np.arctan2(np.sqrt(3) * (g - b), 2 * r - g - b)  # the HSV hue angle, in radians
+    w = weight[keep] * sat[keep]
+    return float(np.degrees(np.arctan2((w * np.sin(hue)).sum(), (w * np.cos(hue)).sum()))) % 360, share
+
+
+def correct_material(source: Path, reference: Path, category: str, target: Path) -> dict:
+    """Turn the texture's dominant hue back to the reference's when TRELLIS drifted (it made a
+    magenta bag red, the same for every seed), and zero metallic for non-metal things."""
+    import trimesh
+    from PIL import Image
+
+    scene = trimesh.load(source, process=False)
+    ref = np.asarray(Image.open(reference).convert("RGB")).reshape(-1, 3)
+    ref_hue, _ = dominant_hue(ref[ref.max(1) > 30])
+    report = {"reference_hue": ref_hue, "metallic_zeroed": category not in MAY_BE_METAL}
+    for mesh in scene.geometry.values():
+        material = mesh.visual.material
+        texture = getattr(material, "baseColorTexture", None)
+        if texture is not None and ref_hue is not None:
+            pixels = np.asarray(texture.convert("RGB"))
+            h, w = pixels.shape[:2]
+            uv = mesh.visual.uv[mesh.faces].mean(1)  # the texels the surface uses, by face area
+            rows = np.clip(((1 - uv[:, 1]) * (h - 1)).astype(int), 0, h - 1)
+            cols = np.clip((uv[:, 0] * (w - 1)).astype(int), 0, w - 1)
+            tex_hue, share = dominant_hue(pixels[rows, cols], mesh.area_faces)
+            report.update(texture_hue=tex_hue, saturated_share=round(float(share), 3))
+            if tex_hue is not None:
+                shift = (ref_hue - tex_hue + 180) % 360 - 180
+                report["hue_shift"] = round(shift, 1)
+                if abs(shift) > HUE_TOLERANCE:
+                    hsv = np.asarray(texture.convert("RGB").convert("HSV")).copy()
+                    hsv[..., 0] = ((hsv[..., 0].astype(int) + round(shift / 360 * 256)) % 256)
+                    rgb = Image.fromarray(hsv, "HSV").convert("RGB")
+                    if texture.mode == "RGBA":
+                        rgb.putalpha(texture.getchannel("A"))
+                    material.baseColorTexture = rgb
+                    report["hue_corrected"] = True
+        if report["metallic_zeroed"]:
+            material.metallicFactor = 0.0
+            mr = getattr(material, "metallicRoughnessTexture", None)
+            if mr is not None:
+                arr = np.asarray(mr.convert("RGB")).copy()
+                arr[..., 2] = 0  # glTF keeps metallic in the blue channel
+                material.metallicRoughnessTexture = Image.fromarray(arr)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    scene.export(target)
+    return report
