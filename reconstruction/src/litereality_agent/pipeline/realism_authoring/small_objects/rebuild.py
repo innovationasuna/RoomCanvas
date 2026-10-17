@@ -27,6 +27,10 @@ FRAGMENT_SHARE = 0.01
 # TRELLIS predicts PBR maps itself and gave a fabric bag metallic 0.4; only these keep its guess.
 MAY_BE_METAL = {"fan", "lamp", "camera", "clock", "appliance", "tool", "monitor", "television"}
 HUE_TOLERANCE = 8.0  # degrees between the reference's and the texture's dominant colour
+# Turning every colour by one angle only fits a thing of one strong colour (a magenta bag); on a
+# pile of books with yellow, green and teal spines it turned them pink and orange.
+ONE_COLOUR_SHARE = 0.5  # saturated pixels must cover at least this much of the surface
+ONE_COLOUR_SPREAD = 0.85  # and their hues must agree (mean resultant length, 1 = one hue)
 
 
 def make_reference(item: dict, tiles: list[dict], description: str, out: Path) -> dict:
@@ -119,7 +123,8 @@ def drop_fragments(source: Path, target: Path) -> dict:
 
 
 def dominant_hue(rgb: np.ndarray, weight: np.ndarray | None = None):
-    """Circular mean hue (degrees) of the saturated pixels, and their share; None if too few."""
+    """Circular mean hue (degrees) of the saturated pixels, their share, and how much their hues
+    agree (1 = all one hue); hue None if too few."""
     rgb = rgb.astype(np.float64) / 255
     high, low = rgb.max(1), rgb.min(1)
     sat = np.where(high > 0, (high - low) / np.maximum(high, 1e-9), 0)
@@ -127,11 +132,12 @@ def dominant_hue(rgb: np.ndarray, weight: np.ndarray | None = None):
     keep = (sat > 0.35) & (high > 0.15)
     share = weight[keep].sum() / max(weight.sum(), 1e-12)
     if share < 0.1:
-        return None, share
+        return None, share, 0.0
     r, g, b = rgb[keep].T
     hue = np.arctan2(np.sqrt(3) * (g - b), 2 * r - g - b)  # the HSV hue angle, in radians
     w = weight[keep] * sat[keep]
-    return float(np.degrees(np.arctan2((w * np.sin(hue)).sum(), (w * np.cos(hue)).sum()))) % 360, share
+    s, c = (w * np.sin(hue)).sum(), (w * np.cos(hue)).sum()
+    return float(np.degrees(np.arctan2(s, c))) % 360, share, float(np.hypot(s, c) / w.sum())
 
 
 def correct_material(source: Path, reference: Path, category: str, target: Path) -> dict:
@@ -142,8 +148,12 @@ def correct_material(source: Path, reference: Path, category: str, target: Path)
 
     scene = trimesh.load(source, process=False)
     ref = np.asarray(Image.open(reference).convert("RGB")).reshape(-1, 3)
-    ref_hue, _ = dominant_hue(ref[ref.max(1) > 30])
-    report = {"reference_hue": ref_hue, "metallic_zeroed": category not in MAY_BE_METAL}
+    ref_hue, ref_share, ref_spread = dominant_hue(ref[ref.max(1) > 30])
+    if ref_share < ONE_COLOUR_SHARE or ref_spread < ONE_COLOUR_SPREAD:
+        ref_hue = None  # not a one-colour thing: leave its colours alone
+    report = {"reference_hue": ref_hue, "reference_share": round(float(ref_share), 3),
+              "reference_agreement": round(ref_spread, 3),
+              "metallic_zeroed": category not in MAY_BE_METAL}
     for mesh in scene.geometry.values():
         material = mesh.visual.material
         texture = getattr(material, "baseColorTexture", None)
@@ -153,9 +163,10 @@ def correct_material(source: Path, reference: Path, category: str, target: Path)
             uv = mesh.visual.uv[mesh.faces].mean(1)  # the texels the surface uses, by face area
             rows = np.clip(((1 - uv[:, 1]) * (h - 1)).astype(int), 0, h - 1)
             cols = np.clip((uv[:, 0] * (w - 1)).astype(int), 0, w - 1)
-            tex_hue, share = dominant_hue(pixels[rows, cols], mesh.area_faces)
-            report.update(texture_hue=tex_hue, saturated_share=round(float(share), 3))
-            if tex_hue is not None:
+            tex_hue, share, spread = dominant_hue(pixels[rows, cols], mesh.area_faces)
+            report.update(texture_hue=tex_hue, saturated_share=round(float(share), 3),
+                          hue_agreement=round(spread, 3))
+            if tex_hue is not None and share >= ONE_COLOUR_SHARE and spread >= ONE_COLOUR_SPREAD:
                 shift = (ref_hue - tex_hue + 180) % 360 - 180
                 report["hue_shift"] = round(shift, 1)
                 if abs(shift) > HUE_TOLERANCE:
