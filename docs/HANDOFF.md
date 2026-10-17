@@ -52,11 +52,15 @@
 - 顺带发现：room3 的“落地风扇”其实是钢琴旁书堆后的台式风扇，重建记录的 0.73 m 尺寸是错的。
 
 **用户定的方案**：
-1. 按大小分档（阈值先这样，以后可调）：最长边 < 15 cm 的**直接删掉**；厚度 < 2 cm 的扁平物（散乐谱、单本书）保持程序化；其余走 TRELLIS。一摞东西（24 本书）合成一件重建。墙上的插座、开关、灯等固定设施不在此列。
-2. 流程：拼证据图（仓库现成的 `make_weighted_input_sheet`、`build_prompt`）→ `generate_reference`（gpt-image-2）→ TRELLIS（`reconstruction/server/trellis_local.py`）→ 清理碎片 → 按原物件位置和尺寸替换进 `Room.blend` → 对照照片检查。
-3. **重建出来很不像的（包括变成方块的）就不要了**：直接删除，不退回程序化方块。检查方式：Astra 看渲染图和照片判断，每件一次看图问答（费用远低于 author 阶段）。
-4. 重建出来的物件在编辑器里**单独可移动**；放在家具上的，家具移动时跟着走（编辑器已有“随支撑物移动”）。扁平的程序化物件仍跟着所在家具算一组。改 `web/scripts/room_objects.py` 的分组规则。
-5. 做成 author 之后的独立新步骤，读现有 `Room.blend`，不用重跑 author；重建模块只加新文件，README 补一句；和网页改动合成一个 PR。先在 room3 上验证，预估 15–25 件，图片费 $1–2，GPU 约 1 小时。
+1. **不设固定的尺寸阈值，由 Astra 逐件判断**：看这件物件的照片和它在房间里的情况，三选一：
+   - **舍弃**：太小、照片里看不清、对房间不重要的（比如瓶子、磁贴、马克笔）；
+   - **程序化建模**：规则形状、程序化本来就能做像的（比如扁平的乐谱、单本书、规则的桶）；
+   - **TRELLIS 重建**：软的、有褶皱的、形状复杂的（比如被子、枕头、购物袋、拖鞋）。
+   实验里观察到的规律（小而糊的 TRELLIS 会乱生成，扁平物没必要用 TRELLIS，一摞书适合合成一件）写进给 Astra 的说明里作为参考，不作为硬规则。墙上的插座、开关、灯等固定设施不在此列。
+2. TRELLIS 路线：拼证据图（仓库现成的 `make_weighted_input_sheet`、`build_prompt`）→ `generate_reference`（gpt-image-2）→ TRELLIS（`reconstruction/server/trellis_local.py`）→ 清理碎片 → 按原物件位置和尺寸替换进 `Room.blend`。
+3. **重建出来很不像的（包括变成方块的）就不要了**：Astra 对照照片检查，不像就直接删除，不保留方块。程序化建的也同样检查。
+4. 重建出来的物件在编辑器里**单独可移动**；放在家具上的，家具移动时跟着走（编辑器已有“随支撑物移动”）。改 `web/scripts/room_objects.py` 的分组规则。
+5. 做成 author 之后的独立新步骤，读现有 `Room.blend`，不用重跑 author；重建模块只加新文件，README 补一句；和网页改动合成一个 PR。先在 room3 上验证。费用：每件一次 Astra 判断、一次 Astra 检查（看图问答），TRELLIS 的每件再加约 $0.086 图片费和 2–2.5 分钟 GPU。
 
 **实验脚本可参考**（都在服务器实验目录，不在仓库）：`crops2.py`/`views.py`（按相机投影 + Grounding DINO 找物体、按世界朝上转正裁图）、`segment.py`（SAM2 抠图；依赖装在实验目录 `pydeps/`，没动共用环境）、`rescue2.py`（证据图 + 参考图）、`run_trellis.py`（选卡加锁跑 TRELLIS）、`cleanup.py`（清碎片）、`export_procedural.py`（从 `Room.blend` 单独导出物件）。注意：TRELLIS 启动器默认不抠图，输入要么带透明通道，要么黑底（RGB 都 ≤12 的像素当透明）；照片是横拍的，裁图要按相机朝向转正。
 
