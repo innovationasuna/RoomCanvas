@@ -24,7 +24,7 @@
 - 支持 WebGL2、摄像头和 Web Worker 的浏览器；当前主要验证环境为 Apple Silicon Mac + Chrome。
 - 摄像头只在点击开启按钮并授权后使用；鼠标模式不需要摄像头。
 
-在拉取后的 ViewForge 代码仓库根目录进入 `gesture-furniture-demo/`，再安装并启动：
+在拉取后的 RoomCanvas 仓库根目录进入 `gesture/`，再安装并启动：
 
 ```sh
 npm ci
@@ -80,7 +80,7 @@ npm run preview
 
 ## ViewForge 接入
 
-本目录已随 ViewForge 仓库提供，无需单独克隆或放在固定的本机目录。推荐在 ViewForge 代码仓库根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；也可进入本目录运行下列 npm 命令。
+本目录已随 RoomCanvas 仓库提供，无需单独克隆或放在固定的本机目录。推荐在 RoomCanvas 根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；也可进入本目录运行上述 npm 命令。ViewForge 场景端位于平级 `object-reconstruction/`。
 
 运行 `npm run dev` 后打开 [ViewForge 手势布局](http://127.0.0.1:8800/viewforge.html)。先在嵌入的房间页确认尺寸并加入物体，再开启摄像头，用左手 1/2/3 选择移动、旋转、仅观察。右手两指捏合操作物体或环绕观察，观察模式三指合拢平移视角。该入口只运行识别，3D 场景由 ViewForge 渲染；原演示保持独立。环境、操作边界和验收记录见 [接入说明](docs/viewforge-integration.md)；后续验收与调整见 [下一阶段计划](docs/viewforge-next-plan.md)。
 

@@ -1,5 +1,7 @@
 # ViewForge 运行说明
 
+RoomCanvas 整合说明：本模块现位于 `object-reconstruction/`，从该目录执行下面的相对启动命令；手势入口位于 RoomCanvas 的 `gesture/`。环境、权重和数据仍由 `VIEWFORGE_ROOT` 配置。下文的独立 `code/`、`upstream` 远程和旧部署路径属于原 ViewForge 运行记录，当前目录与历史保留方式以 [整合说明](../../docs/VIEWFORGE_INTEGRATION.md) 为准。
+
 `code/` 是保留上游历史的 MV-SAM3D 仓库。`upstream` 指向原作者仓库，当前部署基于 `abb04b5`；尚未创建 GitHub 账号下的远程 fork。
 
 ```bash

@@ -1,5 +1,13 @@
 # 实施与验收日志
 
+## 2026-10-17 · 随 ViewForge 整合进 RoomCanvas
+
+- ViewForge 完整历史通过合并提交 `670a8bf` 导入 RoomCanvas；原哈希、作者和时间保持不变。
+- 本工程从 `object-reconstruction/gesture-furniture-demo/` 提升为 RoomCanvas 根目录的 `gesture/`。Root 启动脚本相对定位本目录，ViewForge 模块内保留兼容入口。
+- 手势动作、浏览器内识别、postMessage 协议、Babylon 场景和服务器校验逻辑保持原有实现；后续由 RoomCanvas 整合分支维护本目录。
+- 原 RoomCanvas 的房间重建、Three.js 编辑器和示例文件保持不变，两个前端模块各用自己的锁文件和依赖目录。
+- 新结构下手势 74 项、ViewForge 前端 34 项及后端 71 项、原编辑器 122 项与 6 项 Python 测试通过，类型/资源检查和两个前端构建通过；临时服务已确认新场景路径和原有 catalog。未切换既有服务，未推送或合并 main。
+
 ## 2026-10-17 · 合并 Git 历史与保存迁移
 
 - ViewForge 先按功能依赖补齐五批阶段提交，作者和提交者日期依据文件修改日期及项目记录推定，并在提交说明中注明整理日期。

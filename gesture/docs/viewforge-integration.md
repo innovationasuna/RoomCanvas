@@ -1,10 +1,10 @@
 # ViewForge 手势接入
 
-更新：2026-10-17。本目录已随 ViewForge 代码仓库提供，不依赖平级的独立手势仓库。入口只启动浏览器摄像头、Worker 和手势识别，不启动原 Three.js 演示场景。3D 渲染由同一浏览器内嵌入的 ViewForge Babylon.js 布局页处理，承托和碰撞校验请求服务器执行。
+更新：2026-10-17。本目录已随 RoomCanvas 仓库放在 `gesture/`，不依赖独立手势仓库；ViewForge 场景端在平级 `object-reconstruction/`。入口只启动浏览器摄像头、Worker 和手势识别，不启动原 Three.js 演示场景。3D 渲染由同一浏览器内嵌入的 ViewForge Babylon.js 布局页处理，承托和碰撞校验请求服务器执行。
 
 ## 启动与操作
 
-在本机拉取的 ViewForge 代码仓库根目录执行（需要 Node.js 22.12+ 和 npm）：
+在本机拉取的 RoomCanvas 仓库根目录执行（需要 Node.js 22.12+ 和 npm）：
 
 ```bash
 sh scripts/gesture.sh install

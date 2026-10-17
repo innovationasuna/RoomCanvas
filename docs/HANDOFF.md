@@ -5,7 +5,7 @@
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
-- 三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。
+- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。整合分支另有 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
 - 编辑器只有一条路：任何房间都读 `room_objects.json`（`web/scripts/room_objects.py` 生成，可手写 `name` 覆盖家具名）。座面、墙角短墙、窗帘归墙都自动处理。
 - 测试：网页单测 122 项、Python 6 项、office 五个真实模型检查、两个房间的 `check_room`，CI 全跑。`reconstruction/` 离线测试 770 通过、2 跳过。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
@@ -16,7 +16,7 @@
 - 回复用中文；提交不加 Claude 署名，作者用 git 全局配置（innovationAusna）。
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
-- ViewForge（lyk 的）只读，不改不迁。
+- 用户于 2026-10-17 授权把 ViewForge 及手势代码、完整历史导入本仓库。整合在 `feat/integrate-viewforge` 分支，原 ViewForge 仓库和运行服务保留；不要再按旧的“只读、不迁”约定处理本次整合。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。此分支合入 main 时需普通 merge commit，以保留导入历史。
 - 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）

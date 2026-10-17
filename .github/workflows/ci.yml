@@ -63,3 +63,34 @@ jobs:
           for check in collision wall_mount seat_support gravity; do node web/scripts/check_$check.mjs --scene-dir samples/office; done
           node web/scripts/check_room.mjs --scene-dir samples/office
           node web/scripts/check_room.mjs --scene-dir samples/room3
+
+  object-viewer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: object-reconstruction/viewer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  gesture:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gesture
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:resources
+      - run: npm run build

@@ -1,5 +1,7 @@
 # ViewForge 与手势代码的历史整理
 
+后续整合：本文件随 ViewForge `a93d457` 导入 RoomCanvas 的 `object-reconstruction/`，手势最终位于 RoomCanvas 的 `gesture/`。原提交的路径、哈希和时间均保留，下文描述的是原 ViewForge 仓库整理过程；当前目录及入口见 [RoomCanvas 整合说明](../../docs/VIEWFORGE_INTEGRATION.md)。
+
 整理日期：2026-10-17。实际 Git 仓库是服务器 `/workspace/geyinuo/ViewForge/code`，本机同步目录是工作区中的 `code/`。保留原 MV-SAM3D/ViewForge 历史，在 `codex/gesture-integration` 分支追加提交，不重写已有提交。
 
 ## ViewForge 阶段提交日期
