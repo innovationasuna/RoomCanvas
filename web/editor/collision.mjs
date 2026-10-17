@@ -162,12 +162,19 @@ function pointInside(mesh, point) {
     function visit(node) {
       if (!rayBox(point, direction, node.box)) return;
       if (!node.faces) {visit(node.left); visit(node.right); return;}
+      // Moller-Trumbore, written out in scalars: the same arithmetic as subtract/cross/dot,
+      // without allocating arrays for every face of a large mesh.
+      const [d0, d1, d2] = direction, [p0, p1, p2] = point;
       for (const face of node.faces) {
-        const [a, b, c] = face.triangle, e1 = subtract(b, a), e2 = subtract(c, a), h = cross(direction, e2), determinant = dot(e1, h);
+        const [a, b, c] = face.triangle;
+        const e10 = b[0] - a[0], e11 = b[1] - a[1], e12 = b[2] - a[2], e20 = c[0] - a[0], e21 = c[1] - a[1], e22 = c[2] - a[2];
+        const h0 = d1 * e22 - d2 * e21, h1 = d2 * e20 - d0 * e22, h2 = d0 * e21 - d1 * e20;
+        const determinant = e10 * h0 + e11 * h1 + e12 * h2;
         if (Math.abs(determinant) < 1e-14) continue;
-        const s = subtract(point, a), u = dot(s, h) / determinant, q = cross(s, e1), v = dot(direction, q) / determinant;
+        const s0 = p0 - a[0], s1 = p1 - a[1], s2 = p2 - a[2], u = (s0 * h0 + s1 * h1 + s2 * h2) / determinant;
+        const q0 = s1 * e12 - s2 * e11, q1 = s2 * e10 - s0 * e12, q2 = s0 * e11 - s1 * e10, v = (d0 * q0 + d1 * q1 + d2 * q2) / determinant;
         if (u < -EPS || v < -EPS || u + v > 1 + EPS) continue;
-        const t = dot(e2, q) / determinant;
+        const t = (e20 * q0 + e21 * q1 + e22 * q2) / determinant;
         if (t <= EPS) continue;
         if (Math.min(u, v, 1 - u - v) < EPS) grazing = true;
         hits.push(t);
@@ -226,13 +233,36 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       if (!transformedFaces.has(face)) transformedFaces.set(face, face.triangle.map(relative));
       return transformedFaces.get(face);
     };
+    // A transformed face with its bounds and unit plane, computed once per check.
+    const planes = new Map();
+    const placed = (face) => {
+      if (!planes.has(face)) {
+        const t = triangle(face), raw = normal(t), length = Math.hypot(...raw);
+        const n = length < 1e-12 ? null : raw.map((v) => v / length);
+        planes.set(face, {t, box: bounds(t), n, d: n ? dot(n, t[0]) : 0});
+      }
+      return planes.get(face);
+    };
+    // Signed distances of a triangle's corners to a plane, as [min, max].
+    const span = (points, n, d) => {
+      let low = Infinity, high = -Infinity;
+      for (const p of points) {const v = dot(n, p) - d; if (v < low) low = v; if (v > high) high = v;}
+      return [low, high];
+    };
     function crosses(nodeA, nodeB) {
       if (!overlap(nodeBox(nodeA), nodeB.box)) return false;
       if (nodeA.faces && nodeB.faces) {
-        return nodeA.faces.some((fa) => {
-          const a = triangle(fa), box = bounds(a);
-          return nodeB.faces.some((fb) => overlap(box, fb.box) && trianglesCross(a, fb.triangle));
-        });
+        for (const fa of nodeA.faces) {
+          const a = placed(fa);
+          if (!a.n) continue;
+          for (const fb of nodeB.faces) {
+            if (!overlap(a.box, fb.box)) continue;
+            // trianglesCross with both planes computed once: each triangle must straddle the other's.
+            const [lowA, highA] = span(a.t, fb.plane, fb.d), [lowB, highB] = span(fb.triangle, a.n, a.d);
+            if (lowA < -EPS && highA > EPS && lowB < -EPS && highB > EPS && trianglesIntersect(a.t, fb.triangle)) return true;
+          }
+        }
+        return false;
       }
       if (!nodeA.faces) return crosses(nodeA.left, nodeB) || crosses(nodeA.right, nodeB);
       return crosses(nodeA, nodeB.left) || crosses(nodeA, nodeB.right);
@@ -242,12 +272,18 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     function contained(source, sourceOwner, sourcePose, target, targetOwner, targetPose) {
       if (!isClosed(target)) return false;
       const toTarget = (point) => localPoint(worldPoint(point, sourceOwner, sourcePose), targetOwner, targetPose);
+      // A vertex is shared by about six faces, as one array; test it once.
+      const known = new Map();
+      const inside = (point) => {
+        if (!known.has(point)) known.set(point, pointInside(target, toTarget(point)));
+        return known.get(point);
+      };
       function visit(node) {
         if (!overlap(bounds(corners(node.box).map(toTarget)), target.tree.box)) return false;
         if (!node.faces) return visit(node.left) || visit(node.right);
         for (const face of node.faces) {
           const center = centroid(face.triangle), points = [center, ...face.triangle];
-          for (const point of points) if (pointInside(target, toTarget(point))) return true;
+          for (const point of points) if (inside(point)) return true;
           // Fully coincident shells have no crossing and every boundary sample
           // is contact. Probe both sides but require the probe to be inside BOTH
           // closed meshes, so adjacent touching solids remain legal.
@@ -286,7 +322,18 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   // Check that destination without sweeping through furniture between walls.
   // Carried children are an assembly: internal support contacts are preserved,
   // while every moved member is checked against all stationary authored meshes.
+  // One edit asks about the same layout twice (the move, then its drop preview); the answer
+  // depends only on the poses, so the last one is reused.
+  let last = null;
   function checkPlacement(layout, movedIds) {
+    const key = JSON.stringify([movedIds, owners.map((owner) => layout[owner.id] || null)]);
+    if (last?.key === key) return last.result;
+    const result = checkPlacementOnce(layout, movedIds);
+    last = {key, result};
+    return result;
+  }
+
+  function checkPlacementOnce(layout, movedIds) {
     const started = performance.now(), moved = new Set(movedIds), moving = owners.filter((owner) => moved.has(owner.id));
     if (moving.length !== moved.size || moving.some((owner) => !layout[owner.id] || !['x', 'z', 'yaw'].every((key) => Number.isFinite(layout[owner.id][key])) || !Number.isFinite(layout[owner.id].y ?? 0))) {
       return {ok: false, blocked: true, other: null, reason: 'invalid-pose'};
