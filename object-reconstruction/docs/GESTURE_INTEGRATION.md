@@ -1,11 +1,11 @@
 # 手势移动与旋转
 
-更新：2026-10-17。已接入右手选择、捏合移动和自由旋转，以及左手数字模式切换、右手两指环绕/三指平移观察。手势源码和运行资源已迁入本仓库的 `gesture-furniture-demo/`，房间交互、承托和碰撞继续由 ViewForge 处理。只运行一个 Babylon.js 3D 场景，手势入口不启动原 Three.js 演示。
+更新：2026-10-17。已接入右手选择、捏合移动和自由旋转，以及左手数字模式切换、右手两指环绕/三指平移观察。本模块已迁入 RoomCanvas 的 `object-reconstruction/`，手势源码和运行资源在仓库根目录的 `gesture/`，房间交互、承托和碰撞继续由 ViewForge 处理。只运行一个 Babylon.js 3D 场景，手势入口不启动原 Three.js 演示。
 
 ## 本机使用
 
 1. 保持 ViewForge 现有网页服务和 SSH 隧道可用：`http://127.0.0.1:7865/`。
-2. 在本机拉取后的 ViewForge 代码仓库根目录（当前工作区的 `code/`）启动手势工程。要求 Node.js 22.12+ 和 npm：
+2. 在本机拉取后的 RoomCanvas 仓库根目录启动手势工程。要求 Node.js 22.12+ 和 npm；也可在 `object-reconstruction/` 内使用兼容脚本：
 
    ```bash
    sh scripts/gesture.sh install
@@ -19,7 +19,7 @@
 
 摄像头默认关闭，用户按钮开启；关闭释放视频流和 Worker。只在本机浏览器识别，不上传摄像头画面。当前识别入口使用 localhost/127.0.0.1 的本地地址，未接入远程识别模式。
 
-本机不再依赖平级的独立手势仓库。依赖安装在本仓库的 `gesture-furniture-demo/node_modules/`，不纳入 Git。使用 Mutagen 时需显式排除 `**/node_modules/` 和 `**/dist/`；它不会自动使用 `.gitignore`。后续更新拉取 ViewForge 即可；首次使用仍需安装依赖，并配置可用的 ViewForge 服务与 SSH 隧道。服务器物体重建所需权重、环境、照片和历史结果仍在原数据目录，不随源码克隆。
+本机不再依赖独立手势仓库。依赖安装在 RoomCanvas 的 `gesture/node_modules/`，不纳入 Git。使用 Mutagen 时需显式排除 `**/node_modules/` 和 `**/dist/`；它不会自动使用 `.gitignore`。后续更新拉取 RoomCanvas 即可；首次使用仍需安装依赖，并配置可用的 ViewForge 服务与 SSH 隧道。服务器物体重建所需权重、环境、照片和历史结果仍在原数据目录，不随源码克隆。
 
 默认场景入口为 `http://127.0.0.1:7865/viewforge/layouts/viewer`。服务器按实际源码目录重定向到布局页，保留手势会话参数，不在手势代码中固定服务器磁盘路径。端口变化时修改页面的房间布局地址，或传入 `?layout=<编码后的布局 URL>`。此入口需要运行更新后的 ViewForge 后端。
 

@@ -1,10 +1,10 @@
 # ViewForge 手势接入：当前状态与后续计划
 
-更新：2026-10-17。左手数字选择与右手观察操作已实现；源码已迁入 ViewForge，原手势历史完整导入，ViewForge 阶段提交和目录适配分开保存。操作说明见 [手势接入](GESTURE_INTEGRATION.md)，提交依据见 [历史整理](HISTORY_INTEGRATION.md)。
+更新：2026-10-17。左手数字选择与右手观察操作已实现；源码与完整历史已随 ViewForge 整合进 RoomCanvas，手势在根目录 `gesture/`，物体与场景端在 `object-reconstruction/`。操作说明见 [手势接入](GESTURE_INTEGRATION.md)，提交依据见 [历史整理](HISTORY_INTEGRATION.md)。
 
 ## 2026-10-17 路径迁移
 
-当前使用 ViewForge 代码仓库内的 `gesture-furniture-demo/`；原独立手势仓库 `32082a3` 是迁入来源，不再作为启动依赖。在本机 ViewForge 仓库根目录运行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`。浏览器识别和渲染、服务器校验的分工不变。下表及原两仓库分工描述保留为上一阶段记录，以本段和最新操作说明为准。
+当前使用 RoomCanvas 代码仓库内的 `gesture/`；原独立手势仓库 `32082a3` 是迁入来源，不再作为启动依赖。在本机 RoomCanvas 仓库根目录运行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`。浏览器识别和渲染、服务器校验的分工不变。下表及原两仓库分工描述保留为上一阶段记录，以本段和最新操作说明为准。
 
 ## 代码边界和当前版本
 

@@ -2,7 +2,7 @@
 
 ViewForge provides automatic BiRefNet masks, preview confirmation, and multi-view reconstruction using DA3 and MV-SAM3D. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
 
-手势识别源码和运行资源随仓库放在 [`gesture-furniture-demo/`](gesture-furniture-demo/)。本机在本仓库根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/viewforge.html>。保持 ViewForge 的本机 SSH 隧道可用；无需另外克隆手势仓库。启动与数据流见 [手势接入说明](docs/GESTURE_INTEGRATION.md)，提交来源和日期依据见 [历史整理说明](docs/HISTORY_INTEGRATION.md)。
+本模块已随 RoomCanvas 仓库提供，手势源码和运行资源在平级的 [`gesture/`](../gesture/)。本机在 RoomCanvas 根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/viewforge.html>。本模块内的同名脚本保留为兼容入口。保持 ViewForge 的本机 SSH 隧道可用；无需另外克隆手势仓库。启动与数据流见 [手势接入说明](docs/GESTURE_INTEGRATION.md)，提交来源和日期依据见 [历史整理说明](docs/HISTORY_INTEGRATION.md)。
 
 ## MV-SAM3D
 
