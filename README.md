@@ -29,11 +29,28 @@ $PY reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
-`run_room.py` 自动挑一张空闲 GPU 并加锁，确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）。运行环境、模型权重和 `.env` 在服务器的 `ROOMCANVAS_HOME`（默认 `/workspace/geyinuo/RoomCanvas`）。重建完成后，把 `room_preview/` 里的房间接到网页上：
+`run_room.py` 自动挑一张空闲 GPU 并加锁；author 视觉验收后的返工默认只做 1 轮（官方默认 2 轮，`--repair-rounds 0` 只验收不返工）；确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）。运行环境、模型权重和 `.env` 在服务器的 `ROOMCANVAS_HOME`（默认 `/workspace/geyinuo/RoomCanvas`）。重建完成后，把 `room_preview/` 里的房间接到网页上：
 
 ```bash
 python3 web/scripts/room_objects.py <room_preview 目录>   # 生成网页用的物体清单 room_objects.json
 ```
+
+### 小物件：舍弃、程序化或 TRELLIS（author 之后的一步）
+
+author 阶段的小物件（书、拖鞋、袋子、枕头……）都是 Blender 基本形状拼的。这一步读 author 产出的 `Room.blend`，不重跑 author：
+
+```bash
+$PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录> --check
+$PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录>
+```
+
+1. 挑候选：author 加的、能拿起来挪动的东西；不含房间结构、门窗、重建出来的家具、插座开关灯等固定设施、挂在墙上或天花板上的东西、能放东西的家具。没有尺寸阈值。叠在一起的（一摞书）合成一件。
+2. 找照片：按相机投影挑能看到它的帧，Grounding DINO 在投影附近确认，优先清晰的，裁图转正；再从同一相机渲染当前模型，和照片并排。
+3. Astra 逐件三选一（每件只问一次）：**舍弃**（太小、看不清、不重要，或怎么建都不会像）、**程序化**（当前模型已经像，保留）、**TRELLIS**（软的、有褶皱的、形状复杂且照片清楚的）。实验里观察到的规律作为参考写进提示词，不是硬规则。
+4. TRELLIS 的：证据图 → gpt-image-2 参考图 → TRELLIS → 去掉碎片，按原物件的位置、高度和朝向（俯视最小外接矩形）放回原处，基本保持新模型自身比例，正面朝向拍得最清楚的相机。某件 TRELLIS 显存不够时单独隔离、改用 512 分辨率再试；仍失败的保留原模型，重跑同一命令会补做。
+5. 同一相机渲染“照片 | 原模型 | 重建”三联图放进 `overview.jpg`，供人检查；不再让 Astra 二次检查。
+
+结果在 `<新目录>/room_preview/`（`Room.blend`、`Room.glb`、`room_layout.json`，重建的物件标 `"rebuilt": "trellis"`），每件的照片、渲染对比、Astra 的回答和费用在 `items.json`、`summary.md`、`overview.jpg`。中断后重跑同一命令会接着做。重建的物件在网页里单独可移动，放在家具上的会随家具移动。
 
 ## 物体重建与手势
 
@@ -45,6 +62,7 @@ ViewForge 手势入口在本机运行：在本仓库根目录执行 `sh scripts/
 
 - **所有 Agent 改用 Codex。** 默认 provider 从 claude 改为 codex（`models.env`、`settings.py`、`agent/providers/base.py`）。Codex 会话支持附图（`providers/codex.py`）；新增 `agent/providers/vision.py`，在建模路线分类、椅子分组、程序化完整性检查、布局 Agent 四处看图。provider 设回 claude 时，仍走官方原来的代码。
 - **3090 运行脚本**：新增 `reconstruction/server/`，不改官方文件。
+- **小物件这一步**：新增 `pipeline/realism_authoring/small_objects/`（只加新文件，复用官方的证据图、参考图、TRELLIS 启动器和看图问答），不改官方文件。
 - **CI**：`.github/workflows/ci.yml` 先用 gitleaks 扫描全部历史里的密钥，再跑官方测试和网页测试。
 
 逐行改动看提交 2。

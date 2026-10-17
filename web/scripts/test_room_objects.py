@@ -8,10 +8,10 @@ from room_objects import build  # noqa: E402
 
 
 def item(id, category, rests_on=None, attached_to=None, support_part=None, placeable=False,
-         low=(0, 0, 0), high=(1, 1, 1)):
+         low=(0, 0, 0), high=(1, 1, 1), rebuilt=None):
     return {'id': id, 'category': category, 'handle': id, 'bbox_min': list(low), 'bbox_max': list(high),
             'rests_on': rests_on, 'attached_to': attached_to, 'support_part': support_part,
-            'placeable_surface': placeable}
+            'placeable_surface': placeable, **({'rebuilt': rebuilt} if rebuilt else {})}
 
 
 def room(*extra):
@@ -66,6 +66,16 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(self.objects['Bed0']['bbox_min'], [1, -1.5, -4])
         self.assertEqual(self.objects['Bed0']['bbox_max'], [3, -1, -2])
         self.assertEqual(self.result['frame']['up'], 'Y')
+
+    def test_rebuilt_objects_move_on_their_own(self):
+        result = build(room(item('Bag', 'bag', rests_on='Sheet', rebuilt='trellis'),
+                            item('Tag', 'paper', rests_on='Bag')))
+        groups = {group['id']: group for group in result['groups']}
+        self.assertEqual(groups['Bed0']['members'], ['Bed0', 'Sheet', 'Pillow'])
+        self.assertEqual(groups['Bag']['members'], ['Bag', 'Tag'])
+        self.assertEqual(groups['Bag']['mount'], 'floor')
+        # The bed still offers its mattress to stand on.
+        self.assertEqual(groups['Bed0']['support_parts'], ['Mattress'])
 
     def test_bad_relations_are_rejected(self):
         with self.assertRaisesRegex(ValueError, 'unknown object Nowhere'):
