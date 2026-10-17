@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Run the reconstruction module on the 3090 server, configuring only machine paths and keys.
 
-usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--set KEY=VALUE ...] [--check]
+usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N]
+                   [--set KEY=VALUE ...] [--check]
+       run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
 
 The code that runs is this checkout's reconstruction/. Runtimes, model weights and the private
 .env come from $ROOMCANVAS_HOME. --set records each configuration workaround explicitly in
 run-config.json. --check prints what would run and exits without creating anything.
+
+Author repairs after its visual review default to 1 round here (official default 2), to save
+model calls. --small-objects runs the small-object pass on a finished run's scene directory
+(runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
 """
 
 import argparse
@@ -52,6 +58,8 @@ p.add_argument("run_dir", type=Path)
 p.add_argument("--from", dest="from_stage")
 p.add_argument("--through")
 p.add_argument("--set", action="append", default=[])
+p.add_argument("--repair-rounds", default="1", choices="0123", help="author repair rounds")
+p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--check", action="store_true", help="print the configuration and exit")
 a = p.parse_args()
 
@@ -93,11 +101,16 @@ if not package.is_relative_to(RECON / "src"):
 
 target = a.scan if not a.from_stage else a.run_dir / "pipeline" / a.scan.name
 cmd = [str(runtime / "litereality-env/bin/litereality"), "run", str(target),
-       "--author-profile", "open", "--output-root", str(a.run_dir / "pipeline")]
+       "--author-profile", "open", "--output-root", str(a.run_dir / "pipeline"),
+       "--repair-rounds", a.repair_rounds]
 if a.from_stage:
     cmd += ["--from", a.from_stage]
 if a.through:
     cmd += ["--through", a.through]
+if a.small_objects:
+    cmd = [str(runtime / "litereality-env/bin/python"), "-m",
+           "litereality_agent.pipeline.realism_authoring.small_objects", str(a.scan.resolve()),
+           "--out", str(a.run_dir.resolve())]
 record = {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
           "package": str(package), "command": cmd, "machine_config": sorted(machine),
           "workarounds": workarounds,
