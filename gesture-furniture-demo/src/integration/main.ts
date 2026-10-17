@@ -106,5 +106,5 @@ const timer = window.setInterval(() => {
   }
 }, 500);
 address.value = new URLSearchParams(location.search).get('layout') ??
-  'http://127.0.0.1:7865/gradio_api/file=/workspace/geyinuo/ViewForge/code/scripts/assets/room-layout.html';
+  'http://127.0.0.1:7865/viewforge/layouts/viewer';
 loadScene();
