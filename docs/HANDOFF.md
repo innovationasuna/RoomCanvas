@@ -43,14 +43,14 @@
 
 ## 小物件这一步的 room3 结果
 
-最终结果在 `runs/room3-small-objects-20261017c/room_preview/`（本机 `~/Downloads/RoomCanvas-runs/room3-small-objects-20261017c/`，看 `overview.jpg`、`summary.md`）。同目录的 `room_preview-4096-textures/` 是贴图降级前的版本。前两次（`…20261017`、`…20261017b`）是有 bug 和带二次检查的旧流程，留作记录；`dev1–3`、`applytest` 是调试用的。服务器上这次代码的 checkout 在 `/workspace/geyinuo/roomcanvas/rc-small`（分支 `small-objects`）。
+最终结果在 `runs/room3-small-objects-20261017c/room_preview/`（本机 `~/Downloads/RoomCanvas-runs/room3-small-objects-20261017c/`，看 `overview.jpg`、`summary.md`）。同目录的 `room_preview-4096-textures/`、`room_preview-before-material/`、`room_preview-books-recoloured/` 是中间版本（贴图未降级、未修正材质、书堆被误转色）。前两次（`…20261017`、`…20261017b`）是有 bug 和带二次检查的旧流程，留作记录；`dev1–3`、`applytest` 是调试用的。服务器上这次代码的 checkout 在 `/workspace/geyinuo/roomcanvas/rc-small`（分支 `small-objects`）。
 
 - 26 个候选（书堆合成一件后）：TRELLIS 10 件（风扇、蓝袋子、枕头、叠被、粉色包、书架上 3 摞书、地上一摞书、垃圾桶），保留程序化 7 件（床单、白板、乐谱），舍弃 9 件（磁贴、电线、谱架、粉色布、相机、两只拖鞋、瓶子、白板笔）。
 - 费用：26 次 Astra 判断（另有旧流程的 12 次检查），gpt-image-2 共 $0.86；TRELLIS 每件约 2.5 分钟。
 - 网页：`check_room` 23/23 通过，10 件重建物件单独成组。
 - 已知问题：
   1. `Room.glb` 102 MB（原来 40 MB），10 件重建物件的贴图已降到 1024，仍各占约 6 MB；还想更小可以导出 JPEG 贴图或给 TRELLIS 设更小的 `--texture-size`/面数。
-  2. 粉色包重建成偏红色，蓝袋子位置随原模型略偏（原模型就放偏了）。没有二次检查后，这类只能人工看 `overview.jpg`。
+  2. 粉色包曾被 TRELLIS 生成成正红（参考图是品红，换种子也一样），已加材质修正：单一主色的物件转回参考图色相，非金属物件金属度归零。蓝袋子位置随原模型略偏（原模型就放偏了）。
   3. 枕头、叠被、粉色包打开时是“支撑边缘不足”（TRELLIS 底面不平），挪一下能落稳；书架上的书因书架本身“待调整”而显示未落稳。
   4. TRELLIS 默认模式下，书架上的书堆后处理要多占 7.9 GB 显存，3090 放不下；流程会自动隔离并用 512 模式重做（模型略粗）。
 - 待用户决定：要不要用这个结果替换 `samples/room3`（会让仓库多约 60 MB，贴图同样来自私人照片）。
