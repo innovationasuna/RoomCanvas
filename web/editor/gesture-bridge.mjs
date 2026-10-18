@@ -8,6 +8,10 @@ export const MODES = ['move', 'rotate', 'view'];
 // One sweep of the hand across the camera image turns the piece a full circle.
 export const ROTATION_PER_SWEEP = 2 * Math.PI;
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+// Frames are applied in order even when this page was busy (a material compiling as a piece is
+// picked up) and they arrive late; only frames this old mean the hand data is no longer current.
+// The gesture page itself reports a lost hand with interrupted frames.
+export const LATE_FRAME_MS = 2000;
 
 const inUnit = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 const point = (p) => !!p && typeof p === 'object' && inUnit(p.u) && inUnit(p.v);
@@ -122,7 +126,7 @@ export function connectGestureBridge(port, {win = window, doc = document, clock 
   const target = win.parent !== win && sceneURLSession(win.location.search);
   if (!target) return null;
   const {origin, session} = target;
-  let sequence = 0, lastFrame = 0, connected = false;
+  let sequence = 0, lastFrame = 0, lastTick = clock.now(), connected = false;
   const respond = () => win.parent.postMessage({protocol: PROTOCOL, session, type: 'state', sequence, ...port.state()}, origin);
   win.addEventListener('message', (event) => {
     if (event.origin !== origin || event.source !== win.parent) return;
@@ -135,14 +139,17 @@ export function connectGestureBridge(port, {win = window, doc = document, clock 
     if (d.type === 'mode' && !port.state().busy) {port.input.reset(); port.setMode(d.mode);}
     if (d.type === 'frame') {
       const age = clock.timeOrigin + clock.now() - d.sampleTime;
-      if (age > 250 || age < -50 || doc.hidden) {port.input.interrupt(); lastFrame = 0; respond(); return;}
+      if (age > LATE_FRAME_MS || age < -50 || doc.hidden) {port.input.interrupt(); lastFrame = 0; respond(); return;}
       lastFrame = clock.now();
       port.input.input(d.frame, lastFrame);
     }
     respond();
   });
   const timer = win.setInterval(() => {
-    if (lastFrame && clock.now() - lastFrame > 250) {lastFrame = 0; port.input.interrupt();}
+    // A tick that comes late means this page was busy and frames are still queued: wait for them.
+    const now = clock.now(), late = now - lastTick > 200;
+    lastTick = now;
+    if (!late && lastFrame && now - lastFrame > 250) {lastFrame = 0; port.input.interrupt();}
     if (connected) respond();
   }, 100);
   doc.addEventListener('visibilitychange', () => {if (doc.hidden) port.input.interrupt();});

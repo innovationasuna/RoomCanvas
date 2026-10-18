@@ -125,3 +125,26 @@ test('the bridge answers hello with state, switches modes and ignores old or for
   send({sequence: 5, type: 'stop'});
   assert.equal(stops, 1, 'the gesture page cancelling reaches the editor');
 });
+
+test('frames that arrive late because the editor was busy still apply; a busy tick does not drop the hand', () => {
+  const listeners = {}, posted = [];
+  let tick = null, now = 0;
+  const parent = {postMessage: (data) => posted.push(data)};
+  const win = {parent, location: {search: '?gesture_origin=http://127.0.0.1:8800&gesture_session=s'},
+    addEventListener: (type, fn) => {listeners[type] = fn;}, setInterval: (fn) => {tick = fn; return 1;}, clearInterval() {}};
+  const calls = [];
+  const port = {input: {reset() {}, interrupt: () => calls.push('interrupt'), input: (f) => calls.push('input')}, setMode: () => true,
+    state: () => ({busy: false, mode: 'move', selectedId: null, layoutReady: true, phase: 'idle', message: ''})};
+  connectGestureBridge(port, {win, doc: {hidden: false, addEventListener() {}}, clock: {timeOrigin: 0, now: () => now}});
+  const send = (data) => listeners.message({data: {protocol: PROTOCOL, session: 's', ...data}, origin: 'http://127.0.0.1:8800', source: parent});
+  const frame = {interrupted: false, ambiguous: false, operator: hand(.5, .5, {pinching: true})};
+  send({sequence: 1, type: 'hello'});
+  now = 1000; send({sequence: 2, type: 'frame', sampleTime: 400, frame});
+  assert.deepEqual(calls, ['input'], 'a frame 600 ms late is applied');
+  now = 1700; tick();
+  assert.deepEqual(calls, ['input'], 'the first tick after a 700 ms stall waits for queued frames');
+  now = 1800; tick();
+  assert.deepEqual(calls, ['input', 'interrupt'], 'no frame after that: the hand is gone');
+  now = 5000; send({sequence: 3, type: 'frame', sampleTime: 2500, frame});
+  assert.equal(calls.at(-1), 'interrupt', 'a frame 2.5 s old is not current');
+});
