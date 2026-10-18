@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildCollision, sweepTriangle} from '../collision.mjs';
+import {buildCollision, sweepTriangle, packOwners, unpackOwners} from '../collision.mjs';
 
 const pose = (x = 0, y = 0, z = 0, yaw = 0) => ({x, y, z, yaw});
 function box(x0, y0, z0, x1, y1, z1) {
@@ -200,4 +200,16 @@ test('the same placement question is answered once, a changed pose is checked ag
   const blocked = c.checkPlacement({moving: pose(2)}, ['moving']);
   assert.equal(blocked.ok, false); assert.equal(blocked.other.id, 'fixed');
   assert.equal(c.checkPlacement({moving: pose()}, ['moving']).ok, true);
+});
+
+test('owners handed to the collision worker unpack to the same triangles, sharing the same vertices', () => {
+  const a = [0, 0, 0], b = [1.25, 0, 0], c = [0, 2.5, 1 / 3], d = [-1e-9, 3, 7];
+  const owners = [{id: 'chair', name: '椅子', origin: [1, 0, 2], added: false, meshes: [{name: 'seat', triangles: [[a, b, c], [b, c, d]]}]},
+    {id: 'room:Wall0', name: '墙', origin: [0, 0, 0], meshes: [{name: 'Wall0', triangles: [[d, a, b]]}]}];
+  const {owners: packed, transfer} = packOwners(owners);
+  assert.equal(transfer.length, 4);
+  const back = unpackOwners(structuredClone(packed));
+  assert.deepEqual(back, owners);
+  const [first, second] = back[0].meshes[0].triangles;
+  assert.equal(first[1], second[0], 'a vertex shared by two faces is still one array');
 });

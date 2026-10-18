@@ -15,10 +15,18 @@ ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记�
 ## 打开网页
 
 ```bash
-python3 -m http.server 7870 --bind 127.0.0.1    # 在仓库根目录
+python3 web/scripts/serve.py --port 7870    # 在仓库根目录
 ```
 
 浏览器打开 <http://127.0.0.1:7870/web/>，选一个示例房间。不需要安装任何东西。开发和测试见 [web/README.md](web/README.md)。
+
+用摄像头手势布置房间：手势页（`gesture/`）嵌入这个编辑器，左手 1/2/3 切移动/旋转/观察，右手捏合抓取。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间（需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把读请求转过去）。
+
+```bash
+sh scripts/gesture.sh install && sh scripts/gesture.sh dev    # 手势页，端口 8800
+```
+
+Chrome 打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（`layout=` 后面是编辑器地址，换房间改 `scene`）。
 
 ## 重建一个房间（3090 服务器）
 
@@ -76,7 +84,7 @@ sh scripts/gesture.sh install  # 首次安装或锁文件更新后执行
 sh scripts/gesture.sh dev
 ```
 
-打开 <http://127.0.0.1:8800/viewforge.html>，点击“开启摄像头”并授权。手势识别和 Babylon 场景渲染在本机浏览器执行；服务器提供模型、执行物体重建、碰撞校验和保存。后端首页为 <http://127.0.0.1:7865/>，布局入口为 <http://127.0.0.1:7865/viewforge/layouts/viewer>。环境、资源和端口配置见 [运行说明](docs/VIEWFORGE_INTEGRATION.md)。RoomCanvas 原编辑器仍按上文方式打开。
+使用 ViewForge 原布局时，打开 <http://127.0.0.1:8800/viewforge.html>，点击“开启摄像头”并授权。手势识别和 Babylon 场景渲染在本机浏览器执行；服务器提供模型、执行物体重建、碰撞校验和保存。后端首页为 <http://127.0.0.1:7865/>，布局入口为 <http://127.0.0.1:7865/viewforge/layouts/viewer>。环境、资源和端口配置见 [运行说明](docs/VIEWFORGE_INTEGRATION.md)。RoomCanvas 编辑器及 room3 的手势入口见上文“打开网页”；该编辑器在本机浏览器中检查碰撞和支撑，导入 ViewForge 物体时才需连接服务器。
 
 ## 对 LiteReality-Agent 改了什么
 
