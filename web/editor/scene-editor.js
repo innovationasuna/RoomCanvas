@@ -1269,14 +1269,36 @@ function handClient({u, v}) {
   return {x: u * innerWidth, y: v * innerHeight};
 }
 // What the hand points at: a warehouse card, a control, the room, or a panel's background.
+// A hand pointer shakes and slips as the fingers close, so a control within HAND_REACH pixels
+// counts as pointed at, and a pinch that starts just off a control presses the one the hand was
+// on a moment before (see gesturePort.begin).
+const HAND_REACH = 24, HAND_SLIP_MS = 300, CONTROLS = 'button, summary, a[href], label, .object-row';
+const asTarget = (element) => element.matches('.object-row') ? {kind: 'shelf', element, id: element.dataset.object} : {kind: 'control', element};
+function nearestControl(x, y) {
+  let best = null, distance = HAND_REACH;
+  for (const element of document.querySelectorAll(CONTROLS)) {
+    if (element.disabled) continue;
+    const r = element.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+    if (d < distance) {best = element; distance = d;}
+  }
+  return best;
+}
 function handTarget({x, y}) {
   const element = document.elementFromPoint(x, y);
-  const row = element?.closest('.object-row');
-  if (row) return {kind: 'shelf', element: row, id: row.dataset.object};
-  const control = element?.closest('button, summary, a[href], label');
-  if (control) return {kind: 'control', element: control};
+  const control = element?.closest('.object-row') || element?.closest(CONTROLS);
+  if (control) return asTarget(control);
+  const near = nearestControl(x, y);
+  if (near) return asTarget(near);
   if (!element || element.closest('.rc-controls, .rc-tools, .rc-view-tools, .rc-menu-panel, .rc-help, .rc-shelf, header, footer')) return {kind: 'none'};
   return element.closest('.rc-stage') ? {kind: 'room'} : {kind: 'none'};
+}
+let lastHover = null;
+function pinchTarget(point) {
+  const target = handTarget(point);
+  if ((target.kind === 'room' || target.kind === 'none') && lastHover && performance.now() - lastHover.at < HAND_SLIP_MS) return lastHover.target;
+  return target;
 }
 function pressControl(target) {
   if (target.element.disabled) return;
@@ -1335,7 +1357,7 @@ const gesturePort = {
   blocked: () => !ready || !!falling,
   mode: () => gestureMode,
   begin(hand, kind) {
-    const point = handClient(hand), target = handTarget(point);
+    const point = handClient(hand), target = pinchTarget(point);
     if (target.kind === 'control') {pressControl(target); return false;}
     if (target.kind === 'none') return false;
     const track = {step: null, kind, at: performance.now(), start: {u: hand.u, v: hand.v}, travel: 0};
@@ -1408,16 +1430,20 @@ const gesturePort = {
   stop() {endGesture(); cancelSession(false);},
   pointer(hand) {
     handPointer.hidden = !hand;
-    const target = hand ? handTarget(handClient(hand)) : null;
-    const hover = target && target.kind !== 'room' && target.kind !== 'none' ? target.element : null;
-    if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
+    // While the fingers are closed the highlight stays on what the pinch began on.
+    if (!hand?.pinching) {
+      const target = hand ? handTarget(handClient(hand)) : null;
+      const hover = target && target.kind !== 'room' && target.kind !== 'none' ? target.element : null;
+      if (hover) lastHover = {target, at: performance.now()};
+      if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
+    }
     if (!hand) return;
     handPointer.style.left = `${hand.u * 100}%`; handPointer.style.top = `${hand.v * 100}%`;
     handPointer.dataset.pinching = String(!!hand.pinching);
   },
   observe: {
     begin(hand, action) {
-      const target = handTarget(handClient(hand));
+      const target = pinchTarget(handClient(hand));
       if (target.kind === 'control' || target.kind === 'shelf') {
         if (target.kind === 'control') pressControl(target);
         else showToast('从仓库拖出请先切到移动模式（左手 1）');
