@@ -18,15 +18,17 @@ ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记�
 python3 web/scripts/serve.py --port 7870    # 在仓库根目录
 ```
 
-浏览器打开 <http://127.0.0.1:7870/web/>，选一个示例房间。不需要安装任何东西。开发和测试见 [web/README.md](web/README.md)。
+浏览器打开 <http://127.0.0.1:7870/web/>：主页列出房间（`web/rooms.json`），点一个进入布置页。不需要安装任何东西。开发和测试见 [web/README.md](web/README.md)。
 
-用摄像头手势布置房间：手势页（`gesture/`）嵌入这个编辑器，左手 1/2/3 切移动/旋转/观察，右手捏合抓取。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间（需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把读请求转过去）。
+用摄像头手势布置：布置页工具栏点“手势”，角落出现摄像头卡片，左手 1/2/3 切移动/旋转/观察，右手捏合抓取；识别在本机浏览器里做（`gesture/` 的识别代码打包在 `web/vendor/gesture/`），画面不上传。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间（需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把读请求转过去）。
+
+手势页（`gesture/viewforge.html`）嵌入编辑器的老办法仍可用：
 
 ```bash
 sh scripts/gesture.sh install && sh scripts/gesture.sh dev    # 手势页，端口 8800
 ```
 
-Chrome 打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（`layout=` 后面是编辑器地址，换房间改 `scene`）。
+Chrome 打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Froom%3Droom3>（`layout=` 后面是编辑器地址，换房间改 `room`）。
 
 ## 重建一个房间（3090 服务器）
 
@@ -83,6 +85,6 @@ ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标�
 
 ## 许可
 
-[Apache License 2.0](LICENSE)，署名见 [NOTICE](NOTICE)。用到 LiteReality-Agent 的研究请引用 [reconstruction/citation.bib](reconstruction/citation.bib)。Three.js（`web/vendor/`）为 MIT 许可。
+[Apache License 2.0](LICENSE)，署名见 [NOTICE](NOTICE)。用到 LiteReality-Agent 的研究请引用 [reconstruction/citation.bib](reconstruction/citation.bib)。Three.js（`web/vendor/`）为 MIT 许可；`web/vendor/gesture/` 是从 `gesture/` 构建的识别代码，内含 MediaPipe Tasks Vision（Apache-2.0），见 [其说明](web/vendor/gesture/README.md)。
 
 导入的 ViewForge/MV-SAM3D 及其依赖保留各自许可，见 [`object-reconstruction/LICENSE`](object-reconstruction/LICENSE)；手势工程的代码、模型和依赖许可见 [`gesture/README.md`](gesture/README.md) 与 [`gesture/docs/sources.md`](gesture/docs/sources.md)，不由根目录的 Apache 许可重新授权。
