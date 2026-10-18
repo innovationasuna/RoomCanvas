@@ -11,7 +11,8 @@
 - 2026-10-18 合并：#8 手势接入编辑器 + 导入 ViewForge 物体 + 落点检查放后台线程（`f05f14e`）；#10 新 room3（小物件这一步之后的结果，`4243a6b`；原 #9 叠在 #8 上，#8 删分支时被 GitHub 关闭，重开为 #10）；#11 lyk 把 ViewForge 后端迁到本仓库运行、文档整理（`e077c91`）。服务器文件夹随后切回 main，迁移前的临时工作区存在 `git stash` 里。
 - 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`room-reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
-- PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 README。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
+- PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 [房间重建](ROOM_RECONSTRUCTION.md)。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
+- README 2026-10-19 按常见开源项目的写法重写（用户要求）：标题和一句话、效果图（office 编辑器截图 `docs/images/editor-office.jpg`，不用私人卧室）、功能、快速开始、流程图（mermaid）、目录、文档、对 LiteReality 的改动、隐私、致谢与许可；服务器上的房间重建命令和小物件流程挪到 `docs/ROOM_RECONSTRUCTION.md`。
 - 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
 
 ## 约定

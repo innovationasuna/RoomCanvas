@@ -10,7 +10,7 @@
    # 重建（在 room-reconstruction/ 下）
    uv run ruff check . && uv run pytest -n auto
    ```
-   改了网页界面的，本地打开看一眼，见 [README](README.md#打开网页)。
+   改了网页界面的，本地打开看一眼，见 [README](README.md#快速开始)。
 3. 开 PR，写清改了什么、怎么验证的。CI 通过、仓库所有者确认后，squash 合并并删除分支。`main` 不能直接推送。
 
 导入完整历史的 `feat/integrate-viewforge` 是例外：审阅通过后应使用普通 merge commit，保留 ViewForge 和手势提交的父链；不要 squash 或 rebase 合并此分支。其他功能沿用上面的流程。
