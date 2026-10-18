@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10、#12 已合并；网站第 1 项已完成，下一项见“下一步：RoomCanvas 网站”第 2 项）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10、#12 已合并；网站第 2 项“添加物体”在分支 `feat/add-object-photos`，待用户确认合并，合并后要重启服务器上的 ViewForge 后端，见该节）。
 
 ## 现状
 
@@ -11,7 +11,8 @@
 - 2026-10-18 合并：#8 手势接入编辑器 + 导入 ViewForge 物体 + 落点检查放后台线程（`f05f14e`）；#10 新 room3（小物件这一步之后的结果，`4243a6b`；原 #9 叠在 #8 上，#8 删分支时被 GitHub 关闭，重开为 #10）；#11 lyk 把 ViewForge 后端迁到本仓库运行、文档整理（`e077c91`）。服务器文件夹随后切回 main，迁移前的临时工作区存在 `git stash` 里。
 - 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`room-reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
-- PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 README。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
+- PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 [房间重建](ROOM_RECONSTRUCTION.md)。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
+- README 2026-10-19 按常见开源项目的写法重写（用户要求）：标题和一句话、效果图（office 编辑器截图 `docs/images/editor-office.jpg`，不用私人卧室）、功能、快速开始、流程图（mermaid）、目录、文档、对 LiteReality 的改动、隐私、致谢与许可；服务器上的房间重建命令和小物件流程挪到 `docs/ROOM_RECONSTRUCTION.md`。
 - 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
 
 ## 约定
@@ -87,7 +88,13 @@
    - 识别代码：`gesture/` 只新增 `src/embed/`（入口 + 可传资源地址的 tracker）和 `vite.embed.config.ts`（构建时把 `../tracking/tracker` 换成新 tracker，`integration/runtime.ts` 原样用）。`npx vite build --config vite.embed.config.ts` 输出到 `web/vendor/gesture/`（运行时 25 KB + Worker 199 KB，已提交）。wasm 和模型直接读 `gesture/public/vision/`。
    - 配色：`web/theme.css` 放 `--rc-*`，主页、编辑器共用；手的指针从蓝色改成主题绿（`--rc-hand`）；原来暗色模式的 `light-dark()` 实际被强制成浅色，已去掉。`publish.py` 同时复制 `theme.css`、`icon.svg`。
    - 验证：网页单测 142 项（新增 6 项）、Python 8 项、office `check_room` 18/18；手势包类型检查、74 项测试、资源校验、原构建都过。Chromium 假摄像头下 MediaPipe 能在 Worker 里加载、出帧、切模式；**没有真人摄像头验收**，请用户用手试一遍。
-2. **仓库“添加物体”：几张照片 → 重建**（一个 PR）
+2. **仓库“添加物体”：几张照片 → 重建**（分支 `feat/add-object-photos`，待合并）
+   - 做了什么：后端 `object-reconstruction/scripts/objects.py`（`/viewforge/objects/` 的上传、抠图、重建、进度接口，挂在 `web.py` 上），`run.py`、`prepare_masks.py` 加 `--wait-gpu`（GPU 锁被占时等，不加时行为不变）；`serve.py` 转发这些请求和保存尺寸的 `POST /viewforge/dimensions/<结果>`（只收同源）；编辑器仓库第一张卡片“添加物体”和四步对话框（`web/editor/add-object.mjs`、`add-object-dialog.mjs`）。接口表见 [物体重建说明](OBJECT_RECONSTRUCTION.md)。
+   - 验证：后端测试在服务器 ViewForge 环境 76 项通过（新增 5 项），网页单测 150 项、Python 12 项通过。在服务器上用本分支的临时克隆另起 7863 实例（共用数据、缓存和 GPU 锁，正式 7862 没动），本机 Chromium 走完整流程：上传仓库自带的 4 张玩偶示例照片（每张约 10 MB）→ 抠图（BiRefNet 71 秒，去掉 1 张的切换正常）→ 重建（排队 → 深度 → 重建 → 补拍建议，共 7 分 35 秒）→ 结果预览、填高 0.30 米 → 放进 room3。刷新页面后从 localStorage 续上、尺寸自动带出也验证过。临时实例、克隆、隧道已清掉。
+   - 留在服务器的测试数据：物体 `测试_玩偶`（`ViewForge/data/inputs/测试_玩偶/`）和结果 `runs/20261018_测试_玩偶_web_232915_330299/`（已标定高 0.30 米），ViewForge 页面和“导入物体”里能看到；不要了可在 ViewForge 页面“删除当前物体”（会移到 `data/removed/`，结果目录保留）。
+   - 合并后：服务器同步代码，告诉 lyk 后重启 7862 后端（命令见上文“服务器”），“添加物体”才可用；本机重启 `serve.py`。
+   - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）只在 ViewForge 页面有。
+   原计划：
    - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（照 `layouts.py` 的 `LayoutsMiddleware` 那样），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
    - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（`/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
    - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + 现有 SSH 隧道（7865）到这个服务。

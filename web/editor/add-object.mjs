@@ -1,0 +1,76 @@
+// "添加物体": a few photos → an object rebuilt on the ViewForge server (object-reconstruction/,
+// scripts/objects.py). create → masks job → reconstruct job, polled at jobs/<id>; the measured
+// edge is saved at /viewforge/dimensions/<run> so the layout page and "导入物体" see it too.
+// web/scripts/serve.py forwards these from the editor's own origin.
+export const API = '/viewforge/objects/';
+export const MIN_PHOTOS = 3, MAX_PHOTOS = 40;
+
+// The server takes names of letters, digits, _ . - (Chinese included), up to 80 characters.
+export function objectName(text) {
+  const name = String(text || '').trim().replace(/\s+/g, '_').replace(/[^\p{L}\p{N}_.-]/gu, '').slice(0, 80);
+  return /^[\p{L}\p{N}_]/u.test(name) ? name : '';
+}
+
+export const STAGES = [
+  ['queued', '排队等 GPU'], ['preparing', '准备输入'], ['da3', '估计深度与相机'],
+  ['reconstruction', '重建三维模型'], ['cover', '计算补拍建议'],
+];
+export function stageLabel(job) {
+  if (job.status === 'queued') return STAGES[0][1];
+  if (job.kind === 'masks') return '正在抠图';
+  return (STAGES.find(([id]) => id === job.stage) || STAGES[1])[1];
+}
+
+export function duration(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0)), m = Math.floor(total / 60), s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// A phone photo the server cannot read (HEIC and the like) is redrawn as JPEG when the browser can decode it.
+export const readable = (file) => file.type === 'image/jpeg' || file.type === 'image/png';
+
+async function reply(response) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `服务器出错（${response.status}）`);
+  return data;
+}
+const post = (path, body, fetcher = fetch) => fetcher(path, {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+}).then(reply);
+
+// Upload with progress (fetch cannot report it). onProgress gets 0–1.
+export function createObject(name, files, onProgress = () => {}) {
+  const form = new FormData();
+  form.append('name', name);
+  for (const file of files) form.append('photos', file, file.name);
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', API + 'create');
+    request.upload.onprogress = (event) => {if (event.lengthComputable) onProgress(event.loaded / event.total);};
+    request.onload = () => {
+      let data = {};
+      try {data = JSON.parse(request.responseText);} catch {}
+      if (request.status === 200) resolve(data); else reject(new Error(data.error || `上传失败（${request.status}）`));
+    };
+    request.onerror = () => reject(new Error('上传失败：连不上 ViewForge（检查隧道）'));
+    request.send(form);
+  });
+}
+export const startMasks = (object, images, fetcher) => post(API + 'masks', {object, images}, fetcher);
+export const startReconstruction = (object, images, masks, fetcher) => post(API + 'reconstruct', {object, images, masks}, fetcher);
+export const readJob = (id, fetcher = fetch) => fetcher(`${API}jobs/${id}`, {cache: 'no-store'}).then(reply);
+export const previewURL = (path) => API + path.split('/').map(encodeURIComponent).join('/');
+export const saveMeasurement = (run, axis, meters, fetcher) =>
+  post(`/viewforge/dimensions/${encodeURIComponent(run)}`, {axis, value: meters, unit: 'm'}, fetcher);
+
+// Poll a job until it is complete (resolves) or failed (rejects); onUpdate sees every state.
+export async function follow(id, onUpdate = () => {}, {every = 2000, fetcher, signal} = {}) {
+  for (;;) {
+    const job = await readJob(id, fetcher);
+    onUpdate(job);
+    if (job.status === 'complete') return job;
+    if (job.status === 'failed') throw new Error(job.error || '任务失败');
+    if (signal?.aborted) throw new Error('已停止跟踪');
+    await new Promise((resolve) => setTimeout(resolve, every));
+  }
+}

@@ -17,6 +17,7 @@ import {connectGestureBridge, GestureInput, observationPose} from './gesture-bri
 import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
 import {Openings, openableOf} from './joints.mjs?v=app-36';
 import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
+import {mountAddObject} from './add-object-dialog.mjs?v=app-36';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -285,7 +286,7 @@ function applyLayout() {
   if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
   if (pending) refreshSession();
   updateDropProjection();
-  for (const row of $('#object-list').children) {
+  for (const row of $('#object-list').querySelectorAll('[data-object]')) {
     const id = row.dataset.object;
     row.dataset.stored = String(layout[id].visible === false);
     row.querySelector('.warehouse-state').textContent = layout[id].visible === false ? '待放置' : '在房间';
@@ -544,7 +545,7 @@ function select(id, announce = true) {
   dropProjection.visible = dropGuide.visible = false; $('#drop-label').hidden = true;
   arrows.forEach((arrow) => {arrow.visible = !!id;});
   $('#selection-label').hidden = !id;
-  for (const row of $('#object-list').querySelectorAll('button')) {
+  for (const row of $('#object-list').querySelectorAll('[data-object]')) {
     const active = row.dataset.object === id;
     row.classList.toggle('active', active);
     row.setAttribute('aria-pressed', String(active));
@@ -839,7 +840,7 @@ function bindEvents() {
   $('#search').oninput = () => {
     const term = $('#search').value.trim().toLowerCase();
     let count = 0;
-    for (const row of $('#object-list').children) {
+    for (const row of $('#object-list').querySelectorAll('[data-object]')) {
       row.hidden = !row.textContent.toLowerCase().includes(term);
       if (!row.hidden) count++;
     }
@@ -965,7 +966,7 @@ function appendWarehouseRow(entity, first = false) {
       $('#object-panel').classList.remove('open');
       $('#list-toggle').setAttribute('aria-expanded', 'false');
     };
-    if (first) $('#object-list').prepend(row); else $('#object-list').appendChild(row);
+    if (first) $('#add-object').after(row); else $('#object-list').appendChild(row);
 }
 
 function renderFurnitureThumbnails(list = entities.values()) {
@@ -1585,14 +1586,24 @@ let addedCount = 0, importAsset = null;
 async function openImports() {
   let catalog;
   try {catalog = await readCatalog();} catch {return;}
-  if (!catalog.runs?.length) return;
-  for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
-  $('#import-menu').hidden = false;
+  // "添加物体": photos → a new object on the same server, then straight into the room.
+  mountAddObject({toast: showToast, onReady: async (run, asset) => {
+    if (![...$('#import-run').options].some((option) => option.value === run)) $('#import-run').prepend(new Option(objectLabel(run), run));
+    $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
+    $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
+    const {axis, value} = asset.calibration;
+    await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
+      console.error(error); showToast(`导入失败：${error.message || error}`);
+    });
+  }});
   $('#import-run').onchange = () => void chooseImport();
   $('#import-axis').onchange = $('#import-meters').oninput = describeImport;
   $('#import-object').onclick = () => void importObject().catch((error) => {
-    console.error(error); showToast(`导入失败：${error.message || error}`); $('#import-object').disabled = false;
+    console.error(error); showToast(`导入失败：${error.message || error}`);
   });
+  if (!catalog.runs?.length) return;
+  for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
+  $('#import-menu').hidden = false;
   await chooseImport();
 }
 async function chooseImport() {
@@ -1631,7 +1642,13 @@ function freeSpot(id) {
 async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
-  $('#import-object').disabled = true; $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
+  $('#import-object').disabled = true;
+  try {await importRun(run, base, scale);} finally {$('#import-object').disabled = false;}
+  $('#import-menu').open = false;
+}
+async function importRun(run, base, scale) {
+  if (!ready) throw new Error('房间还没加载好');
+  $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
   const [full, light] = await Promise.all(['result.glb', 'preview.glb'].map((file) => loader.loadAsync(viewforgeModel(run, file))));
   cancelSession(false);
@@ -1669,7 +1686,6 @@ async function importObject() {
   // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
   rebuildCollision();
-  $('#import-menu').open = false; $('#import-object').disabled = false;
   renderer.shadowMap.needsUpdate = true;
   beginSession(id);
   const spot = freeSpot(id);
