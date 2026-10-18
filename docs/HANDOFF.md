@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10 已合并；网站第 1 项做完待合并，见“下一步：RoomCanvas 网站”）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10、#12 已合并；网站第 1 项已完成，下一项见“下一步：RoomCanvas 网站”第 2 项）。
 
 ## 现状
 
@@ -76,7 +76,7 @@
 
 用户的意思：项目就叫 RoomCanvas，网页应该是 RoomCanvas 自己的网站；现在是 ViewForge 的手势页（`gesture/viewforge.html`，标题“ViewForge 手势布局”、地址栏、开启/关闭摄像头、移动/旋转/仅观察、取消当前操作）套着 RoomCanvas 编辑器，颜色不统一，那排按钮多余。三件事，分两个 PR：
 
-1. **主页 + 手势内置 + 配色统一**（一个 PR，分支 `feat/roomcanvas-app`，已做完，等用户看过合并）
+1. **主页 + 手势内置 + 配色统一**（#12，2026-10-18 用户确认后合并）
    - 主页 `web/index.html` 读 `web/rooms.json`：房间卡片显示缩略图（房间目录里的 `thumbnail.jpg`，`web/scripts/thumbnail.py` 用 Playwright 从编辑器截图）、名字、家具组数、模型大小，点进 `editor/?room=<id>`。`?scene=` 仍可用；编辑器里原来那张“载入房间”卡片去掉了，直接加载；左上角 RoomCanvas 回主页。
    - 手势内置：工具栏“手势”开关 → 左上角摄像头卡片（镜像画面、左右手状态、模式标签可点，左手 1/2/3 也能切），工具栏挪到右下、摇杆左下（即原来嵌在手势页里的布局，`data-gesture`）。帧直接喂 `GestureInput`（`web/editor/gesture-camera.mjs`）。关掉手势只结束手上的操作，预览留给鼠标；取消用编辑器自己的“取消”。嵌在 lyk 手势页里时“手势”按钮隐藏，iframe 桥照旧（用模拟消息验证过）。
    - 识别代码：`gesture/` 只新增 `src/embed/`（入口 + 可传资源地址的 tracker）和 `vite.embed.config.ts`（构建时把 `../tracking/tracker` 换成新 tracker，`integration/runtime.ts` 原样用）。`npx vite build --config vite.embed.config.ts` 输出到 `web/vendor/gesture/`（运行时 25 KB + Worker 199 KB，已提交）。wasm 和模型直接读 `gesture/public/vision/`。
