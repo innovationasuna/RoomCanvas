@@ -710,6 +710,8 @@ function pick(clientX, clientY) {
 }
 
 function bindEvents() {
+  const shelf = $('#object-panel');
+  new ResizeObserver(() => {if (!shelf.classList.contains('open')) $('#rc-placement-demo').style.setProperty('--rc-shelf-space', `${shelf.offsetHeight}px`);}).observe(shelf);
   const toolsMenu = $('#tools-menu');
   document.addEventListener('click', event => {if (!toolsMenu.contains(event.target)) toolsMenu.open = false;});
   toolsMenu.addEventListener('keydown', event => {if (event.key === 'Escape') {toolsMenu.open = false; event.stopPropagation();}});
