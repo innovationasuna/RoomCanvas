@@ -26,6 +26,7 @@ from import_photos import import_photos, parent_selection, source_metadata
 from cover_scene import ensure_preview
 from dimensions import DimensionsMiddleware
 from layouts import LayoutsMiddleware
+from objects import ObjectsMiddleware
 
 ROOT = Path(os.environ['VIEWFORGE_ROOT']).resolve()
 CODE = Path(__file__).resolve().parents[1]
@@ -549,4 +550,5 @@ if __name__ == '__main__':
                               allowed_paths=[str(ROOT/'data/inputs'), str(ROOT/'runs'), str(ROOT/'cache/mask_previews'), str(ROOT/'cache/photo_previews'), str(CODE/'scripts/assets')], show_error=True,
                               app_kwargs={'middleware': [Middleware(GZipMiddleware, minimum_size=1024, compresslevel=3),
                                                         Middleware(DimensionsMiddleware, root=ROOT),
-                                                        Middleware(LayoutsMiddleware, root=ROOT)]})
+                                                        Middleware(LayoutsMiddleware, root=ROOT),
+                                                        Middleware(ObjectsMiddleware, root=ROOT)]})
