@@ -260,3 +260,19 @@ test('the seat is the highest horizontal face seen from above, not its larger un
   assert(low < .48 && .48 < high && high < .65, `${low}-${high}`);
   assert.equal(seatBand(square(-.2, -.2, .2, .2, 1.2), 0), null, 'nothing in seat range');
 });
+
+test('support coverage on a binned surface matches testing every triangle', () => {
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const triangles = Array.from({length: 400}, () => {
+    const c = [rnd() * 3, rnd() * 2];
+    return [0, 1, 2].map(() => [c[0] + (rnd() - .5) * .3, c[1] + (rnd() - .5) * .3]);
+  });
+  // Points on edges and corners exercise the tolerance at cell borders.
+  const points = [...Array.from({length: 3000}, () => [rnd() * 3.4 - .2, rnd() * 2.4 - .2]),
+    ...triangles.slice(0, 200).flatMap(([a, b]) => [a, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]])];
+  const brute = points.filter((p) => triangles.some((t) => inTriangle(p, t))).length;
+  const result = coverage(points, triangles);
+  assert.equal(result.covered, brute);
+  assert.ok(brute > 500 && brute < points.length);
+  for (const p of points.slice(0, 600)) assert.equal(coverage([p], triangles).covered, triangles.some((t) => inTriangle(p, t)) ? 1 : 0);
+});

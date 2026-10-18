@@ -81,9 +81,40 @@ export function sampleContactGeometry(triangles, bottom, band = .025, spacing = 
   return [...unique.values()];
 }
 
+// Triangles of a support surface binned on a grid, built once per triangle list. Each triangle
+// goes into every cell its bounds touch, widened by inTriangle's tolerance, so a point is only
+// tested against triangles that could contain it and the answer stays exactly the same.
+const grids = new WeakMap();
+function triangleGrid(triangles) {
+  if (!grids.has(triangles)) {
+    const boxes = triangles.map((t) => {
+      const xs = t.map((p) => p[0]), zs = t.map((p) => p[1]);
+      const box = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
+      const margin = 4 * EPS * Math.max(box[2] - box[0], box[3] - box[1]) + 1e-12;
+      return [box[0] - margin, box[1] - margin, box[2] + margin, box[3] + margin];
+    });
+    const low = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1]))];
+    const high = [Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
+    const n = Math.max(1, Math.min(256, Math.ceil(Math.sqrt(triangles.length))));
+    const size = [(high[0] - low[0]) / n || 1, (high[1] - low[1]) / n || 1];
+    const cell = (v, axis) => Math.min(n - 1, Math.max(0, Math.floor((v - low[axis]) / size[axis])));
+    const cells = new Map();
+    boxes.forEach((b, i) => {
+      for (let x = cell(b[0], 0); x <= cell(b[2], 0); x++) for (let z = cell(b[1], 1); z <= cell(b[3], 1); z++) {
+        const key = x * n + z;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(triangles[i]);
+      }
+    });
+    grids.set(triangles, (p) => p[0] < low[0] || p[1] < low[1] || p[0] > high[0] || p[1] > high[1] ? [] : cells.get(cell(p[0], 0) * n + cell(p[1], 1)) || []);
+  }
+  return grids.get(triangles);
+}
+
 export function coverage(points, triangles) {
   let covered = 0;
-  for (const point of points) if (triangles.some((triangle) => inTriangle(point, triangle))) covered++;
+  const near = triangles.length > 16 ? triangleGrid(triangles) : () => triangles;
+  for (const point of points) if (near(point).some((triangle) => inTriangle(point, triangle))) covered++;
   return {covered, total: points.length, full: points.length > 0 && covered === points.length};
 }
 
