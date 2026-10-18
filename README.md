@@ -62,29 +62,7 @@ $PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<�
 
 ## 物体重建与手势
 
-ViewForge 后端和手势前端都从本仓库启动。服务器在 `object-reconstruction/configs/local.env` 配好外部运行目录和授权 GPU 后，运行：
-
-```bash
-cd object-reconstruction
-source configs/local.env
-source scripts/env.sh
-python scripts/web.py --host 127.0.0.1 --port 7862
-```
-
-本机打开两个终端。第一个用 SSH 端口转发访问后端，将 `<SSH主机别名>` 换成自己的配置；转发目标须与后端实际监听地址一致（已有可用隧道时跳过）：
-
-```bash
-ssh -N -L 127.0.0.1:7865:127.0.0.1:7862 <SSH主机别名>
-```
-
-另一个终端在仓库根目录启动手势页：
-
-```bash
-sh scripts/gesture.sh install  # 首次安装或锁文件更新后执行
-sh scripts/gesture.sh dev
-```
-
-使用 ViewForge 原布局时，打开 <http://127.0.0.1:8800/viewforge.html>，点击“开启摄像头”并授权。手势识别和 Babylon 场景渲染在本机浏览器执行；服务器提供模型、执行物体重建、碰撞校验和保存。后端首页为 <http://127.0.0.1:7865/>，布局入口为 <http://127.0.0.1:7865/viewforge/layouts/viewer>。环境、资源和端口配置见 [运行说明](docs/VIEWFORGE_INTEGRATION.md)。RoomCanvas 编辑器及 room3 的手势入口见上文“打开网页”；该编辑器在本机浏览器中检查碰撞和支撑，导入 ViewForge 物体时才需连接服务器。
+ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标定尺寸，并有自己的 Babylon 布局页；它的后端在服务器上从本仓库启动。手势页（`gesture/`）在本机浏览器里用摄像头识别手势，可以嵌入 ViewForge 布局页或 RoomCanvas 编辑器（见上文“打开网页”）。启动命令、SSH 端口转发和各个地址见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
 
 ## 对 LiteReality-Agent 改了什么
 
