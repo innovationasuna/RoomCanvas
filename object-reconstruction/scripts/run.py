@@ -207,6 +207,7 @@ def main():
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--parent-run')
     parser.add_argument('--images', nargs='+', help='Image stems to reconstruct; default: all')
+    parser.add_argument('--wait-gpu', action='store_true', help='Wait for the GPU lock instead of failing')
     args = parser.parse_args()
     root = Path(os.environ['VIEWFORGE_ROOT']).resolve()
     name, attempt = component(args.object), component(args.attempt)
@@ -223,7 +224,7 @@ def main():
     lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
         check_gpu(cfg['runtime']['min_free_gib'])
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)

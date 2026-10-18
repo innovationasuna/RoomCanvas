@@ -20,7 +20,7 @@ python3 web/scripts/serve.py --port 7870    # 在仓库根目录
 
 浏览器打开 <http://127.0.0.1:7870/web/>：主页列出房间（`web/rooms.json`），点一个进入布置页。不需要安装任何东西。开发和测试见 [web/README.md](web/README.md)。
 
-用摄像头手势布置：布置页工具栏点“手势”，角落出现摄像头卡片，左手 1/2/3 切移动/旋转/观察，右手捏合抓取；识别在本机浏览器里做（`gesture/` 的识别代码打包在 `web/vendor/gesture/`），画面不上传。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间（需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把读请求转过去）。
+用摄像头手势布置：布置页工具栏点“手势”，角落出现摄像头卡片，左手 1/2/3 切移动/旋转/观察，右手捏合抓取；识别在本机浏览器里做（`gesture/` 的识别代码打包在 `web/vendor/gesture/`），画面不上传。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间，仓库里“添加物体”可以直接用几张照片新建一件（都需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把请求转过去）。
 
 手势页（`gesture/viewforge.html`）嵌入编辑器的老办法仍可用：
 
