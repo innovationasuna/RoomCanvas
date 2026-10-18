@@ -116,7 +116,8 @@ export function sceneURLSession(search) {
 }
 
 // Wires an embedded editor to its parent gesture page. state() returns the fields of the
-// protocol's 'state' message; setMode(mode) switches between move, rotate and view.
+// protocol's 'state' message; setMode(mode) switches between move, rotate and view; stop(), if
+// given, runs when the gesture page cancels the current operation.
 export function connectGestureBridge(port, {win = window, doc = document, clock = performance} = {}) {
   const target = win.parent !== win && sceneURLSession(win.location.search);
   if (!target) return null;
@@ -130,7 +131,7 @@ export function connectGestureBridge(port, {win = window, doc = document, clock 
     sequence = d.sequence;
     if (d.type === 'hello') {connected = true; port.input.reset(); respond(); return;}
     if (!connected) return;
-    if (d.type === 'stop') {lastFrame = 0; port.input.reset();}
+    if (d.type === 'stop') {lastFrame = 0; port.input.reset(); port.stop?.();}
     if (d.type === 'mode' && !port.state().busy) {port.input.reset(); port.setMode(d.mode);}
     if (d.type === 'frame') {
       const age = clock.timeOrigin + clock.now() - d.sampleTime;

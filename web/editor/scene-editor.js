@@ -1199,15 +1199,31 @@ function bindPlacementEvents() {
 }
 
 // The gesture page (gesture/, see gesture-bridge.mjs) embeds this editor and sends hand frames.
-// Move and rotate run the same preview → release → drop-and-check transaction as the mouse and
-// joystick; a release that cannot be placed puts the piece back, as ViewForge's layout page does.
-let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null;
+// The hand points like a mouse over the whole editor: a pinch on a button presses it, on a
+// warehouse card takes that piece out, on furniture grabs it. Releasing leaves the piece as a
+// preview where it is (a recognised release can be a slip of the fingers); pressing
+// “放置并落下” drops and confirms it, as with the mouse and joystick.
+let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null, handHover = null;
 const handPointer = Object.assign(document.createElement('div'), {className: 'rc-hand-pointer', hidden: true});
-$('.rc-stage').appendChild(handPointer);
-const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移', move: '移动：右手指向家具捏合拖动，松开落下', rotate: '旋转：右手指向家具捏合，左右移动转向，松开确认'};
+document.body.appendChild(handPointer);
+const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移；指向按钮捏合可点击',
+  move: '移动：指向家具或仓库卡片捏合拖动，松开后捏合“放置并落下”确认', rotate: '旋转：指向家具捏合，左右移动转向，松开后捏合“放置并落下”确认'};
 function handClient({u, v}) {
-  const rect = host.getBoundingClientRect();
-  return {x: rect.left + u * rect.width, y: rect.top + v * rect.height};
+  return {x: u * innerWidth, y: v * innerHeight};
+}
+// What the hand points at: a warehouse card, a control, the room, or a panel's background.
+function handTarget({x, y}) {
+  const element = document.elementFromPoint(x, y);
+  const row = element?.closest('.object-row');
+  if (row) return {kind: 'shelf', element: row, id: row.dataset.object};
+  const control = element?.closest('button, summary, a[href], label');
+  if (control) return {kind: 'control', element: control};
+  if (!element || element.closest('.rc-controls, .rc-tools, .rc-view-tools, .rc-menu-panel, .rc-help, .rc-shelf, header, footer')) return {kind: 'none'};
+  return element.closest('.rc-stage') ? {kind: 'room'} : {kind: 'none'};
+}
+function pressControl(target) {
+  if (target.element.disabled) return;
+  target.element.click();
 }
 function gestureStep(step) {
   if (!gesture) return;
@@ -1236,50 +1252,64 @@ const gesturePort = {
   blocked: () => !ready || !!falling,
   mode: () => gestureMode,
   begin(hand, kind) {
-    const {x, y} = handClient(hand), id = pick(x, y);
-    if (!id) {$('#status').textContent = '没有指到家具：指向家具后再捏合'; return false;}
+    const point = handClient(hand), target = handTarget(point);
+    if (target.kind === 'control') {pressControl(target); return false;}
+    if (target.kind === 'none') return false;
+    let id = target.kind === 'shelf' ? target.id : pick(point.x, point.y);
+    // A pinch on the preview, or on empty floor while there is one, keeps working on it.
+    if (pending && target.kind === 'room' && (!id || id === pending.id)) id = pending.id;
+    if (!id) {$('#status').textContent = '没有指到家具：指向家具或仓库卡片后再捏合'; return false;}
     if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
-    beginSession(id);
+    if (pending?.id !== id) beginSession(id);
     if (!pending) return false;
+    // As a click on a card does: fold the warehouse away so the room is free to drop into.
+    if (target.kind === 'shelf') {$('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');}
     analogActive = true; controls.enabled = false;
     gesture = {id, kind, yaw: layout[id].yaw, step: null};
-    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entities.get(id).name} · 松开放下`;
+    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entities.get(id).name} · 松开后捏合“放置并落下”确认`;
+    if (kind === 'move' && target.kind === 'room') gesturePort.move(hand);
     return true;
   },
   move(hand) {
-    const {x, y} = handClient(hand);
-    gestureStep(() => followPointer(x, y, true));
+    const point = handClient(hand);
+    // Out of the warehouse, the piece joins the hand once the hand is over the room.
+    if (handTarget(point).kind === 'room') gestureStep(() => followPointer(point.x, point.y, true));
   },
   rotate(angle) {
     const {id, yaw} = gesture || {};
     gestureStep(() => editObject((next) => {next[id].yaw = Math.atan2(Math.sin(yaw + angle), Math.cos(yaw + angle));}, 'rotate'));
   },
+  // Release, or a hand lost mid-drag: keep the preview where it is and check it in full.
   commit() {
     if (!gesture) return;
-    // Apply the last pending frame as a preview, then check the release in full.
     cancelAnimationFrame(gestureFrame); gestureFrame = 0;
     const step = gesture.step; gesture.step = null; step?.();
     endGesture();
     if (!pending) return;
-    confirmSession();
-    if (pending && !falling) {
-      const reason = dropPlan?.message || pending.message || '这里放不下';
-      cancelSession(false); showToast(`${reason}，已放回原位`);
-    }
+    validateAfterRender();
+    $('#status').textContent = `${entities.get(pending.id).name}停在这里 · 捏合“放置并落下”确认，或再捏住继续调整`;
   },
-  cancel() {
-    if (!gesture) return;
-    endGesture(); cancelSession(false);
-  },
+  cancel() {gesturePort.commit();},
+  // The gesture page's “取消当前操作”, or its camera turned off.
+  stop() {endGesture(); cancelSession(false);},
   pointer(hand) {
     handPointer.hidden = !hand;
+    const target = hand ? handTarget(handClient(hand)) : null;
+    const hover = target && target.kind !== 'room' && target.kind !== 'none' ? target.element : null;
+    if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
     if (!hand) return;
     handPointer.style.left = `${hand.u * 100}%`; handPointer.style.top = `${hand.v * 100}%`;
     handPointer.dataset.pinching = String(!!hand.pinching);
   },
   observe: {
     begin(hand, action) {
-      if (gestureView || !ready) return false;
+      const target = handTarget(handClient(hand));
+      if (target.kind === 'control' || target.kind === 'shelf') {
+        if (target.kind === 'control') pressControl(target);
+        else beginSession(target.id);
+        return false;
+      }
+      if (gestureView || !ready || target.kind === 'none') return false;
       gestureView = {base: cameraState(), start: {u: hand.u, v: hand.v}, action};
       controls.enabled = false; return true;
     },
@@ -1293,6 +1323,7 @@ const gesturePort = {
 };
 const embedded = connectGestureBridge({
   input: new GestureInput(gesturePort),
+  stop: gesturePort.stop,
   setMode(next) {
     gestureMode = next;
     if (next !== 'view' && mode !== 'edit') setMode('edit');
