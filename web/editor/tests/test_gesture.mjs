@@ -106,8 +106,8 @@ test('the bridge answers hello with state, switches modes and ignores old or for
   const win = {parent, location: {search: '?gesture_origin=http://127.0.0.1:8800&gesture_session=s1'},
     addEventListener: (type, fn) => {listeners[type] = fn;}, setInterval: () => 1, clearInterval() {}};
   const doc = {hidden: false, addEventListener() {}};
-  let mode = 'view', resets = 0;
-  const port = {input: {reset: () => resets++, interrupt() {}, input() {}}, setMode: (m) => {mode = m; return true;},
+  let mode = 'view', resets = 0, stops = 0;
+  const port = {input: {reset: () => resets++, interrupt() {}, input() {}}, setMode: (m) => {mode = m; return true;}, stop: () => stops++,
     state: () => ({busy: false, mode, selectedId: null, layoutReady: true, phase: 'idle', message: '', capabilities: ['observe-pinch-v1']})};
   assert.ok(connectGestureBridge(port, {win, doc, clock: {timeOrigin: 0, now: () => 0}}));
   const send = (data, origin = 'http://127.0.0.1:8800', source = parent) => listeners.message({data: {protocol: PROTOCOL, session: 's1', ...data}, origin, source});
@@ -122,4 +122,6 @@ test('the bridge answers hello with state, switches modes and ignores old or for
   send({sequence: 4, type: 'mode', mode: 'rotate'}, 'http://evil.test');
   assert.equal(mode, 'move');
   assert.equal(resets, 2);
+  send({sequence: 5, type: 'stop'});
+  assert.equal(stops, 1, 'the gesture page cancelling reaches the editor');
 });
