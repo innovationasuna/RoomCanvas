@@ -3,17 +3,23 @@
 
 python3 web/scripts/room_objects.py <room_preview dir>                # writes <dir>/room_objects.json
 python3 web/scripts/room_objects.py <dir> --out other.json
+python3 web/scripts/room_objects.py <dir> --joints <run>/realism_authoring/room/Objects
 
 Input: room_layout.json (Blender Z-up, metres) and, when present, Room.glb next to it.
 Output: every object with its role (structure / opening / fixture / furniture), the movable
 group it belongs to (an object rebuilt on its own, `rebuilt` in the layout, is its own group), how it is mounted (floor / wall / ceiling), the wall it hangs on, and its
 bounding box converted to the glTF frame the web editor uses (Y-up: (x, y, z) -> (x, z, -y)).
-Standard library only; the GLB is read for its node names, never modified.
+With --joints (default: ../room/Objects beside the room_preview dir, when it exists), also the parts
+that open: the hinges and slides of the reconstruction's sim/<Object>.urdf files, kept only where
+Room.glb has the part with its origin on the joint, so the editor can turn it about that origin.
+Standard library only; the GLB's JSON is read, never modified.
 """
 import argparse
 import json
+import math
 import struct
 import sys
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 FORMAT = 'roomcanvas-room-objects'
@@ -32,8 +38,8 @@ def to_y_up(point):
     return [x, z, -y]
 
 
-def glb_node_names(path):
-    """Node names from the GLB's JSON chunk; the binary chunk is not read."""
+def glb_document(path):
+    """The GLB's JSON chunk; the binary chunk is not read."""
     with open(path, 'rb') as file:
         magic, version, _ = struct.unpack('<4sII', file.read(12))
         if magic != b'glTF' or version != 2:
@@ -41,8 +47,59 @@ def glb_node_names(path):
         length, kind = struct.unpack('<II', file.read(8))
         if kind != 0x4E4F534A:
             raise ValueError(f'{path} does not start with a JSON chunk')
-        document = json.loads(file.read(length))
-    return {node.get('name') for node in document.get('nodes', [])}
+        return json.loads(file.read(length))
+
+
+def glb_node_names(path):
+    return {node.get('name') for node in glb_document(path).get('nodes', [])}
+
+
+def urdf_joints(objects_dir):
+    """Hinges and slides of the reconstruction's sim/<Object>.urdf files, in the URDF's Z-up frame."""
+    for path in sorted(Path(objects_dir).glob('*/*/sim/*.urdf')):
+        for joint in ElementTree.parse(path).getroot().iter('joint'):
+            if joint.get('type') not in ('revolute', 'prismatic'):
+                continue
+            origin, axis, limit = joint.find('origin'), joint.find('axis'), joint.find('limit')
+            numbers = lambda element, key, default: [float(v) for v in (element.get(key) if element is not None else default).split()]
+            yield {'urdf': path.name, 'type': joint.get('type'), 'parent': joint.find('parent').get('link'),
+                   'child': joint.find('child').get('link'), 'xyz': numbers(origin, 'xyz', '0 0 0'),
+                   'rpy': numbers(origin, 'rpy', '0 0 0'), 'axis': numbers(axis, 'xyz', '1 0 0'),
+                   'lower': float(limit.get('lower', 0)), 'upper': float(limit.get('upper', 0))}
+
+
+def place_joints(joints, document, object_nodes, tolerance=.01):
+    """Joints whose part is one GLB node sitting on its joint: the part's own origin is the joint's
+    origin in its parent's frame (the URDF base link: a cabinet's carcass, a door's frame), and the
+    part itself is neither rotated nor scaled. That parent may be rotated and stretched to the scan;
+    the editor swings the part rigidly in the world. Returns the kept joints in the editor's Y-up
+    frame, and a reason for each one left out."""
+    nodes = document.get('nodes', [])
+    parent = {child: index for index, node in enumerate(nodes) for child in node.get('children', [])}
+    kept, skipped = [], []
+    for joint in joints:
+        found = [index for index, node in enumerate(nodes) if node.get('name') == joint['child']]
+        if len(found) != 1:
+            skipped.append(f'{joint["urdf"]}: {joint["child"]} is {"missing from" if not found else "not unique in"} Room.glb')
+            continue
+        node = nodes[found[0]]
+        owner = parent.get(found[0])
+        while owner is not None and nodes[owner].get('name') not in object_nodes:
+            owner = parent.get(owner)
+        if owner is None:
+            skipped.append(f'{joint["urdf"]}: {joint["child"]} is not under an object of the layout')
+            continue
+        if ('matrix' in node or any(abs(v) > 1e-6 for v in node.get('rotation', [0, 0, 0, 1])[:3])
+                or any(abs(v - 1) > 1e-6 for v in node.get('scale', [1, 1, 1])) or any(abs(v) > 1e-9 for v in joint['rpy'])):
+            skipped.append(f'{joint["urdf"]}: {joint["child"]} is rotated or scaled against its joint')
+            continue
+        offset = math.dist(node.get('translation', [0, 0, 0]), to_y_up(joint['xyz']))
+        if offset > tolerance:
+            skipped.append(f'{joint["urdf"]}: {joint["child"]} sits {offset:.3f} m from its joint')
+            continue
+        kept.append({'node': joint['child'], 'object': nodes[owner]['name'], 'type': joint['type'],
+                     'axis': [v + 0.0 for v in to_y_up(joint['axis'])], 'lower': joint['lower'], 'upper': joint['upper']})
+    return kept, skipped
 
 
 def nearest_wall(item, walls, reach=.3):
@@ -54,7 +111,7 @@ def nearest_wall(item, walls, reach=.3):
     return min(near, key=distance)['id'] if near else None
 
 
-def build(layout, node_names=None, names=None):
+def build(layout, node_names=None, names=None, joints=None):
     """names: hand-written display names by group id, kept from an earlier room_objects.json."""
     objects = {item['id']: item for item in layout['objects']}
     if len(objects) != len(layout['objects']):
@@ -190,6 +247,7 @@ def build(layout, node_names=None, names=None):
         'openings': openings,
         'groups': sorted(groups, key=lambda group: group['id']),
         'objects': records,
+        **({'joints': joints} if joints else {}),
     }
 
 
@@ -197,6 +255,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('room_dir', type=Path, help='directory with room_layout.json (and Room.glb)')
     parser.add_argument('--out', type=Path, help='default: <room_dir>/room_objects.json')
+    parser.add_argument('--joints', type=Path, help='the run\'s room/Objects directory (default: ../room/Objects, if any)')
     args = parser.parse_args(argv)
     room_dir = args.room_dir.expanduser().resolve()
     layout = json.loads((room_dir / 'room_layout.json').read_text())
@@ -206,13 +265,25 @@ def main(argv=None):
     names = {}
     if out.is_file():
         names = {group['id']: group['name'] for group in json.loads(out.read_text()).get('groups', []) if group.get('name')}
-    result = build(layout, glb_node_names(glb) if glb.is_file() else None, names)
+    objects_dir = args.joints.expanduser().resolve() if args.joints else room_dir.parent / 'room' / 'Objects'
+    joints = []
+    if objects_dir.is_dir():
+        if not glb.is_file():
+            parser.error('joints need Room.glb beside room_layout.json')
+        handles = {item.get('handle') or item['id'] for item in layout['objects']}
+        joints, skipped = place_joints(list(urdf_joints(objects_dir)), glb_document(glb), handles)
+        for reason in skipped:
+            print(f'joint left out: {reason}', file=sys.stderr)
+    elif args.joints:
+        parser.error(f'{objects_dir} is not a directory')
+    result = build(layout, glb_node_names(glb) if glb.is_file() else None, names, joints)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=1) + '\n')
     counts = {}
     for record in result['objects']:
         counts[record['role']] = counts.get(record['role'], 0) + 1
     movable = ', '.join(f'{group["id"]}({len(group["members"])})' for group in result['groups'])
-    print(f'{out}: {len(result["objects"])} objects {counts}; {len(result["groups"])} movable groups: {movable}')
+    print(f'{out}: {len(result["objects"])} objects {counts}; {len(result["groups"])} movable groups: {movable}; '
+          f'{len(joints)} parts open: {", ".join(joint["node"] for joint in joints) or "none"}')
     if not glb.is_file():
         print('warning: Room.glb not found, node names were not checked', file=sys.stderr)
 
