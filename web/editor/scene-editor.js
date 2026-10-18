@@ -1,20 +1,20 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-31';
-import {createPlacement} from './placement.mjs?v=gesture-31';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-31';
-import {PlacementSession} from './placement-session.mjs?v=gesture-31';
-import {createCollision} from './collision.mjs?v=gesture-31';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-31';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-31';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-33';
+import {createPlacement} from './placement.mjs?v=gesture-33';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-33';
+import {PlacementSession} from './placement-session.mjs?v=gesture-33';
+import {createCollision} from './collision.mjs?v=gesture-33';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-33';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-33';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=gesture-31';
-import {analogDelta} from './placement-motion.mjs?v=gesture-31';
+import {mountJoysticks} from './joystick-ui.mjs?v=gesture-33';
+import {analogDelta} from './placement-motion.mjs?v=gesture-33';
 
-import {predictDrop, fallFraction} from './drop-placement.mjs?v=gesture-31';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-31';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-31';
+import {predictDrop, fallFraction} from './drop-placement.mjs?v=gesture-33';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-33';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-33';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -1449,7 +1449,7 @@ async function load() {
   config = await roomConfigReady;
   ids.push(...config.catalog.map((item) => item.id)); roomIds.push(...ids);
   Object.assign(placementSpecs, config.placement);
-  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80));
+  const gltf = await new GLTFLoader().loadAsync(await versionedModelURL(), reportProgress(0, 80));
   progress.value = 80;
   room = gltf.scene;
   scene.add(room);
@@ -1577,6 +1577,16 @@ function wallOptions(walls) {
     return [name, root ? nearestWall(worldVertices(THREE, root), walls) : null];
   }));
   return {owner: (name) => config.wallOwner(name) || near.get(name) || null};
+}
+
+// A browser may keep an earlier Room.glb without asking the server again. Name the model by
+// the file's own date and size, so a replaced room is always downloaded and an unchanged one cached.
+async function versionedModelURL() {
+  try {
+    const head = await fetch(modelURL, {method: 'HEAD', cache: 'no-store'});
+    const stamp = head.ok && (head.headers.get('etag') || [head.headers.get('last-modified'), head.headers.get('content-length')].filter(Boolean).join(' '));
+    return stamp ? `${modelURL}?v=${encodeURIComponent(stamp)}` : modelURL;
+  } catch {return modelURL;}
 }
 
 async function loadRoomConfig() {
