@@ -250,6 +250,8 @@ body { margin: 0; padding: 12px; background: #eceee7; }
 #rc-placement-demo #close-list { display: none; }
 #rc-placement-demo #object-panel.open { position: fixed; z-index: 12; bottom: 14px; left: 18px; right: 18px; max-height: 55vh; border: 1px solid var(--rc-line); border-radius: 15px; box-shadow: 0 12px 48px #1736231c; }
 #rc-placement-demo #object-panel.open #close-list { display: inline-flex; }
+/* The open warehouse floats; its strip's space stays, so the room view keeps its size and framing. */
+#rc-placement-demo #object-panel.open + .rc-footer { margin-top: var(--rc-shelf-space, 0px); }
 #rc-placement-demo #object-panel.open .rc-catalog { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); max-height: calc(55vh - 95px); overflow-y: auto; }
 #rc-placement-demo #object-panel.open .object-row { min-width: 0; }
 #rc-placement-demo .rc-files { margin-bottom: 8px; }
