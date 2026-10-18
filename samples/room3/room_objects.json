@@ -1467,5 +1467,103 @@
     -1.0215
    ]
   }
+ ],
+ "joints": [
+  {
+   "node": "Door_Right",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Left",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Centre",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Storage1_Door",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Upper_Door",
+   "object": "Storage2",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Lower_Right_Door",
+   "object": "Storage2",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Leaf",
+   "object": "Door0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.5708
+  },
+  {
+   "node": "Operable_Right_Sash",
+   "object": "Window0",
+   "type": "prismatic",
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 0.346
+  }
  ]
 }

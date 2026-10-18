@@ -1,10 +1,11 @@
 """python3 -m unittest discover -s web/scripts"""
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from room_objects import build  # noqa: E402
+from room_objects import build, place_joints, urdf_joints  # noqa: E402
 
 
 def item(id, category, rests_on=None, attached_to=None, support_part=None, placeable=False,
@@ -84,6 +85,48 @@ class BuildTest(unittest.TestCase):
             build(room(item('A', 'box', rests_on='B'), item('B', 'box', rests_on='A')))
         with self.assertRaisesRegex(ValueError, 'no node for: Bed0'):
             build(room(), node_names={record['id'] for record in room()['objects']} - {'Bed0'})
+
+
+URDF = """<robot name="Storage0"><link name="base_link"/><link name="Door_Left"/><link name="Base"/>
+  <joint name="Door_Left_joint" type="revolute"><parent link="base_link"/><child link="Door_Left"/>
+    <origin xyz="-0.88 -0.19 0.28" rpy="0 0 0"/><axis xyz="0 0 -1"/><limit lower="0" upper="1.745" effort="20" velocity="3"/></joint>
+  <joint name="Base_joint" type="fixed"><parent link="base_link"/><child link="Base"/></joint>
+</robot>"""
+
+
+class JointTest(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        sim = Path(folder.name) / 'Procedural' / 'Storage0' / 'sim'
+        sim.mkdir(parents=True)
+        (sim / 'Storage0.urdf').write_text(URDF)
+        self.joints = list(urdf_joints(folder.name))
+
+    def document(self, door=None):
+        # The object node, its carcass turned and stretched to the scan, the door on the carcass.
+        door = door or {'name': 'Door_Left', 'translation': [-0.88, 0.28, 0.19]}
+        return {'nodes': [{'name': 'Storage0', 'children': [1]},
+                          {'name': 'Carcass', 'children': [2], 'rotation': [0, -.27, 0, .96], 'scale': [.87, .89, 1.27]},
+                          door]}
+
+    def test_hinges_and_slides_are_read_fixed_joints_are_not(self):
+        self.assertEqual([(joint['child'], joint['type']) for joint in self.joints], [('Door_Left', 'revolute')])
+        self.assertEqual(self.joints[0]['axis'], [0, 0, -1])
+
+    def test_a_part_on_its_joint_is_kept_in_the_y_up_frame(self):
+        kept, skipped = place_joints(self.joints, self.document(), {'Storage0'})
+        self.assertEqual(skipped, [])
+        self.assertEqual(kept, [{'node': 'Door_Left', 'object': 'Storage0', 'type': 'revolute',
+                                 'axis': [0.0, -1.0, 0.0], 'lower': 0.0, 'upper': 1.745}])
+
+    def test_a_part_off_its_joint_or_turned_is_left_out(self):
+        for door, reason in [({'name': 'Door_Left', 'translation': [0, 0, 0]}, 'from its joint'),
+                             ({'name': 'Door_Left', 'translation': [-0.88, 0.28, 0.19], 'rotation': [0, .7, 0, .7]}, 'rotated'),
+                             ({'name': 'Other'}, 'missing')]:
+            kept, skipped = place_joints(self.joints, self.document(door), {'Storage0'})
+            self.assertEqual(kept, [])
+            self.assertIn(reason, skipped[0])
 
 
 if __name__ == '__main__':

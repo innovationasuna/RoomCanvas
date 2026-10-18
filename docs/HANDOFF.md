@@ -73,6 +73,10 @@
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。我们自己的接收端用 2π。
 - **room3 接进手势页（2026-10-18，#8 已合并）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
 
+## 开门、开柜门（2026-10-18，分支 `feat/open-doors`）
+
+用户要柜子等能打开。重建时 Astra 生成的程序化物体本来就带关节（`runs/<运行>/pipeline/<场景>/realism_authoring/room/Objects/*/<物体>/sim/<物体>.urdf`，含合页位置、方向、角度范围），只是没传到网页。做了两步：`room_objects.py` 把能和 `Room.glb` 对上的关节写进 `room_objects.json` 的 `joints`（两个示例已用服务器数据重新生成，除新增 `joints` 外与原文件完全相同）；编辑器“预览”模式点门、柜门、窗开合（`web/editor/joints.mjs`），回“布置”全部关上。柜体节点带不均匀缩放，门板挂在柜体下、原点就在合页上，所以按世界里的合页线刚体转动，不在柜体坐标里转（否则变形）。用 Chromium 验证：room3 6 扇柜门和房门、office 两扇窗、升降桌、房门都能开合，转开后部件世界尺寸不变。没做的：手势开门（用户说先不做）；office 抽屉在重建里没有滑轨，要开得改房间重建让 Astra 把抽屉做成活动部件。
+
 ## 下一步：RoomCanvas 网站（用户 2026-10-18 定，分支 `feat/roomcanvas-app`）
 
 用户的意思：项目就叫 RoomCanvas，网页应该是 RoomCanvas 自己的网站；现在是 ViewForge 的手势页（`gesture/viewforge.html`，标题“ViewForge 手势布局”、地址栏、开启/关闭摄像头、移动/旋转/仅观察、取消当前操作）套着 RoomCanvas 编辑器，颜色不统一，那排按钮多余。三件事，分两个 PR：
