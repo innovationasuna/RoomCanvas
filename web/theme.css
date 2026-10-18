@@ -1,0 +1,16 @@
+/* RoomCanvas colours and type, shared by the home page and the editor. */
+:root {
+  color-scheme: light;
+  --rc-bg: #eceee7;
+  --rc-panel: #fcfcf8;
+  --rc-text: #243a32;
+  --rc-muted: #6d7a71;
+  --rc-line: #dce2d8;
+  --rc-green: #30664f;
+  --rc-active: #e4eee3;
+  --rc-warn: #b84e45;
+  /* The hand pointer and what it points at. */
+  --rc-hand: var(--rc-green);
+  --rc-font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+body { background: var(--rc-bg); color: var(--rc-text); font-family: var(--rc-font); }

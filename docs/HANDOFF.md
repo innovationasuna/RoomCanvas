@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10 已合并；下一步见“下一步：RoomCanvas 网站”）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10 已合并；网站第 1 项做完待合并，见“下一步：RoomCanvas 网站”）。
 
 ## 现状
 
@@ -21,7 +21,7 @@
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
 - ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。
-- 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 是用户同意的例外，仓库公开前必须删。
+- 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 和主页缩略图 `thumbnail.jpg` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）
 
@@ -76,12 +76,12 @@
 
 用户的意思：项目就叫 RoomCanvas，网页应该是 RoomCanvas 自己的网站；现在是 ViewForge 的手势页（`gesture/viewforge.html`，标题“ViewForge 手势布局”、地址栏、开启/关闭摄像头、移动/旋转/仅观察、取消当前操作）套着 RoomCanvas 编辑器，颜色不统一，那排按钮多余。三件事，分两个 PR：
 
-1. **主页 + 手势内置 + 配色统一**（一个 PR）
-   - 主页（`web/index.html`）：房间卡片（缩略图、名字、家具数），点进布置页；不再靠地址里的 `?scene=` 选房间（保留它兼容）。
-   - 手势放进编辑器自己：工具栏一个“手势”开关；打开后角落一个小摄像头卡片（镜像预览、左右手状态、当前模式）；模式靠左手 1/2/3，卡片上的模式标签可点；开/关摄像头合成这一个开关；“取消当前操作”由编辑器已有的“取消”承担。全部用编辑器的配色变量（`--rc-*`）。
-   - 识别代码来源（用户选定）：在 `gesture/` 里**新增**一个构建入口（只加文件，不改 lyk 现有文件），把“只识别、不渲染”的运行时（`camera`、`tracking`（MediaPipe Worker）、`gestures`（engine、number-mode、observe-pinch）、`integration/runtime.ts`）打包成一个 ES 模块放进 `web/vendor/`，像 three.js 一样提交构建结果，`web/` 仍无构建步骤。MediaPipe 的 wasm 和模型已在 `gesture/public/vision/`（45 MB，已进 git），优先直接引用不复制；注意 `tracker.ts` 里写死了 `/vision/wasm` 等绝对路径，入口需要能传入资源地址。
-   - 编辑器里手势端口（`scene-editor.js` 的 `gesturePort`、`GestureInput`）照用，只是帧不再经 postMessage，而是本页运行时直接喂给 `GestureInput`；`gesture-bridge.mjs` 的 iframe 桥保留，lyk 的手势页仍能用。
-   - 手势页里现在的布局（工具栏右下、摇杆左下、指针放大 1.3 倍、按钮吸附防滑）搬到内置模式。
+1. **主页 + 手势内置 + 配色统一**（一个 PR，分支 `feat/roomcanvas-app`，已做完，等用户看过合并）
+   - 主页 `web/index.html` 读 `web/rooms.json`：房间卡片显示缩略图（房间目录里的 `thumbnail.jpg`，`web/scripts/thumbnail.py` 用 Playwright 从编辑器截图）、名字、家具组数、模型大小，点进 `editor/?room=<id>`。`?scene=` 仍可用；编辑器里原来那张“载入房间”卡片去掉了，直接加载；左上角 RoomCanvas 回主页。
+   - 手势内置：工具栏“手势”开关 → 左上角摄像头卡片（镜像画面、左右手状态、模式标签可点，左手 1/2/3 也能切），工具栏挪到右下、摇杆左下（即原来嵌在手势页里的布局，`data-gesture`）。帧直接喂 `GestureInput`（`web/editor/gesture-camera.mjs`）。关掉手势只结束手上的操作，预览留给鼠标；取消用编辑器自己的“取消”。嵌在 lyk 手势页里时“手势”按钮隐藏，iframe 桥照旧（用模拟消息验证过）。
+   - 识别代码：`gesture/` 只新增 `src/embed/`（入口 + 可传资源地址的 tracker）和 `vite.embed.config.ts`（构建时把 `../tracking/tracker` 换成新 tracker，`integration/runtime.ts` 原样用）。`npx vite build --config vite.embed.config.ts` 输出到 `web/vendor/gesture/`（运行时 25 KB + Worker 199 KB，已提交）。wasm 和模型直接读 `gesture/public/vision/`。
+   - 配色：`web/theme.css` 放 `--rc-*`，主页、编辑器共用；手的指针从蓝色改成主题绿（`--rc-hand`）；原来暗色模式的 `light-dark()` 实际被强制成浅色，已去掉。`publish.py` 同时复制 `theme.css`、`icon.svg`。
+   - 验证：网页单测 142 项（新增 6 项）、Python 8 项、office `check_room` 18/18；手势包类型检查、74 项测试、资源校验、原构建都过。Chromium 假摄像头下 MediaPipe 能在 Worker 里加载、出帧、切模式；**没有真人摄像头验收**，请用户用手试一遍。
 2. **仓库“添加物体”：几张照片 → 重建**（一个 PR）
    - 后端：用户先选了“RoomCanvas 自己在 3090 上起一个小服务”（当时以为 ViewForge 服务是 lyk 独立维护的）；#11 之后 ViewForge 后端本身就从本仓库运行，多了“在这个服务上加给 RoomCanvas 用的接口”（照 `layouts.py` 的 `LayoutsMiddleware` 那样）这条路，不用再起一个服务，但要改 lyk 维护的服务代码。**开工前请用户和 lyk 商量定哪条路。** 无论哪条，都调用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`）。参考 `scripts/web.py`（ViewForge 的 Gradio 界面）的流程，但不调用 lyk 正在跑的服务。
    - 目录：ViewForge 的环境、权重、缓存和数据都在同一个 `VIEWFORGE_ROOT`（`scripts/env.sh`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`）。RoomCanvas 用自己的根目录（如 `/workspace/geyinuo/RoomCanvas/objects/`），`envs`、`weights`、`third_party` 链接到 `/workspace/geyinuo/ViewForge/` 只读使用；`cache` 共用还是独立（共用会写进 lyk 的目录）开工前问用户。GPU 锁用 lyk 服务同一个 `VIEWFORGE_GPU_LOCK`（看服务器上他的 `configs/local.env`），避免两边同时占卡；一次占一张空闲 GPU。
@@ -98,7 +98,7 @@
 | 清空房间 | 差一步（`room_objects.json` 的 `role` 已有，见待办 2） |
 | 自己拍物体 → 按尺寸重建 | 基本有（ViewForge），尺寸目前靠用户填一条实测边长 |
 | 商品链接 → 多视角图和尺寸 → 重建 | 没有；重建部分可复用小物件流程（参考图 → TRELLIS → 按商品尺寸缩放），注意网站条款 |
-| 网页布置 | RoomCanvas 编辑器已接上手势和 ViewForge 物体（`feat/room3-gesture`）；ViewForge 布局页仍单独存在 |
+| 网页布置 | RoomCanvas 主页 + 编辑器，内置手势，可导入 ViewForge 物体（`feat/roomcanvas-app`）；ViewForge 布局页仍单独存在 |
 | 手势 | 有（`gesture/`，协议与页面无关），编辑器已能接收 |
 | 后端 | 没有：需要接收上传、排队跑房间/物体重建、两张 3090 调度、存结果 |
 
