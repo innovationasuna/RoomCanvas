@@ -5,10 +5,11 @@
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
-- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。主线已整合 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
+- 原三块：`room-reconstruction/`（LiteReality + Astra，3090 运行脚本在 `room-reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。主线已整合 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
+- 2026-10-18 改名（用户定）：`reconstruction/` → `room-reconstruction/`（和 `object-reconstruction/` 成对），`docs/VIEWFORGE_INTEGRATION.md` → `docs/OBJECT_RECONSTRUCTION.md`，`web/editor/viewforge-import.mjs` → `object-import.mjs`。服务器同步后要跟着改三处（目录下未跟踪的东西不会随 git 移走）：把 `reconstruction/.venv` 链接挪到 `room-reconstruction/.venv` 并删掉留下的空 `reconstruction/`；`.git/info/exclude` 里 `/reconstruction/.venv` 改成 `/room-reconstruction/.venv`；`runtime/litereality-env` 的 `_editable_impl_litereality_agent.pth` 改指 `room-reconstruction/src`。然后跑一次 `run_room.py --check`。
 - 编辑器只有一条路：任何房间都读 `room_objects.json`（`web/scripts/room_objects.py` 生成，可手写 `name` 覆盖家具名）。座面、墙角短墙、窗帘归墙都自动处理。
 - 2026-10-18 合并：#8 手势接入编辑器 + 导入 ViewForge 物体 + 落点检查放后台线程（`f05f14e`）；#10 新 room3（小物件这一步之后的结果，`4243a6b`；原 #9 叠在 #8 上，#8 删分支时被 GitHub 关闭，重开为 #10）；#11 lyk 把 ViewForge 后端迁到本仓库运行、文档整理（`e077c91`）。服务器文件夹随后切回 main，迁移前的临时工作区存在 `git stash` 里。
-- 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
+- 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`room-reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
 - PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 README。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
 - 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
@@ -20,7 +21,7 @@
 - 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
-- ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。
+- ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [物体重建说明](OBJECT_RECONSTRUCTION.md)。
 - 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 和主页缩略图 `thumbnail.jpg` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）
@@ -31,9 +32,9 @@
 
 | 路径（在 `/workspace/geyinuo/RoomCanvas/` 下） | 内容 |
 |---|---|
-| 仓库文件（`reconstruction/`、`web/`、`samples/`、`gesture/` …） | 与 GitHub main 一致 |
+| 仓库文件（`room-reconstruction/`、`web/`、`samples/`、`gesture/` …） | 与 GitHub main 一致 |
 | `.env`、`.env.astra` | 密钥，**不要打印** |
-| `runtime/` | litereality-env、trellis-env、Blender 5.1.2、CUDA 12.4、codex-cli；测试环境 `runtime/venv-tests`（链接为 `reconstruction/.venv`） |
+| `runtime/` | litereality-env、trellis-env、Blender 5.1.2、CUDA 12.4、codex-cli；测试环境 `runtime/venv-tests`（链接为 `room-reconstruction/.venv`） |
 | `backends/` | TRELLIS.2 和权重 |
 | `data/` | 扫描（`scans/hausen/` room1–3、bathroom，私人）、输入包、office 扫描 `example-scans/` |
 | `runs/` | 所有运行结果，不覆盖 |
@@ -41,7 +42,7 @@
 | `runs/full-astra-20260919/office_room/realism_authoring/room_preview/` | office 的 `room_layout.json` |
 | `archive/` | 只挪不删的旧东西：9 月旧仓库、旧脚本（`astra_run.py`、`repo/`、`official/` 等）、小物件试跑 |
 
-同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
+同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `room-reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `room-reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
 
 `/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）也**不要动**：ViewForge 的 `layouts.py` 从它的 `runs/` 读办公室、茶室三个房间（2026-10-17 曾被误移进 archive，弄坏了 ViewForge 的房间，已移回）。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
 
@@ -83,10 +84,10 @@
    - 配色：`web/theme.css` 放 `--rc-*`，主页、编辑器共用；手的指针从蓝色改成主题绿（`--rc-hand`）；原来暗色模式的 `light-dark()` 实际被强制成浅色，已去掉。`publish.py` 同时复制 `theme.css`、`icon.svg`。
    - 验证：网页单测 142 项（新增 6 项）、Python 8 项、office `check_room` 18/18；手势包类型检查、74 项测试、资源校验、原构建都过。Chromium 假摄像头下 MediaPipe 能在 Worker 里加载、出帧、切模式；**没有真人摄像头验收**，请用户用手试一遍。
 2. **仓库“添加物体”：几张照片 → 重建**（一个 PR）
-   - 后端：用户先选了“RoomCanvas 自己在 3090 上起一个小服务”（当时以为 ViewForge 服务是 lyk 独立维护的）；#11 之后 ViewForge 后端本身就从本仓库运行，多了“在这个服务上加给 RoomCanvas 用的接口”（照 `layouts.py` 的 `LayoutsMiddleware` 那样）这条路，不用再起一个服务，但要改 lyk 维护的服务代码。**开工前请用户和 lyk 商量定哪条路。** 无论哪条，都调用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`）。参考 `scripts/web.py`（ViewForge 的 Gradio 界面）的流程，但不调用 lyk 正在跑的服务。
-   - 目录：ViewForge 的环境、权重、缓存和数据都在同一个 `VIEWFORGE_ROOT`（`scripts/env.sh`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`）。RoomCanvas 用自己的根目录（如 `/workspace/geyinuo/RoomCanvas/objects/`），`envs`、`weights`、`third_party` 链接到 `/workspace/geyinuo/ViewForge/` 只读使用；`cache` 共用还是独立（共用会写进 lyk 的目录）开工前问用户。GPU 锁用 lyk 服务同一个 `VIEWFORGE_GPU_LOCK`（看服务器上他的 `configs/local.env`），避免两边同时占卡；一次占一张空闲 GPU。
-   - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + SSH 隧道到这个服务。
-   - 起服务、建目录、链接前，按“挪目录前先查引用”的约定检查，且不动 lyk 的 `ViewForge/` 目录和运行中的服务。
+   - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（照 `layouts.py` 的 `LayoutsMiddleware` 那样），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
+   - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（`/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
+   - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + 现有 SSH 隧道（7865）到这个服务。
+   - 服务器上的后端是正在运行的服务：改了 `object-reconstruction/` 的代码，同步后要重启它才生效，重启前告诉 lyk（他可能正在用）。`/workspace/geyinuo/ViewForge` 运行目录不挪。
 
 ## 产品方向（用户 2026-10-18 提出）
 

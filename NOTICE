@@ -1,7 +1,7 @@
 RoomCanvas
 Copyright 2026 innovationAusna
 
-The reconstruction/ directory is a modified version of LiteReality-Agent
+The room-reconstruction/ directory is a modified version of LiteReality-Agent
 (https://github.com/LiteReality/LiteReality-Agent), imported from upstream
 commit 28ffe1f4 (2026-10-03).
 LiteReality-Agent is copyright Zhening Huang and the LiteReality contributors,

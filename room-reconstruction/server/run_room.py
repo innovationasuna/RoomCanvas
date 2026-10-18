@@ -5,7 +5,7 @@ usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-round
                    [--set KEY=VALUE ...] [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
 
-The code that runs is this checkout's reconstruction/. Runtimes, model weights and the private
+The code that runs is this checkout's room-reconstruction/. Runtimes, model weights and the private
 .env come from $ROOMCANVAS_HOME. --set records each configuration workaround explicitly in
 run-config.json. --check prints what would run and exits without creating anything.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 from gpu import GpuLock, list_gpus, select_gpu
 
 CHECKOUT = Path(__file__).resolve().parents[2]  # this RoomCanvas checkout
-RECON = CHECKOUT / "reconstruction"  # the LiteReality-based module inside it
+RECON = CHECKOUT / "room-reconstruction"  # the LiteReality-based module inside it
 HOME = Path(os.environ.get("ROOMCANVAS_HOME", "/workspace/geyinuo/RoomCanvas"))
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD", re.I)  # never printed or recorded
 

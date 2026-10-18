@@ -13,10 +13,10 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # RoomCanvas: the LiteReality-based reconstruction module lives in reconstruction/.
+    # RoomCanvas: the LiteReality-based reconstruction module lives in room-reconstruction/.
     defaults:
       run:
-        working-directory: reconstruction
+        working-directory: room-reconstruction
     steps:
       - uses: actions/checkout@v4
         with:
