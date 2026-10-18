@@ -15,7 +15,7 @@ import {analogDelta} from './placement-motion.mjs?v=app-35';
 import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-35';
 import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-35';
 import {createGestureCamera} from './gesture-camera.mjs?v=app-35';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=app-35';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-35';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');

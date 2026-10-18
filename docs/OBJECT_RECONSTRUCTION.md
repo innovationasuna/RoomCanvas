@@ -1,4 +1,4 @@
-# ViewForge 与 RoomCanvas 整合
+# 物体重建（ViewForge）与手势
 
 更新：2026-10-18。ViewForge 后端、查看器和手势前端都从本仓库源码启动；Python 环境、模型权重、照片和历史结果留在外部运行目录，不进 Git。
 
@@ -6,7 +6,7 @@
 
 | 目录 | 职责 |
 | --- | --- |
-| `reconstruction/` | LiteReality 房间重建 |
+| `room-reconstruction/` | LiteReality 房间重建 |
 | `web/`、`samples/` | RoomCanvas 主页、编辑器（Three.js）与示例房间；编辑器内置手势（识别代码由 `gesture/src/embed/` 打包），也可被手势页嵌入，可导入 ViewForge 物体 |
 | `object-reconstruction/` | ViewForge：照片重建物体、尺寸标定、Babylon 布局页、碰撞和保存 |
 | `gesture/` | 摄像头、MediaPipe Worker、手势识别和手势接入页 |
