@@ -504,9 +504,12 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
 // The pieces and fixed parts of a room with their triangles, read from its meshes once.
 export function collisionOwners(THREE, room, entities, {label = () => null} = {}) {
   room.updateMatrixWorld(true);
-  const owners = [...entities].map(([id, entity]) => ({id, name: entity.name, origin: entity.origin.toArray(), meshes: [], added: !!entity.added}));
-  const meshOwners = new Map();
-  owners.forEach((owner, i) => [...entities.values()][i].group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);}));
+  const owners = [], meshOwners = new Map();
+  for (const [id, entity] of entities) {
+    const owner = {id, name: entity.name, origin: entity.origin.toArray(), meshes: [], added: !!entity.added};
+    owners.push(owner);
+    entity.group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);});
+  }
   const staticOwners = new Map();
   room.traverse((mesh) => {
     // A display mesh with a lighter stand-in for contact (userData.collision === false) is skipped.

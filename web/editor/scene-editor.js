@@ -1088,7 +1088,7 @@ function updateSessionUI() {
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '摇杆移动 · 升降调整高度 · 投影显示落点';
   } else $('#confirm-placement').textContent = '确认放置';
-  // The joysticks are hidden in the gesture page; say how the hand works instead.
+  // In the gesture page the hint says how the hand works.
   if (embedded) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
 }
 
@@ -1260,8 +1260,8 @@ function bindPlacementEvents() {
 // The gesture page (gesture/, see gesture-bridge.mjs) embeds this editor and sends hand frames.
 // The hand points like a mouse over the whole editor: a pinch on a button presses it, on a
 // warehouse card takes that piece out, on furniture grabs it. Releasing leaves the piece as a
-// preview where it is (a recognised release can be a slip of the fingers); pressing
-// “放置并落下” drops and confirms it, as with the mouse and joystick.
+// preview where it is (a recognised release can be a slip of the fingers); a tap on it, or
+// “放置并落下”, drops and confirms it, as with the mouse and joystick.
 let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null, handHover = null;
 const handPointer = Object.assign(document.createElement('div'), {className: 'rc-hand-pointer', hidden: true});
 document.body.appendChild(handPointer);
