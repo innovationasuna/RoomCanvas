@@ -5,14 +5,14 @@ import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBa
 import {createPlacement} from './placement.mjs?v=gesture-33';
 import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-33';
 import {PlacementSession} from './placement-session.mjs?v=gesture-33';
-import {createCollision} from './collision.mjs?v=gesture-33';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=gesture-33';
 import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-33';
 import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-33';
 
 import {mountJoysticks} from './joystick-ui.mjs?v=gesture-33';
 import {analogDelta} from './placement-motion.mjs?v=gesture-33';
 
-import {predictDrop, fallFraction} from './drop-placement.mjs?v=gesture-33';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=gesture-33';
 import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-33';
 import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-33';
 
@@ -987,9 +987,61 @@ function restoreGhostMaterials() {
 function planDrop(options) {
   const before = pending.before[selected], now = layout[selected], state = placementStates.get(selected);
   const inPlace = before.visible !== false && state?.state === 'stable' && ['x', 'y', 'z', 'yaw'].every((key) => Math.abs((now[key] || 0) - (before[key] || 0)) < 1e-9);
-  if (!inPlace) return predictDrop(selected, layout, placement, collision, options);
+  if (!inPlace) return background?.ready && !options?.previewOnly ? backgroundDrop() : predictDrop(selected, layout, placement, collision, options);
   const label = state.label.replace(/^已放稳 · /, '');
   return {ok: true, checked: true, candidate: copyLayout(layout), moved: [selected], state, height: state.height, label, distance: 0, message: `保持在${label}`};
+}
+
+// The full collision check of a drop runs in collision-worker.mjs, so a heavy piece does not freeze
+// the room or the hand. Until its answer for this exact layout arrives the plan is unchecked: shown
+// as the expected landing, not confirmable. Only the latest request is kept while one runs.
+let background = null;
+function startBackgroundCollision(owners) {
+  const generation = (background?.generation || 0) + 1;
+  background ||= {worker: new Worker(new URL('./collision-worker.mjs', import.meta.url), {type: 'module'}), tickets: 0, busy: null, queued: null};
+  Object.assign(background, {generation, ready: false, busy: null, queued: null});
+  const {owners: packed, transfer} = packOwners(owners);
+  background.worker.onmessage = ({data}) => {
+    if (data.generation !== background.generation) return;
+    if (data.type === 'built') {background.ready = true; return;}
+    const job = background.busy;
+    background.busy = null;
+    if (job?.ticket === data.ticket) job.resolve(data);
+    sendBackground();
+  };
+  background.worker.onerror = (error) => {console.error(error); background.ready = false;};
+  background.worker.postMessage({type: 'build', generation, owners: packed, keepAuthoredOverlaps: true}, transfer);
+}
+function sendBackground() {
+  if (background.busy || !background.queued) return;
+  const job = background.busy = background.queued;
+  background.queued = null;
+  background.worker.postMessage({type: 'drop', generation: background.generation, ticket: job.ticket, candidate: job.candidate, moved: job.moved, source: job.source});
+}
+function backgroundDrop() {
+  const key = JSON.stringify([selected, layout]);
+  if (pending.verdict?.key === key) return pending.verdict.plan;
+  const start = dropStart(selected, layout, placement);
+  if (start.result) return start.result;
+  const {base} = start, session = pending;
+  if (session.checking !== key) {
+    // A confirmation waiting for an earlier pose does not carry over to a new one.
+    session.checking = key; session.placeWhenChecked = false;
+    background.queued?.resolve(null);
+    new Promise((resolve) => {background.queued = {ticket: ++background.tickets, candidate: base.candidate, moved: base.moved, source: copyLayout(layout), resolve}; sendBackground();})
+      .then((answer) => {
+        if (!answer || pending !== session || session.checking !== key) return;
+        session.checking = null;
+        session.verdict = {key, plan: dropVerdict(base, answer.contact, answer.sweep)};
+        if (analogActive || falling || JSON.stringify([selected, layout]) !== key) return;
+        applyLayout();
+        if (session.placeWhenChecked && pending === session) {
+          session.placeWhenChecked = false;
+          if (session.valid) confirmSession(); else showToast(session.message);
+        }
+      });
+  }
+  return {...base, ok: true, checked: false, message: `预计落到${base.state.label.replace(/^已放稳 · /, '')} · 正在检查碰撞`};
 }
 
 function refreshSession() {
@@ -998,7 +1050,7 @@ function refreshSession() {
   const installing = pending.before[selected].visible === false;
   dropPlan = pending.gravity ? planDrop({previewOnly:analogActive}) : null;
   const contact = !analogActive && !pending.gravity && (installing || placement.isWall(selected)) ? collision.checkPlacement(layout, [selected]) : null;
-  const valid = !analogActive && (pending.gravity ? dropPlan.ok : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
+  const valid = !analogActive && (pending.gravity ? dropPlan.ok && dropPlan.checked !== false : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
   if (valid) pending.lastReachable = copyLayout(layout);
   pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
   const moved = ids.filter(id => id === selected || ['x','y','z','yaw'].some(key => Math.abs((layout[id][key] || 0) - (pending.before[id][key] || 0)) > 1e-9));
@@ -1015,7 +1067,7 @@ function refreshSession() {
       renderer.shadowMap.needsUpdate = true;
       mesh.material = new THREE.MeshBasicMaterial({transparent:true, opacity:.34, depthWrite:false, side:THREE.DoubleSide});
     }
-    const color = analogActive ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
+    const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
     mesh.material.color.setHex(color);
   });
   for (let i=ghostMaterials.length-1; i>=0; i--) {
@@ -1032,7 +1084,7 @@ function updateSessionUI() {
   $('#store-object').disabled = !!falling;
   $('#settle-object').hidden = !!pending?.gravity;
   if (pending?.gravity) {
-    $('#confirm-placement').textContent = falling ? '正在落下…' : '放置并落下';
+    $('#confirm-placement').textContent = falling ? '正在落下…' : dropPlan?.checked === false && dropPlan.ok ? '检查中…' : '放置并落下';
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '摇杆移动 · 升降调整高度 · 投影显示落点';
   } else $('#confirm-placement').textContent = '确认放置';
@@ -1085,6 +1137,8 @@ function confirmSession() {
   if (pending.gravity) {
     dropPlan = planDrop();
     if (!dropPlan.ok) {showToast(dropPlan.message); applyLayout(); return;}
+    // Still being checked in the background: drop it as soon as the answer allows.
+    if (dropPlan.checked === false) {pending.placeWhenChecked = true; showToast('正在检查碰撞，检查完自动放下'); applyLayout(); return;}
     const landing = dropPlan;
     if (landing.distance > .005) {startFall(landing); return;}
     layout = copyLayout(landing.candidate);
@@ -1245,6 +1299,23 @@ function floorUnder({x, y}) {
   raycaster.setFromCamera(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1), camera);
   return raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorY), new THREE.Vector3());
 }
+// Taking another piece puts down the one being placed if it can stand where it is (without the
+// fall animation). One that cannot, or is still being checked, stays and nothing new is taken,
+// so a preview is never silently sent back to the warehouse.
+function putDownPending() {
+  if (!pending) return true;
+  const name = entities.get(pending.id).name;
+  if (pending.gravity) {
+    const plan = planDrop();
+    if (plan.ok && plan.checked !== false) {layout = copyLayout(plan.candidate); pending.update(layout, true, plan.message); completePlacement(); return true;}
+    showToast(plan.ok ? `${name}还在检查碰撞，稍等再拿下一件` : `${name}放不下：${plan.message}。先挪好它，或按取消`);
+    return false;
+  }
+  if (pending.valid) confirmSession();
+  if (!pending) return true;
+  showToast(`先放好${name}，或按取消`);
+  return false;
+}
 // A short pinch that hardly moves, on the piece being placed, drops it like “放置并落下”.
 const TAP_MS = 600, TAP_TRAVEL = .03;
 function cameraState() {
@@ -1270,6 +1341,7 @@ const gesturePort = {
     const track = {step: null, kind, at: performance.now(), start: {u: hand.u, v: hand.v}, travel: 0};
     if (target.kind === 'shelf') {
       if (kind !== 'move') {showToast('从仓库拖出请先切到移动模式（左手 1）'); return false;}
+      if (pending?.id !== target.id && !putDownPending()) return false;
       // The piece hangs on the hand; it enters the room only when the hand does.
       $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
       gesture = {...track, id: target.id, carrying: true};
@@ -1283,6 +1355,7 @@ const gesturePort = {
     if (!id) {$('#status').textContent = '没有指到家具：指向家具或仓库卡片后再捏合'; return false;}
     if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
     const placing = pending?.id === id;
+    if (!placing && !putDownPending()) return false;
     if (!placing) beginSession(id);
     if (!pending) return false;
     analogActive = true; controls.enabled = false;
@@ -1323,7 +1396,8 @@ const gesturePort = {
     if (!pending) return;
     if (placing && performance.now() - at < TAP_MS && travel < TAP_TRAVEL) {
       confirmSession();
-      if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
+      if (pending?.placeWhenChecked) $('#status').textContent = '正在检查碰撞，检查完自动放下';
+      else if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
       return;
     }
     validateAfterRender();
@@ -1464,7 +1538,7 @@ async function importObject() {
   group.visible = false;
   // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
-  collision = createCollision(THREE, room, entities, placementSpecs, {label: config.label, keepAuthoredOverlaps: true});
+  rebuildCollision();
   $('#import-menu').open = false; $('#import-object').disabled = false;
   renderer.shadowMap.needsUpdate = true;
   beginSession(id);
@@ -1554,7 +1628,7 @@ async function load() {
     $('#wall-target').appendChild(option);
   }
   audit.placement = placement.audit;
-  collision = createCollision(THREE, room, entities, placementSpecs, {label: config.label, keepAuthoredOverlaps: true});
+  rebuildCollision();
   audit.collision = collision.audit;
   wallVisibility = createWallVisibility(room, placement.wallTargets(), wallOptions(placement.wallTargets()));
   ready = true;
@@ -1638,6 +1712,12 @@ async function load() {
     },
   });
   renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); finishHold(); persist(); fail('图形上下文已暂停');});
+}
+
+function rebuildCollision() {
+  const owners = collisionOwners(THREE, room, entities, {label: config.label});
+  collision = buildCollision(owners, {keepAuthoredOverlaps: true});
+  try {startBackgroundCollision(owners);} catch (error) {console.error(error); background = null;}
 }
 
 // Each fixture hides with its recorded wall; one with none (a curtain on a ceiling track)
