@@ -1265,7 +1265,12 @@ const handPointer = Object.assign(document.createElement('div'), {className: 'rc
 document.body.appendChild(handPointer);
 const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移；指向按钮捏合可点击',
   move: '移动：捏住家具或仓库卡片拖动，松开后轻捏一下家具放下', rotate: '旋转：捏住家具左右移动转向，松开后轻捏一下家具放下'};
-function handClient({u, v}) {
+// The middle of the camera image covers the whole editor, so a hand reaches the page's edges
+// without going to the image's edges, where hand tracking is least reliable.
+const HAND_GAIN = 1.3;
+const handPoint = ({u, v}) => ({u: Math.min(1, Math.max(0, (u - .5) * HAND_GAIN + .5)), v: Math.min(1, Math.max(0, (v - .5) * HAND_GAIN + .5))});
+function handClient(hand) {
+  const {u, v} = handPoint(hand);
   return {x: u * innerWidth, y: v * innerHeight};
 }
 // What the hand points at: a warehouse card, a control, the room, or a panel's background.
@@ -1441,7 +1446,8 @@ const gesturePort = {
       if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
     }
     if (!hand) return;
-    handPointer.style.left = `${hand.u * 100}%`; handPointer.style.top = `${hand.v * 100}%`;
+    const {u, v} = handPoint(hand);
+    handPointer.style.left = `${u * 100}%`; handPointer.style.top = `${v * 100}%`;
     handPointer.dataset.pinching = String(!!hand.pinching);
   },
   observe: {
@@ -1788,5 +1794,6 @@ $('#open-office').onclick = () => {
   $('#rc-placement-demo').dataset.roomSelection = 'false';
   load().catch(fail);
 };
-// Inside the gesture page there is no one to press the room card; open the room directly.
-if (embedded) $('#open-office').click();
+// Inside the gesture page there is no one to press the room card; open the room directly. The
+// tools move to where a right hand reaches them (editor.css, data-gesture).
+if (embedded) {$('#rc-placement-demo').dataset.gesture = 'true'; $('#open-office').click();}
