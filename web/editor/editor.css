@@ -404,7 +404,7 @@ body { min-height:100dvh; box-sizing:border-box; }
 #rc-placement-demo .rc-hand-hover { outline: 3px solid #2f7de1; outline-offset: 2px; }
 /* Inside the gesture page: the tools sit low on the right, where a right hand reaches them, and are
    larger; menus open to the left; the joysticks (for a mouse) give way. */
-#rc-placement-demo[data-gesture="true"] .rc-tools { left: auto; right: 18px; top: auto; bottom: 62px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 250px; max-width: none; gap: 8px; }
+#rc-placement-demo[data-gesture="true"] .rc-tools { left: auto; right: 18px; top: auto; bottom: 62px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 360px; max-width: none; gap: 8px; }
 #rc-placement-demo[data-gesture="true"] .rc-tools > .rc-tool, #rc-placement-demo[data-gesture="true"] .rc-tools > .rc-menu > summary { width: 100%; min-height: 44px; padding: 10px 12px; font-size: 14px; justify-content: center; box-sizing: border-box; }
 #rc-placement-demo[data-gesture="true"] .rc-tools .rc-menu-panel { top: auto; bottom: 0; left: auto; right: calc(100% + 8px); }
 #rc-placement-demo[data-gesture="true"] .rc-joysticks { display: none; }
