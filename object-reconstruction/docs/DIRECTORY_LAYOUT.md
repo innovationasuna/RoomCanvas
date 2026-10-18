@@ -35,11 +35,13 @@ $VIEWFORGE_ROOT/
 ```bash
 source configs/local.env
 source scripts/env.sh
-python scripts/web.py --host 172.18.0.2 --port 7862
+python scripts/web.py --host 127.0.0.1 --port 7862
 ```
+
+监听地址和端口按实际部署设置；容器部署时应确认 SSH 服务器侧能访问该地址。
 
 `scripts/env.sh` 按自身位置选择当前模块源码，运行环境、权重和数据仍来自 `VIEWFORGE_ROOT`。房间资产通过 `VIEWFORGE_ROOMS_ROOT` 指定，现有部署继续使用 `RoomCanvas-Reconstruction/runs` 的 `empty_room.glb` 与 `room_structure.json`；本次没有增加读取另一种房间格式的逻辑。
 
 在本机 RoomCanvas 根目录运行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`。物体模块内的同名脚本保留为兼容入口，两者都按相对位置找到同一个 `gesture/`。
 
-原独立 ViewForge 仓库和既有服务保留，不因本次源码整合自动切换。当前状态与完整历史说明见 [整合说明](../../docs/VIEWFORGE_INTEGRATION.md)。
+2026-10-18 已将正式后端切换到 RoomCanvas 的本模块；原 ViewForge 目录继续提供外部运行环境、权重与数据，不再作为服务源码入口。后端按上面的命令启动，本机使用自己的 SSH 端口转发配置访问服务。当前操作与历史说明见 [整合说明](../../docs/VIEWFORGE_INTEGRATION.md)。
