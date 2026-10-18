@@ -1,30 +1,39 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-34';
-import {createPlacement} from './placement.mjs?v=gesture-34';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-34';
-import {PlacementSession} from './placement-session.mjs?v=gesture-34';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=gesture-34';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-34';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-34';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-35';
+import {createPlacement} from './placement.mjs?v=app-35';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-35';
+import {PlacementSession} from './placement-session.mjs?v=app-35';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-35';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=app-35';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-35';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=gesture-34';
-import {analogDelta} from './placement-motion.mjs?v=gesture-34';
+import {mountJoysticks} from './joystick-ui.mjs?v=app-35';
+import {analogDelta} from './placement-motion.mjs?v=app-35';
 
-import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=gesture-34';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-34';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-34';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-35';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-35';
+import {createGestureCamera} from './gesture-camera.mjs?v=app-35';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=app-35';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
-// The room directory: beside a published preview (<room>/preview/editor/) by default, or
-// ?scene=<relative path> when run from the repository, e.g. ?scene=../../samples/room3.
-const sceneParam = new URLSearchParams(location.search).get('scene');
-const sceneDir = sceneParam && !/^[a-z]+:|^\/\//i.test(sceneParam) ? sceneParam.replace(/\/+$/, '') : '../..';
-const modelURL = `${sceneDir}/Room.glb`;
-// What can be moved, and how, comes from the room's room_objects.json (web/scripts/room_objects.py).
-const objectsURL = `${sceneDir}/room_objects.json`;
+// The room directory: ?room=<id> for a room of the home page (web/rooms.json); ?scene=<relative
+// path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
+// a published preview (<room>/preview/editor/) with neither.
+const query = new URLSearchParams(location.search);
+const sceneParam = query.get('scene'), roomParam = query.get('room');
+async function roomDirectory() {
+  if (!roomParam) return {dir: sceneParam && !/^[a-z]+:|^\/\//i.test(sceneParam) ? sceneParam.replace(/\/+$/, '') : '../..', name: null};
+  const manifest = new URL('../rooms.json', location.href);
+  const response = await fetch(manifest, {cache: 'no-cache'});
+  if (!response.ok) throw new Error(`房间列表读取失败（${response.status}）`);
+  const entry = (await response.json()).rooms.find((room) => room.id === roomParam);
+  if (!entry) throw new Error(`房间列表里没有 ${roomParam}`);
+  return {dir: new URL(entry.dir, manifest).href.replace(/\/+$/, ''), name: entry.name};
+}
+const roomReady = roomDirectory();
 let config;
 // ids: everything editable; roomIds: the room's own furniture. Objects imported from ViewForge
 // are added to ids only, so saved and exported layouts still fit the room on its own.
@@ -1088,8 +1097,8 @@ function updateSessionUI() {
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '摇杆移动 · 升降调整高度 · 投影显示落点';
   } else $('#confirm-placement').textContent = '确认放置';
-  // In the gesture page the hint says how the hand works.
-  if (embedded) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
+  // With gestures on, the hint says how the hand works.
+  if (handsOn()) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
 }
 
 function beginSession(id) {
@@ -1257,8 +1266,8 @@ function bindPlacementEvents() {
   });
 }
 
-// The gesture page (gesture/, see gesture-bridge.mjs) embeds this editor and sends hand frames.
-// The hand points like a mouse over the whole editor: a pinch on a button presses it, on a
+// Gestures: the editor's own camera card (the 手势 button, gesture-camera.mjs), or the gesture
+// page in gesture/ embedding this editor (gesture-bridge.mjs). The hand points like a mouse over the whole editor: a pinch on a button presses it, on a
 // warehouse card takes that piece out, on furniture grabs it. Releasing leaves the piece as a
 // preview where it is (a recognised release can be a slip of the fingers); a tap on it, or
 // “放置并落下”, drops and confirms it, as with the mouse and joystick.
@@ -1479,19 +1488,71 @@ const gesturePort = {
     },
   },
 };
+// Hand frames come from the gesture page around this editor (gesture-bridge.mjs), or from the
+// editor's own camera card (gesture-camera.mjs, the 手势 button); the same input handles both.
+const gestureInput = new GestureInput(gesturePort);
+const gestureState = () => ({busy: !ready || !!falling, phase: gestureView ? 'observing' : falling ? 'validating' : gesture ? 'preview' : 'idle'});
+function setGestureMode(next) {
+  gestureMode = next;
+  if (next !== 'view' && mode !== 'edit') setMode('edit');
+  $('#status').textContent = GESTURE_HELP[next]; $('#interaction-help').textContent = GESTURE_HELP[next];
+  for (const button of document.querySelectorAll('[data-gesture-mode]')) button.setAttribute('aria-pressed', String(button.dataset.gestureMode === next));
+  return true;
+}
 const embedded = connectGestureBridge({
-  input: new GestureInput(gesturePort),
+  input: gestureInput,
   stop: gesturePort.stop,
-  setMode(next) {
-    gestureMode = next;
-    if (next !== 'view' && mode !== 'edit') setMode('edit');
-    $('#status').textContent = GESTURE_HELP[next]; $('#interaction-help').textContent = GESTURE_HELP[next];
-    return true;
-  },
-  state: () => ({busy: !ready || !!falling, mode: gestureMode, selectedId: selected, layoutReady: ready,
-    phase: gestureView ? 'observing' : falling ? 'validating' : gesture ? 'preview' : 'idle',
+  setMode: setGestureMode,
+  state: () => ({...gestureState(), mode: gestureMode, selectedId: selected, layoutReady: ready,
     message: $('#status').textContent || '', capabilities: ['observe-pinch-v1']}),
 });
+const handsOn = () => !!embedded || !!gestureCamera?.on;
+
+// The camera card: MediaPipe runs in a worker on this computer; no image leaves the browser.
+const VISION = new URL('../../gesture/public/vision/', import.meta.url);
+let gestureCamera = null;
+const MOUSE_HELP = $('#interaction-help').textContent;
+function showGestures(on) {
+  $('#rc-placement-demo').dataset.gesture = String(on);
+  $('#gesture-card').hidden = !on;
+  $('#gesture-toggle').setAttribute('aria-pressed', String(on));
+  if (on) setGestureMode(gestureMode);
+  else {
+    handPointer.hidden = true; handHover?.classList.remove('rc-hand-hover'); handHover = null;
+    $('#interaction-help').textContent = MOUSE_HELP; updateSessionUI();
+  }
+}
+function gestureStatus(text) {
+  $('#gesture-status').textContent = text; $('#gesture-status').hidden = !text;
+}
+async function toggleGestures() {
+  if (gestureCamera?.on) {gestureCamera.stop(); showGestures(false); return;}
+  const button = $('#gesture-toggle');
+  button.disabled = true;
+  try {
+    if (!gestureCamera) {
+      const lib = await import('../vendor/gesture/gesture-runtime.js');
+      lib.setVisionBase(VISION);
+      gestureCamera = createGestureCamera({lib, video: $('#gesture-video'), input: gestureInput, ui: {
+        right(text, seen) {$('#gesture-right').textContent = text; $('#gesture-right').dataset.seen = String(seen);},
+        left(text, progress, seen) {$('#gesture-left').textContent = text; $('#gesture-left').dataset.seen = String(seen); $('#gesture-progress').value = progress;},
+        status: gestureStatus,
+      }, port: {mode: () => gestureMode, setMode: setGestureMode, busy: () => gestureState().busy,
+        canSwitch: () => {const state = gestureState(); return !state.busy && state.phase === 'idle';}}});
+    }
+    showGestures(true);
+    if (!await gestureCamera.start()) {
+      showGestures(false);
+      showToast(`手势没有开启：${$('#gesture-status').textContent || '摄像头未就绪'}`);
+    }
+  } catch (error) {
+    console.error(error); showGestures(false); showToast(`手势没有开启：${error.message || error}`);
+  } finally {button.disabled = false;}
+}
+$('#gesture-toggle').onclick = () => void toggleGestures();
+for (const button of document.querySelectorAll('[data-gesture-mode]')) {
+  button.onclick = () => {if (!gestureCamera?.requestMode(button.dataset.gestureMode)) setGestureMode(gestureMode);};
+}
 
 // Objects rebuilt by ViewForge, at their measured size. The full model is shown; its light
 // preview (same frame, ~1/40 of the triangles) stands in for contact and collision checks.
@@ -1588,8 +1649,8 @@ async function importObject() {
   beginSession(id);
   const spot = freeSpot(id);
   if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
-  showToast(`已导入${name}：${embedded ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
-  if (!embedded) pending.locked = false;
+  showToast(`已导入${name}：${handsOn() ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
+  if (!handsOn()) pending.locked = false;
 }
 
 async function load() {
@@ -1780,6 +1841,7 @@ function wallOptions(walls) {
 // A browser may keep an earlier Room.glb without asking the server again. Name the model by
 // the file's own date and size, so a replaced room is always downloaded and an unchanged one cached.
 async function versionedModelURL() {
+  const modelURL = `${(await roomReady).dir}/Room.glb`;
   try {
     const head = await fetch(modelURL, {method: 'HEAD', cache: 'no-store'});
     const stamp = head.ok && (head.headers.get('etag') || [head.headers.get('last-modified'), head.headers.get('content-length')].filter(Boolean).join(' '));
@@ -1787,25 +1849,25 @@ async function versionedModelURL() {
   } catch {return modelURL;}
 }
 
+// What can be moved, and how, comes from the room's room_objects.json (web/scripts/room_objects.py).
 async function loadRoomConfig() {
-  const response = await fetch(objectsURL, {cache: 'no-cache'});
+  const {dir, name} = await roomReady;
+  const response = await fetch(`${dir}/room_objects.json`, {cache: 'no-cache'});
   if (!response.ok) throw new Error(`物体清单读取失败（${response.status}）`);
-  return roomConfig(await response.json());
+  const room = roomConfig(await response.json());
+  return name ? {...room, title: name} : room;
 }
 
 const roomConfigReady = loadRoomConfig();
-// The reconstruction viewer only exists beside a published preview.
-if (sceneParam) $('a[href="../?model=authored"]').hidden = true;
+// From the repository the brand leads back to the home page; the reconstruction viewer only
+// exists beside a published preview.
+if (sceneParam || roomParam) $('a[href="../?model=authored"]').hidden = true;
+else $('#home-link').removeAttribute('href');
 roomConfigReady.then(({title}) => {
   document.title = `RoomCanvas · ${title}`;
-  for (const label of document.querySelectorAll('.rc-room-card strong, .rc-project strong')) label.textContent = title;
+  $('.rc-project strong').textContent = title;
 }, () => {});
 
-$('#open-office').onclick = () => {
-  $('#open-office').disabled = true;
-  $('#rc-placement-demo').dataset.roomSelection = 'false';
-  load().catch(fail);
-};
-// Inside the gesture page there is no one to press the room card; open the room directly. The
-// tools move to where a right hand reaches them (editor.css, data-gesture).
-if (embedded) {$('#rc-placement-demo').dataset.gesture = 'true'; $('#open-office').click();}
+// Inside the gesture page the tools move to where a right hand reaches them (editor.css, data-gesture).
+if (embedded) {$('#rc-placement-demo').dataset.gesture = 'true'; $('#gesture-toggle').hidden = true;}
+load().catch(fail);

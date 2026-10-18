@@ -1,25 +1,27 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（room3 接入手势页）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10、#12 已合并；网站第 1 项已完成，下一项见“下一步：RoomCanvas 网站”第 2 项）。
 
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
 - 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。主线已整合 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
 - 编辑器只有一条路：任何房间都读 `room_objects.json`（`web/scripts/room_objects.py` 生成，可手写 `name` 覆盖家具名）。座面、墙角短墙、窗帘归墙都自动处理。
+- 2026-10-18 合并：#8 手势接入编辑器 + 导入 ViewForge 物体 + 落点检查放后台线程（`f05f14e`）；#10 新 room3（小物件这一步之后的结果，`4243a6b`；原 #9 叠在 #8 上，#8 删分支时被 GitHub 关闭，重开为 #10）；#11 lyk 把 ViewForge 后端迁到本仓库运行、文档整理（`e077c91`）。服务器文件夹随后切回 main，迁移前的临时工作区存在 `git stash` 里。
 - 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
 - PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 README。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
-- 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。2026-10-18 还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
+- 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
 
 ## 约定
 
 - 回复用中文；提交不加 Claude 署名，作者用 git 全局配置（innovationAusna）。
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
+- 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
 - ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。
-- 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 是用户同意的例外，仓库公开前必须删。
+- 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 和主页缩略图 `thumbnail.jpg` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）
 
@@ -61,14 +63,30 @@
   2. 粉色包曾被 TRELLIS 生成成正红（参考图是品红，换种子也一样），已加材质修正：单一主色的物件转回参考图色相，非金属物件金属度归零。蓝袋子位置随原模型略偏（原模型就放偏了）。
   3. 枕头、叠被、粉色包打开时是“支撑边缘不足”（TRELLIS 底面不平），挪一下能落稳；书架上的书因书架本身“待调整”而显示未落稳。
   4. TRELLIS 默认模式下，书架上的书堆后处理要多占 7.9 GB 显存，3090 放不下；流程会自动隔离并用 512 模式重做（模型略粗）。
-- 已替换 `samples/room3`（2026-10-18，用户同意，分支 `samples/room3-small-objects`）：`Room.glb` 由 99.7 MB 无损缩到 66.5 MB——8 件 TRELLIS 物件和一批盒子、圆柱的法线就是面法线，去掉后 three.js 自动平面着色，画面不变，再合并完全相同的顶点；贴图、材质、节点名都没动。`room_objects.json` 用服务器结果（保留手写名字，谱架已舍弃）；`check_room` 23/23。同视角与原 99.7 MB 文件逐像素对比：俯视 0 像素不同，整体视角 85 万像素中 7 个不同（编辑器按 glTF 规范给无法线网格补面法线，阴影偏移才一致）。新房间里“是否放稳”的判断原来每次刷新 0.7 秒，手势帧会过期；支撑面三角形改用网格索引后 23 毫秒，在 room3、office 上随机布局 4078 项对比与原结果完全相同。
+- 已替换 `samples/room3`（2026-10-18，用户同意，#10 已合并）：`Room.glb` 由 99.7 MB 无损缩到 66.5 MB——8 件 TRELLIS 物件和一批盒子、圆柱的法线就是面法线，去掉后 three.js 自动平面着色，画面不变，再合并完全相同的顶点；贴图、材质、节点名都没动。`room_objects.json` 用服务器结果（保留手写名字，谱架已舍弃）；`check_room` 23/23。同视角与原 99.7 MB 文件逐像素对比：俯视 0 像素不同，整体视角 85 万像素中 7 个不同（编辑器按 glTF 规范给无法线网格补面法线，阴影偏移才一致）。新房间里“是否放稳”的判断原来每次刷新 0.7 秒，手势帧会过期；支撑面三角形改用网格索引后 23 毫秒，在 room3、office 上随机布局 4078 项对比与原结果完全相同。
 
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
 - 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端 2026-10-18 起从本仓库的 `object-reconstruction/` 运行（见上文“服务器”），运行环境、权重、照片、历史结果仍来自 `/workspace/geyinuo/ViewForge`；服务器上的 `object-reconstruction/configs/local.env` 已配好，不进 git。
 - 本机试 ViewForge 原布局：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`（lyk 的机器把 `3090x2-docker` 换成他自己的 SSH 别名）；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。我们自己的接收端用 2π。
-- **room3 接进手势页（2026-10-18，分支 `feat/room3-gesture`）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
+- **room3 接进手势页（2026-10-18，#8 已合并）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
+
+## 下一步：RoomCanvas 网站（用户 2026-10-18 定，分支 `feat/roomcanvas-app`）
+
+用户的意思：项目就叫 RoomCanvas，网页应该是 RoomCanvas 自己的网站；现在是 ViewForge 的手势页（`gesture/viewforge.html`，标题“ViewForge 手势布局”、地址栏、开启/关闭摄像头、移动/旋转/仅观察、取消当前操作）套着 RoomCanvas 编辑器，颜色不统一，那排按钮多余。三件事，分两个 PR：
+
+1. **主页 + 手势内置 + 配色统一**（#12，2026-10-18 用户确认后合并）
+   - 主页 `web/index.html` 读 `web/rooms.json`：房间卡片显示缩略图（房间目录里的 `thumbnail.jpg`，`web/scripts/thumbnail.py` 用 Playwright 从编辑器截图）、名字、家具组数、模型大小，点进 `editor/?room=<id>`。`?scene=` 仍可用；编辑器里原来那张“载入房间”卡片去掉了，直接加载；左上角 RoomCanvas 回主页。
+   - 手势内置：工具栏“手势”开关 → 左上角摄像头卡片（镜像画面、左右手状态、模式标签可点，左手 1/2/3 也能切），工具栏挪到右下、摇杆左下（即原来嵌在手势页里的布局，`data-gesture`）。帧直接喂 `GestureInput`（`web/editor/gesture-camera.mjs`）。关掉手势只结束手上的操作，预览留给鼠标；取消用编辑器自己的“取消”。嵌在 lyk 手势页里时“手势”按钮隐藏，iframe 桥照旧（用模拟消息验证过）。
+   - 识别代码：`gesture/` 只新增 `src/embed/`（入口 + 可传资源地址的 tracker）和 `vite.embed.config.ts`（构建时把 `../tracking/tracker` 换成新 tracker，`integration/runtime.ts` 原样用）。`npx vite build --config vite.embed.config.ts` 输出到 `web/vendor/gesture/`（运行时 25 KB + Worker 199 KB，已提交）。wasm 和模型直接读 `gesture/public/vision/`。
+   - 配色：`web/theme.css` 放 `--rc-*`，主页、编辑器共用；手的指针从蓝色改成主题绿（`--rc-hand`）；原来暗色模式的 `light-dark()` 实际被强制成浅色，已去掉。`publish.py` 同时复制 `theme.css`、`icon.svg`。
+   - 验证：网页单测 142 项（新增 6 项）、Python 8 项、office `check_room` 18/18；手势包类型检查、74 项测试、资源校验、原构建都过。Chromium 假摄像头下 MediaPipe 能在 Worker 里加载、出帧、切模式；**没有真人摄像头验收**，请用户用手试一遍。
+2. **仓库“添加物体”：几张照片 → 重建**（一个 PR）
+   - 后端：用户先选了“RoomCanvas 自己在 3090 上起一个小服务”（当时以为 ViewForge 服务是 lyk 独立维护的）；#11 之后 ViewForge 后端本身就从本仓库运行，多了“在这个服务上加给 RoomCanvas 用的接口”（照 `layouts.py` 的 `LayoutsMiddleware` 那样）这条路，不用再起一个服务，但要改 lyk 维护的服务代码。**开工前请用户和 lyk 商量定哪条路。** 无论哪条，都调用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`）。参考 `scripts/web.py`（ViewForge 的 Gradio 界面）的流程，但不调用 lyk 正在跑的服务。
+   - 目录：ViewForge 的环境、权重、缓存和数据都在同一个 `VIEWFORGE_ROOT`（`scripts/env.sh`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`）。RoomCanvas 用自己的根目录（如 `/workspace/geyinuo/RoomCanvas/objects/`），`envs`、`weights`、`third_party` 链接到 `/workspace/geyinuo/ViewForge/` 只读使用；`cache` 共用还是独立（共用会写进 lyk 的目录）开工前问用户。GPU 锁用 lyk 服务同一个 `VIEWFORGE_GPU_LOCK`（看服务器上他的 `configs/local.env`），避免两边同时占卡；一次占一张空闲 GPU。
+   - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + SSH 隧道到这个服务。
+   - 起服务、建目录、链接前，按“挪目录前先查引用”的约定检查，且不动 lyk 的 `ViewForge/` 目录和运行中的服务。
 
 ## 产品方向（用户 2026-10-18 提出）
 
@@ -80,11 +98,11 @@
 | 清空房间 | 差一步（`room_objects.json` 的 `role` 已有，见待办 2） |
 | 自己拍物体 → 按尺寸重建 | 基本有（ViewForge），尺寸目前靠用户填一条实测边长 |
 | 商品链接 → 多视角图和尺寸 → 重建 | 没有；重建部分可复用小物件流程（参考图 → TRELLIS → 按商品尺寸缩放），注意网站条款 |
-| 网页布置 | RoomCanvas 编辑器已接上手势和 ViewForge 物体（`feat/room3-gesture`）；ViewForge 布局页仍单独存在 |
+| 网页布置 | RoomCanvas 主页 + 编辑器，内置手势，可导入 ViewForge 物体（`feat/roomcanvas-app`）；ViewForge 布局页仍单独存在 |
 | 手势 | 有（`gesture/`，协议与页面无关），编辑器已能接收 |
 | 后端 | 没有：需要接收上传、排队跑房间/物体重建、两张 3090 调度、存结果 |
 
-建议顺序：1) 一个网页里 room3 + 手势 + 导入 ViewForge 已有物体，先验证体验（已做，待用户真人试用）；2) 网页上传照片 → 服务器重建物体（补拍、填尺寸）→ 放进房间；3) 清空房间；4) 商品链接重建；5) 网页上传扫描 → 房间重建排队，同时降成本；6) App。ViewForge 和手势是 lyk 的部分，合成一个网页前先和 lyk 商量分工。
+建议顺序：1) 一个网页里 room3 + 手势 + 导入 ViewForge 已有物体，先验证体验（#8 已合并；下一步把手势内置、做主页，见上节）；2) 网页上传照片 → 服务器重建物体（补拍、填尺寸）→ 放进房间；3) 清空房间；4) 商品链接重建；5) 网页上传扫描 → 房间重建排队，同时降成本；6) App。ViewForge 和手势是 lyk 的部分，合成一个网页前先和 lyk 商量分工。
 
 ## 待办和待决定
 

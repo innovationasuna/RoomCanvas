@@ -7,7 +7,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `reconstruction/` | LiteReality 房间重建 |
-| `web/`、`samples/` | RoomCanvas 编辑器（Three.js）与示例房间；可接收手势，可导入 ViewForge 物体 |
+| `web/`、`samples/` | RoomCanvas 主页、编辑器（Three.js）与示例房间；编辑器内置手势（识别代码由 `gesture/src/embed/` 打包），也可被手势页嵌入，可导入 ViewForge 物体 |
 | `object-reconstruction/` | ViewForge：照片重建物体、尺寸标定、Babylon 布局页、碰撞和保存 |
 | `gesture/` | 摄像头、MediaPipe Worker、手势识别和手势接入页 |
 | `scripts/gesture.sh` | 本机手势入口 |
@@ -45,7 +45,7 @@ sh scripts/gesture.sh dev
 ```
 
 - **ViewForge 布局页**：打开 <http://127.0.0.1:8800/viewforge.html>（默认嵌入 <http://127.0.0.1:7865/viewforge/layouts/viewer>）。先在布局页确认房间尺寸、加入物体，再点“开启摄像头”。松手和保存时由服务器做承托、碰撞校验和保存。ViewForge 首页是 <http://127.0.0.1:7865/>。
-- **RoomCanvas 编辑器（room3）**：再开一个终端运行 `python3 web/scripts/serve.py --port 7870`，打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>。渲染、碰撞和支撑检查都在本机浏览器里做（完整落点检查在 Worker 中）。“导入物体”经 `serve.py` 读 ViewForge 的物体目录、尺寸和模型（默认走 `7865` 隧道，`--viewforge <地址>` 可改），只摆原有家具时不需要隧道；导入的物体暂不随布局保存。换了编辑器端口，要同时改 `layout=` 里的地址。具体操作和限制见 [网页说明](../web/README.md)。
+- **RoomCanvas 编辑器（room3）**：编辑器自己有“手势”开关，不需要手势页，见 [网页说明](../web/README.md)。下面是经手势页嵌入的做法：再开一个终端运行 `python3 web/scripts/serve.py --port 7870`，打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Froom%3Droom3>。渲染、碰撞和支撑检查都在本机浏览器里做（完整落点检查在 Worker 中）。“导入物体”经 `serve.py` 读 ViewForge 的物体目录、尺寸和模型（默认走 `7865` 隧道，`--viewforge <地址>` 可改），只摆原有家具时不需要隧道；导入的物体暂不随布局保存。换了编辑器端口，要同时改 `layout=` 里的地址。具体操作和限制见 [网页说明](../web/README.md)。
 
 手势操作两个页面相同：左手 1（食指）、2（食指和中指）、3（食指、中指、无名指）保持约 0.4 秒，切到移动、旋转、仅观察；切换前右手先完全松开。右手拇指和食指捏合拖动；观察模式下两指捏合环绕，拇指、食指、中指合拢平移。RoomCanvas 编辑器里松手后家具停成预览，在预览上轻捏一下放下，仓库卡片也能捏住拖出。摄像头画面只在本机识别，不上传。
 
