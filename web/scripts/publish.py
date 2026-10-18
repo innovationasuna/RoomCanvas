@@ -26,6 +26,9 @@ def main():
         shutil.copytree(web / 'vendor', preview / 'vendor')
     if "const REVISION = '180'" not in (preview / 'vendor/build/three.core.js').read_text():
         parser.error(f'{preview / "vendor"} is not Three.js r180')
+    # Shared colours and icon, which the editor links as ../theme.css and ../icon.svg.
+    for name in ['theme.css', 'icon.svg']:
+        shutil.copy2(web / name, preview / name)
     destination = preview / 'editor'
     destination.mkdir(exist_ok=True)
     for file in (web / 'editor').iterdir():
