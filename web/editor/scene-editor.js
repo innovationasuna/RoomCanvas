@@ -1285,14 +1285,17 @@ function nearestControl(x, y) {
   }
   return best;
 }
-function handTarget({x, y}) {
+// reach: let a nearby control win, except over furniture (the toolbar floats over the room) and
+// never while dragging a piece.
+function handTarget({x, y}, reach = true) {
   const element = document.elementFromPoint(x, y);
   const control = element?.closest('.object-row') || element?.closest(CONTROLS);
   if (control) return asTarget(control);
-  const near = nearestControl(x, y);
-  if (near) return asTarget(near);
-  if (!element || element.closest('.rc-controls, .rc-tools, .rc-view-tools, .rc-menu-panel, .rc-help, .rc-shelf, header, footer')) return {kind: 'none'};
-  return element.closest('.rc-stage') ? {kind: 'room'} : {kind: 'none'};
+  const panel = !element || element.closest('.rc-controls, .rc-tools, .rc-view-tools, .rc-menu-panel, .rc-help, .rc-shelf, header, footer');
+  const room = !panel && !!element.closest('.rc-stage');
+  const near = reach && nearestControl(x, y);
+  if (near && !(room && pick(x, y))) return asTarget(near);
+  return room ? {kind: 'room'} : {kind: 'none'};
 }
 let lastHover = null;
 function pinchTarget(point) {
@@ -1391,7 +1394,7 @@ const gesturePort = {
     if (!gesture) return;
     const point = handClient(hand);
     gesture.travel = Math.max(gesture.travel, Math.abs(hand.u - gesture.start.u), Math.abs(hand.v - gesture.start.v));
-    if (handTarget(point).kind !== 'room') return;
+    if (handTarget(point, false).kind !== 'room') return;
     if (gesture.carrying) {
       gesture.carrying = false; delete handPointer.dataset.label;
       beginSession(gesture.id);
