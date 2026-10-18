@@ -7,7 +7,7 @@
    node --test 'web/editor/tests/*.mjs'
    python3 -m unittest discover -s web/scripts
    node web/scripts/check_room.mjs --scene-dir samples/room3
-   # 重建（在 reconstruction/ 下）
+   # 重建（在 room-reconstruction/ 下）
    uv run ruff check . && uv run pytest -n auto
    ```
    改了网页界面的，本地打开看一眼，见 [README](README.md#打开网页)。
@@ -17,6 +17,6 @@
 
 注意：
 
-- `reconstruction/` 里的官方文件尽量少改，必须改的保持官方写法，并在 README 的“对 LiteReality-Agent 改了什么”里补一句。
+- `room-reconstruction/` 里的官方文件尽量少改，必须改的保持官方写法，并在 README 的“对 LiteReality-Agent 改了什么”里补一句。
 - 新的扫描数据、照片、运行结果、重建模型权重、`.env` 不进仓库。已有 `samples/`、ViewForge 原上游公开示例，以及手势工程随版本提供的识别模型/WASM 资源保留，来源与规则见各模块 README。
 - 3090 上一个作业只用一张空闲 GPU，结果写到新目录，不覆盖旧结果。
