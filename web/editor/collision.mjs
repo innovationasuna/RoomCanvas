@@ -308,7 +308,8 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   // first use and cached; a full pass over every pair at load takes seconds.
   const authored = new Map();
   function known(meshA, ownerA, meshB, ownerB) {
-    if (!keepAuthoredOverlaps) return false;
+    // An object brought in later (owner.added) was never part of the scan.
+    if (!keepAuthoredOverlaps || ownerA.added || ownerB.added) return false;
     if (!authored.has(meshA)) authored.set(meshA, new Map());
     const row = authored.get(meshA);
     if (!row.has(meshB)) {
@@ -500,14 +501,19 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   return {limit, checkPlacement, audit};
 }
 
-export function createCollision(THREE, room, entities, specs, {label = () => null, keepAuthoredOverlaps = false} = {}) {
+// The pieces and fixed parts of a room with their triangles, read from its meshes once.
+export function collisionOwners(THREE, room, entities, {label = () => null} = {}) {
   room.updateMatrixWorld(true);
-  const owners = [...entities].map(([id, entity]) => ({id, name: entity.name, origin: entity.origin.toArray(), meshes: [], group: entity.group}));
-  const meshOwners = new Map();
-  for (const owner of owners) owner.group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);});
+  const owners = [], meshOwners = new Map();
+  for (const [id, entity] of entities) {
+    const owner = {id, name: entity.name, origin: entity.origin.toArray(), meshes: [], added: !!entity.added};
+    owners.push(owner);
+    entity.group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);});
+  }
   const staticOwners = new Map();
   room.traverse((mesh) => {
-    if (!mesh.isMesh) return;
+    // A display mesh with a lighter stand-in for contact (userData.collision === false) is skipped.
+    if (!mesh.isMesh || mesh.userData.collision === false) return;
     let owner = meshOwners.get(mesh);
     if (!owner) {
       let root = mesh; while (root.parent && root.parent !== room) root = root.parent;
@@ -527,5 +533,34 @@ export function createCollision(THREE, room, entities, specs, {label = () => nul
     for (let i = 0, count = index ? index.count : position.count; i + 2 < count; i += 3) triangles.push([0, 1, 2].map((k) => vertices[index ? index.getX(i + k) : i + k]));
     owner.meshes.push({name: mesh.userData.name || mesh.name, triangles});
   });
-  return buildCollision([...owners, ...staticOwners.values()], {keepAuthoredOverlaps});
+  return [...owners, ...staticOwners.values()];
+}
+
+export function createCollision(THREE, room, entities, specs, {label = () => null, keepAuthoredOverlaps = false} = {}) {
+  return buildCollision(collisionOwners(THREE, room, entities, {label}), {keepAuthoredOverlaps});
+}
+
+// Owners as flat arrays (shared vertices and an index per mesh), to hand to a worker without
+// copying; unpackOwners rebuilds exactly the same triangles, sharing vertices as before.
+export function packOwners(owners) {
+  const transfer = [];
+  const packed = owners.map(({meshes, ...owner}) => ({...owner, meshes: meshes.map(({name, triangles}) => {
+    const ids = new Map(), points = [];
+    const index = new Uint32Array(triangles.length * 3);
+    triangles.forEach((triangle, t) => triangle.forEach((point, k) => {
+      if (!ids.has(point)) {ids.set(point, points.length); points.push(point);}
+      index[t * 3 + k] = ids.get(point);
+    }));
+    const vertices = new Float64Array(points.length * 3);
+    points.forEach((point, i) => vertices.set(point, i * 3));
+    transfer.push(vertices.buffer, index.buffer);
+    return {name, vertices, index};
+  })}));
+  return {owners: packed, transfer};
+}
+export function unpackOwners(packed) {
+  return packed.map(({meshes, ...owner}) => ({...owner, meshes: meshes.map(({name, vertices, index}) => {
+    const points = Array.from({length: vertices.length / 3}, (_, i) => [vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]]);
+    return {name, triangles: Array.from({length: index.length / 3}, (_, t) => [points[index[t * 3]], points[index[t * 3 + 1]], points[index[t * 3 + 2]]])};
+  })}));
 }

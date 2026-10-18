@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=fast-30';
-import {createPlacement} from './placement.mjs?v=fast-30';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=fast-30';
-import {PlacementSession} from './placement-session.mjs?v=fast-30';
-import {createCollision} from './collision.mjs?v=fast-30';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=fast-30';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=fast-30';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-33';
+import {createPlacement} from './placement.mjs?v=gesture-33';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-33';
+import {PlacementSession} from './placement-session.mjs?v=gesture-33';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=gesture-33';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-33';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-33';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=fast-30';
-import {analogDelta} from './placement-motion.mjs?v=fast-30';
+import {mountJoysticks} from './joystick-ui.mjs?v=gesture-33';
+import {analogDelta} from './placement-motion.mjs?v=gesture-33';
 
-import {predictDrop, fallFraction} from './drop-placement.mjs?v=fast-30';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=gesture-33';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-33';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-33';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -24,7 +26,12 @@ const modelURL = `${sceneDir}/Room.glb`;
 // What can be moved, and how, comes from the room's room_objects.json (web/scripts/room_objects.py).
 const objectsURL = `${sceneDir}/room_objects.json`;
 let config;
-const ids = [];
+// ids: everything editable; roomIds: the room's own furniture. Objects imported from ViewForge
+// are added to ids only, so saved and exported layouts still fit the room on its own.
+const ids = [], roomIds = [];
+const roomPart = (value) => Object.fromEntries(roomIds.map((id) => [id, value[id]]));
+const addedPart = (value) => Object.fromEntries(ids.filter((id) => !roomIds.includes(id)).map((id) => [id, value[id]]));
+const stored = () => ({x: 0, y: 0, z: 0, yaw: 0, visible: false});
 const history = new History();
 let layout = {};
 const placementSpecs = {};
@@ -32,7 +39,7 @@ let dropPlan = null, falling = null;
 let pending = null, mode = 'edit', warm = false;
 const ghostMaterials = [];
 
-let sceneKey, storageKey, room, floorY, center, roomSize, placement, collision, wallVisibility;
+let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
@@ -554,7 +561,7 @@ function select(id, announce = true) {
 function persist() {
   if (!ready || !hasEdited) return;
   try {
-    localStorage.setItem(storageKey, JSON.stringify(encodeLayout(pending ? pending.committed() : layout, sceneKey)));
+    localStorage.setItem(storageKey, JSON.stringify(encodeLayout(roomPart(pending ? pending.committed() : layout), sceneKey)));
     $('#resume-layout').disabled = false;
     const drafts = [...placementStates.values()].filter((state) => state.state !== 'stable').length;
     $('#save-state').textContent = drafts ? `已保存草稿 · ${drafts} 件待落位` : '已保存到此浏览器';
@@ -703,6 +710,8 @@ function pick(clientX, clientY) {
 }
 
 function bindEvents() {
+  const shelf = $('#object-panel');
+  new ResizeObserver(() => {if (!shelf.classList.contains('open')) $('#rc-placement-demo').style.setProperty('--rc-shelf-space', `${shelf.offsetHeight}px`);}).observe(shelf);
   const toolsMenu = $('#tools-menu');
   document.addEventListener('click', event => {if (!toolsMenu.contains(event.target)) toolsMenu.open = false;});
   toolsMenu.addEventListener('keydown', event => {if (event.key === 'Escape') {toolsMenu.open = false; event.stopPropagation();}});
@@ -746,11 +755,11 @@ function bindEvents() {
   $('#rotate-right').onclick = () => act(() => editObject((next) => rotate(next, selected, -Math.PI / 12), 'rotate'));
   $('#settle-object').onclick = () => act(() => {if (editObject(() => {}, 'settle')) showToast(placementStates.get(selected).label);});
   $('#reset-object').onclick = () => act(() => editObject((next) => {next[selected] = {x: 0, y: 0, z: 0, yaw: 0};}, 'reset'));
-  $('#reset-layout').onclick = () => {joysticks?.stop(); cancelSession(false); hasEdited = true; act(() => {layout = initialLayout(ids);}); persist(); showToast('已恢复原始布置，可撤销');};
+  $('#reset-layout').onclick = () => {joysticks?.stop(); cancelSession(false); hasEdited = true; act(() => {layout = {...initialLayout(roomIds), ...Object.fromEntries(Object.keys(addedPart(layout)).map((id) => [id, stored()]))};}); persist(); showToast('已恢复原始布置，可撤销');};
   $('#resume-layout').onclick = () => {
     try {
-      const saved = decodeLayout(JSON.parse(localStorage.getItem(storageKey)), sceneKey, ids);
-      joysticks?.stop(); cancelSession(false); act(() => {layout = saved;}); showToast('已继续上次确认的布置');
+      const saved = decodeLayout(JSON.parse(localStorage.getItem(storageKey)), sceneKey, roomIds);
+      joysticks?.stop(); cancelSession(false); act(() => {layout = {...saved, ...addedPart(layout)};}); showToast('已继续上次确认的布置');
     } catch (error) {showToast(error.message || '没有可恢复的布局');}
   };
   const undo = () => {
@@ -816,7 +825,7 @@ function bindEvents() {
   $('#export-layout').onclick = () => {
     if (!ready) return;
     finishHold();
-    const blob = new Blob([JSON.stringify(encodeLayout(pending ? pending.committed() : layout, sceneKey), null, 2)], {type: 'application/json'});
+    const blob = new Blob([JSON.stringify(encodeLayout(roomPart(pending ? pending.committed() : layout), sceneKey), null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url; anchor.download = `RoomCanvas-${config.sceneId}-layout.json`; anchor.click();
@@ -829,9 +838,9 @@ function bindEvents() {
     if (!file) return;
     try {
       if (file.size > 1024 * 1024) throw new Error('布局文件过大');
-      const next = decodeLayout(JSON.parse(await file.text()), sceneKey, ids);
+      const next = decodeLayout(JSON.parse(await file.text()), sceneKey, roomIds);
       cancelSession(false);
-      act(() => {layout = next;});
+      act(() => {layout = {...next, ...addedPart(layout)};});
       showToast('布局已导入，可撤销');
     } catch (error) {showToast(`导入失败：${error.message}`);}
     event.target.value = '';
@@ -929,7 +938,7 @@ function appendWarehouseRow(entity, first = false) {
     if (first) $('#object-list').prepend(row); else $('#object-list').appendChild(row);
 }
 
-function renderFurnitureThumbnails() {
+function renderFurnitureThumbnails(list = entities.values()) {
   // Render the actual grouped model, sharing its geometry/materials without mutating them.
   // One temporary context serves the entire shelf and is released after rendering.
   const previewRenderer = new THREE.WebGLRenderer({antialias: true, alpha: true, preserveDrawingBuffer: true});
@@ -942,7 +951,7 @@ function renderFurnitureThumbnails() {
   scene.children.filter((object) => object.isLight).forEach((light) => previewScene.add(light.clone()));
   const previewCamera = new THREE.PerspectiveCamera(36, 264 / 144, .01, 1000);
   try {
-    for (const entity of entities.values()) {
+    for (const entity of list) {
       const bounds = new THREE.Box3().setFromObject(entity.group);
       const target = bounds.getCenter(new THREE.Vector3());
       const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, .01);
@@ -978,9 +987,61 @@ function restoreGhostMaterials() {
 function planDrop(options) {
   const before = pending.before[selected], now = layout[selected], state = placementStates.get(selected);
   const inPlace = before.visible !== false && state?.state === 'stable' && ['x', 'y', 'z', 'yaw'].every((key) => Math.abs((now[key] || 0) - (before[key] || 0)) < 1e-9);
-  if (!inPlace) return predictDrop(selected, layout, placement, collision, options);
+  if (!inPlace) return background?.ready && !options?.previewOnly ? backgroundDrop() : predictDrop(selected, layout, placement, collision, options);
   const label = state.label.replace(/^已放稳 · /, '');
   return {ok: true, checked: true, candidate: copyLayout(layout), moved: [selected], state, height: state.height, label, distance: 0, message: `保持在${label}`};
+}
+
+// The full collision check of a drop runs in collision-worker.mjs, so a heavy piece does not freeze
+// the room or the hand. Until its answer for this exact layout arrives the plan is unchecked: shown
+// as the expected landing, not confirmable. Only the latest request is kept while one runs.
+let background = null;
+function startBackgroundCollision(owners) {
+  const generation = (background?.generation || 0) + 1;
+  background ||= {worker: new Worker(new URL('./collision-worker.mjs', import.meta.url), {type: 'module'}), tickets: 0, busy: null, queued: null};
+  Object.assign(background, {generation, ready: false, busy: null, queued: null});
+  const {owners: packed, transfer} = packOwners(owners);
+  background.worker.onmessage = ({data}) => {
+    if (data.generation !== background.generation) return;
+    if (data.type === 'built') {background.ready = true; return;}
+    const job = background.busy;
+    background.busy = null;
+    if (job?.ticket === data.ticket) job.resolve(data);
+    sendBackground();
+  };
+  background.worker.onerror = (error) => {console.error(error); background.ready = false;};
+  background.worker.postMessage({type: 'build', generation, owners: packed, keepAuthoredOverlaps: true}, transfer);
+}
+function sendBackground() {
+  if (background.busy || !background.queued) return;
+  const job = background.busy = background.queued;
+  background.queued = null;
+  background.worker.postMessage({type: 'drop', generation: background.generation, ticket: job.ticket, candidate: job.candidate, moved: job.moved, source: job.source});
+}
+function backgroundDrop() {
+  const key = JSON.stringify([selected, layout]);
+  if (pending.verdict?.key === key) return pending.verdict.plan;
+  const start = dropStart(selected, layout, placement);
+  if (start.result) return start.result;
+  const {base} = start, session = pending;
+  if (session.checking !== key) {
+    // A confirmation waiting for an earlier pose does not carry over to a new one.
+    session.checking = key; session.placeWhenChecked = false;
+    background.queued?.resolve(null);
+    new Promise((resolve) => {background.queued = {ticket: ++background.tickets, candidate: base.candidate, moved: base.moved, source: copyLayout(layout), resolve}; sendBackground();})
+      .then((answer) => {
+        if (!answer || pending !== session || session.checking !== key) return;
+        session.checking = null;
+        session.verdict = {key, plan: dropVerdict(base, answer.contact, answer.sweep)};
+        if (analogActive || falling || JSON.stringify([selected, layout]) !== key) return;
+        applyLayout();
+        if (session.placeWhenChecked && pending === session) {
+          session.placeWhenChecked = false;
+          if (session.valid) confirmSession(); else showToast(session.message);
+        }
+      });
+  }
+  return {...base, ok: true, checked: false, message: `预计落到${base.state.label.replace(/^已放稳 · /, '')} · 正在检查碰撞`};
 }
 
 function refreshSession() {
@@ -989,14 +1050,14 @@ function refreshSession() {
   const installing = pending.before[selected].visible === false;
   dropPlan = pending.gravity ? planDrop({previewOnly:analogActive}) : null;
   const contact = !analogActive && !pending.gravity && (installing || placement.isWall(selected)) ? collision.checkPlacement(layout, [selected]) : null;
-  const valid = !analogActive && (pending.gravity ? dropPlan.ok : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
+  const valid = !analogActive && (pending.gravity ? dropPlan.ok && dropPlan.checked !== false : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
   if (valid) pending.lastReachable = copyLayout(layout);
   pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
   const moved = ids.filter(id => id === selected || ['x','y','z','yaw'].some(key => Math.abs((layout[id][key] || 0) - (pending.before[id][key] || 0)) > 1e-9));
   const originals = new Map(ghostMaterials.map(record => [record[0], record]));
   const activeMeshes = new Set();
   for (const id of moved) entities.get(id).group.traverse(mesh => {
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh || mesh.userData.contactOnly) return;
     activeMeshes.add(mesh);
     let record = originals.get(mesh);
     if (!record) {
@@ -1006,7 +1067,7 @@ function refreshSession() {
       renderer.shadowMap.needsUpdate = true;
       mesh.material = new THREE.MeshBasicMaterial({transparent:true, opacity:.34, depthWrite:false, side:THREE.DoubleSide});
     }
-    const color = analogActive ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
+    const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
     mesh.material.color.setHex(color);
   });
   for (let i=ghostMaterials.length-1; i>=0; i--) {
@@ -1023,10 +1084,12 @@ function updateSessionUI() {
   $('#store-object').disabled = !!falling;
   $('#settle-object').hidden = !!pending?.gravity;
   if (pending?.gravity) {
-    $('#confirm-placement').textContent = falling ? '正在落下…' : '放置并落下';
+    $('#confirm-placement').textContent = falling ? '正在落下…' : dropPlan?.checked === false && dropPlan.ok ? '检查中…' : '放置并落下';
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '摇杆移动 · 升降调整高度 · 投影显示落点';
   } else $('#confirm-placement').textContent = '确认放置';
+  // In the gesture page the hint says how the hand works.
+  if (embedded) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
 }
 
 function beginSession(id) {
@@ -1076,6 +1139,8 @@ function confirmSession() {
   if (pending.gravity) {
     dropPlan = planDrop();
     if (!dropPlan.ok) {showToast(dropPlan.message); applyLayout(); return;}
+    // Still being checked in the background: drop it as soon as the answer allows.
+    if (dropPlan.checked === false) {pending.placeWhenChecked = true; showToast('正在检查碰撞，检查完自动放下'); applyLayout(); return;}
     const landing = dropPlan;
     if (landing.distance > .005) {startFall(landing); return;}
     layout = copyLayout(landing.candidate);
@@ -1100,8 +1165,8 @@ function completePlacement() {
   showToast('家具已放置，布局已保存');
 }
 
-function followPointer(clientX, clientY) {
-  if (!pending || pending.locked) return;
+function followPointer(clientX, clientY, force = false, grab = null) {
+  if (!pending || (pending.locked && !force)) return;
   if (placement.isWall(selected)) {
     if (!wallRelocation) beginWallRelocation();
     const hit = pickWall(clientX, clientY);
@@ -1124,8 +1189,9 @@ function followPointer(clientX, clientY) {
   if (!point) return;
   const before = pending.lastReachable, next = copyLayout(before), entity = entities.get(selected);
   delete next[selected].visible;
-  next[selected].x = point.x - entity.origin.x;
-  next[selected].z = point.z - entity.origin.z;
+  // grab: where on the piece the hand took hold, so it does not jump to centre under the hand.
+  next[selected].x = point.x - entity.origin.x - (grab?.x || 0);
+  next[selected].z = point.z - entity.origin.z - (grab?.z || 0);
   next[selected].yaw = layout[selected].yaw;
   next[selected].y = layout[selected].y;
   motionNotice = null;
@@ -1138,7 +1204,8 @@ function followPointer(clientX, clientY) {
     // Warehouse entries are installed at their destination; placed furniture moves
     // continuously from its last reachable pose, including carried objects.
     const relocating = pending.before[selected].visible === false || pending.gravity || pending.surfaceChoice;
-    const contact = relocating ? {...collision.checkPlacement(next, carried.moved), layout:next} : collision.limit(before, next, carried.moved);
+    // While a hand drags it (analogActive) this is a preview; release checks it in full.
+    const contact = analogActive ? {layout:next, blocked:false} : relocating ? {...collision.checkPlacement(next, carried.moved), layout:next} : collision.limit(before, next, carried.moved);
     layout = contact.layout;
     if (contact.blocked) motionNotice = {id:selected, previewInvalid:relocating, message:`碰到${contact.other?.name || '物体'}，请调整预览位置`};
     if (!contact.blocked || pending.before[selected].visible !== false) pending.lastReachable = copyLayout(layout);
@@ -1190,6 +1257,341 @@ function bindPlacementEvents() {
   });
 }
 
+// The gesture page (gesture/, see gesture-bridge.mjs) embeds this editor and sends hand frames.
+// The hand points like a mouse over the whole editor: a pinch on a button presses it, on a
+// warehouse card takes that piece out, on furniture grabs it. Releasing leaves the piece as a
+// preview where it is (a recognised release can be a slip of the fingers); a tap on it, or
+// “放置并落下”, drops and confirms it, as with the mouse and joystick.
+let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null, handHover = null;
+const handPointer = Object.assign(document.createElement('div'), {className: 'rc-hand-pointer', hidden: true});
+document.body.appendChild(handPointer);
+const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移；指向按钮捏合可点击',
+  move: '移动：捏住家具或仓库卡片拖动，松开后轻捏一下家具放下', rotate: '旋转：捏住家具左右移动转向，松开后轻捏一下家具放下'};
+// The middle of the camera image covers the whole editor, so a hand reaches the page's edges
+// without going to the image's edges, where hand tracking is least reliable.
+const HAND_GAIN = 1.3;
+const handPoint = ({u, v}) => ({u: Math.min(1, Math.max(0, (u - .5) * HAND_GAIN + .5)), v: Math.min(1, Math.max(0, (v - .5) * HAND_GAIN + .5))});
+function handClient(hand) {
+  const {u, v} = handPoint(hand);
+  return {x: u * innerWidth, y: v * innerHeight};
+}
+// What the hand points at: a warehouse card, a control, the room, or a panel's background.
+// A hand pointer shakes and slips as the fingers close, so a control within HAND_REACH pixels
+// counts as pointed at, and a pinch that starts just off a control presses the one the hand was
+// on a moment before (see gesturePort.begin).
+const HAND_REACH = 24, HAND_SLIP_MS = 300, HAND_AIM_MS = 250, CONTROLS = 'button, summary, a[href], label, .object-row';
+const asTarget = (element) => element.matches('.object-row') ? {kind: 'shelf', element, id: element.dataset.object} : {kind: 'control', element};
+function nearestControl(x, y) {
+  let best = null, distance = HAND_REACH;
+  for (const element of document.querySelectorAll(CONTROLS)) {
+    if (element.disabled) continue;
+    const r = element.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+    if (d < distance) {best = element; distance = d;}
+  }
+  return best;
+}
+// reach: let a nearby control win, except over furniture (the toolbar floats over the room) and
+// never while dragging a piece.
+function handTarget({x, y}, reach = true) {
+  const element = document.elementFromPoint(x, y);
+  const control = element?.closest('.object-row') || element?.closest(CONTROLS);
+  if (control) return asTarget(control);
+  const panel = !element || element.closest('.rc-controls, .rc-tools, .rc-view-tools, .rc-menu-panel, .rc-help, .rc-shelf, header, footer');
+  const room = !panel && !!element.closest('.rc-stage');
+  const near = reach && nearestControl(x, y);
+  if (near && !(room && pick(x, y))) return asTarget(near);
+  return room ? {kind: 'room'} : {kind: 'none'};
+}
+// The control the hand rested on (since: when it arrived; at: last frame on it). A pinch presses
+// it when the fingers slip off onto empty space, or onto a neighbour after resting on it a while.
+let lastHover = null;
+function pinchTarget(point) {
+  const target = handTarget(point), now = performance.now();
+  const recent = lastHover && now - lastHover.at < HAND_SLIP_MS;
+  if (recent && (target.kind === 'room' || target.kind === 'none' || lastHover.at - lastHover.since >= HAND_AIM_MS)) return lastHover.target;
+  return target;
+}
+function pressControl(target) {
+  if (target.element.disabled) return;
+  target.element.click();
+}
+function gestureStep(step) {
+  if (!gesture) return;
+  gesture.step = step;
+  // Frames arrive faster than a heavy piece can be checked; apply only the latest one.
+  gestureFrame ||= requestAnimationFrame(() => {gestureFrame = 0; const next = gesture?.step; if (next) {gesture.step = null; next();}});
+}
+function endGesture() {
+  cancelAnimationFrame(gestureFrame); gestureFrame = 0;
+  gesture = null; analogActive = false; controls.enabled = true;
+  delete handPointer.dataset.label;
+}
+// Floor point under a screen point, for the offset between the hand and the piece it holds.
+function floorUnder({x, y}) {
+  const rect = host.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1), camera);
+  return raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorY), new THREE.Vector3());
+}
+// Taking another piece puts down the one being placed if it can stand where it is (without the
+// fall animation). One that cannot, or is still being checked, stays and nothing new is taken,
+// so a preview is never silently sent back to the warehouse.
+function putDownPending() {
+  if (!pending) return true;
+  const name = entities.get(pending.id).name;
+  if (pending.gravity) {
+    const plan = planDrop();
+    if (plan.ok && plan.checked !== false) {layout = copyLayout(plan.candidate); pending.update(layout, true, plan.message); completePlacement(); return true;}
+    showToast(plan.ok ? `${name}还在检查碰撞，稍等再拿下一件` : `${name}放不下：${plan.message}。先挪好它，或按取消`);
+    return false;
+  }
+  if (pending.valid) confirmSession();
+  if (!pending) return true;
+  showToast(`先放好${name}，或按取消`);
+  return false;
+}
+// A short pinch that hardly moves, on the piece being placed, drops it like “放置并落下”.
+const TAP_MS = 600, TAP_TRAVEL = .03;
+function cameraState() {
+  controls.update(); camera.updateMatrixWorld();
+  const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+  return {theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, minPhi: Math.min(.02, orbit.phi), maxPhi: controls.maxPolarAngle,
+    target: controls.target.toArray(), right: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).toArray(),
+    up: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).toArray(),
+    width: (camera.right - camera.left) / camera.zoom, height: (camera.top - camera.bottom) / camera.zoom};
+}
+function applyCamera(pose) {
+  controls.target.fromArray(pose.target);
+  camera.position.setFromSpherical(new THREE.Spherical(pose.radius, pose.phi, pose.theta)).add(controls.target);
+  controls.update(); requestRender();
+}
+const gesturePort = {
+  blocked: () => !ready || !!falling,
+  mode: () => gestureMode,
+  begin(hand, kind) {
+    const point = handClient(hand), target = pinchTarget(point);
+    if (target.kind === 'control') {pressControl(target); return false;}
+    if (target.kind === 'none') return false;
+    const track = {step: null, kind, at: performance.now(), start: {u: hand.u, v: hand.v}, travel: 0};
+    if (target.kind === 'shelf') {
+      if (kind !== 'move') {showToast('从仓库拖出请先切到移动模式（左手 1）'); return false;}
+      if (pending?.id !== target.id && !putDownPending()) return false;
+      // The piece hangs on the hand; it enters the room only when the hand does.
+      $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
+      gesture = {...track, id: target.id, carrying: true};
+      handPointer.dataset.label = entities.get(target.id).name;
+      $('#status').textContent = `拖着${entities.get(target.id).name} · 移进房间`;
+      return true;
+    }
+    let id = pick(point.x, point.y);
+    // A pinch on the preview, or on empty floor while there is one, keeps working on it.
+    if (pending && (!id || id === pending.id)) id = pending.id;
+    if (!id) {$('#status').textContent = '没有指到家具：指向家具或仓库卡片后再捏合'; return false;}
+    if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
+    const placing = pending?.id === id;
+    if (!placing && !putDownPending()) return false;
+    if (!placing) beginSession(id);
+    if (!pending) return false;
+    analogActive = true; controls.enabled = false;
+    const under = floorUnder(point), entity = entities.get(id);
+    const grab = under && {x: under.x - entity.origin.x - layout[id].x, z: under.z - entity.origin.z - layout[id].z};
+    gesture = {...track, id, placing, grab, yaw: layout[id].yaw};
+    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entity.name} · 松开后轻捏一下放下`;
+    return true;
+  },
+  move(hand) {
+    if (!gesture) return;
+    const point = handClient(hand);
+    gesture.travel = Math.max(gesture.travel, Math.abs(hand.u - gesture.start.u), Math.abs(hand.v - gesture.start.v));
+    if (handTarget(point, false).kind !== 'room') return;
+    if (gesture.carrying) {
+      gesture.carrying = false; delete handPointer.dataset.label;
+      beginSession(gesture.id);
+      if (!pending) {endGesture(); return;}
+      analogActive = true; controls.enabled = false;
+    }
+    gestureStep(() => followPointer(point.x, point.y, true, gesture.grab));
+  },
+  rotate(angle) {
+    if (!gesture) return;
+    gesture.travel = Math.max(gesture.travel, Math.abs(angle) / (2 * Math.PI));
+    const {id, yaw} = gesture;
+    gestureStep(() => editObject((next) => {next[id].yaw = Math.atan2(Math.sin(yaw + angle), Math.cos(yaw + angle));}, 'rotate'));
+  },
+  // Release, or a hand lost mid-drag: keep the preview where it is and check it in full; a tap
+  // on the piece being placed drops and confirms it.
+  commit() {
+    if (!gesture) return;
+    cancelAnimationFrame(gestureFrame); gestureFrame = 0;
+    const {step, carrying, placing, at, travel} = gesture;
+    gesture.step = null; step?.();
+    endGesture();
+    if (carrying) {$('#status').textContent = '没有拖进房间，已放回仓库'; return;}
+    if (!pending) return;
+    if (placing && performance.now() - at < TAP_MS && travel < TAP_TRAVEL) {
+      confirmSession();
+      if (pending?.placeWhenChecked) $('#status').textContent = '正在检查碰撞，检查完自动放下';
+      else if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
+      return;
+    }
+    validateAfterRender();
+    $('#status').textContent = `${entities.get(pending.id).name}停在这里 · 轻捏一下放下，或再捏住继续调整`;
+  },
+  cancel() {gesturePort.commit();},
+  // The gesture page's “取消当前操作”, or its camera turned off.
+  stop() {endGesture(); cancelSession(false);},
+  pointer(hand) {
+    handPointer.hidden = !hand;
+    // While the fingers are closed the highlight stays on what the pinch began on.
+    if (!hand?.pinching) {
+      const target = hand ? handTarget(handClient(hand)) : null;
+      const hover = target && target.kind !== 'room' && target.kind !== 'none' ? target.element : null;
+      if (hover) {
+        const now = performance.now();
+        if (lastHover?.target.element === hover && now - lastHover.at < HAND_SLIP_MS) lastHover.at = now;
+        else lastHover = {target, since: now, at: now};
+      }
+      if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
+    }
+    if (!hand) return;
+    const {u, v} = handPoint(hand);
+    handPointer.style.left = `${u * 100}%`; handPointer.style.top = `${v * 100}%`;
+    handPointer.dataset.pinching = String(!!hand.pinching);
+  },
+  observe: {
+    begin(hand, action) {
+      const target = pinchTarget(handClient(hand));
+      if (target.kind === 'control' || target.kind === 'shelf') {
+        if (target.kind === 'control') pressControl(target);
+        else showToast('从仓库拖出请先切到移动模式（左手 1）');
+        return false;
+      }
+      if (gestureView || !ready || target.kind === 'none') return false;
+      gestureView = {base: cameraState(), start: {u: hand.u, v: hand.v}, action};
+      controls.enabled = false; return true;
+    },
+    update(hand) {if (gestureView) applyCamera(observationPose(gestureView.base, gestureView.start, hand, gestureView.action));},
+    finish(cancel) {
+      if (!gestureView) return;
+      if (cancel) applyCamera(gestureView.base);
+      gestureView = null; controls.enabled = true;
+    },
+  },
+};
+const embedded = connectGestureBridge({
+  input: new GestureInput(gesturePort),
+  stop: gesturePort.stop,
+  setMode(next) {
+    gestureMode = next;
+    if (next !== 'view' && mode !== 'edit') setMode('edit');
+    $('#status').textContent = GESTURE_HELP[next]; $('#interaction-help').textContent = GESTURE_HELP[next];
+    return true;
+  },
+  state: () => ({busy: !ready || !!falling, mode: gestureMode, selectedId: selected, layoutReady: ready,
+    phase: gestureView ? 'observing' : falling ? 'validating' : gesture ? 'preview' : 'idle',
+    message: $('#status').textContent || '', capabilities: ['observe-pinch-v1']}),
+});
+
+// Objects rebuilt by ViewForge, at their measured size. The full model is shown; its light
+// preview (same frame, ~1/40 of the triangles) stands in for contact and collision checks.
+let addedCount = 0, importAsset = null;
+async function openImports() {
+  let catalog;
+  try {catalog = await readCatalog();} catch {return;}
+  if (!catalog.runs?.length) return;
+  for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
+  $('#import-menu').hidden = false;
+  $('#import-run').onchange = () => void chooseImport();
+  $('#import-axis').onchange = $('#import-meters').oninput = describeImport;
+  $('#import-object').onclick = () => void importObject().catch((error) => {
+    console.error(error); showToast(`导入失败：${error.message || error}`); $('#import-object').disabled = false;
+  });
+  await chooseImport();
+}
+async function chooseImport() {
+  const run = $('#import-run').value;
+  importAsset = null; $('#import-object').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
+  const asset = await readAsset(run).catch(() => null);
+  if ($('#import-run').value !== run) return;
+  if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
+  importAsset = {...asset, run};
+  const saved = savedMeasurement(asset);
+  if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
+  else $('#import-meters').value = '';
+  describeImport();
+}
+function describeImport() {
+  if (!importAsset) return;
+  let size;
+  try {size = sizeInMeters(importAsset.base, metricScale(importAsset.base, $('#import-axis').value, Number($('#import-meters').value)));}
+  catch {$('#import-note').textContent = savedMeasurement(importAsset) ? '请输入实测长度' : 'ViewForge 里还没标定：填一条实测边长'; $('#import-object').disabled = true; return;}
+  $('#import-note').textContent = `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} 米（宽 × 深 × 高）`;
+  $('#import-object').disabled = false;
+}
+// The free floor spot nearest the middle of the room where a new piece can stand.
+function freeSpot(id) {
+  const step = .2, reach = Math.max(roomSize.x, roomSize.z) / 2, spots = [];
+  for (let x = -reach; x <= reach; x += step) for (let z = -reach; z <= reach; z += step) spots.push([x, z]);
+  spots.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+  for (const [x, z] of spots) {
+    const candidate = copyLayout(layout);
+    candidate[id] = {x, y: 0, z, yaw: 0};
+    const drop = predictDrop(id, candidate, placement, collision);
+    if (drop.ok) return drop.candidate[id];
+  }
+  return null;
+}
+async function importObject() {
+  if (!ready || !importAsset) return;
+  const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
+  $('#import-object').disabled = true; $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
+  const loader = new GLTFLoader();
+  const [full, light] = await Promise.all(['result.glb', 'preview.glb'].map((file) => loader.loadAsync(viewforgeModel(run, file))));
+  cancelSession(false);
+  const id = `added-${++addedCount}`, contact = `${id}:contact`;
+  const shape = new THREE.Group();
+  shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, scale)));
+  full.scene.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    // Colours are baked into the vertices; light them as ViewForge does (unlit).
+    mesh.material = new THREE.MeshBasicMaterial({vertexColors: !!mesh.geometry.attributes.color, side: THREE.DoubleSide});
+    mesh.userData.collision = false; mesh.raycast = () => {};
+    mesh.castShadow = true;
+  });
+  light.scene.name = light.scene.userData.name = contact;
+  light.scene.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    mesh.material = new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false});
+    mesh.userData.contactOnly = true; mesh.castShadow = mesh.receiveShadow = false;
+  });
+  shape.add(full.scene, light.scene);
+  const origin = new THREE.Vector3(center.x, floorY, center.z);
+  const group = new THREE.Group();
+  group.name = `Editable_${id}`; group.position.copy(origin);
+  group.add(shape); room.add(group); room.updateMatrixWorld(true);
+  group.traverse((object) => {if (object.isMesh) object.userData.editorId = id;});
+  const size = sizeInMeters(base, scale), name = objectLabel(run);
+  const entity = {id, name, category: '导入物体 · 真实尺寸', roots: [contact], group, origin, added: true,
+    sizeLabel: `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} ${config.units}`};
+  entities.set(id, entity); ids.push(id);
+  placementSpecs[id] = {body: [contact]};
+  layout[id] = stored();
+  for (const past of [...history.past, ...history.future]) past[id] = stored();
+  appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity]);
+  group.visible = false;
+  // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
+  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  rebuildCollision();
+  $('#import-menu').open = false; $('#import-object').disabled = false;
+  renderer.shadowMap.needsUpdate = true;
+  beginSession(id);
+  const spot = freeSpot(id);
+  if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
+  showToast(`已导入${name}：${embedded ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
+  if (!embedded) pending.locked = false;
+}
+
 async function load() {
   renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'low-power'});
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -1234,9 +1636,9 @@ async function load() {
     else progress.removeAttribute('value');
   };
   config = await roomConfigReady;
-  ids.push(...config.catalog.map((item) => item.id));
+  ids.push(...config.catalog.map((item) => item.id)); roomIds.push(...ids);
   Object.assign(placementSpecs, config.placement);
-  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80));
+  const gltf = await new GLTFLoader().loadAsync(await versionedModelURL(), reportProgress(0, 80));
   progress.value = 80;
   room = gltf.scene;
   scene.add(room);
@@ -1263,14 +1665,14 @@ async function load() {
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
   renderFurnitureThumbnails();
-  const ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
+  ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
   for (const wall of placement.wallTargets()) {
     const option = document.createElement('option'); option.value = wall.name; option.textContent = wallLabel(wall.name);
     $('#wall-target').appendChild(option);
   }
   audit.placement = placement.audit;
-  collision = createCollision(THREE, room, entities, placementSpecs, {label: config.label, keepAuthoredOverlaps: true});
+  rebuildCollision();
   audit.collision = collision.audit;
   wallVisibility = createWallVisibility(room, placement.wallTargets(), wallOptions(placement.wallTargets()));
   ready = true;
@@ -1328,6 +1730,7 @@ async function load() {
   $('#loading').hidden = true;
   $('#status').textContent = `${entities.size} 件物体可布置 · 点选房间或下方家具卡片`;
   view('overview');
+  void openImports();
   // Read-only diagnostics for real-browser verification; no controls or mutable scene exposed.
   window.roomEditor = Object.freeze({
     get ready() {return ready;},
@@ -1355,6 +1758,12 @@ async function load() {
   renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); finishHold(); persist(); fail('图形上下文已暂停');});
 }
 
+function rebuildCollision() {
+  const owners = collisionOwners(THREE, room, entities, {label: config.label});
+  collision = buildCollision(owners, {keepAuthoredOverlaps: true});
+  try {startBackgroundCollision(owners);} catch (error) {console.error(error); background = null;}
+}
+
 // Each fixture hides with its recorded wall; one with none (a curtain on a ceiling track)
 // with the wall it hangs in front of.
 function wallOptions(walls) {
@@ -1363,6 +1772,16 @@ function wallOptions(walls) {
     return [name, root ? nearestWall(worldVertices(THREE, root), walls) : null];
   }));
   return {owner: (name) => config.wallOwner(name) || near.get(name) || null};
+}
+
+// A browser may keep an earlier Room.glb without asking the server again. Name the model by
+// the file's own date and size, so a replaced room is always downloaded and an unchanged one cached.
+async function versionedModelURL() {
+  try {
+    const head = await fetch(modelURL, {method: 'HEAD', cache: 'no-store'});
+    const stamp = head.ok && (head.headers.get('etag') || [head.headers.get('last-modified'), head.headers.get('content-length')].filter(Boolean).join(' '));
+    return stamp ? `${modelURL}?v=${encodeURIComponent(stamp)}` : modelURL;
+  } catch {return modelURL;}
 }
 
 async function loadRoomConfig() {
@@ -1384,3 +1803,6 @@ $('#open-office').onclick = () => {
   $('#rc-placement-demo').dataset.roomSelection = 'false';
   load().catch(fail);
 };
+// Inside the gesture page there is no one to press the room card; open the room directly. The
+// tools move to where a right hand reaches them (editor.css, data-gesture).
+if (embedded) {$('#rc-placement-demo').dataset.gesture = 'true'; $('#open-office').click();}

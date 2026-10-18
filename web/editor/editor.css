@@ -250,6 +250,8 @@ body { margin: 0; padding: 12px; background: #eceee7; }
 #rc-placement-demo #close-list { display: none; }
 #rc-placement-demo #object-panel.open { position: fixed; z-index: 12; bottom: 14px; left: 18px; right: 18px; max-height: 55vh; border: 1px solid var(--rc-line); border-radius: 15px; box-shadow: 0 12px 48px #1736231c; }
 #rc-placement-demo #object-panel.open #close-list { display: inline-flex; }
+/* The open warehouse floats; its strip's space stays, so the room view keeps its size and framing. */
+#rc-placement-demo #object-panel.open + .rc-footer { margin-top: var(--rc-shelf-space, 0px); }
 #rc-placement-demo #object-panel.open .rc-catalog { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); max-height: calc(55vh - 95px); overflow-y: auto; }
 #rc-placement-demo #object-panel.open .object-row { min-width: 0; }
 #rc-placement-demo .rc-files { margin-bottom: 8px; }
@@ -389,3 +391,24 @@ body { min-height:100dvh; box-sizing:border-box; }
  #rc-placement-demo .rc-stage { height:max(520px,calc(100dvh - 280px)); }
  #rc-placement-demo .object-row { flex-basis:132px; }
 }
+/* Objects imported from ViewForge, and the gesture page's hand pointer. */
+#rc-placement-demo .rc-import { display: grid; gap: 10px; left: 0; right: auto; }
+#rc-placement-demo .rc-import label { display: grid; gap: 4px; font-size: 12px; color: var(--rc-muted); }
+#rc-placement-demo .rc-import select, #rc-placement-demo .rc-import input { width: 100%; padding: 6px 8px; border: 1px solid var(--rc-line); border-radius: 8px; background: var(--rc-panel); color: var(--rc-text); font: inherit; font-size: 13px; }
+#rc-placement-demo .rc-import-size { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
+#rc-placement-demo .rc-import .rc-scale-note { margin: 0; }
+#rc-placement-demo .rc-import .rc-confirm { padding: 8px 12px; border-radius: 9px; }
+/* The right hand is blue, as on the gesture page. */
+:root { --rc-hand: #2f7de1; }
+.rc-hand-pointer { position: fixed; z-index: 1000; box-sizing: border-box; width: 24px; height: 24px; margin: -12px 0 0 -12px; border: 3px solid var(--rc-hand); border-radius: 50%; background: color-mix(in srgb, var(--rc-hand) 18%, transparent); box-shadow: 0 0 0 2px #ffffffcc, 0 2px 10px #0000003d; pointer-events: none; transition: width .08s, height .08s, margin .08s, background-color .08s; }
+.rc-hand-pointer[data-pinching="true"] { width: 16px; height: 16px; margin: -8px 0 0 -8px; background: var(--rc-hand); }
+.rc-hand-pointer[data-label]::after { content: attr(data-label); position: absolute; left: 20px; top: -8px; padding: 4px 10px; border-radius: 999px; background: var(--rc-hand); color: #fff; box-shadow: 0 2px 10px #0000003d; font: 500 12px/1.4 Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap; }
+#rc-placement-demo .rc-hand-hover { outline: 2px solid var(--rc-hand); outline-offset: 2px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--rc-hand) 16%, transparent); }
+/* Inside the gesture page: the tools sit low on the right, where a right hand reaches them, and are
+   larger; menus open to the left; the joysticks (for a mouse) move to the lower left. */
+#rc-placement-demo[data-gesture="true"] .rc-tools { left: auto; right: 18px; top: auto; bottom: 62px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 360px; max-width: none; gap: 8px; }
+#rc-placement-demo[data-gesture="true"] .rc-tools > .rc-tool, #rc-placement-demo[data-gesture="true"] .rc-tools > .rc-menu > summary { width: 100%; min-height: 44px; padding: 10px 12px; font-size: 14px; justify-content: center; box-sizing: border-box; }
+#rc-placement-demo[data-gesture="true"] .rc-tools > #tools-menu { grid-column: 1 / -1; }
+#rc-placement-demo[data-gesture="true"] .rc-tools > #tools-menu > summary { min-height: 34px; padding: 6px 12px; }
+#rc-placement-demo[data-gesture="true"] .rc-tools .rc-menu-panel { top: auto; bottom: 0; left: auto; right: calc(100% + 8px); }
+#rc-placement-demo[data-gesture="true"] .rc-joysticks { left: 18px; right: auto; bottom: 58px; }
