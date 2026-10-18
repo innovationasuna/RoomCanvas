@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><title>RoomCanvas</title>
-<link rel="stylesheet" href="./editor.css?v=fast-30">
+<link rel="stylesheet" href="./editor.css?v=gesture-34">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -49,6 +49,15 @@
   <button class="rc-tool" id="clear-room" title="将房间中的家具全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
   <button class="rc-tool" id="reset-layout" title="恢复原始家具、位置和朝向，可撤销">↻ 一键还原</button>
   <button class="rc-tool" id="list-toggle" aria-controls="object-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
+  <details class="rc-menu" id="import-menu" hidden>
+   <summary class="rc-tool" title="把 ViewForge 重建的物体按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物体</summary>
+   <div class="rc-menu-panel rc-import">
+    <label>ViewForge 物体<select id="import-run"></select></label>
+    <div class="rc-import-size"><label>实测边<select id="import-axis"><option>X</option><option>Y</option><option>Z</option></select></label><label>长度（米）<input id="import-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
+    <p id="import-note" class="rc-scale-note"></p>
+    <button class="rc-action rc-confirm" id="import-object" type="button" disabled>导入并摆放</button>
+   </div>
+  </details>
   <button class="rc-tool" id="light" aria-label="切换日光与暖光" aria-pressed="false"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</button>
   <details class="rc-menu" id="tools-menu">
    <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
@@ -132,4 +141,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=fast-30"></script></body></html>
+</div><script type="module" src="./editor.js?v=gesture-34"></script></body></html>
