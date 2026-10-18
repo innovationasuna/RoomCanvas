@@ -1088,6 +1088,8 @@ function updateSessionUI() {
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '摇杆移动 · 升降调整高度 · 投影显示落点';
   } else $('#confirm-placement').textContent = '确认放置';
+  // The joysticks are hidden in the gesture page; say how the hand works instead.
+  if (embedded) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
 }
 
 function beginSession(id) {
