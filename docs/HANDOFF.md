@@ -5,7 +5,7 @@
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
-- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。整合分支另有 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
+- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。主线已整合 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
 - 编辑器只有一条路：任何房间都读 `room_objects.json`（`web/scripts/room_objects.py` 生成，可手写 `name` 覆盖家具名）。座面、墙角短墙、窗帘归墙都自动处理。
 - 测试：网页单测 122 项、Python 7 项、office 五个真实模型检查、两个房间的 `check_room`，CI 全跑（另有 #5 带来的 `gesture`、`object-viewer` 两项）。`reconstruction/` 离线测试 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
@@ -18,7 +18,7 @@
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
-- 用户于 2026-10-17 授权把 ViewForge 及手势代码、完整历史导入本仓库。整合在 `feat/integrate-viewforge` 分支，原 ViewForge 仓库和运行服务保留；不要再按旧的“只读、不迁”约定处理本次整合。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。此分支合入 main 时需普通 merge commit，以保留导入历史。
+- ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。
 - 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）
@@ -63,8 +63,8 @@
 
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
-- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器上实际运行的是 lyk 自己的 `/workspace/geyinuo/ViewForge/code`（`web.py`，监听容器内网 `172.18.0.2:7862`），不是仓库里这份。
-- 本机试手势：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
+- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端已于 2026-10-18 切换为 `/workspace/geyinuo/RoomCanvas/object-reconstruction`，监听仍为 `172.18.0.2:7862`。运行环境、权重、照片、历史结果继续来自 `/workspace/geyinuo/ViewForge`；服务器的 `object-reconstruction/configs/local.env` 已配置并被 Git 忽略。在该模块目录依次执行 `source configs/local.env`、`source scripts/env.sh`、`python scripts/web.py --host 172.18.0.2 --port 7862` 启动，不再从旧 `ViewForge/code` 启动。
+- 本机试手势：本机仓库在 `/Users/lyk/Documents/Projects/RoomCanvas`。按个人 SSH 配置开隧道，当前机器命令为 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 gynserver`，也记录在个人笔记中；仓库不维护专门的连接脚本。仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。
 - room3 还没接进手势页。两种做法待定：(a) 给 RoomCanvas 编辑器加手势协议的接收端，手势页指向它（只改我们的 `web/`，room3 全部家具可用手势操作）；(b) 把 room3 做成 ViewForge 的房间、家具转成 ViewForge 物体（要改 lyk 的代码和服务器数据）。用户以后不需要单独展示 RoomCanvas 编辑器预览。
 

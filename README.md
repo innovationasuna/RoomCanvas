@@ -10,7 +10,7 @@
 | [`object-reconstruction/`](object-reconstruction/) | ViewForge：多视角物体重建、尺寸标定、Babylon 房间布局及手势接收端 |
 | [`gesture/`](gesture/) | 浏览器摄像头、MediaPipe 手势识别和 ViewForge 接入页；保留原独立演示 |
 
-ViewForge 与手势源码已连同完整提交历史导入。本次统一代码目录，保留原有各模块的使用方式；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
+ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记录整合结果。各模块保留原有功能；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
 
 ## 打开网页
 
@@ -54,7 +54,29 @@ $PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<�
 
 ## 物体重建与手势
 
-ViewForge 手势入口在本机运行：在本仓库根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/viewforge.html>，保持 ViewForge 的 SSH 隧道可用。该页面的手势识别和 Babylon 场景渲染仍在浏览器内执行；服务器提供模型、进行物体重建、碰撞校验和保存。RoomCanvas 原编辑器仍按上文方式打开。
+ViewForge 后端和手势前端都从本仓库启动。服务器在 `object-reconstruction/configs/local.env` 配好外部运行目录和授权 GPU 后，运行：
+
+```bash
+cd object-reconstruction
+source configs/local.env
+source scripts/env.sh
+python scripts/web.py --host 127.0.0.1 --port 7862
+```
+
+本机打开两个终端。第一个用 SSH 端口转发访问后端，将 `<SSH主机别名>` 换成自己的配置；转发目标须与后端实际监听地址一致（已有可用隧道时跳过）：
+
+```bash
+ssh -N -L 127.0.0.1:7865:127.0.0.1:7862 <SSH主机别名>
+```
+
+另一个终端在仓库根目录启动手势页：
+
+```bash
+sh scripts/gesture.sh install  # 首次安装或锁文件更新后执行
+sh scripts/gesture.sh dev
+```
+
+打开 <http://127.0.0.1:8800/viewforge.html>，点击“开启摄像头”并授权。手势识别和 Babylon 场景渲染在本机浏览器执行；服务器提供模型、执行物体重建、碰撞校验和保存。后端首页为 <http://127.0.0.1:7865/>，布局入口为 <http://127.0.0.1:7865/viewforge/layouts/viewer>。环境、资源和端口配置见 [运行说明](docs/VIEWFORGE_INTEGRATION.md)。RoomCanvas 原编辑器仍按上文方式打开。
 
 ## 对 LiteReality-Agent 改了什么
 
