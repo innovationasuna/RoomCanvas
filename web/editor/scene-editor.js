@@ -1279,7 +1279,7 @@ function handClient(hand) {
 // A hand pointer shakes and slips as the fingers close, so a control within HAND_REACH pixels
 // counts as pointed at, and a pinch that starts just off a control presses the one the hand was
 // on a moment before (see gesturePort.begin).
-const HAND_REACH = 24, HAND_SLIP_MS = 300, CONTROLS = 'button, summary, a[href], label, .object-row';
+const HAND_REACH = 24, HAND_SLIP_MS = 300, HAND_AIM_MS = 250, CONTROLS = 'button, summary, a[href], label, .object-row';
 const asTarget = (element) => element.matches('.object-row') ? {kind: 'shelf', element, id: element.dataset.object} : {kind: 'control', element};
 function nearestControl(x, y) {
   let best = null, distance = HAND_REACH;
@@ -1304,10 +1304,13 @@ function handTarget({x, y}, reach = true) {
   if (near && !(room && pick(x, y))) return asTarget(near);
   return room ? {kind: 'room'} : {kind: 'none'};
 }
+// The control the hand rested on (since: when it arrived; at: last frame on it). A pinch presses
+// it when the fingers slip off onto empty space, or onto a neighbour after resting on it a while.
 let lastHover = null;
 function pinchTarget(point) {
-  const target = handTarget(point);
-  if ((target.kind === 'room' || target.kind === 'none') && lastHover && performance.now() - lastHover.at < HAND_SLIP_MS) return lastHover.target;
+  const target = handTarget(point), now = performance.now();
+  const recent = lastHover && now - lastHover.at < HAND_SLIP_MS;
+  if (recent && (target.kind === 'room' || target.kind === 'none' || lastHover.at - lastHover.since >= HAND_AIM_MS)) return lastHover.target;
   return target;
 }
 function pressControl(target) {
@@ -1444,7 +1447,11 @@ const gesturePort = {
     if (!hand?.pinching) {
       const target = hand ? handTarget(handClient(hand)) : null;
       const hover = target && target.kind !== 'room' && target.kind !== 'none' ? target.element : null;
-      if (hover) lastHover = {target, at: performance.now()};
+      if (hover) {
+        const now = performance.now();
+        if (lastHover?.target.element === hover && now - lastHover.at < HAND_SLIP_MS) lastHover.at = now;
+        else lastHover = {target, since: now, at: now};
+      }
       if (hover !== handHover) {handHover?.classList.remove('rc-hand-hover'); hover?.classList.add('rc-hand-hover'); handHover = hover;}
     }
     if (!hand) return;
