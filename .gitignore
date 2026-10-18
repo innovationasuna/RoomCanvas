@@ -1,4 +1,4 @@
-# 各模块自己的忽略规则写在模块目录下（例如 reconstruction/.gitignore）。这里只放全仓库通用的。
+# 各模块自己的忽略规则写在模块目录下（例如 room-reconstruction/.gitignore）。这里只放全仓库通用的。
 
 # 密钥
 .env

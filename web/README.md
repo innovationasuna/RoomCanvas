@@ -48,7 +48,7 @@ RoomCanvas 的网页：主页（`index.html`）列出房间，点进布置页（
 | `editor/gesture-bridge.mjs` | 手势输入（`GestureInput`：抓取、移动、旋转、松手，相机环绕和平移）和手势页协议的接收端 |
 | `editor/gesture-camera.mjs` | 内置手势：摄像头卡片接 `vendor/gesture/` 的识别运行时 |
 | `vendor/gesture/` | 从 `gesture/src/embed/` 构建的识别代码，随仓库提交 |
-| `editor/viewforge-import.mjs` | 读 ViewForge 物体目录和尺寸，算真实尺寸的放置矩阵 |
+| `editor/object-import.mjs` | 读 ViewForge 物体目录和尺寸，算真实尺寸的放置矩阵 |
 | `editor/tests/` | 单元测试（Node 自带测试框架） |
 | `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
 | `scripts/check_*.mjs` | 用真实模型在 CPU 上检查：`check_room` 适用于任何房间，其余四个针对 office |

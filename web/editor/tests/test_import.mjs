@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from '../viewforge-import.mjs';
+import {objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from '../object-import.mjs';
 
 const apply = (m, [x, y, z]) => [0, 1, 2].map((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r]);
 const close = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);

@@ -4,7 +4,7 @@
 
 ```text
 RoomCanvas/
-├── reconstruction/        原有 LiteReality 房间重建
+├── room-reconstruction/   原有 LiteReality 房间重建
 ├── web/                   原有 Three.js 编辑器
 ├── samples/               原有示例房间
 ├── object-reconstruction/ ViewForge/MV-SAM3D 源码、配置模板、查看器和测试
@@ -44,4 +44,4 @@ python scripts/web.py --host 127.0.0.1 --port 7862
 
 在本机 RoomCanvas 根目录运行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`。物体模块内的同名脚本保留为兼容入口，两者都按相对位置找到同一个 `gesture/`。
 
-2026-10-18 已将正式后端切换到 RoomCanvas 的本模块；原 ViewForge 目录继续提供外部运行环境、权重与数据，不再作为服务源码入口。后端按上面的命令启动，本机使用自己的 SSH 端口转发配置访问服务。当前操作与历史说明见 [整合说明](../../docs/VIEWFORGE_INTEGRATION.md)。
+2026-10-18 已将正式后端切换到 RoomCanvas 的本模块；原 ViewForge 目录继续提供外部运行环境、权重与数据，不再作为服务源码入口。后端按上面的命令启动，本机使用自己的 SSH 端口转发配置访问服务。当前操作与历史说明见 [物体重建说明](../../docs/OBJECT_RECONSTRUCTION.md)。

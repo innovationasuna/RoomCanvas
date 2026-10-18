@@ -4,13 +4,13 @@
 
 | 目录 | 内容 |
 |---|---|
-| [`reconstruction/`](reconstruction/) | 房间重建：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent) 官方代码，所有 Agent 改用 Codex（GPT-6 Astra）。产出 `Room.glb` 和 `room_layout.json` |
+| [`room-reconstruction/`](room-reconstruction/) | 房间重建：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent) 官方代码，所有 Agent 改用 Codex（GPT-6 Astra）。产出 `Room.glb` 和 `room_layout.json` |
 | [`web/`](web/) | 网页：在房间里选中家具，移动、旋转、换墙、收进仓库，带碰撞和支撑检测，可撤销、可保存 |
 | [`samples/`](samples/) | 两个示例房间：`room3`（卧室扫描）、`office`（LiteReality 官方样例） |
 | [`object-reconstruction/`](object-reconstruction/) | ViewForge：多视角物体重建、尺寸标定、Babylon 房间布局及手势接收端 |
 | [`gesture/`](gesture/) | 浏览器摄像头、MediaPipe 手势识别和 ViewForge 接入页；保留原独立演示 |
 
-ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记录整合结果。各模块保留原有功能；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
+ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记录整合结果。各模块保留原有功能；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [物体重建说明](docs/OBJECT_RECONSTRUCTION.md)。
 
 ## 打开网页
 
@@ -34,8 +34,8 @@ Chrome 打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.
 
 ```bash
 PY=/workspace/geyinuo/RoomCanvas/runtime/litereality-env/bin/python
-$PY reconstruction/server/run_room.py <扫描输入> <新的运行目录> --check   # 只检查配置，不占卡
-$PY reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
+$PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> --check   # 只检查配置，不占卡
+$PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
@@ -50,8 +50,8 @@ python3 web/scripts/room_objects.py <room_preview 目录>   # 生成网页用的
 author 阶段的小物件（书、拖鞋、袋子、枕头……）都是 Blender 基本形状拼的。这一步读 author 产出的 `Room.blend`，不重跑 author：
 
 ```bash
-$PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录> --check
-$PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录>
+$PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录> --check
+$PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录>
 ```
 
 1. 挑候选：author 加的、能拿起来挪动的东西；不含房间结构、门窗、重建出来的家具、插座开关灯等固定设施、挂在墙上或天花板上的东西、能放东西的家具。没有尺寸阈值。叠在一起的（一摞书）合成一件。
@@ -64,14 +64,14 @@ $PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<�
 
 ## 物体重建与手势
 
-ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标定尺寸，并有自己的 Babylon 布局页；它的后端在服务器上从本仓库启动。手势页（`gesture/`）在本机浏览器里用摄像头识别手势，可以嵌入 ViewForge 布局页或 RoomCanvas 编辑器（见上文“打开网页”）。启动命令、SSH 端口转发和各个地址见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
+ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标定尺寸，并有自己的 Babylon 布局页；它的后端在服务器上从本仓库启动。手势页（`gesture/`）在本机浏览器里用摄像头识别手势，可以嵌入 ViewForge 布局页或 RoomCanvas 编辑器（见上文“打开网页”）。启动命令、SSH 端口转发和各个地址见 [物体重建说明](docs/OBJECT_RECONSTRUCTION.md)。
 
 ## 对 LiteReality-Agent 改了什么
 
-基线是官方 `28ffe1f4`（2026-10-03），即本仓库的第一个提交，原样放在 `reconstruction/`。之后的改动：
+基线是官方 `28ffe1f4`（2026-10-03），即本仓库的第一个提交，原样放在 `room-reconstruction/`。之后的改动：
 
 - **所有 Agent 改用 Codex。** 默认 provider 从 claude 改为 codex（`models.env`、`settings.py`、`agent/providers/base.py`）。Codex 会话支持附图（`providers/codex.py`）；新增 `agent/providers/vision.py`，在建模路线分类、椅子分组、程序化完整性检查、布局 Agent 四处看图。provider 设回 claude 时，仍走官方原来的代码。
-- **3090 运行脚本**：新增 `reconstruction/server/`，不改官方文件。
+- **3090 运行脚本**：新增 `room-reconstruction/server/`，不改官方文件。
 - **小物件这一步**：新增 `pipeline/realism_authoring/small_objects/`（只加新文件，复用官方的证据图、参考图、TRELLIS 启动器和看图问答），不改官方文件。
 - **CI**：`.github/workflows/ci.yml` 先用 gitleaks 扫描全部历史里的密钥，再跑官方测试和网页测试。
 
@@ -85,6 +85,6 @@ ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标�
 
 ## 许可
 
-[Apache License 2.0](LICENSE)，署名见 [NOTICE](NOTICE)。用到 LiteReality-Agent 的研究请引用 [reconstruction/citation.bib](reconstruction/citation.bib)。Three.js（`web/vendor/`）为 MIT 许可；`web/vendor/gesture/` 是从 `gesture/` 构建的识别代码，内含 MediaPipe Tasks Vision（Apache-2.0），见 [其说明](web/vendor/gesture/README.md)。
+[Apache License 2.0](LICENSE)，署名见 [NOTICE](NOTICE)。用到 LiteReality-Agent 的研究请引用 [room-reconstruction/citation.bib](room-reconstruction/citation.bib)。Three.js（`web/vendor/`）为 MIT 许可；`web/vendor/gesture/` 是从 `gesture/` 构建的识别代码，内含 MediaPipe Tasks Vision（Apache-2.0），见 [其说明](web/vendor/gesture/README.md)。
 
 导入的 ViewForge/MV-SAM3D 及其依赖保留各自许可，见 [`object-reconstruction/LICENSE`](object-reconstruction/LICENSE)；手势工程的代码、模型和依赖许可见 [`gesture/README.md`](gesture/README.md) 与 [`gesture/docs/sources.md`](gesture/docs/sources.md)，不由根目录的 Apache 许可重新授权。
