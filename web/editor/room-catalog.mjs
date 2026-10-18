@@ -54,6 +54,8 @@ export function roomConfig(doc) {
   const labels = new Map(doc.objects.map((object) => [object.node, categoryLabel(object.category)]));
   return {
     sceneId: doc.scene, title: doc.scene, units: '米', catalog, placement,
+    // Parts that open (doors, cabinet doors, sashes); see joints.mjs.
+    joints: doc.joints || [],
     // Every object with its group; see flattenObjects.
     nodes: doc.objects.filter((object) => object.id !== doc.floor).map((object) => ({node: object.node, group: object.group})),
     openings: Object.fromEntries(Object.entries(doc.openings).map(([wall, ids]) => [node(wall), ids.map(node)])),

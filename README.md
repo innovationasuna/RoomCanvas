@@ -42,7 +42,7 @@ $PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
 `run_room.py` 自动挑一张空闲 GPU 并加锁；author 视觉验收后的返工默认只做 1 轮（官方默认 2 轮，`--repair-rounds 0` 只验收不返工）；确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）。运行环境、模型权重和 `.env` 在服务器的 `ROOMCANVAS_HOME`（默认 `/workspace/geyinuo/RoomCanvas`）。重建完成后，把 `room_preview/` 里的房间接到网页上：
 
 ```bash
-python3 web/scripts/room_objects.py <room_preview 目录>   # 生成网页用的物体清单 room_objects.json
+python3 web/scripts/room_objects.py <room_preview 目录>   # 生成网页用的物体清单 room_objects.json（含能开合的部件）
 ```
 
 ### 小物件：舍弃、程序化或 TRELLIS（author 之后的一步）
