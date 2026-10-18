@@ -31,6 +31,11 @@ def forwarded(path):
 class Handler(SimpleHTTPRequestHandler):
     viewforge = 'http://127.0.0.1:7865'
 
+    def end_headers(self):
+        # Files are revalidated (304 if unchanged): a replaced Room.glb must not come from the cache.
+        self.send_header('Cache-Control', 'no-cache')
+        super().end_headers()
+
     def do_GET(self):
         target = forwarded(self.path)
         if target is None:
@@ -41,7 +46,6 @@ class Handler(SimpleHTTPRequestHandler):
                 for name in ('Content-Type', 'Content-Length'):
                     if response.headers.get(name):
                         self.send_header(name, response.headers[name])
-                self.send_header('Cache-Control', 'no-store')
                 self.end_headers()
                 shutil.copyfileobj(response, self.wfile)
         except urllib.error.HTTPError as error:
