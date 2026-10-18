@@ -1,21 +1,22 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-35';
-import {createPlacement} from './placement.mjs?v=app-35';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-35';
-import {PlacementSession} from './placement-session.mjs?v=app-35';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-35';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=app-35';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-35';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-36';
+import {createPlacement} from './placement.mjs?v=app-36';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-36';
+import {PlacementSession} from './placement-session.mjs?v=app-36';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=app-36';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=app-35';
-import {analogDelta} from './placement-motion.mjs?v=app-35';
+import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
+import {analogDelta} from './placement-motion.mjs?v=app-36';
 
-import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-35';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-35';
-import {createGestureCamera} from './gesture-camera.mjs?v=app-35';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-35';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-36';
+import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
+import {Openings, openableOf} from './joints.mjs?v=app-36';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -49,6 +50,7 @@ let pending = null, mode = 'edit', warm = false;
 const ghostMaterials = [];
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
+let hinged = null;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
@@ -718,6 +720,23 @@ function pick(clientX, clientY) {
   return null;
 }
 
+// The part that opens under a screen point, in preview mode (see joints.mjs).
+function pickOpenable(clientX, clientY) {
+  if (!ready || !hinged) return null;
+  camera.updateMatrixWorld();
+  const rect = host.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1), camera);
+  for (const hit of raycaster.intersectObject(room, true)) {
+    let visible = true;
+    for (let object = hit.object; object; object = object.parent) {if (!object.visible) visible = false;}
+    if (!visible) continue;
+    const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
+    if (material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;
+    return openableOf(hit.object);
+  }
+  return null;
+}
+
 function bindEvents() {
   const shelf = $('#object-panel');
   new ResizeObserver(() => {if (!shelf.classList.contains('open')) $('#rc-placement-demo').style.setProperty('--rc-shelf-space', `${shelf.offsetHeight}px`);}).observe(shelf);
@@ -868,6 +887,7 @@ function bindEvents() {
     if (performance.now() - lastHoverTime < 45) return;
     lastHoverTime = performance.now();
     if (wallRelocation) {host.style.cursor = pickWall(event.clientX, event.clientY) ? 'crosshair' : ''; return;}
+    if (mode === 'preview') {host.style.cursor = pickOpenable(event.clientX, event.clientY) ? 'pointer' : ''; return;}
     const id = pick(event.clientX, event.clientY);
     host.style.cursor = id ? 'pointer' : '';
     if (id === hovered) return;
@@ -887,6 +907,7 @@ function bindEvents() {
         const target = pickWall(event.clientX, event.clientY);
         if (target) previewWall(target.name, target.point); else showToast('请点击墙面实体部分；拖动场景可以调整视角');
       } else if (mode === 'edit') {const id = pick(event.clientX, event.clientY); if (id) beginSession(id); else if (!pending) select(null);}
+      else if (mode === 'preview') {const part = pickOpenable(event.clientX, event.clientY); if (part) hinged.toggle(part);}
     }
     pointerStart = null;
   });
@@ -1223,9 +1244,13 @@ function followPointer(clientX, clientY, force = false, grab = null) {
   host.style.cursor = pending.valid ? 'crosshair' : 'not-allowed';
 }
 
+const OPEN_HELP = '点门、柜门、窗可以打开或关上 · 拖动空白处转动视角';
 function setMode(nextMode) {
   if (nextMode === 'preview') {cancelSession(false); select(null, false);}
+  // Furniture is placed against the closed shapes; doors shut on the way back to arranging.
+  else hinged?.closeAll();
   mode = nextMode;
+  if (hinged?.parts.length) $('#interaction-help').textContent = mode === 'preview' ? OPEN_HELP : handsOn() ? GESTURE_HELP[gestureMode] : MOUSE_HELP;
   $('#rc-placement-demo').dataset.mode = mode;
   alignCameraToStage();
   for (const button of document.querySelectorAll('[data-mode]')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
@@ -1739,6 +1764,15 @@ async function load() {
   rebuildCollision();
   audit.collision = collision.audit;
   wallVisibility = createWallVisibility(room, placement.wallTargets(), wallOptions(placement.wallTargets()));
+  // GLTFLoader may rename a node; the original name is kept in userData.name.
+  const named = new Map();
+  room.traverse((object) => named.set(object.userData?.name || object.name, object));
+  hinged = new Openings(THREE, config.joints.filter((joint) => named.has(joint.node)).map((joint) => {
+    const node = named.get(joint.node);
+    node.updateMatrix();
+    return {joint, node, rest: node.matrix.clone()};
+  }), {render: requestRender, settled: () => {renderer.shadowMap.needsUpdate = true; requestRender();}});
+  audit.openParts = hinged.parts.length;
   ready = true;
   // Entering a room always shows its authored layout. Merely opening it must
   // not overwrite the last confirmed arrangement in browser storage.
@@ -1808,6 +1842,11 @@ async function load() {
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
         wallTargets: placement.wallTargets().map(({name,center}) => {const p = new THREE.Vector3().fromArray(center).project(camera), rect = host.getBoundingClientRect(); return {name,center,screen:{x:rect.x+(p.x*.5+.5)*rect.width,y:rect.y+(-p.y*.5+.5)*rect.height}};}),
         undo: history.past.length, redo: history.future.length, audit,
+        openParts: hinged.parts.map((part) => {
+          const box = new THREE.Box3().setFromObject(part.node), p = box.getCenter(new THREE.Vector3()).project(camera), rect = host.getBoundingClientRect();
+          const scale = new THREE.Vector3().setFromMatrixScale(part.node.matrixWorld).toArray();
+          return {node: part.joint.node, value: part.value, scale, screen: {x: rect.x + (p.x * .5 + .5) * rect.width, y: rect.y + (-p.y * .5 + .5) * rect.height}};
+        }),
         objects: [...entities.values()].map((entity) => {
           const box = new THREE.Box3().setFromObject(entity.group);
           const projected = box.getCenter(new THREE.Vector3()).project(camera);

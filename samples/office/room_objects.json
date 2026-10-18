@@ -3665,5 +3665,55 @@
     0.9707
    ]
   }
+ ],
+ "joints": [
+  {
+   "node": "Table1_Desktop_Lift",
+   "object": "Table1",
+   "type": "prismatic",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 0.2
+  },
+  {
+   "node": "Door_Leaf",
+   "object": "Door0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.5708
+  },
+  {
+   "node": "Casement_Right",
+   "object": "Window0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.0472
+  },
+  {
+   "node": "Casement_Left",
+   "object": "Window0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.0472
+  }
  ]
 }
