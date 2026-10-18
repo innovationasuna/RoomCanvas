@@ -27,6 +27,20 @@ python scripts/web.py --host <监听地址> --port 7862
 
 监听地址按部署填，SSH 所在的环境要能访问到它（容器里运行时填容器地址）。当前服务器的目录、地址和更新约定见 [交接文档](HANDOFF.md)。后端迁移沿用原来的 GPU 设置和共享锁，不会自动开始重建，也不另装 CUDA 或 Python 环境。
 
+### 给 RoomCanvas 编辑器“添加物体”的接口
+
+同一个服务上还有 `/viewforge/objects/`（`scripts/objects.py`，和 `layouts.py`、`dimensions.py` 一样挂在 Gradio 旁边），走的是 Gradio 页面同样的步骤和目录：
+
+| 接口 | 做什么 |
+| --- | --- |
+| `POST create`（表单：`name`、多张 `photos`） | 先检查名称和每张照片（3–40 张 JPEG/PNG），再建 `data/inputs/<名称>/`，用 `import_photos` 存原图和 PNG |
+| `POST masks`（JSON：`object`、`images`） | 后台跑 `prepare_masks.py`（BiRefNet），返回任务号 |
+| `POST reconstruct`（JSON：`object`、`images`、`masks` 任务号） | 和 Gradio 一样先核对照片和 mask 没变过，再后台跑 `run.py`（DA3 + MV-SAM3D + 补拍建议），结果在 `runs/<日期>_<名称>_web_<时刻>/` |
+| `GET jobs/<任务号>` | `queued`（等 GPU）/ `running`（重建时带 `stage`）/ `complete` / `failed`；抠图完成带预览图地址，重建完成带结果名 |
+| `GET previews/<批次>/<照片>.png` | 抠图预览（`cache/mask_previews/`） |
+
+实测尺寸用已有的 `POST /viewforge/dimensions/<结果>` 保存，布局页、“导入物体”都读它。GPU 用同一把 `VIEWFORGE_GPU_LOCK`：锁被占（Gradio 或另一个任务在跑）时任务显示排队，空出来再启动，脚本带 `--wait-gpu` 取锁（不带时照旧，锁被占立即报错）。任务记录在服务进程内存里，重启服务后跟踪不到进行中的任务（重建本身是子进程，结果照样落盘）。POST 只接受同源请求（`serve.py` 转发时不带 Origin）。
+
 ## 本机：隧道、手势页和编辑器
 
 需要 Node.js 22.12+ 和 npm。先开一个到后端的 SSH 端口转发（已有可用的 `7865` 隧道就跳过）：
