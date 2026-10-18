@@ -15,10 +15,18 @@ ViewForge 与手势源码已连同完整提交历史导入。本次统一代码�
 ## 打开网页
 
 ```bash
-python3 -m http.server 7870 --bind 127.0.0.1    # 在仓库根目录
+python3 web/scripts/serve.py --port 7870    # 在仓库根目录
 ```
 
 浏览器打开 <http://127.0.0.1:7870/web/>，选一个示例房间。不需要安装任何东西。开发和测试见 [web/README.md](web/README.md)。
+
+用摄像头手势布置房间：手势页（`gesture/`）嵌入这个编辑器，左手 1/2/3 切移动/旋转/观察，右手捏合抓取。编辑器里“导入物体”可把 ViewForge 重建的物体按实测尺寸放进房间（需要到 ViewForge 服务器的 SSH 隧道，`serve.py` 把读请求转过去）。
+
+```bash
+sh scripts/gesture.sh install && sh scripts/gesture.sh dev    # 手势页，端口 8800
+```
+
+Chrome 打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（`layout=` 后面是编辑器地址，换房间改 `scene`）。
 
 ## 重建一个房间（3090 服务器）
 
