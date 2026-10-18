@@ -1,20 +1,20 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-33';
-import {createPlacement} from './placement.mjs?v=gesture-33';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-33';
-import {PlacementSession} from './placement-session.mjs?v=gesture-33';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=gesture-33';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-33';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-33';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=gesture-34';
+import {createPlacement} from './placement.mjs?v=gesture-34';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=gesture-34';
+import {PlacementSession} from './placement-session.mjs?v=gesture-34';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=gesture-34';
+import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=gesture-34';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=gesture-34';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=gesture-33';
-import {analogDelta} from './placement-motion.mjs?v=gesture-33';
+import {mountJoysticks} from './joystick-ui.mjs?v=gesture-34';
+import {analogDelta} from './placement-motion.mjs?v=gesture-34';
 
-import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=gesture-33';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-33';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-33';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=gesture-34';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-34';
+import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './viewforge-import.mjs?v=gesture-34';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -1642,6 +1642,9 @@ async function load() {
   progress.value = 80;
   room = gltf.scene;
   scene.add(room);
+  // A glTF mesh without normals is flat shaded. Give it its face normals, so the shadow
+  // bias (which reads normals) matches a model that stores them, as samples/room3 did.
+  room.traverse((mesh) => {if (mesh.isMesh && !mesh.geometry.attributes.normal) {mesh.geometry = mesh.geometry.toNonIndexed(); mesh.geometry.computeVertexNormals();}});
   room.updateMatrixWorld(true);
   // Grouping, and flattening a generated room, must leave every mesh where it was.
   const originalMatrices = new Map();
