@@ -1109,7 +1109,7 @@ function completePlacement() {
   showToast('家具已放置，布局已保存');
 }
 
-function followPointer(clientX, clientY, force = false) {
+function followPointer(clientX, clientY, force = false, grab = null) {
   if (!pending || (pending.locked && !force)) return;
   if (placement.isWall(selected)) {
     if (!wallRelocation) beginWallRelocation();
@@ -1133,8 +1133,9 @@ function followPointer(clientX, clientY, force = false) {
   if (!point) return;
   const before = pending.lastReachable, next = copyLayout(before), entity = entities.get(selected);
   delete next[selected].visible;
-  next[selected].x = point.x - entity.origin.x;
-  next[selected].z = point.z - entity.origin.z;
+  // grab: where on the piece the hand took hold, so it does not jump to centre under the hand.
+  next[selected].x = point.x - entity.origin.x - (grab?.x || 0);
+  next[selected].z = point.z - entity.origin.z - (grab?.z || 0);
   next[selected].yaw = layout[selected].yaw;
   next[selected].y = layout[selected].y;
   motionNotice = null;
@@ -1209,7 +1210,7 @@ let gestureMode = 'view', gesture = null, gestureFrame = 0, gestureView = null, 
 const handPointer = Object.assign(document.createElement('div'), {className: 'rc-hand-pointer', hidden: true});
 document.body.appendChild(handPointer);
 const GESTURE_HELP = {view: '仅观察：右手两指捏合环绕，三指合拢平移；指向按钮捏合可点击',
-  move: '移动：指向家具或仓库卡片捏合拖动，松开后捏合“放置并落下”确认', rotate: '旋转：指向家具捏合，左右移动转向，松开后捏合“放置并落下”确认'};
+  move: '移动：捏住家具或仓库卡片拖动，松开后轻捏一下家具放下', rotate: '旋转：捏住家具左右移动转向，松开后轻捏一下家具放下'};
 function handClient({u, v}) {
   return {x: u * innerWidth, y: v * innerHeight};
 }
@@ -1236,7 +1237,16 @@ function gestureStep(step) {
 function endGesture() {
   cancelAnimationFrame(gestureFrame); gestureFrame = 0;
   gesture = null; analogActive = false; controls.enabled = true;
+  delete handPointer.dataset.label;
 }
+// Floor point under a screen point, for the offset between the hand and the piece it holds.
+function floorUnder({x, y}) {
+  const rect = host.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1), camera);
+  return raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorY), new THREE.Vector3());
+}
+// A short pinch that hardly moves, on the piece being placed, drops it like “放置并落下”.
+const TAP_MS = 600, TAP_TRAVEL = .03;
 function cameraState() {
   controls.update(); camera.updateMatrixWorld();
   const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
@@ -1257,39 +1267,67 @@ const gesturePort = {
     const point = handClient(hand), target = handTarget(point);
     if (target.kind === 'control') {pressControl(target); return false;}
     if (target.kind === 'none') return false;
-    let id = target.kind === 'shelf' ? target.id : pick(point.x, point.y);
+    const track = {step: null, kind, at: performance.now(), start: {u: hand.u, v: hand.v}, travel: 0};
+    if (target.kind === 'shelf') {
+      if (kind !== 'move') {showToast('从仓库拖出请先切到移动模式（左手 1）'); return false;}
+      // The piece hangs on the hand; it enters the room only when the hand does.
+      $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
+      gesture = {...track, id: target.id, carrying: true};
+      handPointer.dataset.label = entities.get(target.id).name;
+      $('#status').textContent = `拖着${entities.get(target.id).name} · 移进房间`;
+      return true;
+    }
+    let id = pick(point.x, point.y);
     // A pinch on the preview, or on empty floor while there is one, keeps working on it.
-    if (pending && target.kind === 'room' && (!id || id === pending.id)) id = pending.id;
+    if (pending && (!id || id === pending.id)) id = pending.id;
     if (!id) {$('#status').textContent = '没有指到家具：指向家具或仓库卡片后再捏合'; return false;}
     if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
-    if (pending?.id !== id) beginSession(id);
+    const placing = pending?.id === id;
+    if (!placing) beginSession(id);
     if (!pending) return false;
-    // As a click on a card does: fold the warehouse away so the room is free to drop into.
-    if (target.kind === 'shelf') {$('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');}
     analogActive = true; controls.enabled = false;
-    gesture = {id, kind, yaw: layout[id].yaw, step: null};
-    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entities.get(id).name} · 松开后捏合“放置并落下”确认`;
-    if (kind === 'move' && target.kind === 'room') gesturePort.move(hand);
+    const under = floorUnder(point), entity = entities.get(id);
+    const grab = under && {x: under.x - entity.origin.x - layout[id].x, z: under.z - entity.origin.z - layout[id].z};
+    gesture = {...track, id, placing, grab, yaw: layout[id].yaw};
+    $('#status').textContent = `${kind === 'move' ? '移动' : '旋转'}${entity.name} · 松开后轻捏一下放下`;
     return true;
   },
   move(hand) {
+    if (!gesture) return;
     const point = handClient(hand);
-    // Out of the warehouse, the piece joins the hand once the hand is over the room.
-    if (handTarget(point).kind === 'room') gestureStep(() => followPointer(point.x, point.y, true));
+    gesture.travel = Math.max(gesture.travel, Math.abs(hand.u - gesture.start.u), Math.abs(hand.v - gesture.start.v));
+    if (handTarget(point).kind !== 'room') return;
+    if (gesture.carrying) {
+      gesture.carrying = false; delete handPointer.dataset.label;
+      beginSession(gesture.id);
+      if (!pending) {endGesture(); return;}
+      analogActive = true; controls.enabled = false;
+    }
+    gestureStep(() => followPointer(point.x, point.y, true, gesture.grab));
   },
   rotate(angle) {
-    const {id, yaw} = gesture || {};
+    if (!gesture) return;
+    gesture.travel = Math.max(gesture.travel, Math.abs(angle) / (2 * Math.PI));
+    const {id, yaw} = gesture;
     gestureStep(() => editObject((next) => {next[id].yaw = Math.atan2(Math.sin(yaw + angle), Math.cos(yaw + angle));}, 'rotate'));
   },
-  // Release, or a hand lost mid-drag: keep the preview where it is and check it in full.
+  // Release, or a hand lost mid-drag: keep the preview where it is and check it in full; a tap
+  // on the piece being placed drops and confirms it.
   commit() {
     if (!gesture) return;
     cancelAnimationFrame(gestureFrame); gestureFrame = 0;
-    const step = gesture.step; gesture.step = null; step?.();
+    const {step, carrying, placing, at, travel} = gesture;
+    gesture.step = null; step?.();
     endGesture();
+    if (carrying) {$('#status').textContent = '没有拖进房间，已放回仓库'; return;}
     if (!pending) return;
+    if (placing && performance.now() - at < TAP_MS && travel < TAP_TRAVEL) {
+      confirmSession();
+      if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
+      return;
+    }
     validateAfterRender();
-    $('#status').textContent = `${entities.get(pending.id).name}停在这里 · 捏合“放置并落下”确认，或再捏住继续调整`;
+    $('#status').textContent = `${entities.get(pending.id).name}停在这里 · 轻捏一下放下，或再捏住继续调整`;
   },
   cancel() {gesturePort.commit();},
   // The gesture page's “取消当前操作”, or its camera turned off.
@@ -1308,7 +1346,7 @@ const gesturePort = {
       const target = handTarget(handClient(hand));
       if (target.kind === 'control' || target.kind === 'shelf') {
         if (target.kind === 'control') pressControl(target);
-        else beginSession(target.id);
+        else showToast('从仓库拖出请先切到移动模式（左手 1）');
         return false;
       }
       if (gestureView || !ready || target.kind === 'none') return false;

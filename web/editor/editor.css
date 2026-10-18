@@ -400,4 +400,5 @@ body { min-height:100dvh; box-sizing:border-box; }
 #rc-placement-demo .rc-import .rc-confirm { padding: 8px 12px; border-radius: 9px; }
 .rc-hand-pointer { position: fixed; z-index: 1000; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 3px solid #2f7de1; border-radius: 50%; background: #2f7de133; pointer-events: none; }
 .rc-hand-pointer[data-pinching="true"] { width: 14px; height: 14px; margin: -7px 0 0 -7px; background: #2f7de1; }
+.rc-hand-pointer[data-label]::after { content: attr(data-label); position: absolute; left: 18px; top: -6px; padding: 3px 8px; border-radius: 8px; background: #2f7de1; color: #fff; font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap; }
 #rc-placement-demo .rc-hand-hover { outline: 3px solid #2f7de1; outline-offset: 2px; }
