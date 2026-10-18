@@ -10,7 +10,7 @@
 | [`object-reconstruction/`](object-reconstruction/) | ViewForge：多视角物体重建、尺寸标定、Babylon 房间布局及手势接收端 |
 | [`gesture/`](gesture/) | 浏览器摄像头、MediaPipe 手势识别和 ViewForge 接入页；保留原独立演示 |
 
-ViewForge 与手势源码已连同完整提交历史导入。本次统一代码目录，保留原有各模块的使用方式；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
+ViewForge 与手势源码已整合到本仓库，主线通过 squash 提交记录整合结果。各模块保留原有功能；房间与物体重建环境、模型权重和运行数据分别配置。目录、历史及启动说明见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
 
 ## 打开网页
 
@@ -62,7 +62,7 @@ $PY reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<�
 
 ## 物体重建与手势
 
-ViewForge 手势入口在本机运行：在本仓库根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/viewforge.html>，保持 ViewForge 的 SSH 隧道可用。该页面的手势识别和 Babylon 场景渲染仍在浏览器内执行；服务器提供模型、进行物体重建、碰撞校验和保存。RoomCanvas 原编辑器仍按上文方式打开。
+ViewForge（`object-reconstruction/`）负责用几张照片重建物体、标定尺寸，并有自己的 Babylon 布局页；它的后端在服务器上从本仓库启动。手势页（`gesture/`）在本机浏览器里用摄像头识别手势，可以嵌入 ViewForge 布局页或 RoomCanvas 编辑器（见上文“打开网页”）。启动命令、SSH 端口转发和各个地址见 [ViewForge 整合说明](docs/VIEWFORGE_INTEGRATION.md)。
 
 ## 对 LiteReality-Agent 改了什么
 

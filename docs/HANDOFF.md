@@ -5,9 +5,9 @@
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
-- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。整合分支另有 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
+- 原三块：`reconstruction/`（LiteReality + Astra，3090 运行脚本在 `reconstruction/server/`）、`web/`（编辑器）、`samples/`（room3、office）。主线已整合 `object-reconstruction/`（ViewForge）和 `gesture/`（浏览器手势），见下方整合说明。
 - 编辑器只有一条路：任何房间都读 `room_objects.json`（`web/scripts/room_objects.py` 生成，可手写 `name` 覆盖家具名）。座面、墙角短墙、窗帘归墙都自动处理。
-- 测试：网页单测 122 项、Python 7 项、office 五个真实模型检查、两个房间的 `check_room`，CI 全跑（另有 #5 带来的 `gesture`、`object-viewer` 两项）。`reconstruction/` 离线测试 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
+- 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
 - PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 README。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
 - 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。2026-10-18 还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
@@ -18,12 +18,14 @@
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
-- 用户于 2026-10-17 授权把 ViewForge 及手势代码、完整历史导入本仓库。整合在 `feat/integrate-viewforge` 分支，原 ViewForge 仓库和运行服务保留；不要再按旧的“只读、不迁”约定处理本次整合。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。此分支合入 main 时需普通 merge commit，以保留导入历史。
+- ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [整合说明](VIEWFORGE_INTEGRATION.md)。
 - 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 是用户同意的例外，仓库公开前必须删。
 
 ## 服务器（3090）
 
 `ssh 3090x2-docker`（免密）。RoomCanvas 在服务器上只有一个文件夹 `/workspace/geyinuo/RoomCanvas/`（2026-10-17 整理），它就是本仓库 main 的 checkout，也是 `ROOMCANVAS_HOME`。下表的服务器专用目录写在 `.git/info/exclude` 里，不进 git。
+
+**这个文件夹里跑着正式服务**：ViewForge 后端（2026-10-18 起，lyk 迁移）从 `object-reconstruction/` 启动，监听 `172.18.0.2:7862`。所以：这里始终停在 main、工作区保持干净（不在这里直接改文件，改动走 PR）；更新代码后，若 `object-reconstruction/` 的代码有变，先告诉 lyk，再重启这个服务（在该目录 `source configs/local.env && source scripts/env.sh && python scripts/web.py --host 172.18.0.2 --port 7862`）；只改文档、网页时不用重启。
 
 | 路径（在 `/workspace/geyinuo/RoomCanvas/` 下） | 内容 |
 |---|---|
@@ -37,9 +39,9 @@
 | `runs/full-astra-20260919/office_room/realism_authoring/room_preview/` | office 的 `room_layout.json` |
 | `archive/` | 只挪不删的旧东西：9 月旧仓库、旧脚本（`astra_run.py`、`repo/`、`official/` 等）、小物件试跑 |
 
-同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里 `git fetch <bundle> main:refs/tmp/main`，再把 `main` 指过去。运行一律用 `reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
+同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
 
-`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的，`rc3090/` 等是 RoboSyn 的，不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）也**不要动**：ViewForge 的 `layouts.py` 从它的 `runs/` 读办公室、茶室三个房间（2026-10-17 曾被误移进 archive，弄坏了 ViewForge 的房间，已移回）。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
+`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）也**不要动**：ViewForge 的 `layouts.py` 从它的 `runs/` 读办公室、茶室三个房间（2026-10-17 曾被误移进 archive，弄坏了 ViewForge 的房间，已移回）。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
 
 ## 最近的结果
 
@@ -63,8 +65,8 @@
 
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
-- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器上实际运行的是 lyk 自己的 `/workspace/geyinuo/ViewForge/code`（`web.py`，监听容器内网 `172.18.0.2:7862`），不是仓库里这份。
-- 本机试手势：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
+- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端 2026-10-18 起从本仓库的 `object-reconstruction/` 运行（见上文“服务器”），运行环境、权重、照片、历史结果仍来自 `/workspace/geyinuo/ViewForge`；服务器上的 `object-reconstruction/configs/local.env` 已配好，不进 git。
+- 本机试 ViewForge 原布局：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`（lyk 的机器把 `3090x2-docker` 换成他自己的 SSH 别名）；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。我们自己的接收端用 2π。
 - **room3 接进手势页（2026-10-18，分支 `feat/room3-gesture`）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
 

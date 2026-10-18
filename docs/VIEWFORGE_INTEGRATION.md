@@ -1,64 +1,66 @@
 # ViewForge 与 RoomCanvas 整合
 
-日期：2026-10-17。整合分支 `feat/integrate-viewforge` 基于 RoomCanvas 最新主线 `9e9a897`；历史导入提交为 `670a8bf`。本次统一源码目录与 Git 历史，保留各模块已有功能和入口。
+更新：2026-10-18。ViewForge 后端、查看器和手势前端都从本仓库源码启动；Python 环境、模型权重、照片和历史结果留在外部运行目录，不进 Git。
 
 ## 目录与职责
 
 | 目录 | 职责 |
 | --- | --- |
-| `reconstruction/` | 原有 LiteReality 房间重建 |
-| `web/`、`samples/` | 原有 Three.js 编辑器与示例房间 |
-| `object-reconstruction/` | ViewForge 多视角物体重建、尺寸标定、Babylon 布局、服务器碰撞与手势接收端 |
-| `gesture/` | 浏览器摄像头、MediaPipe Worker、手势识别、ViewForge 接入页和原独立演示 |
-| `scripts/gesture.sh` | 按脚本相对位置启动根目录的手势模块 |
+| `reconstruction/` | LiteReality 房间重建 |
+| `web/`、`samples/` | RoomCanvas 编辑器（Three.js）与示例房间；可接收手势，可导入 ViewForge 物体 |
+| `object-reconstruction/` | ViewForge：照片重建物体、尺寸标定、Babylon 布局页、碰撞和保存 |
+| `gesture/` | 摄像头、MediaPipe Worker、手势识别和手势接入页 |
+| `scripts/gesture.sh` | 本机手势入口 |
 
-两个重建模块保留各自的 Python 环境；两个前端模块保留各自的 `package.json`、锁文件和 `node_modules`。原 Three.js 编辑器与 Babylon 布局仍是独立页面；手势接入页只嵌入一个 Babylon 场景。
+两个重建模块各用自己的 Python 环境。RoomCanvas 编辑器和 ViewForge 布局页是两个独立页面，手势页用 `?layout=` 选择嵌入哪一个，两者用同一套手势协议。
 
-## 启动
+## 服务器：ViewForge 后端
 
-RoomCanvas 原编辑器仍在仓库根目录启动静态服务，打开 `/web/`。原房间重建继续使用 `reconstruction/server/run_room.py`。
-
-本机在拉取后的 RoomCanvas 根目录执行，需要 Node.js 22.12+ 和 npm：
+照同目录的 `local.env.example` 写好 `object-reconstruction/configs/local.env`（运行目录 `VIEWFORGE_ROOT`、授权 GPU、共享 GPU 锁；空房间资产可用 `VIEWFORGE_ROOMS_ROOT` 另指），这个文件被 Git 忽略。然后在仓库根目录（Bash 或 Zsh）运行并保持终端：
 
 ```bash
-sh scripts/gesture.sh install
+cd object-reconstruction
+source configs/local.env
+source scripts/env.sh
+python scripts/web.py --host <监听地址> --port 7862
+```
+
+监听地址按部署填，SSH 所在的环境要能访问到它（容器里运行时填容器地址）。当前服务器的目录、地址和更新约定见 [交接文档](HANDOFF.md)。后端迁移沿用原来的 GPU 设置和共享锁，不会自动开始重建，也不另装 CUDA 或 Python 环境。
+
+## 本机：隧道、手势页和编辑器
+
+需要 Node.js 22.12+ 和 npm。先开一个到后端的 SSH 端口转发（已有可用的 `7865` 隧道就跳过）：
+
+```bash
+ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH主机别名>
+```
+
+`-L` 的格式是 `本机地址:本机端口:服务器侧地址:端口`，服务器侧地址要和后端实际监听的一致。换了本机端口，手势页里的布局地址也要跟着改。
+
+另开一个终端，在仓库根目录启动手势页：
+
+```bash
+sh scripts/gesture.sh install  # 第一次，或锁文件更新后
 sh scripts/gesture.sh dev
 ```
 
-打开 <http://127.0.0.1:8800/viewforge.html>，保持 ViewForge 的 SSH 隧道可用。默认场景地址为 `http://127.0.0.1:7865/viewforge/layouts/viewer`，服务器按实际源码位置解析布局页；也可在页面或 `?layout=` 中修改地址。物体模块内 `scripts/gesture.sh` 是同一入口的兼容转发。
+- **ViewForge 布局页**：打开 <http://127.0.0.1:8800/viewforge.html>（默认嵌入 <http://127.0.0.1:7865/viewforge/layouts/viewer>）。先在布局页确认房间尺寸、加入物体，再点“开启摄像头”。松手和保存时由服务器做承托、碰撞校验和保存。ViewForge 首页是 <http://127.0.0.1:7865/>。
+- **RoomCanvas 编辑器（room3）**：再开一个终端运行 `python3 web/scripts/serve.py --port 7870`，打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>。渲染、碰撞和支撑检查都在本机浏览器里做（完整落点检查在 Worker 中）。“导入物体”经 `serve.py` 读 ViewForge 的物体目录、尺寸和模型（默认走 `7865` 隧道，`--viewforge <地址>` 可改），只摆原有家具时不需要隧道；导入的物体暂不随布局保存。换了编辑器端口，要同时改 `layout=` 里的地址。具体操作和限制见 [网页说明](../web/README.md)。
 
-服务器物体重建从 `object-reconstruction/` 启动，显式加载本机配置后使用原命令：
+手势操作两个页面相同：左手 1（食指）、2（食指和中指）、3（食指、中指、无名指）保持约 0.4 秒，切到移动、旋转、仅观察；切换前右手先完全松开。右手拇指和食指捏合拖动；观察模式下两指捏合环绕，拇指、食指、中指合拢平移。RoomCanvas 编辑器里松手后家具停成预览，在预览上轻捏一下放下，仓库卡片也能捏住拖出。摄像头画面只在本机识别，不上传。
 
-```bash
-source configs/local.env
-source scripts/env.sh
-python scripts/web.py --host 172.18.0.2 --port 7862
-```
+改了查看器源码（`object-reconstruction/viewer/`）后，在该目录运行 `npm ci`、`npm run build`，产物写到同模块的 `scripts/assets/`，随源码一起更新到服务器。
 
-`configs/local.env` 由该模块的示例配置填写，不进入 Git。`VIEWFORGE_ROOT` 指向外部运行目录，现有服务器仍是 `/workspace/geyinuo/ViewForge`；权重、环境、照片和结果不迁入源码仓库。`VIEWFORGE_ROOMS_ROOT` 继续指定原空房间资产目录。
+## 来源与范围
 
-摄像头、手势识别和场景渲染在用户浏览器执行，通过 postMessage 控制物体/相机；服务器提供资源，执行物体重建、操作结束后的承托/碰撞校验及布局保存。没有更改手势动作或场景操作算法。
+来源是 ViewForge `a93d457` 和手势工程 `32082a3`。整合分支当初保留了来源历史，但 PR #5 最终以 squash 合入 `main`，这两个哈希只作来源记录，新克隆的主线里不一定找得到。上游的许可证、版权和来源说明照旧保留；不重新合入旧整合分支，以免带进上游的共同作者标记。
 
-## Git 历史
+迁移只改了启动入口和运行位置，重建、手势、碰撞、标定和保存的算法都没变。之后 RoomCanvas 编辑器加了手势接收端、ViewForge 物体导入和后台落点检查（#8），room3 换成了小物件这一步之后的结果（#10）。
 
-- RoomCanvas 以 `9e9a897` 为基线，原有文件与历史保留。
-- ViewForge 以 `a93d457` 为来源，完整 35 个可达提交（包含原手势仓库的 5 个提交）通过合并父链导入；原哈希、作者、作者时间和提交者时间不变。
-- 导入提交 `670a8bf` 的 `object-reconstruction/` 树与 ViewForge 原树完全一致。后续单独把其中的 `gesture-furniture-demo/` 移到根目录 `gesture/`，调整启动脚本和文档。
-- `git log a93d457` 查看完整原 ViewForge 历史，`git log 32082a3` 查看原手势历史。旧提交中的路径仍相对于原仓库根目录。
-- ViewForge 事后拆分的阶段提交日期推定依据，见 [原历史整理说明](../object-reconstruction/docs/HISTORY_INTEGRATION.md)。
+## 2026-10-18 迁移验证（lyk）
 
-此整合分支若合入 `main`，应使用普通 merge commit，保留上述父链；squash 或 rebase 合并会使原提交不再作为 main 的祖先。普通后续功能仍按现有贡献流程处理。
-
-## 范围与运行状态
-
-原 `reconstruction/`、`web/`、`samples/` 的源码与资产不作改动。导入模块中的运行算法也保持原样；CI 追加两个前端模块的检查、测试和构建。没有把 RoomCanvas 整体 `Room.glb` 自动转换成 ViewForge 的空房间格式，也没有给原 Three.js 编辑器新增手势接口。
-
-本次只在整合分支保存代码和提交，没有推送 GitHub 或合并 main；原 ViewForge Git 仓库、Mutagen 会话及运行服务保留。新源码可使用现有外部运行数据进行独立验证，正式服务切换另行执行。
-
-## 本次验证
-
-- 原 RoomCanvas 编辑器 122 项 Node 测试、6 项 Python 测试通过。
-- 新位置的手势模块 74 项测试、类型检查、资源校验与双入口构建通过；从仓库外调用根脚本和物体模块兼容脚本均可定位同一手势目录。
-- 新位置的 ViewForge 前端 34 项测试、类型检查与构建通过，后端 71 项测试通过。
-- 在服务器临时端口启动新物体模块，确认布局入口重定向到 RoomCanvas 内的新资源路径，并保留手势会话；catalog 仍有原 3 个房间和 26 个重建结果。验证后关闭临时服务，没有切换现有服务或新增重建/布局结果。
-- 检查原 `reconstruction/`、`web/`、`samples/` 与主线一致，核对导入前后原始提交的身份与时间。未重新执行 GPU 重建、真人摄像头验收或云端 CI。
+- 正式的 `7862` 后端进程工作目录是 `/workspace/geyinuo/RoomCanvas/object-reconstruction`；旧源码后端和临时的 `7863` 验证进程已停。
+- 切换前后 catalog 完全一致：3 个房间、26 个重建结果、0 个保存的布局；没有新建测试重建，也没有保存真实布局。
+- 后端 71 项、查看器 34 项、手势 74 项测试通过；前端类型检查、两套构建，以及识别模型、WASM、GLB 清单校验都通过。
+- 查看器构建产物与仓库里跟踪的资源一致；MV-SAM3D 从 RoomCanvas 导入，不再经过旧源码路径。
+- 没有重跑 GPU 完整重建，也没有用真人摄像头试过，这两项留给实际使用验收。
