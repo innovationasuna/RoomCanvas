@@ -403,8 +403,8 @@ body { min-height:100dvh; box-sizing:border-box; }
 .rc-hand-pointer[data-label]::after { content: attr(data-label); position: absolute; left: 18px; top: -6px; padding: 3px 8px; border-radius: 8px; background: #2f7de1; color: #fff; font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap; }
 #rc-placement-demo .rc-hand-hover { outline: 3px solid #2f7de1; outline-offset: 2px; }
 /* Inside the gesture page: the tools sit low on the right, where a right hand reaches them, and are
-   larger; menus open to the left; the joysticks (for a mouse) give way. */
+   larger; menus open to the left; the joysticks (for a mouse) move to the lower left. */
 #rc-placement-demo[data-gesture="true"] .rc-tools { left: auto; right: 18px; top: auto; bottom: 62px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 360px; max-width: none; gap: 8px; }
 #rc-placement-demo[data-gesture="true"] .rc-tools > .rc-tool, #rc-placement-demo[data-gesture="true"] .rc-tools > .rc-menu > summary { width: 100%; min-height: 44px; padding: 10px 12px; font-size: 14px; justify-content: center; box-sizing: border-box; }
 #rc-placement-demo[data-gesture="true"] .rc-tools .rc-menu-panel { top: auto; bottom: 0; left: auto; right: calc(100% + 8px); }
-#rc-placement-demo[data-gesture="true"] .rc-joysticks { display: none; }
+#rc-placement-demo[data-gesture="true"] .rc-joysticks { left: 18px; right: auto; bottom: 58px; }
