@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-18（#8、#10、#12 已合并；网站第 2 项“添加物体”在分支 `feat/add-object-photos`，待用户确认合并，合并后要重启服务器上的 ViewForge 后端，见该节）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-19（网站第 1、2 项已合并：#12 主页和手势、#15 “添加物体”；服务器已同步到 `7b4377b`，7862 后端已重启）。
 
 ## 现状
 
@@ -76,6 +76,10 @@
 
 ## 开门、开柜门（2026-10-18，分支 `feat/open-doors`）
 
+2026-10-19 补：放在部件上的东西跟着动（用户提出：office 升降桌升起时桌上的东西不动、钢琴顶盖掀开时谱子悬着）。`joints.mjs` 的 `ridersOf` 在打开房间时按形状找出同组里底部压在部件上的物件，部件动时它们做同样的世界变换，关上时恢复原位。office 升降桌带上桌面 15 件（升 0.151 米），room3 试验钢琴的顶盖带上 4 份谱子（书压在谱子上，跟谱子走）。
+
+**可动物体试验（2026-10-19）**：room3 钢琴三种做法的对比在服务器 `runs/articulation-trials-20261019/`（`compare/overview.jpg`、`summary.md`），本机 `~/Downloads/RoomCanvas-runs/articulation-trials-20261019/`。方法 2（整台 TRELLIS、Astra 标部件再切开）的钢琴已接进本机试验房间 `samples/room3-piano-m2/`（不进 git，`.git/info/exclude`；含私人房间数据），编辑器 `?scene=../../samples/room3-piano-m2`。另外发现服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用现在会失败，未修，待用户决定。
+
 用户要柜子等能打开。重建时 Astra 生成的程序化物体本来就带关节（`runs/<运行>/pipeline/<场景>/realism_authoring/room/Objects/*/<物体>/sim/<物体>.urdf`，含合页位置、方向、角度范围），只是没传到网页。做了两步：`room_objects.py` 把能和 `Room.glb` 对上的关节写进 `room_objects.json` 的 `joints`（两个示例已用服务器数据重新生成，除新增 `joints` 外与原文件完全相同）；编辑器“预览”模式点门、柜门、窗开合（`web/editor/joints.mjs`），回“布置”全部关上。柜体节点带不均匀缩放，门板挂在柜体下、原点就在合页上，所以按世界里的合页线刚体转动，不在柜体坐标里转（否则变形）。用 Chromium 验证：room3 6 扇柜门和房门、office 两扇窗、升降桌、房门都能开合，转开后部件世界尺寸不变。没做的：手势开门（用户说先不做）；office 抽屉在重建里没有滑轨，要开得改房间重建让 Astra 把抽屉做成活动部件。
 
 ## 下一步：RoomCanvas 网站（用户 2026-10-18 定，分支 `feat/roomcanvas-app`）
@@ -88,11 +92,11 @@
    - 识别代码：`gesture/` 只新增 `src/embed/`（入口 + 可传资源地址的 tracker）和 `vite.embed.config.ts`（构建时把 `../tracking/tracker` 换成新 tracker，`integration/runtime.ts` 原样用）。`npx vite build --config vite.embed.config.ts` 输出到 `web/vendor/gesture/`（运行时 25 KB + Worker 199 KB，已提交）。wasm 和模型直接读 `gesture/public/vision/`。
    - 配色：`web/theme.css` 放 `--rc-*`，主页、编辑器共用；手的指针从蓝色改成主题绿（`--rc-hand`）；原来暗色模式的 `light-dark()` 实际被强制成浅色，已去掉。`publish.py` 同时复制 `theme.css`、`icon.svg`。
    - 验证：网页单测 142 项（新增 6 项）、Python 8 项、office `check_room` 18/18；手势包类型检查、74 项测试、资源校验、原构建都过。Chromium 假摄像头下 MediaPipe 能在 Worker 里加载、出帧、切模式；**没有真人摄像头验收**，请用户用手试一遍。
-2. **仓库“添加物体”：几张照片 → 重建**（分支 `feat/add-object-photos`，待合并）
+2. **仓库“添加物体”：几张照片 → 重建**（#15，2026-10-19 合并，`7b4377b`）
    - 做了什么：后端 `object-reconstruction/scripts/objects.py`（`/viewforge/objects/` 的上传、抠图、重建、进度接口，挂在 `web.py` 上），`run.py`、`prepare_masks.py` 加 `--wait-gpu`（GPU 锁被占时等，不加时行为不变）；`serve.py` 转发这些请求和保存尺寸的 `POST /viewforge/dimensions/<结果>`（只收同源）；编辑器仓库第一张卡片“添加物体”和四步对话框（`web/editor/add-object.mjs`、`add-object-dialog.mjs`）。接口表见 [物体重建说明](OBJECT_RECONSTRUCTION.md)。
    - 验证：后端测试在服务器 ViewForge 环境 76 项通过（新增 5 项），网页单测 150 项、Python 12 项通过。在服务器上用本分支的临时克隆另起 7863 实例（共用数据、缓存和 GPU 锁，正式 7862 没动），本机 Chromium 走完整流程：上传仓库自带的 4 张玩偶示例照片（每张约 10 MB）→ 抠图（BiRefNet 71 秒，去掉 1 张的切换正常）→ 重建（排队 → 深度 → 重建 → 补拍建议，共 7 分 35 秒）→ 结果预览、填高 0.30 米 → 放进 room3。刷新页面后从 localStorage 续上、尺寸自动带出也验证过。临时实例、克隆、隧道已清掉。
    - 留在服务器的测试数据：物体 `测试_玩偶`（`ViewForge/data/inputs/测试_玩偶/`）和结果 `runs/20261018_测试_玩偶_web_232915_330299/`（已标定高 0.30 米），ViewForge 页面和“导入物体”里能看到；不要了可在 ViewForge 页面“删除当前物体”（会移到 `data/removed/`，结果目录保留）。
-   - 合并后：服务器同步代码，告诉 lyk 后重启 7862 后端（命令见上文“服务器”），“添加物体”才可用；本机重启 `serve.py`。
+   - 2026-10-19 合并后已同步服务器、重启 7862 后端（日志 `ViewForge/logs/roomcanvas-web-20261019.log`），本机 `serve.py` 7880 和 7865 隧道已重开。
    - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）只在 ViewForge 页面有。
    原计划：
    - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（照 `layouts.py` 的 `LayoutsMiddleware` 那样），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
