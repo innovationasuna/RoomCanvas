@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseMessage, GestureInput, observationPose, sceneURLSession, connectGestureBridge, PROTOCOL, ROTATION_PER_SWEEP} from '../gesture-bridge.mjs';
+import {parseMessage, GestureInput, PinchDrag, TAP_MS, DRAG_START, observationPose, sceneURLSession, connectGestureBridge, PROTOCOL, ROTATION_PER_SWEEP} from '../gesture-bridge.mjs';
 
 const hand = (u, v, state = {}) => ({u, v, pinching: false, started: false, ended: false, releasing: false, ...state});
 const frame = (operator, extra = {}) => ({operator, interrupted: false, ambiguous: false, ...extra});
@@ -147,4 +147,23 @@ test('frames that arrive late because the editor was busy still apply; a busy ti
   assert.deepEqual(calls, ['input', 'interrupt'], 'no frame after that: the hand is gone');
   now = 5000; send({sequence: 3, type: 'frame', sampleTime: 2500, frame});
   assert.equal(calls.at(-1), 'interrupt', 'a frame 2.5 s old is not current');
+});
+
+test('a pinch is a tap until the hand clearly moves: closing fingers do not nudge the piece', () => {
+  const tap = new PinchDrag(hand(.5, .5), 0);
+  assert.equal(tap.move(hand(.51, .52)), 'still', 'the shake of closing fingers stays inside the dead zone');
+  assert.equal(tap.tap(800), true, 'a still pinch of 0.8 s is a tap');
+  assert.equal(tap.tap(TAP_MS), false, 'held longer, letting go is not a tap');
+  const drag = new PinchDrag(hand(.5, .5), 0);
+  assert.equal(drag.move(hand(.5 + DRAG_START, .5)), 'start');
+  assert.equal(drag.move(hand(.5, .5)), 'drag', 'once dragging, coming back does not stop it');
+  assert.equal(drag.tap(100), false, 'a drag is never a tap');
+});
+
+test('a turn starts at the edge of the dead zone, without a jump', () => {
+  const drag = new PinchDrag(hand(.5, .5), 0), edge = DRAG_START * ROTATION_PER_SWEEP;
+  assert.equal(drag.turn(edge / 2), null);
+  assert.equal(drag.turn(-edge), 0, 'leaving the dead zone turns from where the piece stands');
+  assert.ok(Math.abs(drag.turn(-edge - .3) + .3) < 1e-12);
+  assert.equal(drag.tap(10), false);
 });
