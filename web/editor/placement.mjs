@@ -559,12 +559,13 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
 
   const settleAt = (id, layout, height) => descend(id, layout, height + SNAP, true);
 
-  function carry(id, before, next) {
+  // statusOf: each piece's assess() in `before`, when the caller already has them.
+  function carry(id, before, next, statusOf = (other) => assess(other, before)) {
     if (next[id]?.visible === false) return {ok: true, moved: []};
     const children = new Map();
     for (const other of bodies.keys()) {
       if (before[other]?.visible === false || next[other]?.visible === false) continue;
-      const status = assess(other, before);
+      const status = statusOf(other);
       // A lifted support is a draft, but objects still geometrically resting on it
       // must follow every subsequent move and its eventual landing.
       if (!status.support) continue;

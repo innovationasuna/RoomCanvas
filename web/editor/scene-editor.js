@@ -275,6 +275,27 @@ function updateSelectionVisuals() {
   label.style.top = `${Math.max(72, y)}px`;
 }
 
+// Whether each piece stands firm depends only on its own pose and on what holds it up. While a
+// hand or joystick drags a piece (analogActive), only that piece, what it carries and what stands
+// on those can change, so the rest keep their state; every piece is checked again on release.
+let assessedLayout = null;
+function assessPlacement() {
+  const visible = ids.filter((id) => layout[id].visible !== false), before = assessedLayout;
+  const moved = (id) => !before?.[id] || before[id].visible === false || ['x', 'y', 'z', 'yaw'].some((key) => (layout[id][key] || 0) !== (before[id][key] || 0));
+  const stale = new Set(analogActive && before ? visible.filter(moved) : visible);
+  for (let grown = true; grown && stale.size < visible.length;) {
+    grown = false;
+    for (const id of visible) if (!stale.has(id) && stale.has(placementStates.get(id)?.support)) {stale.add(id); grown = true;}
+  }
+  placementStates = new Map(visible.map((id) => [id, stale.has(id) || !placementStates.has(id) ? placement.assess(id, layout) : placementStates.get(id)]));
+  assessedLayout = copyLayout(layout);
+}
+// The states just assessed, if they are for exactly this layout (for placement.carry).
+function assessedFor(other) {
+  const same = assessedLayout && ids.every((id) => ['x', 'y', 'z', 'yaw', 'visible'].every((key) => assessedLayout[id]?.[key] === other[id]?.[key]));
+  return same ? (id) => placementStates.get(id) || placement.assess(id, other) : undefined;
+}
+
 function applyLayout() {
   for (const [id, entity] of entities) {
     const value = layout[id];
@@ -283,7 +304,7 @@ function applyLayout() {
     entity.group.visible = value.visible !== false;
   }
   room.updateMatrixWorld(true);
-  if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
+  if (placement) assessPlacement();
   if (pending) refreshSession();
   updateDropProjection();
   for (const row of $('#object-list').querySelectorAll('[data-object]')) {
@@ -481,7 +502,7 @@ function lockWallPreview() {
 function wallCandidate(name, point) {
   const candidate = copyLayout(layout);
   const result = placement.mount(selected, candidate, name, point);
-  const carried = result.ok ? placement.carry(selected, layout, candidate) : result;
+  const carried = result.ok ? placement.carry(selected, layout, candidate, assessedFor(layout)) : result;
   const contact = carried.ok ? collision.checkPlacement(candidate, carried.moved) : {ok: false};
   const valid = !!carried.ok && contact.ok;
   const message = !carried.ok ? carried.message : !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请在墙上另选一个位置。` : `${wallLabel(name)} · 可以放置。确认后可用方向按钮微调。`;
@@ -616,7 +637,7 @@ function editObject(change, direction) {
   const before = copyLayout(layout), next = copyLayout(layout);
   change(next);
   const result = direction === 'reset' ? {ok: true} : direction === 'settle' ? placement.settle(selected, next) : placement.constrain(selected, before, next, pending?.gravity ? 'up' : direction);
-  const carried = result.ok ? placement.carry(selected, before, next) : result;
+  const carried = result.ok ? placement.carry(selected, before, next, assessedFor(before)) : result;
   if (!carried.ok) {
     motionNotice = {id: selected, message: carried.message};
     if (pending) {pending.valid = false; pending.message = carried.message; updateSessionUI();}
@@ -1227,7 +1248,7 @@ function followPointer(clientX, clientY, force = false, grab = null) {
   next[selected].y = layout[selected].y;
   motionNotice = null;
   const constrained = pending.gravity ? placement.constrain(selected, before, next, 'up') : target ? placement.settleAt(selected, next, point.y) : placement.constrain(selected, before, next, 'pointer');
-  const carried = constrained.ok ? placement.carry(selected, before, next) : constrained;
+  const carried = constrained.ok ? placement.carry(selected, before, next, assessedFor(before)) : constrained;
   if (!carried.ok) {
     layout = next;
     motionNotice = {id:selected, previewInvalid:true, message:carried.message};
