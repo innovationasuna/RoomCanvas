@@ -22,8 +22,8 @@ def main():
             parser.error(f'No {name} in {scene_dir}{hint}')
     preview = scene_dir / 'preview'
     # The editor loads Three.js from ../vendor/, so it goes beside it under preview/.
-    if not (preview / 'vendor').exists():
-        shutil.copytree(web / 'vendor', preview / 'vendor')
+    # Refresh addons too: an existing r180 preview may predate the static AO dependencies.
+    shutil.copytree(web / 'vendor', preview / 'vendor', dirs_exist_ok=True)
     if "const REVISION = '180'" not in (preview / 'vendor/build/three.core.js').read_text():
         parser.error(f'{preview / "vendor"} is not Three.js r180')
     # Shared colours and icon, which the editor links as ../theme.css and ../icon.svg.
