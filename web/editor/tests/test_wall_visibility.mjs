@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hiddenWalls, deriveJoins, createWallVisibility} from '../wall-visibility.mjs';
+import * as THREE from '../../vendor/build/three.module.js';
+import {hiddenWalls, deriveJoins, createWallVisibility, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from '../wall-visibility.mjs';
 const walls = [
   {name: 'Wall0', n: [1,0,0]}, {name: 'Wall1', n: [-1,0,0]},
   {name: 'Wall2', n: [0,0,1]}, {name: 'Wall3', n: [0,0,-1]},
@@ -105,4 +106,52 @@ test('short walls between two long ones are found as corner returns from their e
     {ends: ['Wall1', 'Wall5'], returns: ['Wall7', 'Wall8']},
   ]);
   assert.deepEqual(deriveJoins([{name: 'Wall0', n: [1, 0, 0]}]), [], 'walls without geometry have no joins');
+});
+
+test('a near wall can turn see-through instead of hidden, and back exactly', () => {
+  const material = new THREE.MeshStandardMaterial({color: 0xeeeeee});
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 2.6, .1), material);
+  mesh.castShadow = mesh.receiveShadow = true;
+  const wall = new THREE.Group();
+  wall.name = 'Wall1';
+  wall.add(mesh);
+  const controller = createWallVisibility({children: [wall]}, walls, {owner: (name) => name, conceal: setSeeThrough});
+  assert.equal(controller.update([4, 3, 0]).changed, true);
+  assert.ok(wall.visible && seeThrough(mesh), 'still drawn, but see-through');
+  assert.ok(mesh.material !== material && mesh.material.transparent && mesh.material.opacity === SEE_THROUGH && !mesh.material.depthWrite);
+  assert.equal(mesh.castShadow, false, 'a see-through wall casts no shadow into the room');
+  assert.equal(mesh.receiveShadow, false, 'nor shows shadow texels over what is seen through it');
+  assert.equal(controller.update([4, 3, 0]).changed, false, 'no work while nothing changes');
+  controller.update([-4, 3, 0]);
+  assert.ok(mesh.material === material && mesh.castShadow && mesh.receiveShadow && !seeThrough(mesh), 'the very same material again');
+});
+
+test('tall pieces standing with their back to a wall go see-through with it; low or free-standing ones do not', () => {
+  const wall = {name: 'Wall2', n: [0, 0, 1], d: -2, tangent: [1, 0, 0], bounds: [[-1.5, 0], [1.5, 2.6]]};
+  const box = (x0, x1, z0, z1, y1) => [x0, x1].flatMap((x) => [z0, z1].flatMap((z) => [[x, 0, z], [x, y1, z]]));
+  assert.ok(againstWall(box(-1, -.4, -1.98, -1.4, 2.4), wall), 'a wardrobe against the wall');
+  assert.ok(!againstWall(box(-1, .8, -1.95, .1, .9), wall), 'a bed against it is low');
+  assert.ok(!againstWall(box(-1, -.4, -1.2, -.6, 2.4), wall), 'a tall cabinet out in the room');
+  assert.ok(!againstWall(box(2, 2.5, -1.98, -1.4, 2.4), wall), 'beyond the end of the wall');
+  assert.ok(againstWall(box(-1, -.4, -1.98, -1.4, .9), wall, {floor: -1.5}), 'height is measured from the floor');
+});
+
+test('a tall piece in the half of the room nearer the camera is in the way; orbiting past the middle does not flicker it', () => {
+  const room = [0, 0, 0], camera = [4, 3, 4];
+  assert.ok(inNearHalf([1, 0, 1], room, camera));
+  assert.ok(!inNearHalf([-1, 0, -1], room, camera));
+  assert.ok(!inNearHalf([.05, 0, 0], room, camera), 'just past the middle is not yet in the way');
+  assert.ok(inNearHalf([-.05, 0, 0], room, camera, true), 'and once in the way it stays until well past it');
+  assert.ok(!inNearHalf([1, 0, 1], room, [0, 9, 0]), 'looking straight down nothing is in the way');
+});
+
+test('see-through window glass drops its transmission, and gets it back', () => {
+  const glass = new THREE.MeshPhysicalMaterial({transmission: 1, roughness: .025});
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glass);
+  const window = new THREE.Group();
+  window.add(pane);
+  setSeeThrough(window, true);
+  assert.equal(pane.material.transmission, 0, 'a plain faint layer, not a blurred render of the room in blocks');
+  setSeeThrough(window, false);
+  assert.ok(pane.material === glass && glass.transmission === 1);
 });
