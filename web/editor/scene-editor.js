@@ -15,7 +15,7 @@ import {analogDelta} from './placement-motion.mjs?v=app-36';
 import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
 import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-36';
 import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
-import {Openings, openableOf} from './joints.mjs?v=app-36';
+import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
 import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
 import {mountAddObject} from './add-object-dialog.mjs?v=app-36';
 
@@ -1783,10 +1783,15 @@ async function load() {
   // GLTFLoader may rename a node; the original name is kept in userData.name.
   const named = new Map();
   room.traverse((object) => named.set(object.userData?.name || object.name, object));
+  // The other pieces of each part's group (a desk's monitor and cups, a piano's scores) that rest on it.
+  const groupOf = new Map(config.nodes.map(({node, group}) => [node, group]));
   hinged = new Openings(THREE, config.joints.filter((joint) => named.has(joint.node)).map((joint) => {
     const node = named.get(joint.node);
     node.updateMatrix();
-    return {joint, node, rest: node.matrix.clone()};
+    const pieces = config.nodes.filter(({node: name, group}) => group === groupOf.get(joint.object) && name !== joint.object && named.has(name))
+      .map(({node: name}) => named.get(name));
+    const riders = ridersOf(THREE, node, pieces).map((piece) => {piece.updateMatrix(); return {node: piece, rest: piece.matrix.clone()};});
+    return {joint, node, rest: node.matrix.clone(), riders};
   }), {render: requestRender, settled: () => {renderer.shadowMap.needsUpdate = true; requestRender();}});
   audit.openParts = hinged.parts.length;
   ready = true;
@@ -1861,7 +1866,7 @@ async function load() {
         openParts: hinged.parts.map((part) => {
           const box = new THREE.Box3().setFromObject(part.node), p = box.getCenter(new THREE.Vector3()).project(camera), rect = host.getBoundingClientRect();
           const scale = new THREE.Vector3().setFromMatrixScale(part.node.matrixWorld).toArray();
-          return {node: part.joint.node, value: part.value, scale, screen: {x: rect.x + (p.x * .5 + .5) * rect.width, y: rect.y + (-p.y * .5 + .5) * rect.height}};
+          return {node: part.joint.node, value: part.value, scale, riders: part.riders.map((rider) => rider.node.userData?.name || rider.node.name), screen: {x: rect.x + (p.x * .5 + .5) * rect.width, y: rect.y + (-p.y * .5 + .5) * rect.height}};
         }),
         objects: [...entities.values()].map((entity) => {
           const box = new THREE.Box3().setFromObject(entity.group);
