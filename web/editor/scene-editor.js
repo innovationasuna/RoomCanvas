@@ -1337,13 +1337,16 @@ function handClient(hand) {
 // on a moment before (see gesturePort.begin).
 const HAND_REACH = 24, HAND_SLIP_MS = 300, HAND_AIM_MS = 250, CONTROLS = 'button, summary, a[href], label, .object-row';
 const asTarget = (element) => element.matches('.object-row') ? {kind: 'shelf', element, id: element.dataset.object} : {kind: 'control', element};
+function distanceTo(element, x, y) {
+  const r = element.getBoundingClientRect();
+  if (!r.width || !r.height) return Infinity;
+  return Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+}
 function nearestControl(x, y) {
   let best = null, distance = HAND_REACH;
   for (const element of document.querySelectorAll(CONTROLS)) {
     if (element.disabled) continue;
-    const r = element.getBoundingClientRect();
-    if (!r.width || !r.height) continue;
-    const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+    const d = distanceTo(element, x, y);
     if (d < distance) {best = element; distance = d;}
   }
   return best;
@@ -1361,12 +1364,15 @@ function handTarget({x, y}, reach = true) {
   return room ? {kind: 'room'} : {kind: 'none'};
 }
 // The control the hand rested on (since: when it arrived; at: last frame on it). A pinch presses
-// it when the fingers slip off onto empty space, or onto a neighbour after resting on it a while.
+// it when the fingers slip off just beside it onto empty space, or onto a neighbour after resting
+// on it a while. A pinch on furniture, or by the piece being placed, is for the room: a hand that
+// has just passed over 取消 or 一键还原 on its way must not press them.
 let lastHover = null;
 function pinchTarget(point) {
   const target = handTarget(point), now = performance.now();
-  const recent = lastHover && now - lastHover.at < HAND_SLIP_MS;
-  if (recent && (target.kind === 'room' || target.kind === 'none' || lastHover.at - lastHover.since >= HAND_AIM_MS)) return lastHover.target;
+  const recent = lastHover && now - lastHover.at < HAND_SLIP_MS && distanceTo(lastHover.target.element, point.x, point.y) <= 2 * HAND_REACH;
+  const onPiece = target.kind === 'room' && !!(pick(point.x, point.y) || (pending && nearPiece(pending.id, point)));
+  if (recent && !onPiece && (target.kind === 'room' || target.kind === 'none' || lastHover.at - lastHover.since >= HAND_AIM_MS)) return lastHover.target;
   return target;
 }
 function pressControl(target) {
@@ -1424,6 +1430,19 @@ function grabOffset(id, point) {
   const under = floorUnder(point), entity = entities.get(id);
   return under && {x: under.x - entity.origin.x - layout[id].x, z: under.z - entity.origin.z - layout[id].z};
 }
+// A tap drops the piece once the hand has stayed open TAP_SETTLE_MS. The recogniser sometimes
+// reports a release in the middle of a pinch; a pinch that resumes at once is the same drag.
+const TAP_SETTLE_MS = 300;
+let tapTimer = 0;
+function dropAfterTap(session) {
+  tapTimer = setTimeout(() => {
+    tapTimer = 0;
+    if (pending !== session || gesture) return;
+    confirmSession();
+    if (pending?.placeWhenChecked) $('#status').textContent = '正在检查碰撞，检查完自动放下';
+    else if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
+  }, TAP_SETTLE_MS);
+}
 function cameraState() {
   controls.update(); camera.updateMatrixWorld();
   const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
@@ -1441,6 +1460,7 @@ const gesturePort = {
   blocked: () => !ready || !!falling,
   mode: () => gestureMode,
   begin(hand, kind) {
+    clearTimeout(tapTimer); tapTimer = 0;
     const point = handClient(hand), target = pinchTarget(point);
     if (target.kind === 'control') {pressControl(target); return false;}
     if (target.kind === 'none') return false;
@@ -1503,9 +1523,8 @@ const gesturePort = {
     if (carrying) {$('#status').textContent = '没有拖进房间，已放回仓库'; return;}
     if (!pending) return;
     if (placing && drag.tap(performance.now())) {
-      confirmSession();
-      if (pending?.placeWhenChecked) $('#status').textContent = '正在检查碰撞，检查完自动放下';
-      else if (pending && !falling) $('#status').textContent = `${dropPlan?.message || pending.message || '这里放不下'} · 再捏住调整位置`;
+      $('#status').textContent = `放下${entities.get(pending.id).name}…`;
+      dropAfterTap(pending);
       return;
     }
     validateAfterRender();
@@ -1513,7 +1532,7 @@ const gesturePort = {
   },
   cancel() {gesturePort.commit();},
   // The gesture page's “取消当前操作”, or its camera turned off.
-  stop() {endGesture(); cancelSession(false);},
+  stop() {clearTimeout(tapTimer); tapTimer = 0; endGesture(); cancelSession(false);},
   pointer(hand) {
     handPointer.hidden = !hand;
     // While the fingers are closed the highlight stays on what the pinch began on.
