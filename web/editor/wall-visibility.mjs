@@ -1,5 +1,5 @@
-// Walls carry inward normals. Hide exterior-facing and nearly edge-on walls,
-// including their attached openings. Visibility never changes collision/support.
+// Walls carry inward normals. Near walls (exterior-facing or nearly edge-on) are concealed with
+// their attached openings: hidden, or see-through in the editor. Collision and support never change.
 export function hiddenWalls(walls, direction, previous = new Set()) {
   const length = Math.hypot(...direction), horizontal = Math.hypot(direction[0], direction[2]);
   if (!length || horizontal / length < .01) return new Set();
@@ -67,7 +67,64 @@ export function worldVertices(THREE, root) {
   return points;
 }
 
-export function createWallVisibility(room, walls, {owner, joins: chains = deriveJoins(walls)}) {
+// The near walls stay in the picture, see-through, with what hangs on them and the tall pieces
+// that stand against them (a built-in wardrobe), instead of leaving those standing in the open. A
+// see-through mesh casts no shadow and writes no depth, so what is behind it shows, and the
+// editor's picking passes through it (seeThrough).
+export const SEE_THROUGH = .16;
+export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
+  if (!!root.userData.seeThrough === on) return false;
+  root.userData.seeThrough = on;
+  root.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    if (on) {
+      mesh.userData.solid = {material: mesh.material, castShadow: mesh.castShadow};
+      const faint = (material) => Object.assign(material.clone(), {transparent: true, depthWrite: false,
+        opacity: Math.min(material.opacity ?? 1, opacity)});
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(faint) : faint(mesh.material);
+      mesh.castShadow = false;
+    } else if (mesh.userData.solid) {
+      for (const material of [mesh.material].flat()) material.dispose();
+      ({material: mesh.material, castShadow: mesh.castShadow} = mesh.userData.solid);
+      delete mesh.userData.solid;
+    }
+  });
+  return true;
+}
+export function seeThrough(object) {
+  for (let node = object; node; node = node.parent) if (node.userData?.seeThrough) return true;
+  return false;
+}
+
+// A tall piece standing with its back to a wall: the side of its footprint nearest the wall lies
+// within `reach` of the wall's inner face, it overlaps the wall along its length, and it is at
+// least `height` tall above the floor. points: world corners of its box.
+export function againstWall(points, wall, {reach = .2, height = 1.6, floor = 0} = {}) {
+  const depth = points.map(p => p[0] * wall.n[0] + p[2] * wall.n[2] - wall.d);
+  if (Math.min(...depth) < -.05 || Math.min(...depth) > reach) return false;
+  const along = points.map(p => p[0] * wall.tangent[0] + p[2] * wall.tangent[2]);
+  if (Math.min(wall.bounds[1][0], Math.max(...along)) <= Math.max(wall.bounds[0][0], Math.min(...along))) return false;
+  return Math.max(...points.map(p => p[1])) - floor >= height;
+}
+
+// A tall piece in the half of the room nearer the camera blocks the view as a near wall would.
+// center: its footprint's centre; view: from the room's centre towards the camera (horizontal).
+// Once see-through it returns only `margin` past the middle, so orbiting does not flicker it.
+export function inNearHalf(center, roomCenter, view, wasNear = false, margin = .1) {
+  const length = Math.hypot(view[0], view[2]);
+  if (!length) return false;
+  const along = ((center[0] - roomCenter[0]) * view[0] + (center[2] - roomCenter[2]) * view[2]) / length;
+  return wasNear ? along > -margin : along > margin;
+}
+
+// conceal(root, on) shows a near wall's part as hidden or see-through (default: hidden) and
+// returns whether anything changed.
+const hide = (root, on) => {
+  if (root.visible === !on) return false;
+  root.visible = !on;
+  return true;
+};
+export function createWallVisibility(room, walls, {owner, joins: chains = deriveJoins(walls), conceal = hide}) {
   const parts = room.children.map(root => ({root, owner: owner(root.userData?.name || root.name)})).filter(part => part.owner);
   const names = new Set(walls.map(wall => wall.name));
   const joins = chains.filter(join => [...join.ends, ...join.returns].every(name => names.has(name)));
@@ -85,10 +142,7 @@ export function createWallVisibility(room, walls, {owner, joins: chains = derive
         }
       }
       let changed = false;
-      for (const {root, owner} of parts) {
-        const visible = !hidden.has(owner);
-        if (root.visible !== visible) {root.visible = visible; changed = true;}
-      }
+      for (const {root, owner} of parts) if (conceal(root, hidden.has(owner))) changed = true;
       return {hidden: [...hidden].sort(), revealed, changed};
     },
   };

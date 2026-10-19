@@ -6,7 +6,7 @@ import {createPlacement} from './placement.mjs?v=app-36';
 import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-36';
 import {PlacementSession} from './placement-session.mjs?v=app-36';
 import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
-import {createWallVisibility, nearestWall, worldVertices} from './wall-visibility.mjs?v=app-36';
+import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf} from './wall-visibility.mjs?v=app-36';
 import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
 
 import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
@@ -91,6 +91,7 @@ const arrows = Array.from({length: 4}, () => {
 
 let renderer, controls, joysticks, joystickBefore, hasEdited = false;
 let analogActive = false, validationFrame = 0, validationTimer = 0;
+let layoutStamp = 0, tallStamp = -1, tall = new Map(), blockingNear = new Set();
 function cancelValidation() {
   cancelAnimationFrame(validationFrame); clearTimeout(validationTimer);
   validationFrame = validationTimer = 0;
@@ -136,9 +137,34 @@ function requestRender() {
       setEditingWall(result.revealed[0] || null);
       if (result.changed) renderer.shadowMap.needsUpdate = true;
       const hidden = new Set(result.hidden);
+      // Tall pieces (a wardrobe, a bookcase, a whiteboard) go see-through when they stand against a
+      // near wall or in the half of the room nearer the camera. Their boxes are measured again only
+      // when the layout changes.
+      if (tallStamp !== layoutStamp) {
+        tallStamp = layoutStamp;
+        tall = new Map();
+        for (const [id, entity] of entities) {
+          if (layout[id].visible === false || placement.isWall(id)) continue;
+          const box = new THREE.Box3().setFromObject(entity.group);
+          if (box.isEmpty() || box.max.y - floorY < 1.6) continue;
+          const points = [box.min, box.max].flatMap((a) => [box.min, box.max].flatMap((b) => [[a.x, box.min.y, b.z], [a.x, box.max.y, b.z]]));
+          tall.set(id, {points, center: box.getCenter(new THREE.Vector3()).toArray()});
+        }
+      }
+      const nearWalls = placement.wallTargets().filter((wall) => hidden.has(wall.name));
+      const view = camera.position.clone().sub(controls.target).toArray();
+      const blocking = new Set();
+      for (const [id, {points, center: middle}] of tall) {
+        if (nearWalls.some((wall) => againstWall(points, wall, {floor: floorY}))
+            || ($('#cut').checked && inNearHalf(middle, [center.x, center.y, center.z], view, blockingNear.has(id)))) blocking.add(id);
+      }
+      blockingNear = blocking;
       for (const [id, entity] of entities) {
-        const visible = layout[id].visible !== false && !wallGhostSources.has(id) && !(placement.isWall(id) && hidden.has(placementStates.get(id)?.wall));
+        const visible = layout[id].visible !== false && !wallGhostSources.has(id);
         if (entity.group.visible !== visible) {entity.group.visible = visible; renderer.shadowMap.needsUpdate = true;}
+        // On a near wall (a painting) or against one: see-through, unless it is the piece being arranged.
+        const faint = id !== selected && ((placement.isWall(id) && hidden.has(placementStates.get(id)?.wall)) || blockingNear.has(id));
+        if (setSeeThrough(entity.group, faint)) renderer.shadowMap.needsUpdate = true;
       }
     }
     updateSelectionVisuals();
@@ -283,6 +309,7 @@ function applyLayout() {
     entity.group.visible = value.visible !== false;
   }
   room.updateMatrixWorld(true);
+  layoutStamp++;
   if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
   if (pending) refreshSession();
   updateDropProjection();
@@ -537,6 +564,8 @@ function select(id, announce = true) {
   endWallRelocation();
   if (id !== null && !entities.has(id)) return;
   restoreMaterials();
+  // The piece being arranged is shown solid, also against a see-through near wall.
+  if (id) setSeeThrough(entities.get(id).group, false);
   selected = id;
   motionNotice = null;
   hovered = null;
@@ -713,7 +742,7 @@ function pick(clientX, clientY) {
   for (const hit of raycaster.intersectObject(room, true)) {
     let visible = true;
     for (let object = hit.object; object; object = object.parent) {if (!object.visible) visible = false;}
-    if (!visible) continue;
+    if (!visible || seeThrough(hit.object)) continue;
     const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
     if (material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;
     return hit.object.userData.editorId || null;
@@ -730,7 +759,7 @@ function pickOpenable(clientX, clientY) {
   for (const hit of raycaster.intersectObject(room, true)) {
     let visible = true;
     for (let object = hit.object; object; object = object.parent) {if (!object.visible) visible = false;}
-    if (!visible) continue;
+    if (!visible || seeThrough(hit.object)) continue;
     const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
     if (material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;
     return openableOf(hit.object);
@@ -1779,7 +1808,7 @@ async function load() {
   audit.placement = placement.audit;
   rebuildCollision();
   audit.collision = collision.audit;
-  wallVisibility = createWallVisibility(room, placement.wallTargets(), wallOptions(placement.wallTargets()));
+  wallVisibility = createWallVisibility(room, placement.wallTargets(), {...wallOptions(placement.wallTargets()), conceal: setSeeThrough});
   // GLTFLoader may rename a node; the original name is kept in userData.name.
   const named = new Map();
   room.traverse((object) => named.set(object.userData?.name || object.name, object));
