@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
-import {jointMatrix, openValue, Openings, openableOf, OPEN_MS} from '../joints.mjs';
+import {jointMatrix, openValue, Openings, openableOf, ridersOf, OPEN_MS} from '../joints.mjs';
 
 const close = (a, b, eps = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < eps);
 // A carcass turned and stretched to the scan, as the reconstruction exports it, with a door
@@ -67,4 +67,73 @@ test('parts animate open and closed, and all shut at once before arranging', () 
   assert.equal(part.value, 0);
   assert.ok(door.matrixAutoUpdate && close(door.matrix.elements, part.rest.elements, 1e-12), 'closed is the exact rest pose');
   assert.ok(renders >= 3 && settled === 2);
+});
+
+// A lifting desk: its top is a part on a slide; a cup stands on the top, a lamp on the floor beside it.
+function desk() {
+  const box = (w, h, d, x, y, z) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d));
+    mesh.position.set(x, y, z);
+    return mesh;
+  };
+  const frame = new THREE.Object3D();
+  frame.position.set(1, 0, -2);
+  frame.scale.set(1.1, .9, 1);  // stretched to the scan
+  const top = new THREE.Object3D();
+  top.position.set(0, .75, 0);
+  top.add(box(1.2, .03, .6, 0, -.015, 0));
+  frame.add(top);
+  const cup = box(.08, .1, .08, 1.2, .05 + .75 * .9, -2.1);
+  const lamp = box(.2, 1.2, .2, 2.2, .6, -2);
+  const scene = new THREE.Scene();
+  scene.add(frame, cup, lamp);
+  scene.updateMatrixWorld(true);
+  return {frame, top, cup, lamp};
+}
+
+test('what rests on a part rides with it: a cup on a desk top that lifts, not the lamp beside it', () => {
+  const {top, cup, lamp} = desk();
+  assert.deepEqual(ridersOf(THREE, top, [cup, lamp]), [cup]);
+  const saucer = new THREE.Mesh(new THREE.BoxGeometry(.12, .01, .12));
+  cup.add(saucer);  // nested under the cup and resting on the top too: it moves with the cup only
+  saucer.position.set(0, -.05, 0);
+  cup.updateMatrixWorld(true);
+  assert.deepEqual(ridersOf(THREE, top, [cup, saucer, lamp]), [cup]);
+  cup.remove(saucer);
+  top.updateMatrix(); cup.updateMatrix();
+  const before = new THREE.Vector3().setFromMatrixPosition(cup.matrixWorld);
+  const part = {joint: {type: 'prismatic', axis: [0, 1, 0], lower: 0, upper: .2}, node: top, rest: top.matrix.clone(),
+    riders: [{node: cup, rest: cup.matrix.clone()}]};
+  const parts = new Openings(THREE, [part], {render: () => {}, frame: () => {}});
+  parts.set(part, .2);
+  cup.parent.updateMatrixWorld(true);
+  const lifted = new THREE.Vector3().setFromMatrixPosition(cup.matrixWorld);
+  assert.ok(Math.abs(lifted.y - before.y - .2 * .9) < 1e-9, 'the cup rises with the top (0.2 in the stretched frame)');
+  assert.ok(Math.abs(lifted.x - before.x) < 1e-9 && Math.abs(lifted.z - before.z) < 1e-9);
+  parts.closeAll();
+  cup.parent.updateMatrixWorld(true);
+  assert.ok(cup.matrixAutoUpdate && close(cup.matrix.elements, part.riders[0].rest.elements, 1e-12), 'closed puts it back exactly');
+});
+
+test('a rider under a stretched parent swings rigidly with a hinged part', () => {
+  const {carcass, door} = cabinet();
+  const note = new THREE.Object3D();  // a sheet hanging under the same stretched carcass
+  note.position.set(-.7, .9, .25);
+  carcass.add(note);
+  carcass.updateMatrixWorld(true);
+  door.updateMatrix(); note.updateMatrix();
+  const part = {joint: {type: 'revolute', axis: [0, -1, 0], lower: 0, upper: 1.5}, node: door, rest: door.matrix.clone(),
+    riders: [{node: note, rest: note.matrix.clone()}]};
+  const pts = corners.map((p) => p.clone().multiplyScalar(.1));
+  const at = (object) => {carcass.updateMatrixWorld(true); return pts.map((p) => p.clone().applyMatrix4(object.matrixWorld));};
+  const doorBefore = at(door), noteBefore = at(note);
+  const parts = new Openings(THREE, [part], {render: () => {}, frame: () => {}});
+  parts.set(part, 1.2);
+  const doorAfter = at(door), noteAfter = at(note);
+  for (let i = 0; i < pts.length; i++) {
+    // the sheet keeps its place relative to the door: same distances to the door's points
+    for (let j = 0; j < pts.length; j++) {
+      assert.ok(Math.abs(noteBefore[i].distanceTo(doorBefore[j]) - noteAfter[i].distanceTo(doorAfter[j])) < 1e-9);
+    }
+  }
 });
