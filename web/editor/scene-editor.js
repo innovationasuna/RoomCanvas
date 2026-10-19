@@ -18,6 +18,10 @@ import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
 import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
 import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
 import {mountAddObject} from './add-object-dialog.mjs?v=app-36';
+import {shadowSettings} from './lighting-settings.mjs?v=app-37';
+import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
+import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
+import {createImportMaterials} from './import-materials.mjs?v=app-38';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -25,6 +29,8 @@ const host = $('#viewport');
 // path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
 // a published preview (<room>/preview/editor/) with neither.
 const query = new URLSearchParams(location.search);
+const lightProfile = lightingProfile(query.get('lighting'));
+const enhancedLighting = lightProfile.name !== 'original';
 const sceneParam = query.get('scene'), roomParam = query.get('room');
 async function roomDirectory() {
   if (!roomParam) return {dir: sceneParam && !/^[a-z]+:|^\/\//i.test(sceneParam) ? sceneParam.replace(/\/+$/, '') : '../..', name: null};
@@ -90,6 +96,12 @@ const arrows = Array.from({length: 4}, () => {
 });
 
 let renderer, controls, joysticks, joystickBefore, hasEdited = false;
+let staticLighting = null, orbitActive = false;
+let renderMetrics = null;
+let environmentLighting = null, environmentStatus = {state: enhancedLighting && query.get('env') !== 'off' ? 'loading' : 'off'};
+let environmentFactory = null;
+let lightingStatus = {enabled: false, state: enhancedLighting && query.get('ao') !== 'off' ? 'loading' : 'off', updates: 0, error: null};
+let shadowMode = 'original';
 let analogActive = false, validationFrame = 0, validationTimer = 0;
 let layoutStamp = 0, tallStamp = -1, tall = new Map(), blockingNear = new Set();
 function cancelValidation() {
@@ -168,7 +180,7 @@ function requestRender() {
       }
     }
     updateSelectionVisuals();
-    renderer.render(scene, camera);
+    renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, camera);});
   });
 }
 
@@ -807,7 +819,10 @@ function bindEvents() {
   window.addEventListener('pointerup', finishHold);
   window.addEventListener('pointercancel', finishHold);
   window.addEventListener('blur', () => {finishHold(); pointerStart = null;});
-  document.addEventListener('visibilitychange', () => {if (document.hidden) finishHold(); else requestRender();});
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {staticLighting?.pause(); finishHold();}
+    else {staticLighting?.resume(); requestRender();}
+  });
   $('#step').addEventListener('change', finishHold);
   $('#rotate-left').onclick = () => act(() => editObject((next) => rotate(next, selected, Math.PI / 12), 'rotate'));
   $('#rotate-right').onclick = () => act(() => editObject((next) => rotate(next, selected, -Math.PI / 12), 'rotate'));
@@ -866,6 +881,15 @@ function bindEvents() {
   for (const id of ['overview', 'top', 'focus']) $(`#${id}`).onclick = () => view(id);
   $('#cut').onchange = requestRender;
   $('#ceiling').onchange = () => {ceilingObjects.forEach((object) => {object.visible = $('#ceiling').checked;}); renderer.shadowMap.needsUpdate = true; requestRender();};
+  $('#import-lighting').checked = query.get('materials') === 'pbr';
+  $('#import-lighting').onchange = () => {
+    if (pending) {$('#import-lighting').checked = !$('#import-lighting').checked; showToast('请先确认或取消当前摆放，再切换受光模式'); return;}
+    select(null);
+    const imported = [...entities.values()].filter(entity => entity.importMaterials);
+    for (const entity of imported) entity.importMaterials.setMode($('#import-lighting').checked ? 'pbr' : 'original');
+    if (imported.length) renderFurnitureThumbnails(imported);
+    renderer.shadowMap.needsUpdate = true; requestRender();
+  };
   $('#search').oninput = () => {
     const term = $('#search').value.trim().toLowerCase();
     let count = 0;
@@ -999,6 +1023,7 @@ function appendWarehouseRow(entity, first = false) {
 }
 
 function renderFurnitureThumbnails(list = entities.values()) {
+  list = [...list];
   // Render the actual grouped model, sharing its geometry/materials without mutating them.
   // One temporary context serves the entire shelf and is released after rendering.
   const previewRenderer = new THREE.WebGLRenderer({antialias: true, alpha: true, preserveDrawingBuffer: true});
@@ -1010,7 +1035,14 @@ function renderFurnitureThumbnails(list = entities.values()) {
   const previewScene = new THREE.Scene();
   scene.children.filter((object) => object.isLight).forEach((light) => previewScene.add(light.clone()));
   const previewCamera = new THREE.PerspectiveCamera(36, 264 / 144, .01, 1000);
+  let previewEnvironment = null;
   try {
+    // Render-target textures belong to one WebGL context. Generate a tiny environment
+    // in the preview context only for an explicit imported-PBR thumbnail batch.
+    if (environmentFactory && scene.environment && list.some(entity => entity.importMaterials?.snapshot().mode === 'pbr')) {
+      try {previewEnvironment = environmentFactory(previewRenderer, previewScene, {intensity: scene.environmentIntensity});}
+      catch (error) {console.warn('缩略图环境不可用，继续使用原灯光。', error);}
+    }
     for (const entity of list) {
       const bounds = new THREE.Box3().setFromObject(entity.group);
       const target = bounds.getCenter(new THREE.Vector3());
@@ -1031,6 +1063,7 @@ function renderFurnitureThumbnails(list = entities.values()) {
       previewScene.remove(model);
     }
   } finally {
+    previewEnvironment?.dispose();
     previewRenderer.dispose();
     previewRenderer.forceContextLoss();
   }
@@ -1686,11 +1719,10 @@ async function importRun(run, base, scale) {
   shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, scale)));
   full.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;
-    // Colours are baked into the vertices; light them as ViewForge does (unlit).
-    mesh.material = new THREE.MeshBasicMaterial({vertexColors: !!mesh.geometry.attributes.color, side: THREE.DoubleSide});
     mesh.userData.collision = false; mesh.raycast = () => {};
     mesh.castShadow = true;
   });
+  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original'});
   light.scene.name = light.scene.userData.name = contact;
   light.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;
@@ -1704,7 +1736,7 @@ async function importRun(run, base, scale) {
   group.add(shape); room.add(group); room.updateMatrixWorld(true);
   group.traverse((object) => {if (object.isMesh) object.userData.editorId = id;});
   const size = sizeInMeters(base, scale), name = objectLabel(run);
-  const entity = {id, name, category: '导入物体 · 真实尺寸', roots: [contact], group, origin, added: true,
+  const entity = {id, name, category: '导入物体 · 真实尺寸', roots: [contact], group, origin, added: true, importMaterials,
     sizeLabel: `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} ${config.units}`};
   entities.set(id, entity); ids.push(id);
   placementSpecs[id] = {body: [contact]};
@@ -1732,7 +1764,8 @@ async function load() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = lightProfile.exposure;
+  renderMetrics = createRenderMetrics(renderer, {gpu: query.has('lightingLab'), limit: query.has('lightingLab') ? 2400 : 120});
   renderer.domElement.setAttribute('aria-label', '房间三维场景，点选家具或使用物体列表');
   host.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement);
@@ -1743,8 +1776,10 @@ async function load() {
   controls.maxPolarAngle = Math.PI / 2 - .015;
   controls.addEventListener('change', requestRender);
   controls.addEventListener('start', finishHold);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x87919d, 2.5));
-  for (const [position, intensity] of [[[3, 8, 5], 2.4], [[-5, 4, -4], 1.4]]) {
+  controls.addEventListener('start', () => {orbitActive = true;});
+  controls.addEventListener('end', () => {orbitActive = false; requestRender();});
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x87919d, lightProfile.hemisphere));
+  for (const [position, intensity] of [[[3, 8, 5], lightProfile.key], [[-5, 4, -4], lightProfile.fill]]) {
     const light = new THREE.DirectionalLight(0xffffff, intensity);
     light.position.set(...position); scene.add(light);
   }
@@ -1796,6 +1831,19 @@ async function load() {
   const shadowSpan = Math.max(roomSize.x,roomSize.z)*.9;
   Object.assign(sun.shadow.camera,{left:-shadowSpan,right:shadowSpan,top:shadowSpan,bottom:-shadowSpan,near:.1,far:30});
   sun.shadow.bias = -.00025; sun.shadow.normalBias = .012; sun.shadow.radius = 4;
+  if (enhancedLighting && query.get('shadows') !== 'original') {
+    sun.updateWorldMatrix(true, false); sun.target.updateWorldMatrix(true, false);
+    sun.shadow.updateMatrices(sun);
+    const corners = [0, 1].flatMap(x => [0, 1].flatMap(y => [0, 1].map(z => new THREE.Vector3(
+      x ? bounds.max.x : bounds.min.x, y ? bounds.max.y : bounds.min.y, z ? bounds.max.z : bounds.min.z,
+    ).applyMatrix4(sun.shadow.camera.matrixWorldInverse).toArray())));
+    const fitted = shadowSettings(corners, sun.shadow.mapSize.x);
+    if (fitted) {
+      Object.assign(sun.shadow.camera, fitted.camera); sun.shadow.camera.updateProjectionMatrix();
+      sun.shadow.bias = fitted.bias; sun.shadow.normalBias = fitted.normalBias;
+      shadowMode = 'room-bounds';
+    }
+  }
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
   renderFurnitureThumbnails();
@@ -1882,7 +1930,7 @@ async function load() {
   // Read-only diagnostics for real-browser verification; no controls or mutable scene exposed.
   window.roomEditor = Object.freeze({
     get ready() {return ready;},
-    captureFrame() {renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png');},
+    captureFrame() {renderMetrics.measure('capture', () => {if (staticLighting) staticLighting.capture(); else renderer.render(scene, camera);}); return renderer.domElement.toDataURL('image/png');},
     projectFloor(x, z) { const p = new THREE.Vector3(x, floorY, z).project(camera), r = host.getBoundingClientRect(); return {x:r.x+(p.x*.5+.5)*r.width,y:r.y+(-p.y*.5+.5)*r.height}; },
     snapshot() {
       room.updateMatrixWorld(true);
@@ -1892,6 +1940,12 @@ async function load() {
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
         wallTargets: placement.wallTargets().map(({name,center}) => {const p = new THREE.Vector3().fromArray(center).project(camera), rect = host.getBoundingClientRect(); return {name,center,screen:{x:rect.x+(p.x*.5+.5)*rect.width,y:rect.y+(-p.y*.5+.5)*rect.height}};}),
         undo: history.past.length, redo: history.future.length, audit,
+        lighting: {...(staticLighting?.snapshot() || lightingStatus), profile: lightProfile.name, environment: environmentLighting?.snapshot() || environmentStatus,
+          shadows: {mode: shadowMode, mapSize: sun.shadow.mapSize.toArray(), bias: sun.shadow.bias, normalBias: sun.shadow.normalBias,
+            camera: Object.fromEntries(['left','right','top','bottom','near','far'].map(key => [key, sun.shadow.camera[key]]))},
+          lights: scene.children.filter(object => object.isLight).map(light => ({
+          type: light.type, color: light.color.getHexString(), intensity: light.intensity, position: light.position.toArray(), castShadow: light.castShadow,
+        }))},
         openParts: hinged.parts.map((part) => {
           const box = new THREE.Box3().setFromObject(part.node), p = box.getCenter(new THREE.Vector3()).project(camera), rect = host.getBoundingClientRect();
           const scale = new THREE.Vector3().setFromMatrixScale(part.node.matrixWorld).toArray();
@@ -1905,10 +1959,116 @@ async function load() {
             bounds: {min: box.min.toArray(), max: box.max.toArray()},
             members: entity.group.children.map((child) => ({name: child.userData.name || child.name, position: child.getWorldPosition(new THREE.Vector3()).toArray()})),
             screen: {x: rect.x + (projected.x * .5 + .5) * rect.width, y: rect.y + (-projected.y * .5 + .5) * rect.height}};
-        }), renderCalls: renderer.info.render.calls, geometries: renderer.info.memory.geometries};
+        }), renderCalls: renderMetrics.last?.calls || 0, geometries: renderer.info.memory.geometries};
     },
   });
-  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); finishHold(); persist(); fail('图形上下文已暂停');});
+  if (query.has('lightingLab')) installLightingLab();
+  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); staticLighting?.dispose(); environmentLighting?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
+  // Load the optional effect after the editor works. Missing addons must never prevent editing.
+  if (enhancedLighting) void (async () => {
+    if (query.get('env') !== 'off') {
+      try {
+        const {createEnvironmentLighting} = await import('./environment-lighting.mjs?v=app-38');
+        environmentFactory = createEnvironmentLighting;
+        environmentLighting = createEnvironmentLighting(renderer, scene, {intensity: lightProfile.environment});
+        requestRender();
+      } catch (error) {
+        environmentStatus = {state: 'error', error: String(error)};
+        console.warn('环境反射未加载，继续使用原有光照。', error);
+      }
+    }
+    if (query.get('ao') === 'off') return;
+    try {
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-38');
+      const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
+      staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass,
+        busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || hinged.moving.size > 0,
+      });
+      if (document.hidden) staticLighting.pause();
+      requestRender();
+    } catch (error) {
+      lightingStatus = {enabled: false, state: 'error', updates: 0, error: String(error)};
+      console.warn('静态接触暗部未加载，继续使用原有光照。', error);
+    }
+  })();
+}
+
+// Explicit lab mode only. Normal editor sessions expose no scene mutation/test controls.
+function installLightingLab() {
+  const cameraKeys = ['left', 'right', 'top', 'bottom', 'near', 'far', 'zoom'];
+  function captureState() {
+    if (pending || falling || analogActive) throw new Error('请先结束摆放再保存基线');
+    return {version: 1, scene: sceneKey, layout: encodeLayout(roomPart(layout), sceneKey),
+      camera: {...Object.fromEntries(cameraKeys.map(key => [key, camera[key]])), position: camera.position.toArray(),
+        quaternion: camera.quaternion.toArray(), up: camera.up.toArray(), target: controls.target.toArray(), span: cameraSpan},
+      cut: $('#cut').checked, ceiling: $('#ceiling').checked, warm, mode};
+  }
+  window.roomLightingLab = Object.freeze({
+    captureState,
+    restoreState(state) {
+      if (state?.version !== 1 || state.scene !== sceneKey) throw new Error('基线与当前模型不匹配');
+      const pose = state.camera;
+      if (!pose || [...cameraKeys.map(key => pose[key]), pose.span, ...pose.position, ...pose.quaternion, ...pose.target, ...pose.up].some(v => !Number.isFinite(v)) || pose.zoom <= 0) throw new Error('无效的基线相机');
+      const restored = decodeLayout(state.layout, sceneKey, roomIds);
+      cancelSession(false); select(null); hinged.closeAll();
+      layout = {...restored, ...addedPart(layout)};
+      setMode(state.mode === 'preview' ? 'preview' : 'edit');
+      $('#cut').checked = !!state.cut; $('#ceiling').checked = !!state.ceiling;
+      for (const object of ceilingObjects) object.visible = !!state.ceiling;
+      warm = !!state.warm; $('#light').setAttribute('aria-pressed', String(warm));
+      for (const object of scene.children) if (object.isDirectionalLight) object.color.set(warm ? 0xffd2a5 : 0xffffff);
+      cameraSpan = pose.span; Object.assign(camera, Object.fromEntries(cameraKeys.map(key => [key, pose[key]])));
+      camera.position.fromArray(pose.position); camera.up.fromArray(pose.up); camera.quaternion.fromArray(pose.quaternion);
+      controls.target.fromArray(pose.target); camera.updateProjectionMatrix(); controls.update();
+      applyLayout(); renderer.shadowMap.needsUpdate = true; requestRender();
+    },
+    orbit(state, angle) {
+      if (!Number.isFinite(angle)) throw new Error('无效角度');
+      const target = new THREE.Vector3().fromArray(state.camera.target);
+      const offset = new THREE.Vector3().fromArray(state.camera.position).sub(target).applyAxisAngle(new THREE.Vector3(0,1,0), angle);
+      controls.target.copy(target); camera.position.copy(target).add(offset); controls.update(); requestRender();
+    },
+    zoom(value) {if (!(value > 0 && value <= 8)) throw new Error('无效缩放'); camera.zoom = value; camera.updateProjectionMatrix(); requestRender();},
+    focusObject(id) {if (!entities.has(id) || pending) throw new Error('请先结束摆放'); select(id,false); view('focus'); select(null);},
+    lightResponseProbe(id) {
+      if (pending || !entities.has(id)) throw new Error('请先结束摆放');
+      const box = new THREE.Box3().setFromObject(entities.get(id).group);
+      const p = box.getCenter(new THREE.Vector3()).project(camera);
+      const lights = scene.children.filter(object => object.isLight), intensities = lights.map(light => light.intensity), environment = scene.environment;
+      const frame = () => {renderer.render(scene,camera); return renderer.domElement.toDataURL('image/png');};
+      try {
+        const lit = frame();
+        lights.forEach(light => {light.intensity=0;}); scene.environment=null;
+        const dark=frame(), size=renderer.getDrawingBufferSize(new THREE.Vector2());
+        return {lit,dark,center:[Math.round((p.x*.5+.5)*size.x),Math.round((-p.y*.5+.5)*size.y)]};
+      } finally {lights.forEach((light,index) => {light.intensity=intensities[index];});scene.environment=environment;renderer.shadowMap.needsUpdate=true;requestRender();}
+    },
+    metrics: () => renderMetrics.snapshot(),
+    resetMetrics: () => renderMetrics.reset(),
+    materials() {
+      const materials = new Map(); let meshes = 0, missingNormals = 0;
+      room.traverse(mesh => {
+        if (!mesh.isMesh || mesh.userData.contactOnly) return;
+        meshes++; if (!mesh.geometry.attributes.normal) missingNormals++;
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          if (!materials.has(material.uuid)) materials.set(material.uuid, {name: material.name, type: material.type,
+            color: material.color?.toArray(), roughness: material.roughness, metalness: material.metalness,
+            map: !!material.map, mapColorSpace: material.map?.colorSpace, normalMap: !!material.normalMap,
+            transparent: material.transparent, vertexColors: material.vertexColors});
+        }
+      });
+      return {meshes, missingNormals, materials: [...materials.values()],
+        imported: [...entities.values()].filter(e => e.importMaterials).map(e => ({id: e.id, ...e.importMaterials.snapshot()}))};
+    },
+    device() {
+      const gl = renderer.getContext(), info = gl.getExtension('WEBGL_debug_renderer_info');
+      return {webgl: gl.getParameter(gl.VERSION), renderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+        three: THREE.REVISION, pixelRatio: renderer.getPixelRatio(), size: renderer.getDrawingBufferSize(new THREE.Vector2()).toArray(),
+        toneMapping: renderer.toneMapping, exposure: renderer.toneMappingExposure};
+    },
+    // Enables the same real import path for a deterministic synthetic/known test asset.
+    importObject: (run, base, scale) => importRun(run, base, scale),
+  });
 }
 
 function rebuildCollision() {
