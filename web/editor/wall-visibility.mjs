@@ -69,7 +69,7 @@ export function worldVertices(THREE, root) {
 
 // The near walls stay in the picture, see-through, with what hangs on them and the tall pieces
 // that stand against them (a built-in wardrobe), instead of leaving those standing in the open. A
-// see-through mesh casts no shadow and writes no depth, so what is behind it shows, and the
+// see-through mesh casts and takes no shadow and writes no depth, so what is behind it shows, and the
 // editor's picking passes through it (seeThrough).
 export const SEE_THROUGH = .16;
 export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
@@ -78,14 +78,21 @@ export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
   root.traverse((mesh) => {
     if (!mesh.isMesh) return;
     if (on) {
-      mesh.userData.solid = {material: mesh.material, castShadow: mesh.castShadow};
-      const faint = (material) => Object.assign(material.clone(), {transparent: true, depthWrite: false,
-        opacity: Math.min(material.opacity ?? 1, opacity)});
+      mesh.userData.solid = {material: mesh.material, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow};
+      const faint = (material) => {
+        const clone = Object.assign(material.clone(), {transparent: true, depthWrite: false,
+          opacity: Math.min(material.opacity ?? 1, opacity)});
+        // Glass with transmission shows the room behind from a small blurred render, in blocks:
+        // as a faint layer over the room it would print a mosaic over everything seen through it.
+        if ('transmission' in clone) clone.transmission = 0;
+        return clone;
+      };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(faint) : faint(mesh.material);
-      mesh.castShadow = false;
+      // Nor take one: the shadow map's square texels on window glass would print over the room seen through it.
+      mesh.castShadow = mesh.receiveShadow = false;
     } else if (mesh.userData.solid) {
       for (const material of [mesh.material].flat()) material.dispose();
-      ({material: mesh.material, castShadow: mesh.castShadow} = mesh.userData.solid);
+      ({material: mesh.material, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow} = mesh.userData.solid);
       delete mesh.userData.solid;
     }
   });

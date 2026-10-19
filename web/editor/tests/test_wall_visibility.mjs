@@ -111,7 +111,7 @@ test('short walls between two long ones are found as corner returns from their e
 test('a near wall can turn see-through instead of hidden, and back exactly', () => {
   const material = new THREE.MeshStandardMaterial({color: 0xeeeeee});
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 2.6, .1), material);
-  mesh.castShadow = true;
+  mesh.castShadow = mesh.receiveShadow = true;
   const wall = new THREE.Group();
   wall.name = 'Wall1';
   wall.add(mesh);
@@ -120,9 +120,10 @@ test('a near wall can turn see-through instead of hidden, and back exactly', () 
   assert.ok(wall.visible && seeThrough(mesh), 'still drawn, but see-through');
   assert.ok(mesh.material !== material && mesh.material.transparent && mesh.material.opacity === SEE_THROUGH && !mesh.material.depthWrite);
   assert.equal(mesh.castShadow, false, 'a see-through wall casts no shadow into the room');
+  assert.equal(mesh.receiveShadow, false, 'nor shows shadow texels over what is seen through it');
   assert.equal(controller.update([4, 3, 0]).changed, false, 'no work while nothing changes');
   controller.update([-4, 3, 0]);
-  assert.ok(mesh.material === material && mesh.castShadow && !seeThrough(mesh), 'the very same material again');
+  assert.ok(mesh.material === material && mesh.castShadow && mesh.receiveShadow && !seeThrough(mesh), 'the very same material again');
 });
 
 test('tall pieces standing with their back to a wall go see-through with it; low or free-standing ones do not', () => {
@@ -142,4 +143,15 @@ test('a tall piece in the half of the room nearer the camera is in the way; orbi
   assert.ok(!inNearHalf([.05, 0, 0], room, camera), 'just past the middle is not yet in the way');
   assert.ok(inNearHalf([-.05, 0, 0], room, camera, true), 'and once in the way it stays until well past it');
   assert.ok(!inNearHalf([1, 0, 1], room, [0, 9, 0]), 'looking straight down nothing is in the way');
+});
+
+test('see-through window glass drops its transmission, and gets it back', () => {
+  const glass = new THREE.MeshPhysicalMaterial({transmission: 1, roughness: .025});
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glass);
+  const window = new THREE.Group();
+  window.add(pane);
+  setSeeThrough(window, true);
+  assert.equal(pane.material.transmission, 0, 'a plain faint layer, not a blurred render of the room in blocks');
+  setSeeThrough(window, false);
+  assert.ok(pane.material === glass && glass.transmission === 1);
 });
