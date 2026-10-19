@@ -16,6 +16,30 @@ export const LATE_FRAME_MS = 2000;
 const inUnit = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 const point = (p) => !!p && typeof p === 'object' && inUnit(p.u) && inUnit(p.v);
 
+// A pinch on a piece works like a mouse button on it. Fingers closing shake the pointer, so the
+// piece stays put until the hand has moved DRAG_START (a fraction of the camera image) from where
+// the pinch began, and then follows from there without a jump. A pinch let go before that, within
+// TAP_MS of being recognised, is a tap.
+export const TAP_MS = 1000, DRAG_START = .03;
+export class PinchDrag {
+  constructor(hand, at) {this.start = {u: hand.u, v: hand.v}; this.at = at; this.dragging = false; this.offset = 0;}
+  // 'still' inside the dead zone, 'start' on the frame the hand leaves it, then 'drag'.
+  move(hand) {
+    if (this.dragging) return 'drag';
+    if (Math.hypot(hand.u - this.start.u, hand.v - this.start.v) < DRAG_START) return 'still';
+    this.dragging = true;
+    return 'start';
+  }
+  // The turn to apply for a turn of the hand since the pinch began: none inside the dead zone,
+  // then counted from its edge.
+  turn(angle) {
+    if (!this.dragging && Math.abs(angle) / ROTATION_PER_SWEEP < DRAG_START) return null;
+    if (!this.dragging) {this.dragging = true; this.offset = angle;}
+    return angle - this.offset;
+  }
+  tap(now) {return !this.dragging && now - this.at < TAP_MS;}
+}
+
 export function parseMessage(value) {
   if (!value || typeof value !== 'object') return null;
   const d = value;
