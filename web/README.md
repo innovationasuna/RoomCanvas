@@ -23,6 +23,63 @@ RoomCanvas 的网页：主页（`index.html`）列出房间，点进布置页（
 
 配色和字体在 `theme.css`（`--rc-*`），主页和编辑器共用。
 
+## 通用光影增强
+
+所有房间共用原有的半球光和两盏平行光，不按房间名称选灯。主光位于房间中心偏移 `(-3.5, 地面高度 + 8, +4)` 的位置，照向地面中心；第二盏平行光位置为 `(-5, 4, -4)`。工具栏“光照”继续切换两盏平行光的日光／暖色，主光继续使用 2048² PCFSoft 阴影。
+
+| 档位 | 半球光 | 主光 | 补光 | ACES 曝光 | 环境强度 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 默认 `balanced` | 1.1 | 3.0 | 0.65 | 1.1 | 0.35 |
+| 第一版增强 `lighting=initial` | 2.5 | 2.4 | 1.4 | 1.15 | 0.18 |
+| 完整原始 `lighting=off` | 2.5 | 2.4 | 1.4 | 1.15 | 0 |
+
+默认档减少填充光、增加环境贡献，使深色和光滑表面更容易显示层次；它是统一的展示校准，不代表从照片恢复了真实照明。
+
+所有房间按同一规则启用三项增强，不增加主场景的光源，不修改原材质或要求额外模型资源：
+
+1. **环境光与反射**：使用 Three.js 自带的中性 RoomEnvironment，初始化时生成一次 128 像素立方体面的 PMREM 贴图，补充 PBR 材质的环境受光与反射。没有外部 HDR 下载，也不随相机或物体变化重新生成；它代表通用环境，不是扫描房间的真实反射。
+2. **静态 GTAO 环境遮蔽**：补充家具接触处和缝隙的暗部，操作期间暂停，停止后低分辨率补算。
+3. **现有阴影校准**：维持 2048² PCFSoft 和原有光源方向，以完整房间包围盒在主光坐标中自动收紧阴影范围及近远裁面，按阴影像素的世界尺寸设置偏移，减少分辨率浪费和接触处偏离。规则不含房间名称，过大房间跨过固定主光平面时沿用原配置；阴影贴图仍按原有变化事件更新。没有追加 PCSS、接触阴影层或渐进累积渲染。
+
+已增加固定画面／布局重放与整帧 CPU/GPU 计时，两个房间完成首轮同条件对照。GTAO 保持默认，`ao=n8ao` 可比较固定版本的 N8AO；两者都只在静止后做有限补算，不开持续累积。两份房间原有材质均为受光的 Standard / Physical。更多工具中的“**导入物体随光照变化（实验）**”为 ViewForge 导入显示网格启用可回退的 PBR 材质：保留已有 PBR，转换 unlit 时保留贴图／顶点色，补齐缺失法线并接收阴影；默认关闭，避免拍摄颜色再次受光导致变暗。碰撞代理不变。细节见 [光影调研](../docs/LIGHTING_RESEARCH.md#1-当前优先级已实现范围与下一步)。
+
+静态 AO 的调度与开销：
+
+- 拖动物体、鼠标／手势调整视角、长按微调、家具掉落、门柜动画期间使用原渲染；停止约 **350 毫秒**后补算一次，完全静止后不再请求帧。
+- AO 按绘图缓冲区的半宽、半高计算，长边最多 960 像素；AO 和降噪各使用 8 个采样参数，混合强度 0.35。作用半径按房间水平短边的 2.5% 取值，限制在 0.08–0.20 米，沿用所有房间的米制尺寸。
+- 玻璃、透明虚影、编辑指示和只用于碰撞的网格不参与 AO 遮挡。切到后台暂停补算。截图保留当前静态效果，仓库卡片缩略图继续使用原渲染。
+- 使用与引擎一致的官方 r180 插件，资源随仓库离线提供，在编辑器能正常工作后按环境、AO 的顺序加载。AO 需要浮点颜色缓冲支持；插件缺失、不支持或运行异常时停用相应增强，继续使用已有渲染。重新发布已有预览时，`publish.py` 也会更新插件文件。
+
+本机启动仍是 `python3 web/scripts/serve.py`，无需启动额外后端。对比入口：
+
+- 默认：[卧室](http://127.0.0.1:7880/web/editor/?room=room3)、[办公室](http://127.0.0.1:7880/web/editor/?room=office)。
+- 完整原始效果：加 `&lighting=off`，例如 [卧室原始光照](http://127.0.0.1:7880/web/editor/?room=room3&lighting=off)。任意 `?scene=…` 房间同样适用。
+- 分步对比：`&ao=off&shadows=original` 仅加环境；`&shadows=original` 加环境与 AO；默认启用全部三项。`&env=off` 可单独关闭环境。
+
+分步开关使用当前校准档的灯光；要只比较某个算法，应在两边明确使用相同 `lighting=balanced` 或 `lighting=initial`。`materials=pbr` 可在页面打开时预选导入物体受光实验。
+
+控制台的 `roomEditor.snapshot().lighting` 可查看环境、阴影参数、AO 状态、补算次数与分辨率。AO 是屏幕空间近似，无法计算屏幕外遮挡、真实反弹光或修正重建贴图里已有的光影；静态补算仍有一次法线／深度渲染和额外显存成本，不能等同于零开销。新房间直接沿用此档，不需要单独配置。选型与后续候选见 [光影调研](../docs/LIGHTING_RESEARCH.md)。
+
+固定基线验收（仅开发时需要 Playwright，正常启动不需要 Node 依赖）：
+
+```bash
+# 另一个终端先运行 python3 web/scripts/serve.py。
+# 临时安装浏览器验收依赖；不改仓库的依赖配置。
+npm install --prefix /tmp/roomcanvas-lighting-tools playwright
+node web/scripts/check_lighting.mjs --output /tmp/roomcanvas-lighting-results \
+  --playwright /tmp/roomcanvas-lighting-tools/node_modules/playwright \
+  --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+node web/scripts/check_import_lighting.mjs --output /tmp/roomcanvas-import-results \
+  --playwright /tmp/roomcanvas-lighting-tools/node_modules/playwright \
+  --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+```
+
+其他平台可换 `--browser` 路径，或安装 Playwright 的 Chromium 后省略该参数。基线脚本保存模型 SHA256、相机／布局、整体与近景截图、逐帧数据及 CPU/GPU p50/p95，支持 `--rooms office`、`--variants original,balanced`、`--frames 90`。GPU 计时扩展不可用时明确记为不可用；CPU 提交时间不冒充 GPU 时间。结果必须放在仓库外，含私人房间截图，不提交。导入验收使用合成顶点色 GLB 走真实导入／放置流程，无需服务器已有物体。
+
+仅在 URL 加 `lightingLab=1` 时启用 `roomLightingLab`，提供固定状态保存／恢复、材质审查、有限镜头回放和异步 GPU 计时；普通用户页面不开放这些测试操作。`metrics()` 分别报告交互、静态 AO 和截图，整帧跨 pass 汇总绘制调用，静止时不会为了统计 FPS 而持续渲染。
+
+如果更新前已开着本机 `serve.py`，重启一次服务以采用较大的静态请求队列；旧版 Python 的默认小队列在浏览器并行加载模块时可能重置连接。
+
 ## 开门、开柜门
 
 切到“预览”，点门、柜门、窗就打开，再点关上（约 0.45 秒的动画）；鼠标移到能开的部件上变成手形。柜体是按扫描尺寸拉伸过的（不均匀缩放），所以门按世界里的合页线整块转动，不在拉伸过的柜体坐标里转，不会变形；推拉的部件沿自己的轴移动。回到“布置”时全部关上，摆放和碰撞检查都按关着的样子算。打开的状态不保存。被剖掉的近墙上的门、被窗帘挡着的窗点不到，转个视角就行。
@@ -48,6 +105,10 @@ RoomCanvas 的网页：主页（`index.html`）列出房间，点进布置页（
 | `index.html`、`rooms.json` | 主页和它列出的房间 |
 | `theme.css`、`icon.svg` | 共用配色、字体和图标 |
 | `editor/scene-editor.js` | 主程序：加载房间、选择、视角、仓库栏、放置流程 |
+| `editor/static-lighting.mjs`、`settled-render.mjs` | 静态接触暗部、停止操作后的按需补算 |
+| `editor/environment-lighting.mjs`、`lighting-settings.mjs` | 一次生成的通用环境反射、房间范围与阴影像素尺寸的自动校准 |
+| `editor/lighting-profiles.mjs`、`render-metrics.mjs` | 通用光照档位、完整渲染帧的 CPU/GPU 与绘制统计 |
+| `editor/import-materials.mjs` | 导入物体受光实验与原显示回退 |
 | `editor/room-catalog.mjs` | 读 `room_objects.json`，生成可编辑清单、墙面归属 |
 | `editor/placement.mjs`、`drop-placement.mjs` | 落到支撑面、自动找座面、贴墙、换墙、掉落 |
 | `editor/collision.mjs` | 逐三角面的连续碰撞 |
@@ -63,6 +124,7 @@ RoomCanvas 的网页：主页（`index.html`）列出房间，点进布置页（
 | `editor/tests/` | 单元测试（Node 自带测试框架） |
 | `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
 | `scripts/check_*.mjs` | 用真实模型在 CPU 上检查：`check_room` 适用于任何房间，其余四个针对 office |
+| `scripts/check_lighting.mjs`、`check_import_lighting.mjs` | 可重放的浏览器光影基线、导入材质受光验收 |
 | `scripts/publish.py` | 把编辑器复制到某个房间目录旁边 |
 | `scripts/serve.py` | 本机网页服务，转发 ViewForge 的读请求和添加物体的请求 |
 | `scripts/thumbnail.py` | 给 `rooms.json` 里的房间截缩略图 |

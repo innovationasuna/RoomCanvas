@@ -80,13 +80,18 @@ class Handler(SimpleHTTPRequestHandler):
             shutil.copyfileobj(response, self.wfile)
 
 
+class Server(ThreadingHTTPServer):
+    # ES-module imports arrive in bursts; Python 3.12's five-entry default can reset local connections.
+    request_queue_size = 64
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=7880)
     parser.add_argument('--viewforge', default=Handler.viewforge, help='ViewForge server (default: the SSH tunnel)')
     args = parser.parse_args()
     Handler.viewforge = args.viewforge.rstrip('/')
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
+    server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}')
     server.serve_forever()
 
