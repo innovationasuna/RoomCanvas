@@ -61,8 +61,7 @@ flowchart LR
 - [网页说明](web/README.md)：编辑器的操作、手势、导入和添加物体，开发和测试
 - [房间重建](docs/ROOM_RECONSTRUCTION.md)：在 3090 上重建一个房间、小物件这一步、接到网页
 - [物体重建与手势](docs/OBJECT_RECONSTRUCTION.md)：ViewForge 后端、接口、SSH 隧道和手势页
-- [光影改进调研](docs/LIGHTING_RESEARCH.md)：开源方案、版本兼容性、低耦合接入方式和实验任务
-- [光影增强交接](LIGHT-HANDOFF.md)：已完成步骤、验收结果、参数与后续限制
+- [光影增强](web/README.md#通用光影增强)：光照档位、环境光、静态 AO 和验收；[光影调研](web/README.md#光影调研)：开源方案、版本兼容性、低耦合接入方式和实验任务
 - [参与开发](CONTRIBUTING.md)：分支、检查、合并流程
 - [交接文档](docs/HANDOFF.md)：当前进度、服务器目录和待办
 
