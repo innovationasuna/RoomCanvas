@@ -66,6 +66,7 @@
   3. 枕头、叠被、粉色包打开时是“支撑边缘不足”（TRELLIS 底面不平），挪一下能落稳；书架上的书因书架本身“待调整”而显示未落稳。
   4. TRELLIS 默认模式下，书架上的书堆后处理要多占 7.9 GB 显存，3090 放不下；流程会自动隔离并用 512 模式重做（模型略粗）。
 - 已替换 `samples/room3`（2026-10-18，用户同意，#10 已合并）：`Room.glb` 由 99.7 MB 无损缩到 66.5 MB——8 件 TRELLIS 物件和一批盒子、圆柱的法线就是面法线，去掉后 three.js 自动平面着色，画面不变，再合并完全相同的顶点；贴图、材质、节点名都没动。`room_objects.json` 用服务器结果（保留手写名字，谱架已舍弃）；`check_room` 23/23。同视角与原 99.7 MB 文件逐像素对比：俯视 0 像素不同，整体视角 85 万像素中 7 个不同（编辑器按 glTF 规范给无法线网格补面法线，阴影偏移才一致）。新房间里“是否放稳”的判断原来每次刷新 0.7 秒，手势帧会过期；支撑面三角形改用网格索引后 23 毫秒，在 room3、office 上随机布局 4078 项对比与原结果完全相同。
+- 再次替换 `samples/room3`（2026-10-19，用户要求）：钢琴（Table0）换成可动物体试验方法 2 的 TRELLIS 钢琴，顶盖和琴键盖能在“预览”里打开，谱子随顶盖转。做法：gltf-transform 只换 `Table0_Static` 的网格、把 `Table0_Fallboard`/`Table0_TopLid` 和两个深色内腔挂在它下面，其他数据原样；钢琴的两张 TRELLIS 贴图从 4096 降到 1024（和房间里其他 TRELLIS 物件一致，同视角拉近看不出差别），`Room.glb` 66.5 → 69.7 MB。`room_objects.json` 用新的 `Table0.urdf`（`runs/articulation-trials-20261019/`）重新生成，只多了这两个关节；`check_room` 23/23，缩略图已重拍。已知：琴键盖合上只盖住琴键后半；翻开后在谱子下面，从上往下点不回来。
 
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
@@ -78,7 +79,7 @@
 
 2026-10-19 补：放在部件上的东西跟着动（用户提出：office 升降桌升起时桌上的东西不动、钢琴顶盖掀开时谱子悬着）。`joints.mjs` 的 `ridersOf` 在打开房间时按形状找出同组里底部压在部件上的物件，部件动时它们做同样的世界变换，关上时恢复原位。office 升降桌带上桌面 15 件（升 0.151 米），room3 试验钢琴的顶盖带上 4 份谱子（书压在谱子上，跟谱子走）。
 
-**可动物体试验（2026-10-19）**：room3 钢琴三种做法的对比在服务器 `runs/articulation-trials-20261019/`（`compare/overview.jpg`、`summary.md`），本机 `~/Downloads/RoomCanvas-runs/articulation-trials-20261019/`。方法 2（整台 TRELLIS、Astra 标部件再切开）的钢琴已接进本机试验房间 `samples/room3-piano-m2/`（不进 git，`.git/info/exclude`；含私人房间数据），编辑器 `?scene=../../samples/room3-piano-m2`。另外发现服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用现在会失败，未修，待用户决定。
+**可动物体试验（2026-10-19）**：room3 钢琴三种做法的对比在服务器 `runs/articulation-trials-20261019/`（`compare/overview.jpg`、`summary.md`），本机 `~/Downloads/RoomCanvas-runs/articulation-trials-20261019/`。方法 2（整台 TRELLIS、Astra 标部件再切开）的钢琴先在本机试验房间 `samples/room3-piano-m2/`（不进 git，`.git/info/exclude`）试过，2026-10-19 换进了正式 `samples/room3`（见上文“小物件这一步的 room3 结果”）。另外发现服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用现在会失败，未修，待用户决定。
 
 用户要柜子等能打开。重建时 Astra 生成的程序化物体本来就带关节（`runs/<运行>/pipeline/<场景>/realism_authoring/room/Objects/*/<物体>/sim/<物体>.urdf`，含合页位置、方向、角度范围），只是没传到网页。做了两步：`room_objects.py` 把能和 `Room.glb` 对上的关节写进 `room_objects.json` 的 `joints`（两个示例已用服务器数据重新生成，除新增 `joints` 外与原文件完全相同）；编辑器“预览”模式点门、柜门、窗开合（`web/editor/joints.mjs`），回“布置”全部关上。柜体节点带不均匀缩放，门板挂在柜体下、原点就在合页上，所以按世界里的合页线刚体转动，不在柜体坐标里转（否则变形）。用 Chromium 验证：room3 6 扇柜门和房门、office 两扇窗、升降桌、房门都能开合，转开后部件世界尺寸不变。没做的：手势开门（用户说先不做）；office 抽屉在重建里没有滑轨，要开得改房间重建让 Astra 把抽屉做成活动部件。
 
