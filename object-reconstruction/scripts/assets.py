@@ -1,4 +1,5 @@
 """重建物体的目录、尺寸和模型读取；不加载房间或保存场景布局。"""
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -50,20 +51,28 @@ class AssetsMiddleware:
                 response = JSONResponse(dict(runs=names))
             else:
                 parts = route.split('/')
-                if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ('result.glb', 'preview.glb')):
+                if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ('result.glb', 'preview.glb', 'result.ply', 'preview.json')):
                     raise FileNotFoundError('无效的物体资产地址')
                 run = result_directory(self.root, parts[0])
-                if len(parts) == 2:
+                if len(parts) == 2 and parts[1] == 'preview.json':
+                    # Historical manifests may contain old UI file URLs. Serve a copy with
+                    # controlled asset URLs; preserve transforms, recommendations and disk data.
+                    data = json.loads((run/'cover/preview.json').read_text())
+                    for kind, filename in [('glb', 'result.glb'), ('glb_preview', 'preview.glb'), ('gaussian', 'result.ply')]:
+                        asset = data.get('assets', {}).get(kind)
+                        if asset:
+                            asset['url'] = f'/viewforge/assets/{quote(run.name, safe="")}/{filename}'
+                    response = JSONResponse(data)
+                elif len(parts) == 2:
                     file = run/'reconstruction'/parts[1]
                     if not file.is_file():
                         raise FileNotFoundError('没有这个模型文件')
-                    response = FileResponse(file, media_type='model/gltf-binary')
+                    response = FileResponse(file, media_type='model/gltf-binary' if parts[1].endswith('.glb') else 'application/octet-stream')
                 else:
                     data = await run_in_threadpool(read_dimensions, run)
                     manifest = run/'cover/preview.json'
                     if manifest.is_file():
-                        viewer = '/gradio_api/file=' + quote(str(Path(__file__).parent/'assets/cover-viewer.html'), safe='/')
-                        data['viewer_url'] = viewer + '?manifest=' + quote('/gradio_api/file=' + str(manifest), safe='')
+                        data['manifest_url'] = f'/viewforge/assets/{quote(run.name, safe="")}/preview.json'
                     response = JSONResponse(data)
         except FileNotFoundError as exc:
             response = JSONResponse(dict(error=str(exc)), status_code=404)

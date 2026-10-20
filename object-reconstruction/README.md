@@ -1,8 +1,10 @@
 # ViewForge
 
-ViewForge provides automatic BiRefNet masks, preview confirmation, and multi-view reconstruction using DA3 and MV-SAM3D. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
+RoomCanvas object APIs provide automatic BiRefNet masks and multi-view reconstruction using DA3 and MV-SAM3D, without depending on a separate UI. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
 
-本模块是 RoomCanvas 的物体重建与实测尺寸服务：保留照片管理、抠图、重建、补拍、GLB / Gaussian 单物体预览和尺寸标定。房间展示、物体摆放、碰撞与手势由平级 [`web/`](../web/) 的 RoomCanvas 编辑器统一负责，本模块不再提供独立房间场景。入口和接口见 [物体重建说明](../docs/OBJECT_RECONSTRUCTION.md)，来源见 [历史整理](docs/HISTORY_INTEGRATION.md)。
+本模块提供 RoomCanvas 的物体重建与实测尺寸 API。正式入口是 `scripts/web.py`（Starlette / Uvicorn），前端统一在平级 [`web/`](../web/)。已接入的上传、抠图、重建、进度、模型读取、标定接口及旧物体地址兼容保留，数据和 GPU 配置沿用原目录。
+
+原 Gradio 独立页面、Babylon 单物体/房间查看器与界面资源**已弃用**，源码及原有产物完整保留在 [`legacy/`](legacy/README.md)，仅作追溯参考，正式服务不加载。当前入口见 [物体 API 说明](../docs/OBJECT_RECONSTRUCTION.md)；上游说明和署名继续保留。
 
 ## MV-SAM3D
 
