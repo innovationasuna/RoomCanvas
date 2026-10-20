@@ -219,6 +219,7 @@ P0 基线工具、P1 通用校准与可回退导入 PBR 实验、P2 两种 AO �
    - 服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用会报 “codex CLI not on PATH”。修法：把链接指向一份新的包装脚本（内容同 `runs/articulation-trials-20261019/scripts/bin/codex`），待用户决定。
    - room3 钢琴：琴键盖合上只盖住琴键后半；翻开后在谱子下面，从上往下点不回来（预览模式点击只认第一个命中的物体）。
    - 手势的三个问题（见“最近两天”#16 一条），以及“添加物体”还没用真人手机照片试过。
+   - **“添加物体”补齐（用户 2026-10-20 要求，新对话做）**：(a) 照片下限从 3 张改成 1 张（重建本身一张就行，服务器上沙发 1 张、办公椅 2 张；3 张是之前方案里写的，前后端 `MIN_PHOTOS` 都要改，界面只提示多拍几个角度更好）；(b) 结果那一步显示补拍建议：`run.py` 每次都算（`runs/<结果>/cover/`），用 ViewForge 现成的补拍查看器（`scripts/assets/cover-viewer.html` + `cover/preview.json`）；(c) 加“补拍”：补传照片 → 和原照片一起抠图 → `run.py --parent-run` 重建，后端 `import_photos(parent_run_id=…)`、`run.py --parent-run` 已支持，`objects.py` 和对话框要接上。改了 `object-reconstruction/`，合并后要同步服务器并重启 7862，重启前告诉 lyk。
 
 1. **编辑器性能**：落点的完整检查已移到后台线程（2026-10-18，用户反馈手势放钢琴卡），手势和确认不再冻住；方向按钮逐步挪动、鼠标悬停摆放仍在页面线程。原记录：只有两个重网格挨着时慢，room3 里是琴凳贴着钢琴，每步约 2 秒；同一把椅子放到房间中央只要 2 毫秒，office 的 TRELLIS 椅子也只要几毫秒。“每个连通部件只测一个点”的捷径会漏判（钢琴由 23 块重叠壳体组成），已放弃。以后要做就给重网格做简化碰撞外形，或放到 Web Worker。
 2. **清空房间、导出空房间**：按 `room_objects.json` 的 `role` 删家具，导出 `empty_room.glb`。窗帘、挂画、白板算不算家具未最终定（现在窗帘留在房间，挂画、白板算家具）。
