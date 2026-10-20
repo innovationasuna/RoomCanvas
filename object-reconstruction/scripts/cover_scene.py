@@ -18,7 +18,8 @@ def write_json(path, data):
 
 
 def file_url(path):
-    return '/gradio_api/file=' + quote(str(Path(path).absolute()), safe='/')
+    path = Path(path)
+    return '/viewforge/assets/' + quote(path.parent.parent.name, safe='') + '/' + quote(path.name, safe='')
 
 
 def matrix_list(matrix):

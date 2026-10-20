@@ -1,6 +1,6 @@
 # ViewForge 在 RoomCanvas 中的目录
 
-物体照片 → BiRefNet 蒙版 → DA3 / MV-SAM3D → GLB / Gaussian → 尺寸标定 → RoomCanvas 房间摆放。本模块只负责物体；场景与手势归 RoomCanvas 编辑器。
+RoomCanvas 照片界面 → 物体 API → BiRefNet → DA3 / MV-SAM3D → GLB / Gaussian → 实测标定 → RoomCanvas 摆放。本模块只负责物体；场景与手势归 RoomCanvas 编辑器。
 
 ```text
 RoomCanvas/
@@ -10,7 +10,7 @@ RoomCanvas/
 ├── object-reconstruction/ ViewForge/MV-SAM3D 源码、配置模板、查看器和测试
 │   ├── scripts/
 │   ├── configs/
-│   ├── viewer/
+│   ├── legacy/              已弃用的原界面、查看器、场景及构建资源
 │   └── docs/
 ├── gesture/               摄像头、手势识别、资源、接入页及原演示
 └── scripts/gesture.sh     本机手势启动入口
@@ -34,6 +34,7 @@ $VIEWFORGE_ROOT/
 ```bash
 source configs/local.env
 source scripts/env.sh
+python -m pip install -r configs/api-requirements.txt
 python scripts/web.py --host 127.0.0.1 --port 7862
 ```
 
@@ -44,3 +45,5 @@ python scripts/web.py --host 127.0.0.1 --port 7862
 房间和手势统一在 RoomCanvas 编辑器使用，详见 [物体重建说明](../../docs/OBJECT_RECONSTRUCTION.md)。
 
 2026-10-18 已将正式后端切换到 RoomCanvas 的本模块；原 ViewForge 目录继续提供外部运行环境、权重与数据，不再作为服务源码入口。后端按上面的命令启动，本机使用自己的 SSH 端口转发配置访问服务。当前操作与历史说明见 [物体重建说明](../../docs/OBJECT_RECONSTRUCTION.md)。
+
+当前 `scripts/web.py` 是无界面的 API 服务，不加载 Gradio 或 `legacy/`。旧界面代码保留供参考，详见 [弃用说明](../legacy/README.md)。旧外部数据与环境不随代码归档移动。

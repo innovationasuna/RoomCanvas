@@ -64,14 +64,27 @@ class AssetsTests(unittest.TestCase):
         # 标定后的米制模型导出仍可独立使用。
         self.assertEqual(self.client.get('/viewforge/dimensions/' + run.name + '/model.glb').content[:4], b'glTF')
 
-    def test_single_object_viewer_and_preview_remain_available(self):
+    def test_preview_metadata_and_gaussians_do_not_depend_on_ui_file_routes(self):
         run = self.model('toy')
         (run/'cover').mkdir()
-        (run/'cover/preview.json').write_text(json.dumps({}))
+        old = dict(assets={kind: dict(url='/gradio_api/file=/old/private/path', transform=[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+                           for kind in ['glb', 'glb_preview', 'gaussian']}, recommendation={'id': 'view-1'})
+        manifest = run/'cover/preview.json'
+        manifest.write_text(json.dumps(old))
+        original = manifest.read_bytes()
         light = run/'reconstruction/preview.glb'
         light.write_bytes((run/'reconstruction/result.glb').read_bytes())
+        gaussian = run/'reconstruction/result.ply'
+        gaussian.write_bytes(b'ply\nfixture')
         metadata = self.client.get('/viewforge/assets/toy').json()
-        self.assertIn('cover-viewer.html', metadata['viewer_url'])
+        self.assertNotIn('viewer_url', metadata)
+        adapted = self.client.get(metadata['manifest_url']).json()
+        self.assertEqual(adapted['recommendation'], old['recommendation'])
+        for kind, file in [('glb', 'result.glb'), ('glb_preview', 'preview.glb'), ('gaussian', 'result.ply')]:
+            self.assertEqual(adapted['assets'][kind]['url'], '/viewforge/assets/toy/' + file)
+            self.assertEqual(adapted['assets'][kind]['transform'], old['assets'][kind]['transform'])
+        self.assertEqual(manifest.read_bytes(), original)
+        self.assertEqual(self.client.get(adapted['assets']['gaussian']['url']).content, gaussian.read_bytes())
         self.assertEqual(self.client.get('/viewforge/assets/toy/preview.glb').content, light.read_bytes())
 
     def test_scene_endpoints_are_removed_and_assets_cannot_write_layouts(self):

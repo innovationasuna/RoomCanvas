@@ -23,8 +23,8 @@ from urllib.parse import quote, unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
 # The reads the editor makes: catalog, assets/<run>[/result.glb|preview.glb], a job, a mask preview.
-READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/(result|preview)\.glb)?)'
-                   rf'|layouts/(catalog|assets/{NAME}(/(result|preview)\.glb)?)'
+READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
+                   rf'|layouts/(catalog|assets/{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
                    rf'|objects/(jobs/[0-9a-f]{{32}}|previews/\w+/{NAME}\.png))$')
 # Its writes: new object with photos, masks, reconstruction, measured size.
 WRITES = re.compile(rf'^/viewforge/(objects/(create|masks|reconstruct)|dimensions/{NAME})$')

@@ -51,7 +51,7 @@ flowchart LR
 | 目录 | 做什么 |
 |---|---|
 | [`room-reconstruction/`](room-reconstruction/) | 房间重建：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent) 官方代码，Agent 改用 Codex（GPT-6 Astra），加了 3090 运行脚本和小物件这一步 |
-| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，及其后端和单物体预览 |
+| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，无界面的重建/标定 API；旧界面在 `legacy/` 弃用归档 |
 | [`web/`](web/) | RoomCanvas 网站：房间主页、编辑器、本机服务 `serve.py` |
 | [`gesture/`](gesture/) | 浏览器手势识别；编辑器内置的识别代码从这里打包 |
 | [`samples/`](samples/) | 两个示例房间：`room3`（手机扫描的卧室）、`office`（LiteReality 官方样例） |
