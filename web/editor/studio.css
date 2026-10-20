@@ -1,0 +1,80 @@
+/* 与本地 RoomCanvas 网站共享的暖纸色，独立编辑器继续可用。 */
+#rc-placement-demo{--rc-bg:#f5f2eb;--rc-panel:#fbf9f4;--rc-ink:#302e29;--rc-text:#302e29;--rc-muted:#8b8477;--rc-line:#dfdacf;--rc-green:#a66b4f;--rc-green-soft:#eee4d8;--rc-active:#eee4d8;color:#302e29;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color-scheme:light}
+body:has(#rc-placement-demo[data-studio=true]){margin:0;padding:0;background:#eae7de;overflow:hidden}
+#rc-placement-demo[data-studio=true]{height:100dvh;min-height:0;max-width:none;margin:0;padding:0;border:0;border-radius:0;background:#eae7de;display:flex;flex-direction:column;overflow:hidden;color-scheme:light}
+#rc-placement-demo[data-studio=true] .rc-top,#rc-placement-demo[data-studio=true] .rc-controls,#rc-placement-demo[data-studio=true] .rc-joysticks{display:none!important}
+#rc-placement-demo[data-studio=true] .rc-stage{flex:1 1 auto;height:auto;min-height:0;border:0;border-radius:0;background:#eae7de;overflow:hidden}
+#rc-placement-demo[data-studio=true] .rc-canvas{inset:0;background:#eae7de}
+#rc-placement-demo[data-studio=true] .rc-view-tools{top:17px;left:18px;right:auto;bottom:auto;gap:3px;background:#fbf9f4b8;padding:3px;border:1px solid #dcd6ca;border-radius:7px;box-shadow:none}
+#rc-placement-demo[data-studio=true] .rc-view-tools button{border:0;background:transparent;color:#827c6e;font-size:11px;min-height:28px;padding:6px 14px}
+#rc-placement-demo[data-studio=true] .rc-view-tools button[aria-pressed=true]{background:#fffdf7;color:#302e29;border-radius:5px;box-shadow:0 1px 4px #00000008}
+#rc-placement-demo[data-studio=true] .rc-help{left:20px;right:auto;bottom:12px;font-size:10px;color:#8c8577;max-width:calc(100% - 40px);pointer-events:none;white-space:normal}
+#rc-placement-demo[data-studio=true] .rc-help span{font-size:10px;background:transparent;border:0;box-shadow:none;padding:0}
+#rc-placement-demo[data-studio=true] .rc-drop-label{font-size:11px;color:#8b5c44;background:#fffdf7;border-color:#d9cbb9;box-shadow:0 3px 12px #4f392012}
+#rc-placement-demo[data-studio=true] .rc-toast{background:#3d382f;color:#fffdf5;box-shadow:0 6px 18px #0001;font-size:12px;bottom:45px;z-index:20}
+#rc-placement-demo[data-studio=true] .rc-loading{background:#eae7de;color:#756b59}
+#rc-placement-demo[data-studio=true] .studio-bottom{flex:0 0 auto;background:#fbf9f4;border-top:1px solid #dcd6c9;z-index:10;position:relative}
+#rc-placement-demo[data-studio=true] .studio-bottom-nav{display:flex;align-items:center;gap:10px;min-height:52px;padding:9px 18px;border-bottom:1px solid #e5dfd3}
+#rc-placement-demo[data-studio=true] .shelf-tabs{display:flex;gap:6px;flex-shrink:0}
+#rc-placement-demo[data-studio=true] .shelf-tabs button,#rc-placement-demo[data-studio=true] #shelf-toggle{background:transparent;border:0;box-shadow:none;border-radius:6px;padding:8px 12px;font-size:12px;color:#918779;cursor:pointer;white-space:nowrap}
+#rc-placement-demo[data-studio=true] .shelf-tabs button[aria-pressed=true]{color:#342e25;background:#ede7dc}
+#rc-placement-demo[data-studio=true] #shelf-toggle{font-size:10px;padding:8px 0;margin-left:4px}
+#rc-placement-demo[data-studio=true] .rc-tools.studio-actions{position:static;display:flex;align-items:center;flex-wrap:nowrap;gap:5px;width:auto;max-width:none;margin:0 0 0 auto;padding:0;box-shadow:none;border:0;background:none}
+#rc-placement-demo[data-studio=true] .rc-tools.studio-actions>.rc-tool,#rc-placement-demo[data-studio=true] .rc-tools.studio-actions>.rc-menu>summary{width:auto;min-height:28px;padding:6px 8px;font-size:10px;gap:5px;box-shadow:none;border:0;background:transparent;white-space:nowrap}
+#rc-placement-demo[data-studio=true] .rc-tools.studio-actions svg{width:15px;height:15px}
+#rc-placement-demo[data-studio=true] .rc-tools.studio-actions>.rc-menu{grid-column:auto}
+#rc-placement-demo[data-studio=true] .rc-menu-panel{top:auto;left:auto;right:0;bottom:calc(100% + 14px);background:#fffdf7;border:1px solid #dcd6c9;box-shadow:0 12px 40px #332a211a;border-radius:9px;max-height:min(420px,65dvh);overflow:auto;color:#655b4c;width:220px;z-index:30}
+#rc-placement-demo[data-studio=true] .rc-menu-panel>.rc-tool{display:block;margin-bottom:8px;width:100%;font-size:12px;text-align:left;border:0}
+#rc-placement-demo[data-studio=true] .rc-menu-panel input{accent-color:#8e7154}
+#rc-placement-demo[data-studio=true] .rc-menu-panel .rc-tool,#rc-placement-demo[data-studio=true] .rc-menu-panel label,#rc-placement-demo[data-studio=true] .rc-menu-panel a{font-size:11px}
+#rc-placement-demo[data-studio=true] .rc-shelf{position:static;display:block;max-height:214px;height:214px;min-height:0;padding:12px 18px 10px;border:0;box-shadow:none;border-radius:0;background:#fbf9f4;transform:none;opacity:1;overflow:hidden;transition:height .35s ease,padding .35s ease,opacity .25s;flex:0 0 auto}
+#rc-placement-demo[data-studio=true][data-shelf=closed] .rc-shelf{height:0;padding-top:0;padding-bottom:0;opacity:0}
+#rc-placement-demo[data-studio=true] .rc-shelf-head{display:flex;flex-wrap:nowrap;gap:9px;margin:0 0 10px;min-height:27px}
+#rc-placement-demo[data-studio=true] .rc-shelf-title{font-size:11px;color:#706858}
+#rc-placement-demo[data-studio=true] .rc-counter{font-size:10px;color:#a59a88;background:none;padding:0;border:0}
+#rc-placement-demo[data-studio=true] .rc-search{margin-left:auto;border:1px solid #e2dacd;border-radius:6px;background:transparent;max-width:200px;height:28px;padding:5px 9px}
+#rc-placement-demo[data-studio=true] .rc-search input{font-size:10px;color:#645b4c;background:transparent;width:100%;min-width:0}
+#rc-placement-demo[data-studio=true] .rc-catalog{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding:0 0 10px;margin:0;width:100%;scrollbar-width:thin;scrollbar-color:#d7cdbc transparent}
+#rc-placement-demo[data-studio=true] .object-row{display:flex;flex-direction:column;position:relative;flex:0 0 143px;height:144px;padding:0;gap:0;background:#f1ede4;border:1px solid transparent;border-radius:8px;overflow:hidden;text-align:left;box-shadow:none;min-width:0;color:#494034;cursor:pointer}
+#rc-placement-demo[data-studio=true] .object-row:hover{background:#eae3d7;border-color:#d4c4ac;transform:translateY(-2px)}
+#rc-placement-demo[data-studio=true] .object-row[aria-pressed=true]{border-color:#a77a58;background:#ece3d5}
+#rc-placement-demo[data-studio=true] .object-thumb{display:block;width:100%;height:96px;min-height:96px;object-fit:contain;mix-blend-mode:multiply;background:transparent;border:0;margin:0}
+#rc-placement-demo[data-studio=true] .object-copy{display:block;padding:4px 11px 7px;width:100%;min-width:0}
+#rc-placement-demo[data-studio=true] .object-copy strong{display:block;font-size:11px;font-weight:400;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+#rc-placement-demo[data-studio=true] .object-copy small{display:block;font-size:9px;margin-top:4px;color:#a39885;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rc-placement-demo[data-studio=true] .warehouse-state{position:absolute;top:6px;left:7px;font-size:8px;z-index:1;color:#9d7c5d;background:#fbf8efdd;padding:2px 5px;border-radius:3px}
+#rc-placement-demo[data-studio=true] .object-dot{display:none}
+#rc-placement-demo[data-studio=true] .rc-footer{min-height:24px;height:24px;padding:5px 18px;border:0;background:#fbf9f4;font-size:9px;color:#a29784;display:flex;justify-content:flex-end;flex:0 0 auto}
+#rc-placement-demo[data-studio=true] #save-state{font-size:9px;color:#a29784}
+#rc-placement-demo[data-studio=true] .wall-section{margin:0;padding:14px 20px;background:#f7f1e6;border:0;border-bottom:1px solid #e2d6c2;max-height:220px;overflow:auto;font-size:12px}
+#rc-placement-demo[data-studio=true] .shelf-empty{padding:24px 10px;text-align:center;color:#9c8f7a;font-size:11px;line-height:1.8}
+#rc-placement-demo[data-studio=true] .library-intro{display:none}
+#rc-placement-demo[data-studio=true][data-screen=library] .rc-stage,#rc-placement-demo[data-studio=true][data-screen=library] .studio-bottom-nav{display:none}
+#rc-placement-demo[data-studio=true][data-screen=library] .studio-bottom{flex:1;min-height:0;border:0;overflow:auto}
+#rc-placement-demo[data-studio=true][data-screen=library] .rc-shelf{height:auto;max-height:none;padding:35px;overflow:visible}
+#rc-placement-demo[data-studio=true][data-screen=library] .rc-catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:22px;overflow:visible}
+#rc-placement-demo[data-studio=true][data-screen=library] .object-row{width:100%;height:215px}
+#rc-placement-demo[data-studio=true][data-screen=library] .object-thumb{height:157px;min-height:157px}
+#rc-placement-demo[data-studio=true][data-screen=library] .object-copy{padding:4px 16px 12px}
+#rc-placement-demo[data-studio=true][data-screen=library] .object-copy strong{font-size:13px}
+#rc-placement-demo[data-studio=true][data-screen=library] .library-intro{display:block;margin-bottom:30px}
+#rc-placement-demo[data-studio=true] .library-intro p{font:30px Georgia,'Songti SC',serif;margin:0 0 14px}
+#rc-placement-demo[data-studio=true] .library-intro span{font-size:12px;color:#9d917d}
+#rc-placement-demo[data-studio=true] button:focus-visible,#rc-placement-demo[data-studio=true] summary:focus-visible{outline:2px solid #a66b4f;outline-offset:2px}
+@media(max-width:680px){#rc-placement-demo[data-studio=true] .studio-bottom-nav{padding:8px;gap:4px;flex-wrap:wrap}#rc-placement-demo[data-studio=true] .shelf-tabs button{padding:7px;font-size:11px}#rc-placement-demo[data-studio=true] #shelf-toggle{margin-left:auto}#rc-placement-demo[data-studio=true] .rc-tools.studio-actions{order:2;margin:0;width:100%}#rc-placement-demo[data-studio=true] .rc-shelf{padding-left:10px;padding-right:10px;height:190px;max-height:190px}#rc-placement-demo[data-studio=true] .object-row{flex-basis:118px;height:126px}#rc-placement-demo[data-studio=true] .object-thumb{height:80px;min-height:80px}#rc-placement-demo[data-studio=true] .rc-help{font-size:9px;left:12px}#rc-placement-demo[data-studio=true] .rc-help span{font-size:9px}#rc-placement-demo[data-studio=true] .rc-shelf-head{gap:6px}#rc-placement-demo[data-studio=true] .rc-search{max-width:140px}#rc-placement-demo[data-studio=true][data-screen=library] .rc-shelf{padding:22px}#rc-placement-demo[data-studio=true][data-screen=library] .rc-catalog{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}#rc-placement-demo[data-studio=true][data-screen=library] .library-intro p{font-size:24px}}
+@media(prefers-reduced-motion:reduce){#rc-placement-demo[data-studio=true] *{transition:none!important;animation:none!important}}
+#rc-placement-demo[data-studio=true] .rc-help{display:none}
+#rc-placement-demo[data-studio=true] .rc-shelf{height:173px;max-height:173px;padding-top:9px;padding-bottom:6px}
+#rc-placement-demo[data-studio=true] .rc-shelf-head{margin-bottom:8px}
+#rc-placement-demo[data-studio=true] .object-row{height:112px}
+#rc-placement-demo[data-studio=true] .object-thumb{height:69px;min-height:69px}
+#rc-placement-demo[data-studio=true] .rc-catalog{padding-bottom:6px}
+#rc-placement-demo[data-studio=true] .rc-shelf[hidden],#rc-placement-demo[data-studio=true] .object-row[hidden],#rc-placement-demo[data-studio=true] .rc-tool[hidden]{display:none!important}
+#rc-placement-demo[data-studio=true] .rc-imported-card{flex:0 0 143px;width:143px;min-width:0}
+#rc-placement-demo[data-studio=true] .rc-imported-card>.object-row{width:100%;flex:1}
+#rc-placement-demo[data-studio=true] .rc-imported-card[hidden]{display:none!important}
+#rc-placement-demo[data-studio=true][data-screen=library] .rc-imported-card{width:100%}
+#rc-placement-demo[data-studio=true] .rc-add-card{align-items:center;justify-content:center;text-align:center}
+#rc-placement-demo[data-studio=true] .rc-add-plus{font:28px Georgia,serif;color:#a66b4f}
+#rc-placement-demo[data-studio=true] .rc-dialog{font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif}
+@media(max-width:680px){#rc-placement-demo[data-studio=true] .rc-imported-card{flex-basis:118px;width:118px}}

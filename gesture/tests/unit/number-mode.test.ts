@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NumberModeSelector, classifyLeftNumber } from '../../src/gestures/number-mode';
-import { hand } from '../fixtures/hands';
+import { hand, circleThree } from '../fixtures/hands';
 import type { Hand } from '../../src/shared/types';
 export function numberHand(digit: number, side: 'Left'|'Right' = 'Left'): Hand {
   const h = hand(side,false,.8);
@@ -12,14 +12,34 @@ export function numberHand(digit: number, side: 'Left'|'Right' = 'Left'): Hand {
 const frame=(timestamp:number,hands:Hand[])=>({timestamp,hands,inferenceMs:5});
 function hold(selector:NumberModeSelector,h:Hand,from:number,allowed=true){let result=null;for(let t=from;t<=from+400;t+=100)result=selector.process(frame(t,[h]),4/3,allowed);return result;}
 describe('左手数字模式',()=>{
- it('只识别已确认的食指、食中指、食中无名指模式',()=>{
-  expect([1,2,3].map(n=>classifyLeftNumber(numberHand(n)))).toEqual([1,2,3]);
-  expect(classifyLeftNumber(numberHand(4))).toBeNull();expect(classifyLeftNumber(numberHand(0))).toBeNull();
+ it('识别拇食指成圈的 3，普通捏合、右手及不完整三指不能冒充',()=>{
+  const three=circleThree();
+  expect(classifyLeftNumber(three)).toBe(3);
+  const curved=circleThree();
+  curved.landmarks[8].y=.40;curved.landmarks[4]={...curved.landmarks[8],x:curved.landmarks[8].x+.01};
+  expect(classifyLeftNumber(curved)).toBe(3);
+  expect(classifyLeftNumber(hand('Left',true))).toBeNull();
+  expect(classifyLeftNumber({...three,side:'Right'})).toBeNull();
+  const folded=circleThree();folded.landmarks[20]={...folded.landmarks[17],y:.73};
+  expect(classifyLeftNumber(folded)).toBeNull();
+  const apart=circleThree();apart.landmarks[4].x+=.2;
+  expect(classifyLeftNumber(apart)).toBeNull();
+ });
+ it('成圈的 3 在镜像、旋转、缩放和宽屏画面中保持一致',()=>{
+  for(const aspect of [4/3,16/9])for(const scale of [.5,1.5])for(const sign of [-1,1]){
+   const h=circleThree(.5);
+   h.landmarks=h.landmarks.map(p=>({x:.5+sign*(p.y-.5)*scale/aspect,y:.5+(p.x-.5)*scale,z:p.z*scale/aspect}));
+   expect(classifyLeftNumber(h,aspect)).toBe(3);
+  }
+ });
+ it('识别 1–4，四指配合拇指收回才是 4',()=>{
+  expect([1,2,3,4].map(n=>classifyLeftNumber(numberHand(n)))).toEqual([1,2,3,4]);
+  expect(classifyLeftNumber(hand('Left'))).toBeNull();expect(classifyLeftNumber(numberHand(0))).toBeNull();
   const wrong=numberHand(3);wrong.landmarks[8]={...wrong.landmarks[5],y:.73};wrong.landmarks[20]={...hand('Left').landmarks[20]};
   expect(classifyLeftNumber(wrong)).toBeNull();
  });
  it('对镜像、平面旋转和统一尺度保持一致',()=>{
-  for(const digit of [1,2,3])for(const scale of [.5,2]){
+  for(const digit of [1,2,3,4])for(const scale of [.5,2]){
    const h=numberHand(digit);h.landmarks=h.landmarks.map(p=>({x:.4-(p.y-.5)*scale,y:.5+(p.x-.5)*scale,z:p.z*scale}));
    expect(classifyLeftNumber(h)).toBe(digit);
   }
@@ -85,4 +105,12 @@ describe('真人收拢手指与左手检测反馈',()=>{
   s.process(frame(30,[numberHand(1)]),4/3,false);expect(s.state.phase).toBe('blocked');
   s.process(frame(40,[numberHand(1)]),4/3,true);expect(s.state.phase).toBe('neutral');
  });
+});
+
+it('数字 4 稳定确认一次，张掌重置后可再次确认，映射保持 1/2/3/4',async()=>{
+ const {NUMBER_MODES}=await import('../../src/gestures/number-mode');
+ expect(NUMBER_MODES).toEqual({1:'move',2:'height',3:'scale',4:'rotate'});
+ const s=new NumberModeSelector();expect(hold(s,numberHand(4),0)).toBe(4);expect(hold(s,numberHand(4),500)).toBeNull();
+ for(const t of [1000,1100,1200])s.process(frame(t,[hand('Left',false,.8)]),4/3,true);
+ expect(hold(s,numberHand(4),1300)).toBe(4);
 });

@@ -1,7 +1,7 @@
 // Shared CPU-only authored GLB fixture for the editor acceptance scripts.
 import fs from 'node:fs';
 import path from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {pathToFileURL, fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {initialLayout} from '../../editor/layout.mjs';
 import {createPlacement} from '../../editor/placement.mjs';
@@ -78,7 +78,7 @@ export function sceneConfig(sceneDir) {
 }
 
 // Three.js comes from the room's published preview when it has one, otherwise from web/vendor/.
-const repoVendor = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../vendor');
+const repoVendor = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../vendor');
 export async function createFixture(sceneDir, threeDir = fs.existsSync(path.join(sceneDir, 'preview/vendor')) ? path.join(sceneDir, 'preview/vendor') : repoVendor) {
   const THREE = await import(pathToFileURL(path.join(threeDir, 'build/three.module.js')));
   const room = loadGeometry(THREE, path.join(sceneDir, 'Room.glb'));

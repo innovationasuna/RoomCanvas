@@ -2,7 +2,9 @@ import type { Hand, TrackingFrame } from '../shared/types';
 import { CONFIG } from '../shared/config';
 
 export const NUMBER_CONFIG = { holdMs: 400, neutralMs: 150, lossMs: 200 } as const;
-export type NumberMode = 1 | 2 | 3;
+export type NumberMode = 1 | 2 | 3 | 4;
+export const NUMBER_MODES = {1:'move', 2:'height', 3:'scale', 4:'rotate'} as const;
+export const NUMBER_LABELS = {1:'平面移动', 2:'上下移动', 3:'双手缩放', 4:'连续旋转'} as const;
 export interface NumberFeedback {
   detected: boolean; digit: NumberMode | null; progress: number;
   phase: 'missing' | 'uncertain' | 'ambiguous' | 'pose' | 'neutral' | 'blocked' | 'confirming' | 'selected';
@@ -35,9 +37,17 @@ export function classifyLeftNumber(hand: Hand, aspect = 4 / 3): NumberMode | nul
     if (reach < .98 || ((pipAngle < .45 || dipAngle < .35) && reach < 1.08)) return false;
     return null;
   });
+  // 用户使用的「3」：中、无名、小指伸直，拇指与弯曲食指成圈。
+  // 成圈时食指可能处在弯曲阈值间，不能先以“不确定手指”丢弃。
+  const circleThree = states[0] !== true && states.slice(1).every(v => v === true) &&
+    distance(p[4], p[8]) / palm < CONFIG.pinchEnter;
+  if (circleThree) return 3;
   if (states.some(v => v === null)) return null;
   const pattern = states.map(v => v ? '1' : '0').join('');
-  return pattern === '1000' ? 1 : pattern === '1100' ? 2 : pattern === '1110' ? 3 : null;
+  // 四指伸直时，拇指收进掌心才是数字 4；普通张掌仍用于解除中断保护。
+  const thumbFolded = distance(p[4], p[9]) / palm < .8;
+  return pattern === '1000' ? 1 : pattern === '1100' ? 2 : pattern === '1110' ? 3 :
+    pattern === '1111' && thumbFolded ? 4 : null;
 }
 
 // One event per stable pose. Busy/lost tracking requires a neutral pose before rearming.

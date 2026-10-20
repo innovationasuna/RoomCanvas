@@ -1,48 +1,40 @@
 # 架构与本机运行
 
-## 数据流
+## 入口与职责
 
-`camera → tracking → gestures → controls → scene`，app 协调生命周期，ui 显示模式与状态。鼠标通过 controls 的同一操作入口进入。
+网站唯一 HTML 源文件是 `RoomCanvas.html`。Vite 开发和预览服务将根地址、旧 `index.html`、`viewforge.html` 和 `furniture-demo.html` 书签重定向至该页面，不再维护重复 HTML。查询参数与页面 hash 保留。
 
-| 模块 | 责任 | 不承担 |
-| --- | --- | --- |
-| camera | 用户触发授权、设备枚举、视频流、切换和释放 | 自动开启、录像或上传 |
-| tracking | Worker 内 CPU 推理，输出关键点、handedness score、时间戳与推理耗时 | 手势判定、物体移动 |
-| gestures | 特征提取、归一化捏合迟滞、时间确认、张掌、身份锁定、位置滤波 | 家具约束 |
-| controls | 模式、选中、相对基准、单/双手控制、约束、每场景历史与未确认预览 | DOM 和渲染器 |
-| scene | GLB 加载、射线拾取、变换执行、相机、XYZ 目标任务与 GPU 释放 | MediaPipe 数据读取 |
-| ui | 菜单、指针、镜像预览、状态、指南与只读坐标 | 控制算法 |
-| app | 串行推理调度、资源生命周期、菜单与场景协调、输入互斥 | 物体变换计算 |
+| 模块 | 职责 |
+| --- | --- |
+| integration/site、room-library、account | 页面切换、房间管理和登录界面 |
+| integration/cover-pull、scene-loading | 封面拖动、回弹和加载动画的连续收尾 |
+| camera、tracking | 用户触发摄像头授权、串行 Worker 推理和资源释放 |
+| gestures | 特征、捏合迟滞、身份保护、数字选择和竖拇指确认 |
+| integration/runtime、main、protocol | 识别调度、状态反馈和与房间 iframe 的受限通信 |
+| ui/hand-feedback、shared | 镜像骨架绘制、类型、配置和滤波 |
+| server | 房间清单、资产导入、会话和 Google 身份验证 |
+| ../web/editor | 三维渲染、家具选择、变换、承托/碰撞/落下检查、保存与撤销 |
 
-## 接口
+旧独立家具演示的 App、Controller、Three.js 场景、远程识别后端及专用资源已移除。网站内的 Three.js 房间仍由 `web/editor/` 和 `web/vendor/` 提供。
 
-公共类型集中在 src/shared/types.ts。TrackingFrame 包含 timestamp、hands、inferenceMs；Hand 包含 landmarks、world、side 和 score。score 是左右手分类分数，不是手部存在概率；存在/检测/追踪门槛由 MediaPipe 内部配置为 0.6。
+## 数据流与交互
 
-GestureFrame 包含 operator/helper、捏合时序、菜单请求与中断/歧义状态。ScenePort 为控制层提供拾取、地板求交、对象变换、相机、快照/恢复和场景切换。Controller 的 action、input 与 mouse* 为统一语义入口。控制历史不超过每场景 50 条。
+`摄像头 → Worker 关键点 → 手势状态机 → 本地 postMessage → 房间编辑器`。鼠标与手势在房间端共用摆放和确认流程。
 
-## 坐标与映射
+右手操作家具、左手捏合环绕，可同时进行。数字 1/2/3/4 分别选择移动、高度、双手缩放和旋转；双手缩放优先于单手操作，结束后保持捏合的左手以当前视角重建基准。旋转横移一画面宽度对应 1080°，缩放只改变相机。
 
-- Three.js 采用米、弧度、Y 向上；地面是 XZ 平面。
-- 摄像头原图不翻转，预览及屏幕指针统一水平镜像。Right 固定用于物体控制，Left 固定用于相机环绕/菜单；每个角色须有分类分数 ≥0.8 的唯一候选，位置连续性不得覆盖左右手限制。右手天蓝、左手浅绿，均显示指尖/连线/中点；不提供角色交换，物理左右手标注仍需真人核对。
-- 指针是拇指/食指中点。捏合距离用掌部尺度归一化，图像坐标按画面宽高比修正。
-- 家具控制保留抓取偏移，旋转后的包围盒约束在 6×5×3m 房间内；高度不能穿地/天花板，无家具间物理碰撞。
-- XYZ 平面映射采用抓取时相机右/上轴；掌部投影尺度对数变化沿相机前后轴控制深度。掌面侧转时冻结深度并在转回时重建尺度参考，不补偿侧转期间变化。
-- 所有参数集中在 src/shared/config.ts，当前为未经验收的初始配置。
+松手保持预览，竖拇指、按钮或 Enter 明确确认后，房间端执行承托、墙面安装、碰撞和落下检查，通过才保存与记录撤销。丢手、歧义或陈旧帧不会触发放置；恢复后先松手再抓取。
 
-## 状态与中断
+## 坐标与资源
 
-捏合开始时锁定对象及基准，松开时提交；同一操作不同时改变相机和物体。双手操作结束后必须松手再进入单手。菜单打开暂停场景操作，选择后也必须松手。
+视频源不翻转，视频预览和骨架分别做一次水平镜像，并使用一致的尺寸与宽高比。右手暖琥珀、左手青玉；指尖张开超出显示阈值后隐藏指尖强调，完整骨架仍保留。
 
-左手有独立的视角会话，不需要右手在场，也不随右手缺席计时而重置。左手任意模式捏合拖动映射到相机 theta/phi；右手物体会话与左手视角会话并行，各自释放和中断，不互相结束。视角改变后使用最后有效右手指针重建移动基准，保持静止右手的世界位置不变，物体撤销快照保持为抓取开始前状态。指定模式中的双手缩放优先于单手会话。XYZ 目标驻留在环绕期间暂停，视角不进入物体撤销历史。
+每次只允许一个在途 ImageBitmap，完成后关闭；超时帧丢弃，持续中断立即冻结。页面隐藏时停止推理调度；停止摄像头、换房间和退出时释放视频流、Worker 与待处理请求。不开启远程摄像头传输。
 
-手部无效立即不输出变换；200ms 以上中断会话，保留预览，重获后松手再抓取。未确认预览按场景隔离，可通过撤销恢复抓取前状态；不会因失踪增加已提交历史。模式切换重新建立控制基准。
+## 服务和持久化
 
-推理在模块 Worker 中进行，使用 tasks-vision 的 `forVisionTasks(path, true)` 选择 ES module WASM loader。每次只有一个在途 ImageBitmap，每次完成即关闭，不记录。旧帧超过 250ms 被丢弃；持续无结果会冻结控制。页面隐藏时冻结控制并暂停推理调度；设备切换/断开、停止、退出释放视频流与 Worker；退出释放场景 GPU 资源。
+Vite 默认绑定 `127.0.0.1:8800`，Python 房间服务默认绑定 `127.0.0.1:7870`。本地 API 在开发和生产预览模式都可用；仅复制静态构建文件不能替代房间与登录 API。
 
-## 运行
+房间清单、导入资产和会话位于仓库旁 `.roomcanvas-local/`，布局按房间实例隔离。房间 API 校验归属、Origin 和 CSRF；Google 登录由官方 GIS 提供按钮，由 Node API 校验 ID Token。
 
-使用 Vite 仅绑定 127.0.0.1:8800。GLB、模型、WASM 均走同源本地资源，无 CDN、远程字体或遥测。开发模式有本地 HMR WebSocket；生产构建是静态文件。
-
-## 可选 Mac mini 后端（2026-10-10）
-
-`camera → tracking/remote（JPEG，同源 HTTPS）→ backend/server.py（MediaPipe Python CPU / IMAGE）→ TrackingFrame → gestures → controls → scene`。本地 Worker 模式保持默认，远程模式必须由用户开启按钮启动。backend 使用独立实例池隔离每帧推理，多客户端房间状态仍留在各自浏览器。无帧队列，繁忙返回 503 丢帧重试。令牌仅用于测试接口访问，无客户端数据持久化。远程启动及真实设备验收见 [macmini-test.md](macmini-test.md)。
+识别模型、WASM 与首页图片本地提供。只有进入登录页才加载 Google 官方 SDK。编辑器统一使用 `roomcanvas-gesture-v1`，协议详情见 [接入说明](roomcanvas-integration.md)。物体重建通过编辑器的 `/viewforge/assets/`、`/viewforge/objects/` 和 `/viewforge/dimensions/` 接口完成，不参与摄像头识别。

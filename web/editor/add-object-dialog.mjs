@@ -6,8 +6,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject,
   startMasks, startReconstruction, follow, previewURL, saveMeasurement} from './add-object.mjs?v=app-36';
-import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs?v=app-42';
-import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs?v=app-43';
+import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs?v=roomcanvas-20261020';
+import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs?v=roomcanvas-20261020';
 
 const $ = (selector) => document.querySelector(selector);
 const KEY = 'roomcanvas:add-object';

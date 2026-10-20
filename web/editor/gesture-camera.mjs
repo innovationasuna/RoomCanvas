@@ -2,8 +2,8 @@
 // (bundled into web/vendor/gesture/ from gesture/src/embed/). Frames go straight to the editor's
 // GestureInput in the form the gesture page posts them (gesture-bridge.mjs), so the camera
 // card and the gesture page drive the room the same way.
-export const DIGIT_MODES = {1: 'move', 2: 'rotate', 3: 'view'};
-export const MODE_NAMES = {move: '移动', rotate: '旋转', view: '观察'};
+export const DIGIT_MODES = {1: 'move', 2: 'height', 3: 'scale', 4: 'rotate'};
+export const MODE_NAMES = {move: '移动', height: '抬高', scale: '缩放', rotate: '转向', view: '选择'};
 
 // The left hand's state, worded as on the gesture page (gesture/src/integration/main.ts).
 export function leftHandText(left, {busy = false, rightHeld = false} = {}) {
@@ -12,18 +12,17 @@ export function leftHandText(left, {busy = false, rightHeld = false} = {}) {
     case 'uncertain': return '左手不稳，让手掌朝向摄像头';
     case 'ambiguous': return '分不清左右手，请分开双手';
     case 'blocked': return busy ? '操作结束后张掌再选模式' : rightHeld ? '先松开右手再选模式' : '左手已识别';
-    case 'neutral': return '先张开左手，再比 1 / 2 / 3';
-    case 'pose': return '比 1 / 2 / 3，其余手指收拢';
+    case 'neutral': return '先张开左手，再比 1 / 2 / 3 / 4';
+    case 'pose': return '比 1 / 2 / 3 / 4；3 为拇食指成圈，其余三指伸出';
     case 'confirming': return `左手 ${left.digit} → ${target} ${Math.round(left.progress * 100)}%`;
     case 'selected': return `左手 ${left.digit} → ${target}`;
-    default: return '左手比 1 / 2 / 3 切换模式';
+    default: return '左手比 1 / 2 / 3 / 4 切换模式';
   }
 }
 
-// In observation mode the observation recogniser's pinch (two fingers orbit, three pan) drives
-// the camera; otherwise the pointer pinch.
-export function inputFrame(lib, frame, mode) {
-  return mode === 'view' ? lib.observationPayload({...frame.observation, helper: frame.helper}) : lib.gesturePayload(frame);
+// 两种入口共用双手信号，保留左手环绕与双手缩放。
+export function inputFrame(lib, frame) {
+  return lib.gesturePayload(frame);
 }
 
 // lib: the bundled runtime module. port: mode(), setMode(mode), canSwitch(), busy().
@@ -40,9 +39,12 @@ export function createGestureCamera({lib, video, input, port, ui, clock = perfor
   }
   const callbacks = {
     canSwitch: () => port.canSwitch(),
+    confirmationTarget: () => port.confirmationTarget(),
     frame(frame) {
       if (frame.modeSelection) requestMode(DIGIT_MODES[frame.modeSelection], true);
-      input.input(inputFrame(lib, frame, port.mode()), clock.now());
+      input.input(inputFrame(lib, frame), clock.now());
+      const target = port.confirmationTarget();
+      if (frame.placementConfirmation && target.allowed && frame.placementConfirmation === target.previewId && !input.active && !input.dual) port.confirm();
       const right = frame.operator;
       ui.right(!right ? '右手未识别' : right.pinching ? '右手捏合' : '右手已识别', !!right);
       const left = frame.leftDetection;

@@ -18,6 +18,11 @@ export class PlacementSession {
     return copyLayout(this.candidate);
   }
   committed() { return copyLayout(this.before); }
+  // 松手固定预览，确认仍由用户显式触发；高度和原布局保持不变。
+  pause() {
+    this.locked = true;
+    this.placeWhenChecked = false;
+  }
   cancel() { return this.committed(); }
   confirm() {
     if (!this.valid) return null;

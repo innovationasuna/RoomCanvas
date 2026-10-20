@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
-<link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-43">
+<link rel="stylesheet" href="../theme.css?v=roomcanvas-20261020">
+<link rel="stylesheet" href="./editor.css?v=roomcanvas-20261020">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
-</head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<link rel="stylesheet" href="./studio.css?v=roomcanvas-20261020"></head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
     <symbol id="icon-chair" viewBox="0 0 24 24"><path d="M7 12V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v7M6 12h12v5H6zM8 17v4m8-4v4M4 9v5h2m14-5v5h-2"/></symbol>
     <symbol id="icon-table" viewBox="0 0 24 24"><path d="M3 7h18v4H3zM5 11v9m14-9v9M5 15h14"/></symbol>
@@ -46,7 +46,7 @@
 <main class="rc-stage">
  <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择家具后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
  <nav class="rc-tools" aria-label="布置工具">
-  <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
+  <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3/4 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
   <button class="rc-tool" id="undo" disabled aria-label="撤销"><svg aria-hidden="true"><use href="#icon-undo"/></svg>撤销</button>
   <button class="rc-tool" id="clear-room" title="将房间中的家具全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
   <button class="rc-tool" id="reset-layout" title="恢复原始家具、位置和朝向，可撤销">↻ 一键还原</button>
@@ -67,7 +67,7 @@
     <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中家具" data-view="focus">聚焦家具</button></div>
     <div class="rc-footer-tools"><label><input id="cut" type="checkbox" checked>近侧墙半透明</label><label><input id="ceiling" type="checkbox">天花板</label>
  <label><input id="import-lighting" type="checkbox">导入物体随光照变化（实验）</label>
- <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
+ <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout" data-gesture-ignore title="仅鼠标或键盘可导出，避免手势误触下载">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
  <a href="../?model=authored" target="_blank" rel="noopener">原始重建 ↗</a><input id="layout-file" type="file" accept=".json,application/json" hidden></div>
     <p class="rc-scale-note">单位：米</p>
    </div>
@@ -127,11 +127,11 @@
  </aside>
  <aside class="rc-gesture-card" id="gesture-card" aria-label="手势" hidden>
   <video id="gesture-video" autoplay muted playsinline></video>
-  <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3）">
-   <button type="button" data-gesture-mode="move" aria-pressed="false"><b>1</b>移动</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>2</b>旋转</button><button type="button" data-gesture-mode="view" aria-pressed="true"><b>3</b>观察</button>
+  <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3 / 4）">
+   <button type="button" data-gesture-mode="move" aria-pressed="true"><b>1</b>移动</button><button type="button" data-gesture-mode="height" aria-pressed="false"><b>2</b>抬高</button><button type="button" data-gesture-mode="scale" aria-pressed="false"><b>3</b>缩放</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>4</b>转向</button>
   </div>
   <p class="rc-gesture-hand" id="gesture-right" data-seen="false">右手未识别</p>
-  <p class="rc-gesture-hand" id="gesture-left" data-seen="false">左手比 1 / 2 / 3 切换模式</p>
+  <p class="rc-gesture-hand" id="gesture-left" data-seen="false">左手比 1 / 2 / 3 / 4 切换模式</p>
   <progress id="gesture-progress" max="1" value="0" aria-label="左手模式确认进度"></progress>
   <p class="rc-gesture-status" id="gesture-status" role="status" hidden></p>
  </aside>
@@ -185,4 +185,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-43"></script></body></html>
+</div><script type="module" src="./editor.js?v=roomcanvas-20261020"></script></body></html>
