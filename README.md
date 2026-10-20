@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/icon.svg" width="64" alt="">
+<img src="docs/images/roomcanvas-rc-logo.png" width="128" height="128" alt="RoomCanvas RC 标志">
 
 # RoomCanvas
 
