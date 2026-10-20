@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-20（main `4ad1921`，见下面“最近两天”；服务器文件夹还在 #15 的 `7b4377b`，之后只改了网页、样例和文档，后端不用重启，要同步就照“服务器”一节）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-20（main 到 #23 `6d56373`，见下面“最近两天”；服务器文件夹已同步到 `6d56373`，但 7862 还是 #15 时启动的旧 Gradio 进程，**没重启**，见“最近两天”#23 一条）。
 
 ## 最近两天（2026-10-19、20）
 
@@ -8,33 +8,30 @@
 - **关闭未合并**：#16（手势轻捏死区、拖动只重算动了的家具、捏家具不误按“一键还原”、轻捏等 0.3 秒）。用户要求手势回到 #12 的样子，分支已删，提交还能从 `git fetch origin pull/16/head` 取回。其中发现的问题仍然存在：拖动时每帧重算全部家具的“是否放稳”（拖床 3 秒里 2.4 秒花在这上面，一顿一顿）；手划过“一键还原”“取消”后 0.3 秒内捏家具会按到按钮；拖动初期识别误报一次松手会把家具放下（摇杆面板因此“消失”）。
 - **可动物体试验**：见下文“开门、开柜门”一节末尾和服务器 `runs/articulation-trials-20261019/`；方法 2 已用在 room3 钢琴上。
 - **CI 慢**：2026-10-19 晚 GitHub Actions 故障（官方状态页有事故），排队十几分钟；平时一次 1.5–2 分钟。Git 历史已 346 MB（房间模型每版整份留在历史里），以后可考虑 Git LFS、依赖缓存、按改动目录跳过检查。
+- **#23 lyk：ViewForge 只管物体**（`6d56373`，2026-10-20 合并）：`object-reconstruction/scripts/web.py` 改成只有接口的 Starlette / Uvicorn 服务（不再加载 Gradio），上传、抠图、重建、进度、标定接口地址不变；物体读取拆到 `scripts/assets.py`（`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`、`result.ply`、`preview.json`），旧 `/viewforge/layouts/catalog`、`layouts/assets/…` 只兼容物体读取，房间读取、布局页、validate、save 已去掉。旧 Gradio 页面、Babylon 查看器和布局页、ViewForge 手势接入页、旧测试整体挪进 `object-reconstruction/legacy/`（弃用，只作参考，CI 不再构建）；独立手势页改为 `gesture/roomcanvas.html`（协议 `roomcanvas-gesture-v1`）。编辑器新增：重建结果预览的 X/Y/Z 坐标轴（Z 是高度），仓库里可删除重复导入的实例。lyk 验证：后端 CPU 42 项、网页 180 项、本机服务 12 项；GPU 用 CPU 模拟，没真跑重建，没真人摄像头。
+  - **部署状态**：服务器代码已同步到 `6d56373`，**7862 没重启**，仍是旧进程（内存里的旧代码，RoomCanvas 编辑器的添加/导入物体照常可用）。但旧 Gradio 页面运行时从 `scripts/assets/` 读查看器和布局页，这些已挪走，旧页面里这两处会坏。下一步：告诉 lyk 后照“服务器”一节的命令重启 7862（命令不变）。新依赖文件 `configs/api-requirements.txt` 固定 uvicorn 0.54.0，服务器 mvsam3d 环境是 0.52.4（starlette 0.52.1、python-multipart 0.0.32 一致），先不 `pip install`，直接用现有环境启动，起不来再说。重启后旧 Gradio 页面和 ViewForge 布局页就没有了，`/workspace/geyinuo/RoomCanvas-Reconstruction/` 也不再被读（仍先别动）。服务器上 `object-reconstruction/viewer/` 只剩 git 忽略的 `.gitignore`、`.test-build/`（旧查看器测试产物），没删。
+  - lyk 在本文顶部写的三段原始记录（内容未删）：
+    - **ViewForge 只负责物体（本地改动，未部署）**
+      - 移除 ViewForge 的 Babylon 房间布局源码、构建产物、房间读取、场景碰撞、承托与布局快照接口；现有服务器外部数据不动。下文关于旧 ViewForge 布局页的描述属于历史。
+      - 保留照片、BiRefNet、DA3 / MV-SAM3D、COVER、GLB / Gaussian 单物体预览及 `dimensions.py` 实测标定。
+      - 物体读取拆到 `scripts/assets.py`：`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`；旧 layouts 目录下只兼容 catalog/assets 读取。添加物体、标定接口保持原地址。
+      - 手势统一使用 RoomCanvas：内置入口照旧，独立识别页改为 `gesture/roomcanvas.html`，默认指向 7880 编辑器；协议为 `roomcanvas-gesture-v1`，不连接 ViewForge。
+      - 验证：网页 173 项 + Python 12 项、手势 74 项、物体预览 10 项、后端 CPU 58 项通过；类型检查、资源校验和构建通过。Chrome 合成模型验证标定 0.9 米后导入放置及 RoomCanvas 手势握手，无页面异常；未执行 GPU 重建或真人摄像头验收。
+      - 详情见 [物体说明](OBJECT_RECONSTRUCTION.md)。上线需要同步后端和查看器产物并重启物体服务；本次未操作服务器。
+    - **兼容性复查、坐标轴与删除导入实例**
+      - 已提交 `313a62d`：ViewForge 物体化及兼容修复。提交前网页 177 项、Python 12 项、手势 74 项、物体预览 10 项、物体后端 CPU 58 项通过；office 18/18、room3 23/23 检查通过。Chrome 回归新旧后端、离线入口、缺轻量预览、标定导入、清空撤销及手势。
+      - 新增本地功能：重建尺寸预览的 X/Y/Z 三轴和可点标签，Z 表示高度；仓库导入卡片可删除当前这一份实例，保留源结果及其他实例，清理碰撞、资源和历史引用。新增功能已提交为 `97c475a`，未部署。
+      - 新增功能验证：网页 180 项单测通过；Chrome 验证三轴选择、相机旋转标签、0.6 米标定后放置、重复实例删除、搜索、撤销/重做、待放置实例删除和源结果保留，无页面异常。
+      - 未执行新的 GPU 重建，也未使用真人摄像头。原有未跟踪的 `docs/OBJECT_RECONSTRUCTION_PIPELINE.md` 未纳入上述提交。
+    - **物体 API 与旧界面彻底解耦**
+      - `97c475a` 为坐标轴和删除导入实例按钮的独立提交。
+      - 正式 `object-reconstruction/scripts/web.py` 改为 Starlette / Uvicorn API，不加载 Gradio、旧页面、旧查看器或任意文件路由。已接入的上传、蒙版确认、重建、进度、模型、标定及旧物体读取地址兼容继续保留。
+      - 按用户新要求保留全部旧 UI：Gradio 页面、Babylon 单物体/房间查看器、手势接入页、场景后端、原产物、许可证与旧测试统一归档 `object-reconstruction/legacy/`，标注弃用，仅作参考，不运行或部署。前文“移除”指退出正式运行链路。
+      - 新增 API 依赖 `configs/api-requirements.txt`；CI 用 CPU API 回归代替旧查看器构建。历史 manifest 通过受限资产地址适配，不改历史结果，COVER/补拍 CLI 和 Gaussian 原始数据保留。
+      - 当前唯一正式前端为 RoomCanvas；旧界面独有的补拍操作没有自动变成新前端功能。此次只提交推送，不重启或部署正式服务器。
+      - 解耦验证：后端 CPU 42 项、网页 180 项、本机服务 12 项测试通过；Chrome 完整走通上传、抠图确认、重建任务、Z 轴 0.6 米标定与放置，并验证重复导入删除。GPU 运算使用 CPU 模拟，API、任务和文件处理真实执行，未重新运行模型推理。47 份归档原文件与 Git 历史逐字节核对一致。
 - **本机**：7880 `serve.py`（已含 #19 加大的请求队列）和 7865 隧道是对话后台起的，可能被停；停了照“本机常开一个预览服务”重开。
 
-
-## 2026-10-20 · ViewForge 只负责物体（本地改动，未部署）
-
-- 移除 ViewForge 的 Babylon 房间布局源码、构建产物、房间读取、场景碰撞、承托与布局快照接口；现有服务器外部数据不动。下文关于旧 ViewForge 布局页的描述属于历史。
-- 保留照片、BiRefNet、DA3 / MV-SAM3D、COVER、GLB / Gaussian 单物体预览及 `dimensions.py` 实测标定。
-- 物体读取拆到 `scripts/assets.py`：`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`；旧 layouts 目录下只兼容 catalog/assets 读取。添加物体、标定接口保持原地址。
-- 手势统一使用 RoomCanvas：内置入口照旧，独立识别页改为 `gesture/roomcanvas.html`，默认指向 7880 编辑器；协议为 `roomcanvas-gesture-v1`，不连接 ViewForge。
-- 验证：网页 173 项 + Python 12 项、手势 74 项、物体预览 10 项、后端 CPU 58 项通过；类型检查、资源校验和构建通过。Chrome 合成模型验证标定 0.9 米后导入放置及 RoomCanvas 手势握手，无页面异常；未执行 GPU 重建或真人摄像头验收。
-- 详情见 [物体说明](OBJECT_RECONSTRUCTION.md)。上线需要同步后端和查看器产物并重启物体服务；本次未操作服务器。
-
-## 2026-10-20 · 兼容性复查、坐标轴与删除导入实例
-
-- 已提交 `313a62d`：ViewForge 物体化及兼容修复。提交前网页 177 项、Python 12 项、手势 74 项、物体预览 10 项、物体后端 CPU 58 项通过；office 18/18、room3 23/23 检查通过。Chrome 回归新旧后端、离线入口、缺轻量预览、标定导入、清空撤销及手势。
-- 新增本地功能：重建尺寸预览的 X/Y/Z 三轴和可点标签，Z 表示高度；仓库导入卡片可删除当前这一份实例，保留源结果及其他实例，清理碰撞、资源和历史引用。新增功能已提交为 `97c475a`，未部署。
-- 新增功能验证：网页 180 项单测通过；Chrome 验证三轴选择、相机旋转标签、0.6 米标定后放置、重复实例删除、搜索、撤销/重做、待放置实例删除和源结果保留，无页面异常。
-- 未执行新的 GPU 重建，也未使用真人摄像头。原有未跟踪的 `docs/OBJECT_RECONSTRUCTION_PIPELINE.md` 未纳入上述提交。
-
-## 2026-10-20 · 物体 API 与旧界面彻底解耦
-
-- `97c475a` 为坐标轴和删除导入实例按钮的独立提交。
-- 正式 `object-reconstruction/scripts/web.py` 改为 Starlette / Uvicorn API，不加载 Gradio、旧页面、旧查看器或任意文件路由。已接入的上传、蒙版确认、重建、进度、模型、标定及旧物体读取地址兼容继续保留。
-- 按用户新要求保留全部旧 UI：Gradio 页面、Babylon 单物体/房间查看器、手势接入页、场景后端、原产物、许可证与旧测试统一归档 `object-reconstruction/legacy/`，标注弃用，仅作参考，不运行或部署。前文“移除”指退出正式运行链路。
-- 新增 API 依赖 `configs/api-requirements.txt`；CI 用 CPU API 回归代替旧查看器构建。历史 manifest 通过受限资产地址适配，不改历史结果，COVER/补拍 CLI 和 Gaussian 原始数据保留。
-- 当前唯一正式前端为 RoomCanvas；旧界面独有的补拍操作没有自动变成新前端功能。此次只提交推送，不重启或部署正式服务器。
-- 解耦验证：后端 CPU 42 项、网页 180 项、本机服务 12 项测试通过；Chrome 完整走通上传、抠图确认、重建任务、Z 轴 0.6 米标定与放置，并验证重复导入删除。GPU 运算使用 CPU 模拟，API、任务和文件处理真实执行，未重新运行模型推理。47 份归档原文件与 Git 历史逐字节核对一致。
 
 ## 现状
 
@@ -105,7 +102,7 @@
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
 - 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端 2026-10-18 起从本仓库的 `object-reconstruction/` 运行（见上文“服务器”），运行环境、权重、照片、历史结果仍来自 `/workspace/geyinuo/ViewForge`；服务器上的 `object-reconstruction/configs/local.env` 已配好，不进 git。
-- 本机试 ViewForge 原布局：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`（lyk 的机器把 `3090x2-docker` 换成他自己的 SSH 别名）；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
+- （#23 起旧布局页已归档到 `object-reconstruction/legacy/`，正式后端不再提供，以下为历史）本机试 ViewForge 原布局：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`（lyk 的机器把 `3090x2-docker` 换成他自己的 SSH 别名）；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。我们自己的接收端用 2π。
 - **room3 接进手势页（2026-10-18，#8 已合并）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
 
@@ -132,7 +129,7 @@
    - 验证：后端测试在服务器 ViewForge 环境 76 项通过（新增 5 项），网页单测 150 项、Python 12 项通过。在服务器上用本分支的临时克隆另起 7863 实例（共用数据、缓存和 GPU 锁，正式 7862 没动），本机 Chromium 走完整流程：上传仓库自带的 4 张玩偶示例照片（每张约 10 MB）→ 抠图（BiRefNet 71 秒，去掉 1 张的切换正常）→ 重建（排队 → 深度 → 重建 → 补拍建议，共 7 分 35 秒）→ 结果预览、填高 0.30 米 → 放进 room3。刷新页面后从 localStorage 续上、尺寸自动带出也验证过。临时实例、克隆、隧道已清掉。
    - 留在服务器的测试数据：物体 `测试_玩偶`（`ViewForge/data/inputs/测试_玩偶/`）和结果 `runs/20261018_测试_玩偶_web_232915_330299/`（已标定高 0.30 米），ViewForge 页面和“导入物体”里能看到；不要了可在 ViewForge 页面“删除当前物体”（会移到 `data/removed/`，结果目录保留）。
    - 2026-10-19 合并后已同步服务器、重启 7862 后端（日志 `ViewForge/logs/roomcanvas-web-20261019.log`），本机 `serve.py` 7880 和 7865 隧道已重开。
-   - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）只在 ViewForge 页面有。
+   - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）原来只在 ViewForge 的 Gradio 页面有，#23 起该页面已归档，RoomCanvas 里待补（见待办 0）。
    原计划：
    - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（通过同服务的 ASGI middleware），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
    - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（`/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
@@ -244,7 +241,7 @@ P0 基线工具、P1 通用校准与可回退导入 PBR 实验、P2 两种 AO �
    - 服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用会报 “codex CLI not on PATH”。修法：把链接指向一份新的包装脚本（内容同 `runs/articulation-trials-20261019/scripts/bin/codex`），待用户决定。
    - room3 钢琴：琴键盖合上只盖住琴键后半；翻开后在谱子下面，从上往下点不回来（预览模式点击只认第一个命中的物体）。
    - 手势的三个问题（见“最近两天”#16 一条），以及“添加物体”还没用真人手机照片试过。
-   - **“添加物体”补齐（用户 2026-10-20 要求，新对话做）**：(a) 照片下限从 3 张改成 1 张（重建本身一张就行，服务器上沙发 1 张、办公椅 2 张；3 张是之前方案里写的，前后端 `MIN_PHOTOS` 都要改，界面只提示多拍几个角度更好）；(b) 结果那一步显示补拍建议：`run.py` 每次都算（`runs/<结果>/cover/`），用 ViewForge 现成的补拍查看器（`scripts/assets/cover-viewer.html` + `cover/preview.json`）；(c) 加“补拍”：补传照片 → 和原照片一起抠图 → `run.py --parent-run` 重建，后端 `import_photos(parent_run_id=…)`、`run.py --parent-run` 已支持，`objects.py` 和对话框要接上。改了 `object-reconstruction/`，合并后要同步服务器并重启 7862，重启前告诉 lyk。
+   - **“添加物体”补齐（用户 2026-10-20 要求，新对话做）**：(a) 照片下限从 3 张改成 1 张（重建本身一张就行，服务器上沙发 1 张、办公椅 2 张；3 张是之前方案里写的，前后端 `MIN_PHOTOS` 都要改，界面只提示多拍几个角度更好）；(b) 结果那一步显示补拍建议：`run.py` 每次都算（`runs/<结果>/cover/`），可参考 ViewForge 原来的补拍查看器（#23 起在 `object-reconstruction/legacy/scripts/assets/cover-viewer.html`，归档代码不再加载；数据接口现为 `/viewforge/assets/<结果>/preview.json`）；(c) 加“补拍”：补传照片 → 和原照片一起抠图 → `run.py --parent-run` 重建，后端 `import_photos(parent_run_id=…)`、`run.py --parent-run` 已支持，`objects.py` 和对话框要接上。改了 `object-reconstruction/`，合并后要同步服务器并重启 7862，重启前告诉 lyk。
 
 1. **编辑器性能**：落点的完整检查已移到后台线程（2026-10-18，用户反馈手势放钢琴卡），手势和确认不再冻住；方向按钮逐步挪动、鼠标悬停摆放仍在页面线程。原记录：只有两个重网格挨着时慢，room3 里是琴凳贴着钢琴，每步约 2 秒；同一把椅子放到房间中央只要 2 毫秒，office 的 TRELLIS 椅子也只要几毫秒。“每个连通部件只测一个点”的捷径会漏判（钢琴由 23 块重叠壳体组成），已放弃。以后要做就给重网格做简化碰撞外形，或放到 Web Worker。
 2. **清空房间、导出空房间**：按 `room_objects.json` 的 `role` 删家具，导出 `empty_room.glb`。窗帘、挂画、白板算不算家具未最终定（现在窗帘留在房间，挂画、白板算家具）。
