@@ -439,6 +439,10 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 - **导入物体**：工具栏“导入物体”列出 ViewForge 的重建结果；在 ViewForge 里标定过的自动填好尺寸，没标定的填一条实测边长（使用物体重建服务的同一份标定基准）。显示用完整模型，碰撞和支撑用它的轻量预览（同一坐标，三角面约 1/40）。导入后放在离房间中心最近的空地上，再用手势或鼠标摆放。导入要重建碰撞索引，room3 约 10 秒。
 - **添加物体**（仓库第一张卡片，始终显示；服务不可用时提示重试）：用几张照片新建物体，分四步——命名、拖入照片（3–40 张 JPEG/PNG；浏览器能解码的 HEIC 先转成 JPEG）→ 抠图预览（BiRefNet，绿色是识别出的物体，点一张可以不用它，至少留 3 张）→ 重建（DA3 深度 + MV-SAM3D，一般 3–8 分钟，GPU 被占时排队）→ 看结果、填一条实测边长 → 放进房间（之后同“导入物体”）。重建在服务器上跑，关掉对话框或刷新页面都不影响，卡片上显示进度，刷新后按 localStorage 里记的任务继续跟踪（服务重启过就跟不上了，结果照样会出现在“导入物体”里）。照片、抠图、结果和尺寸都存在 ViewForge 原来的目录，ViewForge 自己的页面也能看到、补拍。
 
+重建结果的尺寸预览显示红色 X（宽）、绿色 Y（深）、蓝色 Z（高）箭头，点击轴标签可以选择实测方向；轴与标定使用同一显示坐标，旋转视角时标签跟随。
+
+导入物体的仓库卡片右上角有删除按钮：只删除当前房间中的这一份实例，另一份重复导入和服务器重建结果保留，可从“导入物体”重新添加。原房间家具不提供这个删除入口。删除会清理已释放实例的历史引用，其他操作仍可撤销/重做；当前正在操作另一件家具时需先结束操作。
+
 ## 文件
 
 | 位置 | 内容 |
@@ -462,6 +466,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 | `editor/gesture-camera.mjs` | 内置手势：摄像头卡片接 `vendor/gesture/` 的识别运行时 |
 | `vendor/gesture/` | 从 `gesture/src/embed/` 构建的识别代码，随仓库提交 |
 | `editor/object-import.mjs` | 读 ViewForge 物体目录和尺寸，算真实尺寸的放置矩阵 |
+| `editor/object-dimensions.mjs`、`imported-objects.mjs` | 实测坐标轴与导入实例删除、资源清理 |
 | `editor/add-object.mjs`、`editor/add-object-dialog.mjs` | “添加物体”：上传、抠图、重建、进度的请求，和分步对话框 |
 | `editor/tests/` | 单元测试（Node 自带测试框架） |
 | `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
