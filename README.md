@@ -51,7 +51,7 @@ flowchart LR
 | 目录 | 做什么 |
 |---|---|
 | [`room-reconstruction/`](room-reconstruction/) | 房间重建：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent) 官方代码，Agent 改用 Codex（GPT-6 Astra），加了 3090 运行脚本和小物件这一步 |
-| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，及其后端和 Babylon 布局页 |
+| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，无界面的重建/标定 API；旧界面在 `legacy/` 弃用归档 |
 | [`web/`](web/) | RoomCanvas 网站：房间主页、编辑器、本机服务 `serve.py` |
 | [`gesture/`](gesture/) | 浏览器手势识别；编辑器内置的识别代码从这里打包 |
 | [`samples/`](samples/) | 两个示例房间：`room3`（手机扫描的卧室）、`office`（LiteReality 官方样例） |
@@ -60,7 +60,7 @@ flowchart LR
 
 - [网页说明](web/README.md)：编辑器的操作、手势、导入和添加物体，开发和测试
 - [房间重建](docs/ROOM_RECONSTRUCTION.md)：在 3090 上重建一个房间、小物件这一步、接到网页
-- [物体重建与手势](docs/OBJECT_RECONSTRUCTION.md)：ViewForge 后端、接口、SSH 隧道和手势页
+- [物体重建与手势](docs/OBJECT_RECONSTRUCTION.md)：ViewForge 物体后端、标定接口、SSH 隧道和 RoomCanvas 手势
 - [光影增强](web/README.md#通用光影增强)：光照档位、环境光、静态 AO 和验收；[光影调研](web/README.md#光影调研)：开源方案、版本兼容性、低耦合接入方式和实验任务
 - [参与开发](CONTRIBUTING.md)：分支、检查、合并流程
 - [交接文档](docs/HANDOFF.md)：当前进度、服务器目录和待办

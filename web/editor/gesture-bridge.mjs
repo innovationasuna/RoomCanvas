@@ -1,9 +1,6 @@
-// Receiver for the gesture page in gesture/ (protocol viewforge-gesture-v1). The gesture page
-// embeds this editor in an iframe, recognises hands in the browser and posts pointer frames;
-// this module turns them into grab / move / rotate / release and camera orbit / pan. It follows
-// the receiver in object-reconstruction/viewer/src/layout-gesture*.ts message for message, so the
-// gesture page needs no change. Scene work stays in scene-editor.js behind a port.
-export const PROTOCOL = 'viewforge-gesture-v1';
+// RoomCanvas gesture input: built-in camera and optional iframe connection share this receiver.
+// Only pointer / pinch state is accepted; camera frames and landmarks stay in the recognition worker.
+export const PROTOCOL = 'roomcanvas-gesture-v1';
 export const MODES = ['move', 'rotate', 'view'];
 // One sweep of the hand across the camera image turns the piece a full circle.
 export const ROTATION_PER_SWEEP = 2 * Math.PI;

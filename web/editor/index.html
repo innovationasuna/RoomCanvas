@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-36">
+<link rel="stylesheet" href="./editor.css?v=app-43">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -147,7 +147,7 @@
 </main>
 <section class="rc-shelf" id="object-panel" aria-label="仓库">
  <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件家具</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索家具" aria-label="搜索场景物体"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
- <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" hidden aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
+ <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
 </section>
 <dialog class="rc-dialog" id="add-object-dialog" aria-labelledby="add-object-title">
  <form method="dialog" class="rc-dialog-head"><h2 id="add-object-title">添加物体</h2>
@@ -174,6 +174,7 @@
  </section>
  <section data-panel="size" hidden>
   <div class="rc-add-view" id="add-view"></div>
+  <p class="rc-dialog-note">点击彩色轴标签选择实测边；蓝色 Z 轴表示高度。</p>
   <div class="rc-import-size"><label>实测边<select id="add-axis"><option value="X">X（宽）</option><option value="Y">Y（深）</option><option value="Z" selected>Z（高）</option></select></label><label>长度（米）<input id="add-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
   <p class="rc-dialog-note" id="add-size-note" aria-live="polite"></p>
   <div class="rc-dialog-actions"><button type="button" class="rc-action rc-confirm" id="add-place" disabled>放进房间</button></div>
@@ -184,4 +185,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-39"></script></body></html>
+</div><script type="module" src="./editor.js?v=app-43"></script></body></html>

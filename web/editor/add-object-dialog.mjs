@@ -6,7 +6,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject,
   startMasks, startReconstruction, follow, previewURL, saveMeasurement} from './add-object.mjs?v=app-36';
-import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs?v=app-36';
+import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs?v=app-42';
+import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs?v=app-43';
 
 const $ = (selector) => document.querySelector(selector);
 const KEY = 'roomcanvas:add-object';
@@ -189,6 +190,7 @@ export function mountAddObject({onReady, toast}) {
   }
   function describeSize() {
     if (!state.asset) return;
+    viewer?.selectAxis?.($('#add-axis').value);
     try {
       $('#add-size-note').textContent = sizeText(sizeInMeters(state.asset.base, measured()));
       $('#add-place').disabled = false;
@@ -223,13 +225,42 @@ export function mountAddObject({onReady, toast}) {
     host.replaceChildren(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(35, width / height, .01, 100);
     const controls = new OrbitControls(camera, renderer.domElement);
-    const draw = () => renderer.render(scene, camera);
+    const labels = document.createElement('div'); labels.className = 'rc-dimension-labels';
+    labels.setAttribute('aria-label', '模型实测坐标轴'); host.appendChild(labels);
+    let guides = null;
+    const buttons = DIMENSION_AXES.map(spec => {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = spec.label;
+      button.dataset.measureAxis = spec.axis; button.style.setProperty('--axis-color', spec.color);
+      button.onclick = () => {$('#add-axis').value = spec.axis; describeSize();};
+      button.hidden = true; labels.appendChild(button); return button;
+    });
+    const draw = () => {
+      renderer.render(scene, camera);
+      buttons.forEach(button => {
+        const tip = guides?.tips.get(button.dataset.measureAxis)?.clone().project(camera);
+        button.hidden = !tip || tip.z < -1 || tip.z > 1;
+        if (tip) {
+          button.style.left = `${Math.max(34, Math.min(host.clientWidth - 34, (tip.x + 1) * host.clientWidth / 2))}px`;
+          button.style.top = `${Math.max(16, Math.min(host.clientHeight - 16, (1 - tip.y) * host.clientHeight / 2))}px`;
+        }
+      });
+    };
     controls.addEventListener('change', draw);
-    viewer = {renderer, controls};
+    const resize = new ResizeObserver(() => {
+      if (!host.clientWidth || !host.clientHeight) return;
+      renderer.setSize(host.clientWidth, host.clientHeight); camera.aspect = host.clientWidth / host.clientHeight;
+      camera.updateProjectionMatrix(); draw();
+    });
+    resize.observe(host);
+    viewer = {renderer, controls, scene, resize, labels, selectAxis(axis) {
+      guides?.select(axis);
+      buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.measureAxis === axis)));
+      draw();
+    }};
     let gltf;
     try {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'preview.glb'));}
     catch {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'result.glb'));}
-    if (viewer?.renderer !== renderer) return;
+    if (viewer?.renderer !== renderer) {disposeObjectTree(gltf.scene); return;}
     // Unit-sized, standing on y = 0, as the editor places it; the box shows the measured extent.
     const shape = new THREE.Group();
     shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, 1 / Math.max(...Object.values(base.lengths)))));
@@ -240,15 +271,18 @@ export function mountAddObject({onReady, toast}) {
     scene.add(shape);
     const box = new THREE.Box3().setFromObject(shape);
     scene.add(new THREE.Box3Helper(box, 0x30664f));
+    guides = createDimensionGuides(THREE, box);
+    scene.add(guides.root);
     const middle = box.getCenter(new THREE.Vector3());
     camera.position.set(middle.x + 1.2, middle.y + .8, middle.z + 1.6);
     controls.target.copy(middle);
     controls.update();
-    draw();
+    viewer.selectAxis($('#add-axis').value);
   }
   function closeViewer() {
     if (!viewer) return;
-    viewer.controls.dispose(); viewer.renderer.dispose(); viewer.renderer.domElement.remove();
+    viewer.resize.disconnect(); viewer.controls.dispose(); disposeObjectTree(viewer.scene);
+    viewer.renderer.dispose(); viewer.renderer.domElement.remove(); viewer.labels.remove();
     viewer = null;
   }
 
