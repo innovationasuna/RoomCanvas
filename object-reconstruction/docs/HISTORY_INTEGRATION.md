@@ -32,7 +32,7 @@
 
 合并提交 `bc44718`（2026-10-17）把原手势树放到 `gesture-furniture-demo/`，原 ViewForge 根目录不被覆盖。之后单独提交路径适配和启动说明。旧提交中的文件路径仍然相对于原手势仓库根目录，可用 `git log 32082a3`、`git show <原提交>` 查看；并未改写为带子目录前缀的新提交。
 
-当前使用方式见 [手势接入说明](GESTURE_INTEGRATION.md)。摄像头和识别、场景渲染及即时预览在用户浏览器执行；服务器提供模型、执行物体重建、承托/碰撞校验及布局保存。
+2026-10-20 起，原 ViewForge 界面、房间布局和场景手势接收端已弃用，源码与原有产物保留在 `legacy/`；正式服务仅加载物体 API，重建、COVER、补拍命令行和尺寸标定保留，前端统一在 RoomCanvas。当前用法见 [物体重建说明](../../docs/OBJECT_RECONSTRUCTION.md) 和 [RoomCanvas 手势接入](../../gesture/docs/roomcanvas-integration.md)。上面的提交表仅记录历史。
 
 ## 验证与管理范围
 

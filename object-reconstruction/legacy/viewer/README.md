@@ -1,6 +1,6 @@
 # ViewForge 补拍查看器
 
-独立 Babylon.js **8.2.0** 查看器；GLB、Gaussian 和补拍相机箭头共用右手场景。
+单物体 Babylon.js **8.2.0** 查看器（不含房间布局和手势接收端）；GLB、Gaussian 和补拍相机箭头共用右手场景。
 
 GLB 采用渐进预览：有 `assets.glb_preview` 时先显示约 12,000 面的 `reconstruction/preview.glb`，随后后台加载原始 `result.glb`，就绪后在同一场景中替换。切换保留相机、补拍取景和箭头状态；完整模型失败时保留可操作的轻量预览并提供重试。缺少或无法加载轻量文件时直接加载完整模型。只读 state 的 `glbQuality` 为 `preview` / `full`，`assets.glb.status` 表示全量加载状态。构建为脚本和样式添加内容版本，避免浏览器沿用旧查看器。
 
