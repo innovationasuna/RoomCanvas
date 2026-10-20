@@ -12,6 +12,7 @@
 - 验证：网站/手势 102 项、编辑器 200 项、网页 Python 12 项、物体 API CPU 42 项，共 356 项通过；office 与 room3 实际模型检查通过。开发和构建预览各 35 项 HTTP 检查通过，覆盖新版房间包导入/关节数据保留、改名/删除/撤销、物体上传/模型读取/Z 轴标定、旧地址兼容与同源限制。网站和内置手势构建、资源清单、diff 与待提交内容密钥扫描通过。
 - 用户已自行检查本地预览并确认可以提交。浏览器工具关闭期间，助手未自行完成视觉或真人摄像头验收；用户未提供单项验收记录，不将其确认扩大为 GPU 推理或真实 Google 登录已验证。物体 API 用独立临时目录与合成照片/模型测试，未写入远端；现有 7865 隧道不可用，真实物体服务需另行连接。
 - 根 README 已按完整网站重写，补齐入口、启动服务、功能边界、数据保存、开发检查和模块关系；登录与物体说明同步修正，移除“仓库已带登录配置”等仅适用于旧本机环境的描述。
+- 用户随后提供 2026-10-20 的 8 张新版界面截图，已原样保存到 `docs/images/roomcanvas-*.png`。README 以完整工作台为主图，其余页面放入折叠预览；旧编辑器截图已替换并移除。截图由用户提供，不记作助手浏览器交互或真人手势验收。
 - 原工作区的 70 个备份文件逐字节一致，已跟踪 diff 与合并前备份一致。备份在工程父目录 `.roomcanvas-backups/ui-before-integration-20261020-172922/`；测试日志在本机 `/private/tmp/roomcanvas-merged-*.log` 和 `/private/tmp/roomcanvas-merge-preview-http.log`。
 
 ## 2026-10-20 · ViewForge 只负责物体（本地改动，未部署）
@@ -49,7 +50,7 @@
 - 测试：本次合并后网页单测 136 项、Python 8 项通过；CI 另跑 office 五个真实模型检查、两个房间的 `check_room`，以及 #5 带来的 `gesture`、`object-viewer` 两项。`room-reconstruction/` 离线测试历史记录为 785 项（服务器上 `test_stdio_bridge_matches_the_registry` 因环境原因失败，CI 通过）。
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
 - PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 [房间重建](ROOM_RECONSTRUCTION.md)。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
-- README 2026-10-19 按常见开源项目的写法重写（用户要求）：标题和一句话、效果图（office 编辑器截图 `docs/images/editor-office.jpg`，不用私人卧室）、功能、快速开始、流程图（mermaid）、目录、文档、对 LiteReality 的改动、隐私、致谢与许可；服务器上的房间重建命令和小物件流程挪到 `docs/ROOM_RECONSTRUCTION.md`。
+- README 2026-10-19 按常见开源项目的写法重写（用户要求）：标题和一句话、效果图（office 编辑器截图，不用私人卧室；已于 2026-10-20 换为新版完整网站截图）、功能、快速开始、流程图（mermaid）、目录、文档、对 LiteReality 的改动、隐私、致谢与许可；服务器上的房间重建命令和小物件流程挪到 `docs/ROOM_RECONSTRUCTION.md`。
 - 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
 
 ## 约定
