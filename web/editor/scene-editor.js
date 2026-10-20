@@ -13,11 +13,11 @@ import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
 import {analogDelta} from './placement-motion.mjs?v=app-36';
 
 import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-36';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-40';
 import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
 import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-36';
+import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
+import {mountAddObject} from './add-object-dialog.mjs?v=app-42';
 import {shadowSettings} from './lighting-settings.mjs?v=app-37';
 import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
 import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
@@ -1645,8 +1645,6 @@ for (const button of document.querySelectorAll('[data-gesture-mode]')) {
 // preview (same frame, ~1/40 of the triangles) stands in for contact and collision checks.
 let addedCount = 0, importAsset = null;
 async function openImports() {
-  let catalog;
-  try {catalog = await readCatalog();} catch {return;}
   // "添加物体": photos → a new object on the same server, then straight into the room.
   mountAddObject({toast: showToast, onReady: async (run, asset) => {
     if (![...$('#import-run').options].some((option) => option.value === run)) $('#import-run').prepend(new Option(objectLabel(run), run));
@@ -1662,6 +1660,11 @@ async function openImports() {
   $('#import-object').onclick = () => void importObject().catch((error) => {
     console.error(error); showToast(`导入失败：${error.message || error}`);
   });
+  let catalog;
+  try {catalog = await readCatalog();} catch {
+    $('#add-object-state').textContent = '照片重建 · 服务暂不可用，可重试';
+    return;
+  }
   if (!catalog.runs?.length) return;
   for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
   $('#import-menu').hidden = false;
@@ -1711,7 +1714,7 @@ async function importRun(run, base, scale) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
-  const [full, light] = await Promise.all(['result.glb', 'preview.glb'].map((file) => loader.loadAsync(viewforgeModel(run, file))));
+  const {full, light} = await loadModels(run, (url) => loader.loadAsync(url));
   cancelSession(false);
   const id = `added-${++addedCount}`, contact = `${id}:contact`;
   const shape = new THREE.Group();

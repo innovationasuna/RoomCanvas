@@ -78,11 +78,11 @@ npm run preview
 - XYZ 移动模式滚轮调整深度；XYZ 缩放模式滚轮调整大小；其他模式滚轮调整相机距离。
 - `Esc` 关闭菜单并中断操作。鼠标拖动期间暂停手势变换，结束后需松手重抓。
 
-## ViewForge 接入
+## RoomCanvas 接入
 
-本目录已随 RoomCanvas 仓库提供，无需单独克隆或放在固定的本机目录。推荐在 RoomCanvas 根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；也可进入本目录运行上述 npm 命令。ViewForge 场景端位于平级 `object-reconstruction/`。
+正式使用请打开 RoomCanvas 编辑器的“手势”开关。识别与场景操作均在本机浏览器完成，不依赖物体重建后端。
 
-运行 `npm run dev` 后打开 [ViewForge 手势布局](http://127.0.0.1:8800/viewforge.html)。先在嵌入的房间页确认尺寸并加入物体，再开启摄像头，用左手 1/2/3 选择移动、旋转、仅观察。右手两指捏合操作物体或环绕观察，观察模式三指合拢平移视角。该入口只运行识别，3D 场景由 ViewForge 渲染；原演示保持独立。环境、操作边界和验收记录见 [接入说明](docs/viewforge-integration.md)；后续验收与调整见 [下一阶段计划](docs/viewforge-next-plan.md)。
+调试独立识别页可在仓库根目录执行 `sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/roomcanvas.html>，默认连接 7880 的 RoomCanvas 编辑器。左手 1/2/3 切移动、旋转、观察；右手捏合操作。实现、协议和构建说明见 [RoomCanvas 接入](docs/roomcanvas-integration.md)。
 
 ## 参数调整
 

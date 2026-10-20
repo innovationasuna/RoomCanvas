@@ -1,7 +1,7 @@
 import type { GestureFrame, HandSignal } from '../shared/types';
 import type { ObservationSignal } from '../gestures/observe-pinch';
 
-export const PROTOCOL = 'viewforge-gesture-v1';
+export const PROTOCOL = 'roomcanvas-gesture-v1';
 export interface SceneState {
   protocol: typeof PROTOCOL; session: string; type: 'state'; sequence: number;
   busy: boolean; mode: 'view' | 'move' | 'rotate'; selectedId: string | null;
