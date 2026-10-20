@@ -37,7 +37,3 @@ await writeFile(path.join(out, "cover-viewer-build.json"), JSON.stringify({
   compatibilityPatches: [plyHeaderFix.name],
   outputs: Object.fromEntries(Object.entries(result.metafile.outputs).map(([name, info]) => [path.basename(name), { bytes: info.bytes, imports: info.imports }])),
 }, null, 2) + "\n");
-
-await build({absWorkingDir:root,entryPoints:['src/layout.ts'],outfile:path.join(out,'room-layout.js'),bundle:true,format:'iife',platform:'browser',target:['chrome110','firefox115','safari16.4'],minify:true,legalComments:'eof',logLevel:'info'});
-const layoutVersion=createHash('sha256').update(await readFile(path.join(out,'room-layout.js'))).update(await readFile(path.join(out,'room-layout.css'))).digest('hex').slice(0,12);
-await writeFile(path.join(out,'room-layout.html'),(await readFile(path.join(root,'src/layout.html'),'utf8')).replace('./room-layout.js',`./room-layout.js?v=${layoutVersion}`).replace('./room-layout.css',`./room-layout.css?v=${layoutVersion}`));

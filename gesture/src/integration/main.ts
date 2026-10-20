@@ -82,8 +82,8 @@ window.addEventListener('message', event => {
   if (pendingMode !== null && state.sequence >= pendingMode) pendingMode = null;
   start.disabled = !stop.disabled;
   modeButtons.forEach(b => { b.disabled = state.busy; b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)); });
-  $('scene-status').textContent = state.layoutReady || state.mode === 'view' ? state.message : '请先在下方确认房间尺寸并加入物体。';
-  $('gesture-help').textContent = state.mode === 'view' ? '右手拇指＋食指捏合环绕；拇指＋食指＋中指合拢平移。松开固定视角。' : state.mode === 'move' ? '右手指向物体后捏合拖动，松开检查承托与碰撞。' : '右手指向物体后捏合，左右移动自由旋转，松开检查碰撞。';
+  $('scene-status').textContent = state.layoutReady || state.mode === 'view' ? state.message : '请等待下方 RoomCanvas 房间加载完成。';
+  $('gesture-help').textContent = state.mode === 'view' ? '右手拇指＋食指捏合环绕；拇指＋食指＋中指合拢平移。松开固定视角。' : state.mode === 'move' ? '右手指向物体后捏合拖动，松开保留预览，轻捏确认放置。' : '右手指向物体后捏合，左右移动自由旋转，松开保留预览，轻捏确认放置。';
 });
 modeButtons.forEach(b => b.addEventListener('click', () => requestMode(b.dataset.mode!)));
 connect.addEventListener('click', loadScene);
@@ -106,5 +106,5 @@ const timer = window.setInterval(() => {
   }
 }, 500);
 address.value = new URLSearchParams(location.search).get('layout') ??
-  'http://127.0.0.1:7865/viewforge/layouts/viewer';
+  'http://127.0.0.1:7880/web/editor/?room=room3';
 loadScene();

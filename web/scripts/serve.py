@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Serve the repository for the editor, and pass ViewForge's layout API through from the same origin.
+"""Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
 python3 web/scripts/serve.py                      # http://127.0.0.1:7880/web/
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
 
-The editor reads ViewForge's objects at /viewforge/layouts/catalog and /viewforge/layouts/assets/...,
+The editor reads ViewForge's objects at /viewforge/assets/catalog and /viewforge/assets/<run>/...,
 and "添加物体" uploads photos and follows the reconstruction at /viewforge/objects/... and saves the
 measured size at /viewforge/dimensions/<run>; those requests go to the ViewForge server (normally the
 SSH tunnel to the 3090). Nothing else is forwarded, POSTs only from this page, and the server only
@@ -23,7 +23,8 @@ from urllib.parse import quote, unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
 # The reads the editor makes: catalog, assets/<run>[/result.glb|preview.glb], a job, a mask preview.
-READS = re.compile(rf'^/viewforge/(layouts/(catalog|assets/{NAME}(/(result|preview)\.glb)?)'
+READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/(result|preview)\.glb)?)'
+                   rf'|layouts/(catalog|assets/{NAME}(/(result|preview)\.glb)?)'
                    rf'|objects/(jobs/[0-9a-f]{{32}}|previews/\w+/{NAME}\.png))$')
 # Its writes: new object with photos, masks, reconstruction, measured size.
 WRITES = re.compile(rf'^/viewforge/(objects/(create|masks|reconstruct)|dimensions/{NAME})$')

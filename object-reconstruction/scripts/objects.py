@@ -1,7 +1,7 @@
 """Photos → reconstructed object for RoomCanvas's editor: upload, masks, reconstruction, progress.
 
 The same steps as the Gradio page (import_photos → prepare_masks.py → run.py), on the same
-data root, cache and GPU lock, so new objects also appear there and in the layout catalog.
+data root, cache and GPU lock, so new objects also appear there and in the object catalog.
 Jobs wait their turn for the GPU instead of failing while another job holds the lock.
 Measured size is saved afterwards through /viewforge/dimensions/<run>.
 """

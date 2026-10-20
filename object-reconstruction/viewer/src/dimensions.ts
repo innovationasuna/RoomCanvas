@@ -147,8 +147,7 @@ export class DimensionControls {
       const data = await this.request(reset ? { reset: true } : { axis: this.selected, value, unit: this.unit() });
       if (!this.disposed) {
         this.adopt(data);
-        try { localStorage.setItem('viewforge-dimensions-changed', JSON.stringify({run_id:this.runId, time:Date.now()})); } catch { /* The layout also refreshes on focus. */ }
-        if (!reset) element('dimension-message').textContent += ' 返回房间布局后会自动读取，用于新加入的物体。';
+        if (!reset) element('dimension-message').textContent += ' 在 RoomCanvas「导入物体」中重新选择该物体即可读取实测尺寸。';
       }
     } catch (error) {
       if (!this.disposed) element('dimension-message').textContent = error instanceof Error ? error.message : '保存失败，请重试';

@@ -1,9 +1,11 @@
-// Objects rebuilt by ViewForge (object-reconstruction/), read through its layout API:
-//   catalog → {runs: [run id]}, assets/<run> → {base, calibration}, assets/<run>/{result,preview}.glb.
-// web/scripts/serve.py forwards /viewforge/layouts/ to the ViewForge server so the editor can
+// Objects rebuilt by ViewForge (object-reconstruction/), read through its object asset API:
+//   catalog → {runs: [run id]}, <run> → {base, calibration}, <run>/{result,preview}.glb.
+// web/scripts/serve.py forwards /viewforge/assets/ to the ViewForge server so the editor can
 // read it from its own origin. ViewForge stores the model in its own units with a display
-// transform; one measured edge (axis + meters) gives the real size, as in its layout page.
-export const API = '/viewforge/layouts/';
+// transform; one measured edge (axis + meters) gives the real size.
+export const API = '/viewforge/assets/';
+const LEGACY_API = '/viewforge/layouts/';
+let assetAPI = API;
 export const AXES = ['X', 'Y', 'Z'];
 
 // 20260926_sofa_web_114146_561893 → sofa; 20260913_stuffed_toy_slim_a01 → stuffed_toy_slim.
@@ -31,8 +33,7 @@ const multiply = (a, b) => Array.from({length: 16}, (_, i) => {
 });
 
 // Column-major matrix (Three.js Matrix4 order) from the model's own coordinates to meters,
-// with the footprint centred on the origin and the bottom at y = 0. ViewForge's Babylon page
-// applies the same transform, then the same centring, then the same scale.
+// with the footprint centred on the origin and the bottom at y = 0.
 export function placementMatrix(base, scale) {
   const {min, max} = base.bounds;
   const center = [0, 1, 2].map((i) => i === 1 ? min[1] : (min[i] + max[i]) / 2);
@@ -45,11 +46,37 @@ export function sizeInMeters(base, scale) {
   return [0, 1, 2].map((i) => (base.bounds.max[i] - base.bounds.min[i]) * scale);
 }
 
-async function json(path, fetcher) {
-  const response = await fetcher(API + path, {cache: 'no-store'});
-  if (!response.ok) throw new Error(`ViewForge 读取失败（${response.status}）`);
+async function json(url, fetcher) {
+  const response = await fetcher(url, {cache: 'no-store'});
+  if (!response.ok) {
+    const error = new Error(`ViewForge 读取失败（${response.status}）`);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
-export const readCatalog = (fetcher = fetch) => json('catalog', fetcher);
-export const readAsset = (run, fetcher = fetch) => json(`assets/${encodeURIComponent(run)}`, fetcher);
-export const modelURL = (run, file) => `${API}assets/${encodeURIComponent(run)}/${file}`;
+export async function readCatalog(fetcher = fetch) {
+  try {
+    const catalog = await json(API + 'catalog', fetcher);
+    assetAPI = API;
+    return catalog;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  // A running backend or local proxy may precede the object-only API migration.
+  // Only read object assets through the old paths; no scene endpoints are used.
+  const catalog = await json(LEGACY_API + 'catalog', fetcher);
+  assetAPI = LEGACY_API + 'assets/';
+  return catalog;
+}
+export const readAsset = (run, fetcher = fetch) => json(assetAPI + encodeURIComponent(run), fetcher);
+export const modelURL = (run, file) => `${assetAPI}${encodeURIComponent(run)}/${file}`;
+
+// Older runs may have only the full mesh: preview generation is optional on the backend.
+export async function loadModels(run, load) {
+  const [full, preview] = await Promise.all([
+    load(modelURL(run, 'result.glb')),
+    load(modelURL(run, 'preview.glb')).catch(() => null),
+  ]);
+  return {full, light: preview || {scene: full.scene.clone(true)}};
+}

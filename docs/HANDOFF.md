@@ -2,6 +2,15 @@
 
 给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-19（网站第 1、2 项已合并：#12 主页和手势、#15 “添加物体”；服务器已同步到 `7b4377b`，7862 后端已重启）。
 
+## 2026-10-20 · ViewForge 只负责物体（本地改动，未部署）
+
+- 移除 ViewForge 的 Babylon 房间布局源码、构建产物、房间读取、场景碰撞、承托与布局快照接口；现有服务器外部数据不动。下文关于旧 ViewForge 布局页的描述属于历史。
+- 保留照片、BiRefNet、DA3 / MV-SAM3D、COVER、GLB / Gaussian 单物体预览及 `dimensions.py` 实测标定。
+- 物体读取拆到 `scripts/assets.py`：`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`；旧 layouts 目录下只兼容 catalog/assets 读取。添加物体、标定接口保持原地址。
+- 手势统一使用 RoomCanvas：内置入口照旧，独立识别页改为 `gesture/roomcanvas.html`，默认指向 7880 编辑器；协议为 `roomcanvas-gesture-v1`，不连接 ViewForge。
+- 验证：网页 173 项 + Python 12 项、手势 74 项、物体预览 10 项、后端 CPU 58 项通过；类型检查、资源校验和构建通过。Chrome 合成模型验证标定 0.9 米后导入放置及 RoomCanvas 手势握手，无页面异常；未执行 GPU 重建或真人摄像头验收。
+- 详情见 [物体说明](OBJECT_RECONSTRUCTION.md)。上线需要同步后端和查看器产物并重启物体服务；本次未操作服务器。
+
 ## 现状
 
 - 仓库 2026-10-17 重建为干净历史（4 个提交：官方代码、改用 Astra、网页、示例房间）。旧仓库和旧 PR 已按用户要求删除，不留备份。
@@ -45,7 +54,7 @@
 
 同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `room-reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `room-reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
 
-`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）也**不要动**：ViewForge 的 `layouts.py` 从它的 `runs/` 读办公室、茶室三个房间（2026-10-17 曾被误移进 archive，弄坏了 ViewForge 的房间，已移回）。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
+`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）原先供 ViewForge 旧布局读取；2026-10-20 本地代码已移除这项依赖，但尚未部署，仍**不要动**。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
 
 ## 最近的结果
 
@@ -100,7 +109,7 @@
    - 2026-10-19 合并后已同步服务器、重启 7862 后端（日志 `ViewForge/logs/roomcanvas-web-20261019.log`），本机 `serve.py` 7880 和 7865 隧道已重开。
    - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）只在 ViewForge 页面有。
    原计划：
-   - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（照 `layouts.py` 的 `LayoutsMiddleware` 那样），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
+   - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（通过同服务的 ASGI middleware），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
    - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（`/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
    - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + 现有 SSH 隧道（7865）到这个服务。
    - 服务器上的后端是正在运行的服务：改了 `object-reconstruction/` 的代码，同步后要重启它才生效，重启前告诉 lyk（他可能正在用）。`/workspace/geyinuo/ViewForge` 运行目录不挪。

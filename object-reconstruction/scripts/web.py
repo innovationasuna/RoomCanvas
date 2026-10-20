@@ -25,7 +25,7 @@ from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection, source_metadata
 from cover_scene import ensure_preview
 from dimensions import DimensionsMiddleware
-from layouts import LayoutsMiddleware
+from assets import AssetsMiddleware
 from objects import ObjectsMiddleware
 
 ROOT = Path(os.environ['VIEWFORGE_ROOT']).resolve()
@@ -481,8 +481,6 @@ footer {display:none!important}
 """) as demo:
         confirmation = gr.State(Confirmation(first, [r['name'] for r in rows]))
         gr.Markdown('# ViewForge')
-        layout_url = '/gradio_api/file=' + quote(str(CODE/'scripts/assets/room-layout.html'), safe='/')
-        gr.HTML(f'<a href="{layout_url}" target="_blank" rel="noopener">打开房间布局：标定尺寸、放置物体与碰撞检查 ↗</a>')
         with gr.Row():
             with gr.Column(scale=1):
                 obj = gr.Dropdown(choices, value=first, label='输入物体', interactive=True, filterable=False)
@@ -550,5 +548,5 @@ if __name__ == '__main__':
                               allowed_paths=[str(ROOT/'data/inputs'), str(ROOT/'runs'), str(ROOT/'cache/mask_previews'), str(ROOT/'cache/photo_previews'), str(CODE/'scripts/assets')], show_error=True,
                               app_kwargs={'middleware': [Middleware(GZipMiddleware, minimum_size=1024, compresslevel=3),
                                                         Middleware(DimensionsMiddleware, root=ROOT),
-                                                        Middleware(LayoutsMiddleware, root=ROOT),
+                                                        Middleware(AssetsMiddleware, root=ROOT),
                                                         Middleware(ObjectsMiddleware, root=ROOT)]})
