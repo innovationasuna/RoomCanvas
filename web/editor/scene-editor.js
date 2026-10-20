@@ -944,9 +944,8 @@ function bindEvents() {
     if (mode === 'preview') {host.style.cursor = pickOpenable(event.clientX, event.clientY) ? 'pointer' : ''; return;}
     const id = pick(event.clientX, event.clientY);
     host.style.cursor = id ? 'pointer' : '';
-    if (id === hovered) return;
     hovered = id;
-    requestRender();
+    // Hover only changes the DOM cursor. Keep the settled frame and its AO cache intact.
   });
   renderer.domElement.addEventListener('pointerup', (event) => {
     if (pointerStart?.id === event.pointerId && !pointerStart.dragged && event.button === 0) {
@@ -966,7 +965,7 @@ function bindEvents() {
     pointerStart = null;
   });
   renderer.domElement.addEventListener('pointercancel', () => {pointerStart = null;});
-  renderer.domElement.addEventListener('pointerleave', () => {hovered = null; requestRender();});
+  renderer.domElement.addEventListener('pointerleave', () => {hovered = null; host.style.cursor = '';});
   window.addEventListener('pagehide', () => {joysticks?.stop(); finishHold(); persist();});
 }
 
@@ -1977,11 +1976,10 @@ async function load() {
         console.warn('环境反射未加载，继续使用原有光照。', error);
       }
     }
-    if (query.get('ao') === 'off') return;
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-38');
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-39');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
-      staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass,
+      staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || hinged.moving.size > 0,
       });
       if (document.hidden) staticLighting.pause();

@@ -47,7 +47,8 @@ RoomCanvas 的网页：主页（`index.html`）列出房间，点进布置页（
 
 静态 AO 的调度与开销：
 
-- 拖动物体、鼠标／手势调整视角、长按微调、家具掉落、门柜动画期间使用原渲染；停止约 **350 毫秒**后补算一次，完全静止后不再请求帧。
+- 拖动物体、鼠标／手势调整视角、长按微调、家具掉落、门柜动画期间暂停 AO；停止约 **350 毫秒**后补算一次，完全静止后不再请求帧。鼠标仅悬停、跨过家具或离开画布时只更新光标，不重绘、不清除已完成的 AO。
+- 交互帧、静态 AO 帧及 `ao=off` 共用线性颜色空间的透明混合、同一屏幕采样数的 MSAA 和一次 ACES / sRGB 输出。避免半透明近墙在普通帧和静态帧之间忽深忽浅；交互时额外保留一次全屏合成，不做 AO 深度／法线、遮蔽或降噪计算。AO 缓冲仍等静止后才分配。`lighting=off` 保留完整原始路径。
 - AO 按绘图缓冲区的半宽、半高计算，长边最多 960 像素；AO 和降噪各使用 8 个采样参数，混合强度 0.35。作用半径按房间水平短边的 2.5% 取值，限制在 0.08–0.20 米，沿用所有房间的米制尺寸。
 - 玻璃、透明虚影、编辑指示和只用于碰撞的网格不参与 AO 遮挡。切到后台暂停补算。截图保留当前静态效果，仓库卡片缩略图继续使用原渲染。
 - 使用与引擎一致的官方 r180 插件，资源随仓库离线提供，在编辑器能正常工作后按环境、AO 的顺序加载。AO 需要浮点颜色缓冲支持；插件缺失、不支持或运行异常时停用相应增强，继续使用已有渲染。重新发布已有预览时，`publish.py` 也会更新插件文件。
@@ -74,9 +75,14 @@ node web/scripts/check_lighting.mjs --output /tmp/roomcanvas-lighting-results \
 node web/scripts/check_import_lighting.mjs --output /tmp/roomcanvas-import-results \
   --playwright /tmp/roomcanvas-lighting-tools/node_modules/playwright \
   --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+node web/scripts/check_lighting_stability.mjs --output /tmp/roomcanvas-lighting-stability \
+  --playwright /tmp/roomcanvas-lighting-tools/node_modules/playwright \
+  --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ```
 
 其他平台可换 `--browser` 路径，或安装 Playwright 的 Chromium 后省略该参数。基线脚本保存模型 SHA256、相机／布局、整体与近景截图、逐帧数据及 CPU/GPU p50/p95，支持 `--rooms office`、`--variants original,balanced`、`--frames 90`。GPU 计时扩展不可用时明确记为不可用；CPU 提交时间不冒充 GPU 时间。结果必须放在仓库外，含私人房间截图，不提交。导入验收使用合成顶点色 GLB 走真实导入／放置流程，无需服务器已有物体。
+
+稳定性回归另检查两个房间的 GTAO、N8AO 和关闭 AO：反复跨家具悬停／移出画布后零重绘、零 AO 更新且截图不变；实际移动相机／家具后更新，拖动期间暂停 AO。合成 16% 不透明度墙用于隔离透明混合与接触 AO 的差异，并检查 MSAA、异常恢复与移动／静止的像素一致性。
 
 仅在 URL 加 `lightingLab=1` 时启用 `roomLightingLab`，提供固定状态保存／恢复、材质审查、有限镜头回放和异步 GPU 计时；普通用户页面不开放这些测试操作。`metrics()` 分别报告交互、静态 AO 和截图，整帧跨 pass 汇总绘制调用，静止时不会为了统计 FPS 而持续渲染。
 
@@ -441,6 +447,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 | `theme.css`、`icon.svg` | 共用配色、字体和图标 |
 | `editor/scene-editor.js` | 主程序：加载房间、选择、视角、仓库栏、放置流程 |
 | `editor/static-lighting.mjs`、`settled-render.mjs` | 静态接触暗部、停止操作后的按需补算 |
+| `editor/lighting-composite.mjs` | 交互／静态共用的透明混合、MSAA 与最终颜色输出 |
 | `editor/environment-lighting.mjs`、`lighting-settings.mjs` | 一次生成的通用环境反射、房间范围与阴影像素尺寸的自动校准 |
 | `editor/lighting-profiles.mjs`、`render-metrics.mjs` | 通用光照档位、完整渲染帧的 CPU/GPU 与绘制统计 |
 | `editor/import-materials.mjs` | 导入物体受光实验与原显示回退 |
@@ -460,6 +467,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 | `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
 | `scripts/check_*.mjs` | 用真实模型在 CPU 上检查：`check_room` 适用于任何房间，其余四个针对 office |
 | `scripts/check_lighting.mjs`、`check_import_lighting.mjs` | 可重放的浏览器光影基线、导入材质受光验收 |
+| `scripts/check_lighting_stability.mjs` | 静止悬停零重绘、透明墙一致性、移动后更新的浏览器回归 |
 | `scripts/publish.py` | 把编辑器复制到某个房间目录旁边 |
 | `scripts/serve.py` | 本机网页服务，转发 ViewForge 的读请求和添加物体的请求 |
 | `scripts/thumbnail.py` | 给 `rooms.json` 里的房间截缩略图 |
