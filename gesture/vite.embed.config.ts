@@ -11,7 +11,8 @@ export default defineConfig({
   // integration/runtime.ts imports ../tracking/tracker, which reads MediaPipe from this site's /vision/.
   resolve: { alias: [{ find: /^\.\.\/tracking\/tracker$/, replacement: embeddedTracker }] },
   build: {
-    target: 'es2022', outDir: '../web/vendor/gesture', emptyOutDir: true, minify: false,
+    // 固定文件名直接覆盖，保留该目录随仓库维护的来源和许可说明。
+    target: 'es2022', outDir: '../web/vendor/gesture', emptyOutDir: false, minify: false,
     lib: { entry: 'src/embed/index.ts', formats: ['es'], fileName: () => 'gesture-runtime.js' },
   },
 });

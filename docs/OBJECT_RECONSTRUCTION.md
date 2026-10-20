@@ -4,11 +4,11 @@
 
 ## 使用入口
 
-在仓库根目录运行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/>，选择房间。
+按 [快速开始](../README.md#快速开始) 启动 7870 编辑器与 8800 网站，打开 [RoomCanvas](http://127.0.0.1:8800/RoomCanvas.html)，从“我的房间”进入工作台。只使用独立编辑器时，可直接打开 [办公室编辑器](http://127.0.0.1:7870/web/editor/?room=office)。
 
-- 仓库 → **添加物体**：上传 3–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。
+- 工作台底栏“添加素材” → **添加物体**：上传 3–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。独立编辑器中入口位于仓库。
 - **导入物体**：读取已有重建和标定，按真实尺寸摆放。导入物体暂不随布局保存。
-- 编辑器的**手势**开关直接开启本机识别，不需要物体重建服务；只有添加、导入物体需要连接 ViewForge。
+- 完整工作台左栏的“开启摄像头”和独立编辑器的“手势”开关均使用本机识别，不需要物体重建服务；只有添加、导入物体需要连接 ViewForge。
 - 原 ViewForge 的 Gradio 页面、Babylon 查看器、房间布局和手势接入页已弃用，代码与原有构建资源保留在 [`legacy/`](../object-reconstruction/legacy/README.md)。正式服务不挂载这些界面，7865 隧道只访问 API；`GET /health` 可检查服务。
 
 ## 启动物体后端
@@ -58,7 +58,7 @@ GPU 仍使用 `VIEWFORGE_GPU_LOCK` 排队，一次使用配置的一张卡。任
 
 ## 手势与场景
 
-识别在 `gesture/`，内置入口在 `web/editor/gesture-camera.mjs`。可选的独立识别页为 `gesture/roomcanvas.html`（Vite 8800），默认嵌入 7880 的 RoomCanvas 编辑器，协议为 `roomcanvas-gesture-v1`；不依赖 ViewForge 后端。用法见 [RoomCanvas 手势接入](../gesture/docs/roomcanvas-integration.md)。
+识别在 `gesture/`，完整网站入口为 `gesture/RoomCanvas.html`（Vite 8800），默认嵌入 7870 的 RoomCanvas 编辑器，协议为 `roomcanvas-gesture-v1`。导入房间的同源 iframe 和 `/viewforge/` 物体接口经 Vite 代理到编辑器服务；编辑器再按白名单转发到物体 API。直接打开编辑器时，`web/editor/gesture-camera.mjs` 提供内置摄像头入口。四种数字模式、双手缩放与竖拇指确认均在本机运行，不依赖 ViewForge 后端。用法见 [RoomCanvas 手势接入](../gesture/docs/roomcanvas-integration.md)。
 
 ## 来源和迁移
 

@@ -1,5 +1,5 @@
 {
-  "name": "gesture-furniture-demo",
+  "name": "roomcanvas",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,17 +11,16 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 8800 --strictPort",
     "test": "vitest run",
-    "assets": "node scripts/generate-assets.mjs",
     "prepare:vision": "node scripts/prepare-vision.mjs",
     "check:resources": "node scripts/check-resources.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.1.0",
-    "three": "0.186.1"
+    "fflate": "0.8.3",
+    "google-auth-library": "11.3.1"
   },
   "devDependencies": {
-    "@types/three": "0.186.0",
     "@types/node": "24.10.1",
     "typescript": "5.9.3",
     "vite": "8.3.4",

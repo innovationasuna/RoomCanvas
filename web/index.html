@@ -1,71 +1,7 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#eceee7"><title>RoomCanvas</title><link rel="icon" href="./icon.svg">
-<link rel="stylesheet" href="./theme.css?v=app-36">
-<style>
-  * {box-sizing: border-box;}
-  body {margin: 0; min-height: 100dvh; font-size: 15px; line-height: 1.6;}
-  header {display: flex; align-items: center; gap: 9px; height: 60px; padding: 0 22px; background: var(--rc-panel); border-bottom: 1px solid var(--rc-line); font-size: 17px; font-weight: 600; letter-spacing: -.5px;}
-  .logo {width: 31px; height: 31px; border-radius: 9px; display: grid; place-items: center; background: var(--rc-active); color: var(--rc-green);}
-  svg {width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;}
-  main {max-width: 1080px; margin: 0 auto; padding: 44px 22px 56px;}
-  h1 {font-size: 28px; font-weight: 600; letter-spacing: -.6px; margin: 0 0 6px;}
-  .lead {color: var(--rc-muted); margin: 0 0 30px;}
-  .rooms {display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px;}
-  a.room {display: flex; flex-direction: column; background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 16px; overflow: hidden; color: inherit; text-decoration: none; transition: border-color .16s, transform .16s, box-shadow .16s;}
-  a.room:hover, a.room:focus-visible {border-color: var(--rc-green); transform: translateY(-2px); box-shadow: 0 10px 30px #1736231a; outline: none;}
-  .thumb {aspect-ratio: 16 / 10; display: grid; place-items: center; background: var(--rc-bg); color: var(--rc-green); border-bottom: 1px solid var(--rc-line);}
-  .thumb img {width: 100%; height: 100%; object-fit: cover; display: block;}
-  .thumb svg {width: 56px; height: 56px; stroke-width: 1.2;}
-  .copy {display: grid; gap: 6px; padding: 16px 18px 18px; flex: 1;}
-  .copy strong {font-size: 18px; font-weight: 600; letter-spacing: -.3px;}
-  .facts {font-size: 12px; color: var(--rc-green); font-variant-numeric: tabular-nums;}
-  .note {font-size: 13px; color: var(--rc-muted); margin: 0;}
-  .open {margin-top: auto; padding-top: 8px; font-size: 13px; color: var(--rc-green);}
-  .error {color: var(--rc-warn);}
-  footer {max-width: 1080px; margin: 0 auto; padding: 0 22px 32px; font-size: 12px; color: var(--rc-muted);}
-  code {font-size: 12px; background: var(--rc-active); padding: 1px 5px; border-radius: 5px;}
-  @media (max-width: 520px) {main {padding: 28px 16px 40px;} header {padding: 0 16px;} footer {padding: 0 16px 24px;} .rooms {grid-template-columns: 1fr;}}
-  @media (prefers-reduced-motion: reduce) {a.room {transition: none;}}
-</style></head>
-<body>
-<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol></svg>
-<header><span class="logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</header>
-<main>
-  <h1>选一个房间开始布置</h1>
-  <p class="lead">手机扫描重建的真实尺寸房间。挪家具、收进仓库、换位置，用鼠标，或打开编辑器里的“手势”用摄像头。</p>
-  <div class="rooms" id="rooms" aria-live="polite"></div>
-</main>
-<footer>本机运行：在仓库根目录 <code>python3 web/scripts/serve.py</code>，打开 <code>http://127.0.0.1:7880/web/</code>。房间列表在 <code>web/rooms.json</code>。</footer>
-<script type="module">
-// Rooms come from rooms.json; each card reads its room's room_objects.json (furniture groups) and
-// the size of Room.glb, so the numbers follow the files. thumbnail.jpg: web/scripts/thumbnail.py.
-const list = document.getElementById('rooms');
-const megabytes = (bytes) => bytes ? `模型约 ${Math.round(bytes / 1e6)} MB` : '';
-async function describe(room, base) {
-  const dir = new URL(room.dir.replace(/\/?$/, '/'), base);
-  const card = Object.assign(document.createElement('a'), {className: 'room', href: `editor/?room=${encodeURIComponent(room.id)}`});
-  const thumb = Object.assign(document.createElement('div'), {className: 'thumb'});
-  const image = Object.assign(document.createElement('img'), {src: new URL('thumbnail.jpg', dir).href, alt: '', loading: 'lazy'});
-  image.onerror = () => {thumb.innerHTML = '<svg aria-hidden="true"><use href="#icon-room"/></svg>';};
-  thumb.append(image);
-  const copy = Object.assign(document.createElement('div'), {className: 'copy'});
-  const facts = Object.assign(document.createElement('span'), {className: 'facts', textContent: '正在读取…'});
-  copy.append(Object.assign(document.createElement('strong'), {textContent: room.name}), facts,
-    Object.assign(document.createElement('p'), {className: 'note', textContent: room.note || ''}),
-    Object.assign(document.createElement('span'), {className: 'open', textContent: '进入布置 →'}));
-  card.append(thumb, copy);
-  list.append(card);
-  const [objects, model] = await Promise.all([
-    fetch(new URL('room_objects.json', dir), {cache: 'no-cache'}).then((r) => r.ok ? r.json() : null).catch(() => null),
-    fetch(new URL('Room.glb', dir), {method: 'HEAD', cache: 'no-cache'}).catch(() => null),
-  ]);
-  if (!objects) {facts.textContent = '读不到这个房间的文件'; facts.classList.add('error'); return;}
-  facts.textContent = [`${objects.groups.length} 件家具`, megabytes(Number(model?.headers.get('content-length')))].filter(Boolean).join(' · ');
-}
-const manifest = new URL('rooms.json', location.href);
-fetch(manifest, {cache: 'no-cache'}).then((r) => r.json()).then(({rooms}) => {
-  for (const room of rooms) void describe(room, manifest);
-}).catch(() => {list.innerHTML = '<p class="error">房间列表读取失败，请在仓库根目录运行 web/scripts/serve.py。</p>';});
-</script>
-</body></html>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f2eb"><title>RoomCanvas · 打开我的房间</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f5f2eb;color:#302e29;font:14px Arial,'PingFang SC',sans-serif}main{max-width:840px;margin:12vh auto;padding:40px}small{color:#9a8c79;letter-spacing:.18em}h1{font:60px Georgia,serif;font-weight:400;margin:25px 0}h1 em{font-weight:400}p{color:#8b8170;line-height:1.9}a{color:inherit;text-decoration:none}.enter{display:inline-block;padding:16px 25px;background:#302e29;color:#fffdf7;border-radius:6px;margin:20px 0 50px}.rooms{border-top:1px solid #dfdacf;padding-top:25px;display:flex;gap:25px;flex-wrap:wrap}.rooms a{color:#8b8170}details{margin-top:35px;font-size:12px;color:#9c8e79}code{font-size:12px}a:focus-visible{outline:2px solid #a65035;outline-offset:5px}
+</style></head><body><main><small>A ROOM FOR YOUR IMAGINATION</small><h1>Room<em>Canvas</em></h1><p id="entry-note">正在打开新的房间工作台…</p><a class="enter" href="http://127.0.0.1:8800/RoomCanvas.html#rooms">打开我的房间 →</a><div class="rooms"><a href="editor/?scene=../../samples/office">直接打开书房 ↗</a><a href="editor/?scene=../../samples/room3">直接打开卧室 ↗</a></div><details><summary>本地启动帮助</summary><p>在工程目录运行 <code>sh scripts/gesture.sh dev</code>，再点击“打开我的房间”。这里也可以直接使用独立鼠标编辑器。</p></details></main><script>
+if (['127.0.0.1','localhost','[::1]'].includes(location.hostname) && !new URLSearchParams(location.search).has('standalone')) {
+  fetch('http://127.0.0.1:8800/RoomCanvas.html',{mode:'no-cors',signal:AbortSignal.timeout(2000)}).then(()=>location.replace('http://127.0.0.1:8800/RoomCanvas.html#rooms')).catch(()=>{document.getElementById('entry-note').textContent='新的房间工作台尚未开启。你也可以直接打开下面的房间。';});
+} else document.getElementById('entry-note').textContent='打开工作台，或者直接使用下面的房间编辑器。';
+</script></body></html>
