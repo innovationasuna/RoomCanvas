@@ -463,6 +463,16 @@ body { min-height:100dvh; box-sizing:border-box; }
 #rc-placement-demo .rc-stage-list li[data-state="current"] { color: var(--rc-text); font-weight: 500; }
 #rc-placement-demo .rc-stage-list li[data-state="current"]::before { content: "●"; color: var(--rc-green); }
 #rc-placement-demo .rc-stage-list li[data-state="done"]::before { content: "✓"; color: var(--rc-green); }
-#rc-placement-demo .rc-add-view { height: 260px; border: 1px solid var(--rc-line); border-radius: 11px; background: var(--rc-bg); overflow: hidden; }
+#rc-placement-demo .rc-add-view { position: relative; height: 260px; border: 1px solid var(--rc-line); border-radius: 11px; background: var(--rc-bg); overflow: hidden; }
 #rc-placement-demo .rc-add-view canvas { display: block; width: 100%; height: 100%; }
 @media (max-width: 520px) { #rc-placement-demo .rc-steps { display: none; } }
+#rc-placement-demo .rc-dimension-labels { position: absolute; inset: 0; pointer-events: none; }
+#rc-placement-demo .rc-dimension-labels button { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; border: 1px solid var(--axis-color); border-radius: 7px; padding: 4px 7px; color: var(--axis-color); background: var(--rc-panel); font: 500 12px var(--rc-font); }
+#rc-placement-demo .rc-dimension-labels button[aria-pressed="true"] { color: white; background: var(--axis-color); box-shadow: 0 0 0 2px var(--rc-panel); }
+#rc-placement-demo .rc-imported-card { position: relative; display: grid; flex: 0 0 clamp(148px,11vw,190px); min-width: 0; }
+#rc-placement-demo .rc-imported-card > .object-row { width: 100%; min-width: 0; }
+#rc-placement-demo .rc-imported-card .warehouse-state { left: 5px; right: auto; }
+#rc-placement-demo .rc-remove-object { position: absolute; right: 5px; top: 5px; display: grid; place-items: center; width: 28px; height: 28px; padding: 5px; border: 1px solid var(--rc-line); border-radius: 7px; background: var(--rc-panel); color: var(--rc-muted); }
+#rc-placement-demo .rc-remove-object:hover, #rc-placement-demo .rc-remove-object:focus-visible { color: #b64535; border-color: #b64535; background: #fff3ef; }
+@media(max-width:740px) { #rc-placement-demo .rc-imported-card { flex-basis:146px; } }
+@media(max-width:520px) { #rc-placement-demo .rc-imported-card { flex-basis:132px; } }

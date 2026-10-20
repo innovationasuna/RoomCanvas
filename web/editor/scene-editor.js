@@ -13,15 +13,17 @@ import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
 import {analogDelta} from './placement-motion.mjs?v=app-36';
 
 import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-36';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=app-40';
 import {createGestureCamera} from './gesture-camera.mjs?v=app-36';
 import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
-import {readCatalog, readAsset, modelURL as viewforgeModel, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-36';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-36';
+import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
+import {mountAddObject} from './add-object-dialog.mjs?v=app-43';
 import {shadowSettings} from './lighting-settings.mjs?v=app-37';
 import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
 import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
 import {createImportMaterials} from './import-materials.mjs?v=app-38';
+import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
+import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -894,8 +896,9 @@ function bindEvents() {
     const term = $('#search').value.trim().toLowerCase();
     let count = 0;
     for (const row of $('#object-list').querySelectorAll('[data-object]')) {
-      row.hidden = !row.textContent.toLowerCase().includes(term);
-      if (!row.hidden) count++;
+      const card = row.closest('.rc-imported-card') || row;
+      card.hidden = !row.textContent.toLowerCase().includes(term);
+      if (!card.hidden) count++;
     }
     $('#object-count').textContent = term ? `${count} / ${ids.length}` : `${ids.length}`;
   };
@@ -1018,7 +1021,38 @@ function appendWarehouseRow(entity, first = false) {
       $('#object-panel').classList.remove('open');
       $('#list-toggle').setAttribute('aria-expanded', 'false');
     };
-    if (first) $('#add-object').after(row); else $('#object-list').appendChild(row);
+    let card = row;
+    if (entity.added) {
+      card = document.createElement('div'); card.className = 'rc-imported-card';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'rc-remove-object';
+      remove.dataset.removeObject = entity.id;
+      remove.setAttribute('aria-label', `删除${entity.name}这一份`);
+      remove.title = '删除这一份物体，保留重建结果';
+      remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
+      remove.onclick = () => removeImportedObject(entity.id);
+      card.append(row, remove);
+    }
+    if (first) $('#add-object').after(card); else $('#object-list').appendChild(card);
+}
+
+function removeImportedObject(id) {
+  if (!ready || !entities.get(id)?.added) return;
+  if (falling || gesture || gestureView || analogActive || hold || (pending && pending.id !== id)) {
+    showToast('请先结束当前操作，再删除这份物体'); return;
+  }
+  cancelSession(false); select(null, false); cancelValidation(); setMode('edit');
+  const entity = forgetImportedObject(id, {entities, ids, layout, placementSpecs, history});
+  const row = $(`[data-object="${id}"]`);
+  (row.closest('.rc-imported-card') || row).remove();
+  entity.group.removeFromParent();
+  setSeeThrough(entity.group, false);
+  entity.importMaterials.dispose(); disposeObjectTree(entity.group);
+  placementStates.delete(id); dropPlan = null;
+  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  rebuildCollision(); applyLayout(); persist();
+  if ($('#search').value) $('#search').dispatchEvent(new Event('input'));
+  $('#status').textContent = `已删除${entity.name}这一份，重建结果仍保留`;
+  showToast('已删除这一份，可从“导入物体”重新添加');
 }
 
 function renderFurnitureThumbnails(list = entities.values()) {
@@ -1645,8 +1679,6 @@ for (const button of document.querySelectorAll('[data-gesture-mode]')) {
 // preview (same frame, ~1/40 of the triangles) stands in for contact and collision checks.
 let addedCount = 0, importAsset = null;
 async function openImports() {
-  let catalog;
-  try {catalog = await readCatalog();} catch {return;}
   // "添加物体": photos → a new object on the same server, then straight into the room.
   mountAddObject({toast: showToast, onReady: async (run, asset) => {
     if (![...$('#import-run').options].some((option) => option.value === run)) $('#import-run').prepend(new Option(objectLabel(run), run));
@@ -1662,6 +1694,11 @@ async function openImports() {
   $('#import-object').onclick = () => void importObject().catch((error) => {
     console.error(error); showToast(`导入失败：${error.message || error}`);
   });
+  let catalog;
+  try {catalog = await readCatalog();} catch {
+    $('#add-object-state').textContent = '照片重建 · 服务暂不可用，可重试';
+    return;
+  }
   if (!catalog.runs?.length) return;
   for (const run of catalog.runs) $('#import-run').appendChild(new Option(objectLabel(run), run));
   $('#import-menu').hidden = false;
@@ -1711,7 +1748,7 @@ async function importRun(run, base, scale) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
-  const [full, light] = await Promise.all(['result.glb', 'preview.glb'].map((file) => loader.loadAsync(viewforgeModel(run, file))));
+  const {full, light} = await loadModels(run, (url) => loader.loadAsync(url));
   cancelSession(false);
   const id = `added-${++addedCount}`, contact = `${id}:contact`;
   const shape = new THREE.Group();

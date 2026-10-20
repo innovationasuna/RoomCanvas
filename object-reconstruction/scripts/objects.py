@@ -1,7 +1,7 @@
 """Photos → reconstructed object for RoomCanvas's editor: upload, masks, reconstruction, progress.
 
-The same steps as the Gradio page (import_photos → prepare_masks.py → run.py), on the same
-data root, cache and GPU lock, so new objects also appear there and in the layout catalog.
+Photo import → prepare_masks.py → run.py use the existing data root, cache and GPU lock.
+The service and job validation are independent of any reconstruction UI.
 Jobs wait their turn for the GPU instead of failing while another job holds the lock.
 Measured size is saved afterwards through /viewforge/dimensions/<run>.
 """
@@ -102,7 +102,7 @@ class Job:
         return runs[-1] if runs else None
 
     def wait_for_gpu(self):
-        # Whoever holds the lock (a Gradio job, another of ours) finishes first. The script
+        # Whoever holds the lock (a CLI run or another job) finishes first. The script
         # then takes the lock with --wait-gpu, so losing a race to it only waits a bit longer.
         while not gpu_free(self.root):
             time.sleep(GPU_POLL_SECONDS)
@@ -169,7 +169,7 @@ def start_reconstruction(root, payload):
         raise ValueError('请先完成抠图预览')
     if not set(images) <= set(masks.signatures):
         raise ValueError('选中的照片没有抠图预览')
-    # The same check as the Gradio page: the photos and masks are the ones that were previewed.
+    # Bind reconstruction to the exact photos and masks that were previewed.
     rows = input_manifest(root, name, images)['images']
     if any(masks.signatures[row['name']] != sig for row, sig in zip(rows, file_signatures(rows))):
         raise ValueError('照片或抠图已变化，请重新抠图')

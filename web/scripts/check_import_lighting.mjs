@@ -28,8 +28,8 @@ try{
   const page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1}),errors=[];
   page.on('pageerror',e=>errors.push(String(e)));
   page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
-  await page.route('**/viewforge/layouts/catalog',r=>r.fulfill({json:{runs:[]}}));
-  await page.route('**/viewforge/layouts/assets/lighting-probe/*.glb',r=>r.fulfill({body:glb,contentType:'model/gltf-binary'}));
+  await page.route('**/viewforge/assets/catalog',r=>r.fulfill({json:{runs:[]}}));
+  await page.route('**/viewforge/assets/lighting-probe/*.glb',r=>r.fulfill({body:glb,contentType:'model/gltf-binary'}));
   await page.goto(new URL('editor/?room=office&lightingLab=1',values.url).href,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.roomEditor?.snapshot().lighting.state==='settled',null,{timeout:120000});
   await page.evaluate(()=>roomLightingLab.importObject('lighting-probe',{bounds:{min:[-.2,0,-.2],max:[.2,.4,.2]},transform:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],lengths:{X:.4,Y:.4,Z:.4}},1));
