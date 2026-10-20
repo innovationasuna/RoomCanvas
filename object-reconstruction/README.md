@@ -1,8 +1,10 @@
 # ViewForge
 
-ViewForge provides automatic BiRefNet masks, preview confirmation, and multi-view reconstruction using DA3 and MV-SAM3D. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
+RoomCanvas object APIs provide automatic BiRefNet masks and multi-view reconstruction using DA3 and MV-SAM3D, without depending on a separate UI. See [项目目录](docs/DIRECTORY_LAYOUT.md) and [运行说明](docs/VIEWFORGE_RUNTIME.md). The upstream MV-SAM3D description and attribution are retained below.
 
-本模块已随 RoomCanvas 仓库提供，手势源码和运行资源在平级的 [`gesture/`](../gesture/)。本机在 RoomCanvas 根目录执行 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/viewforge.html>。本模块内的同名脚本保留为兼容入口。保持 ViewForge 的本机 SSH 隧道可用；无需另外克隆手势仓库。启动与数据流见 [手势接入说明](docs/GESTURE_INTEGRATION.md)，提交来源和日期依据见 [历史整理说明](docs/HISTORY_INTEGRATION.md)。
+本模块提供 RoomCanvas 的物体重建与实测尺寸 API。正式入口是 `scripts/web.py`（Starlette / Uvicorn），前端统一在平级 [`web/`](../web/)。已接入的上传、抠图、重建、进度、模型读取、标定接口及旧物体地址兼容保留，数据和 GPU 配置沿用原目录。
+
+原 Gradio 独立页面、Babylon 单物体/房间查看器与界面资源**已弃用**，源码及原有产物完整保留在 [`legacy/`](legacy/README.md)，仅作追溯参考，正式服务不加载。当前入口见 [物体 API 说明](../docs/OBJECT_RECONSTRUCTION.md)；上游说明和署名继续保留。
 
 ## MV-SAM3D
 

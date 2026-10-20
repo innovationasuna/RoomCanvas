@@ -1,6 +1,6 @@
 // "添加物体": a few photos → an object rebuilt on the ViewForge server (object-reconstruction/,
 // scripts/objects.py). create → masks job → reconstruct job, polled at jobs/<id>; the measured
-// edge is saved at /viewforge/dimensions/<run> so the layout page and "导入物体" see it too.
+// edge is saved at /viewforge/dimensions/<run> and reused by RoomCanvas's "导入物体".
 // web/scripts/serve.py forwards these from the editor's own origin.
 export const API = '/viewforge/objects/';
 export const MIN_PHOTOS = 3, MAX_PHOTOS = 40;

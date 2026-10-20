@@ -1,80 +1,65 @@
-# 物体重建（ViewForge）与手势
+# 物体重建（ViewForge）
 
-更新：2026-10-18。ViewForge 后端、查看器和手势前端都从本仓库源码启动；Python 环境、模型权重、照片和历史结果留在外部运行目录，不进 Git。
+更新：2026-10-20。RoomCanvas 是唯一正式界面，负责照片重建流程、模型与坐标轴预览、实测尺寸输入、房间摆放和手势。`object-reconstruction/` 提供无界面的物体重建 API，保留 BiRefNet、DA3 / MV-SAM3D、COVER 及尺寸计算。
 
-## 目录与职责
+## 使用入口
 
-| 目录 | 职责 |
-| --- | --- |
-| `room-reconstruction/` | LiteReality 房间重建 |
-| `web/`、`samples/` | RoomCanvas 主页、编辑器（Three.js）与示例房间；编辑器内置手势（识别代码由 `gesture/src/embed/` 打包），也可被手势页嵌入，可导入 ViewForge 物体 |
-| `object-reconstruction/` | ViewForge：照片重建物体、尺寸标定、Babylon 布局页、碰撞和保存 |
-| `gesture/` | 摄像头、MediaPipe Worker、手势识别和手势接入页 |
-| `scripts/gesture.sh` | 本机手势入口 |
+在仓库根目录运行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/>，选择房间。
 
-两个重建模块各用自己的 Python 环境。RoomCanvas 编辑器和 ViewForge 布局页是两个独立页面，手势页用 `?layout=` 选择嵌入哪一个，两者用同一套手势协议。
+- 仓库 → **添加物体**：上传 3–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。
+- **导入物体**：读取已有重建和标定，按真实尺寸摆放。导入物体暂不随布局保存。
+- 编辑器的**手势**开关直接开启本机识别，不需要物体重建服务；只有添加、导入物体需要连接 ViewForge。
+- 原 ViewForge 的 Gradio 页面、Babylon 查看器、房间布局和手势接入页已弃用，代码与原有构建资源保留在 [`legacy/`](../object-reconstruction/legacy/README.md)。正式服务不挂载这些界面，7865 隧道只访问 API；`GET /health` 可检查服务。
 
-## 服务器：ViewForge 后端
+## 启动物体后端
 
-照同目录的 `local.env.example` 写好 `object-reconstruction/configs/local.env`（运行目录 `VIEWFORGE_ROOT`、授权 GPU、共享 GPU 锁；空房间资产可用 `VIEWFORGE_ROOMS_ROOT` 另指），这个文件被 Git 忽略。然后在仓库根目录（Bash 或 Zsh）运行并保持终端：
+按 `object-reconstruction/configs/local.env.example` 配置被 Git 忽略的 `local.env`，填运行目录、授权 GPU 和共享 GPU 锁，然后执行：
 
 ```bash
 cd object-reconstruction
 source configs/local.env
 source scripts/env.sh
-python scripts/web.py --host <监听地址> --port 7862
+python -m pip install -r configs/api-requirements.txt  # 首次安装纯 API 依赖
+python scripts/web.py --host <后端监听地址> --port 7862
 ```
 
-监听地址按部署填，SSH 所在的环境要能访问到它（容器里运行时填容器地址）。当前服务器的目录、地址和更新约定见 [交接文档](HANDOFF.md)。后端迁移沿用原来的 GPU 设置和共享锁，不会自动开始重建，也不另装 CUDA 或 Python 环境。
-
-### 给 RoomCanvas 编辑器“添加物体”的接口
-
-同一个服务上还有 `/viewforge/objects/`（`scripts/objects.py`，和 `layouts.py`、`dimensions.py` 一样挂在 Gradio 旁边），走的是 Gradio 页面同样的步骤和目录：
-
-| 接口 | 做什么 |
-| --- | --- |
-| `POST create`（表单：`name`、多张 `photos`） | 先检查名称和每张照片（3–40 张 JPEG/PNG），再建 `data/inputs/<名称>/`，用 `import_photos` 存原图和 PNG |
-| `POST masks`（JSON：`object`、`images`） | 后台跑 `prepare_masks.py`（BiRefNet），返回任务号 |
-| `POST reconstruct`（JSON：`object`、`images`、`masks` 任务号） | 和 Gradio 一样先核对照片和 mask 没变过，再后台跑 `run.py`（DA3 + MV-SAM3D + 补拍建议），结果在 `runs/<日期>_<名称>_web_<时刻>/` |
-| `GET jobs/<任务号>` | `queued`（等 GPU）/ `running`（重建时带 `stage`）/ `complete` / `failed`；抠图完成带预览图地址，重建完成带结果名 |
-| `GET previews/<批次>/<照片>.png` | 抠图预览（`cache/mask_previews/`） |
-
-实测尺寸用已有的 `POST /viewforge/dimensions/<结果>` 保存，布局页、“导入物体”都读它。GPU 用同一把 `VIEWFORGE_GPU_LOCK`：锁被占（Gradio 或另一个任务在跑）时任务显示排队，空出来再启动，脚本带 `--wait-gpu` 取锁（不带时照旧，锁被占立即报错）。任务记录在服务进程内存里，重启服务后跟踪不到进行中的任务（重建本身是子进程，结果照样落盘）。POST 只接受同源请求（`serve.py` 转发时不带 Origin）。
-
-## 本机：隧道、手势页和编辑器
-
-需要 Node.js 22.12+ 和 npm。先开一个到后端的 SSH 端口转发（已有可用的 `7865` 隧道就跳过）：
+本机经 SSH 隧道访问：
 
 ```bash
 ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH主机别名>
 ```
 
-`-L` 的格式是 `本机地址:本机端口:服务器侧地址:端口`，服务器侧地址要和后端实际监听的一致。换了本机端口，手势页里的布局地址也要跟着改。
+`serve.py --viewforge <地址>` 可修改后端地址。两个重建模块继续使用各自的 Python 环境。环境、权重、照片和历史结果保留在 `VIEWFORGE_ROOT` 指向的外部目录，不进 Git；不再需要旧房间资产或 `VIEWFORGE_ROOMS_ROOT`。
 
-另开一个终端，在仓库根目录启动手势页：
+## 接口
 
-```bash
-sh scripts/gesture.sh install  # 第一次，或锁文件更新后
-sh scripts/gesture.sh dev
-```
+入口仍为 `scripts/web.py`，现通过 Starlette / Uvicorn 直接启动，不导入 Gradio、归档 UI 或旧查看器。已有监听地址、SSH 隧道、数据目录和 GPU 锁继续使用。
 
-- **ViewForge 布局页**：打开 <http://127.0.0.1:8800/viewforge.html>（默认嵌入 <http://127.0.0.1:7865/viewforge/layouts/viewer>）。先在布局页确认房间尺寸、加入物体，再点“开启摄像头”。松手和保存时由服务器做承托、碰撞校验和保存。ViewForge 首页是 <http://127.0.0.1:7865/>。
-- **RoomCanvas 编辑器（room3）**：编辑器自己有“手势”开关，不需要手势页，见 [网页说明](../web/README.md)。下面是经手势页嵌入的做法：再开一个终端运行 `python3 web/scripts/serve.py --port 7870`，打开 <http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7870%2Fweb%2Feditor%2F%3Froom%3Droom3>。渲染、碰撞和支撑检查都在本机浏览器里做（完整落点检查在 Worker 中）。“导入物体”经 `serve.py` 读 ViewForge 的物体目录、尺寸和模型（默认走 `7865` 隧道，`--viewforge <地址>` 可改），只摆原有家具时不需要隧道；导入的物体暂不随布局保存。换了编辑器端口，要同时改 `layout=` 里的地址。具体操作和限制见 [网页说明](../web/README.md)。
+| 接口 | 用途 |
+| --- | --- |
+| `POST /viewforge/objects/create` | 命名并上传 3–40 张 JPEG/PNG，保存原图和转正副本 |
+| `POST /viewforge/objects/masks` | BiRefNet 抠图，返回任务号 |
+| `POST /viewforge/objects/reconstruct` | 校验照片、蒙版与预览一致，再运行 DA3 + MV-SAM3D + COVER |
+| `GET /viewforge/objects/jobs/<任务号>` | 查询排队、阶段、完成结果或错误 |
+| `GET /viewforge/objects/previews/<批次>/<照片>.png` | 蒙版预览 |
+| `GET /viewforge/assets/catalog` | 已重建物体目录（`runs`） |
+| `GET /viewforge/assets/<结果>` | 完整模型尺寸基准、显示变换和已保存标定 |
+| `GET /viewforge/assets/<结果>/result.glb`、`preview.glb` | 完整模型、可选轻量模型 |
+| `GET /viewforge/assets/<结果>/result.ply`、`preview.json` | 原始 Gaussian 与补拍元数据（保留结果能力） |
+| `GET /viewforge/dimensions/<结果>` | 读取标定 |
+| `POST /viewforge/dimensions/<结果>` | 保存或清除单轴实测标定，支持 mm/cm/m |
+| `GET /viewforge/dimensions/<结果>/model.glb` | 导出米制模型 |
 
-手势操作两个页面相同：左手 1（食指）、2（食指和中指）、3（食指、中指、无名指）保持约 0.4 秒，切到移动、旋转、仅观察；切换前右手先完全松开。右手拇指和食指捏合拖动；观察模式下两指捏合环绕，拇指、食指、中指合拢平移。RoomCanvas 编辑器里松手后家具停成预览，在预览上轻捏一下放下，仓库卡片也能捏住拖出。摄像头画面只在本机识别，不上传。
+物体接口实现分别在 `objects.py`、`assets.py`、`dimensions.py`。旧 `/viewforge/layouts/catalog` 和 `/viewforge/layouts/assets/<结果>[/result.glb|preview.glb]` 仅兼容物体读取；旧房间读取、布局页、validate、save 和布局快照读取接口已移除。前端优先读取新资产接口；旧后端或本机代理返回 404 时，兼容旧物体读取路径，目录、尺寸和模型使用同一套地址。仓库的“添加物体”始终显示，连接失败会提示重试。
 
-改了查看器源码（`object-reconstruction/viewer/`）后，在该目录运行 `npm ci`、`npm run build`，产物写到同模块的 `scripts/assets/`，随源码一起更新到服务器。
+标定从完整原始模型计算，不修改原模型。用户标定坐标 X / Y / Z 分别对应内部 +X / -Z / +Y；RoomCanvas 应用显示变换、底部居中及米制缩放。已有标定、重建结果和照片均可继续使用。历史补拍 manifest 的旧界面 URL 在 API 返回时适配为受限资产 URL，不改写历史文件；不会暴露任意服务器文件路径。
 
-## 来源与范围
+GPU 仍使用 `VIEWFORGE_GPU_LOCK` 排队，一次使用配置的一张卡。任务记录在服务内存里，服务重启后任务号失效；落盘结果仍可从物体目录读取。COVER 和补拍续建算法、历史数据继续保留；补拍可通过 `scripts/run.py --parent-run <结果>` 及 `scripts/import_photos.py` 使用。RoomCanvas 暂未接入补拍续建界面，旧 Gradio 页面只作归档参考。
 
-来源是 ViewForge `a93d457` 和手势工程 `32082a3`。整合分支当初保留了来源历史，但 PR #5 最终以 squash 合入 `main`，这两个哈希只作来源记录，新克隆的主线里不一定找得到。上游的许可证、版权和来源说明照旧保留；不重新合入旧整合分支，以免带进上游的共同作者标记。
+## 手势与场景
 
-迁移只改了启动入口和运行位置，重建、手势、碰撞、标定和保存的算法都没变。之后 RoomCanvas 编辑器加了手势接收端、ViewForge 物体导入和后台落点检查（#8），room3 换成了小物件这一步之后的结果（#10）。
+识别在 `gesture/`，内置入口在 `web/editor/gesture-camera.mjs`。可选的独立识别页为 `gesture/roomcanvas.html`（Vite 8800），默认嵌入 7880 的 RoomCanvas 编辑器，协议为 `roomcanvas-gesture-v1`；不依赖 ViewForge 后端。用法见 [RoomCanvas 手势接入](../gesture/docs/roomcanvas-integration.md)。
 
-## 2026-10-18 迁移验证（lyk）
+## 来源和迁移
 
-- 正式的 `7862` 后端进程工作目录是 `/workspace/geyinuo/RoomCanvas/object-reconstruction`；旧源码后端和临时的 `7863` 验证进程已停。
-- 切换前后 catalog 完全一致：3 个房间、26 个重建结果、0 个保存的布局；没有新建测试重建，也没有保存真实布局。
-- 后端 71 项、查看器 34 项、手势 74 项测试通过；前端类型检查、两套构建，以及识别模型、WASM、GLB 清单校验都通过。
-- 查看器构建产物与仓库里跟踪的资源一致；MV-SAM3D 从 RoomCanvas 导入，不再经过旧源码路径。
-- 没有重跑 GPU 完整重建，也没有用真人摄像头试过，这两项留给实际使用验收。
+源码来源为 ViewForge `a93d457` 和手势工程 `32082a3`，最终经 PR #5 squash 合入 RoomCanvas。来源、许可证与历史记录保留，见 [历史说明](../object-reconstruction/docs/HISTORY_INTEGRATION.md)。2026-10-18 的部署验证记录属于旧布局版本；2026-10-20 起以本文职责和接口为准。升级需安装 API 依赖、同步正式后端源码并重启物体服务；不再需要构建或发布旧查看器。此次代码提交与推送不包含服务器部署。

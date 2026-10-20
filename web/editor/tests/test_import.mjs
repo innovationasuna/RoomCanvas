@@ -1,9 +1,61 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from '../object-import.mjs';
+import {objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters, readCatalog, readAsset, modelURL, loadModels} from '../object-import.mjs';
 
 const apply = (m, [x, y, z]) => [0, 1, 2].map((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r]);
 const close = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+
+test('RoomCanvas reads object assets independently of the removed layout service', async () => {
+  const calls = [];
+  const fetcher = async (url) => {calls.push(url); return {ok: true, json: async () => ({})};};
+  await readCatalog(fetcher);
+  await readAsset('我的椅子', fetcher);
+  assert.deepEqual(calls, ['/viewforge/assets/catalog', `/viewforge/assets/${encodeURIComponent('我的椅子')}`]);
+  assert.equal(modelURL('我的椅子', 'result.glb'), `/viewforge/assets/${encodeURIComponent('我的椅子')}/result.glb`);
+});
+
+test('an older running backend supplies catalog, metadata and both models through object-only legacy reads', async () => {
+  const calls = [];
+  const fetcher = async (url) => {
+    calls.push(url);
+    return url === '/viewforge/assets/catalog' ? {ok: false, status: 404} :
+      {ok: true, json: async () => ({runs: ['chair']})};
+  };
+  assert.deepEqual(await readCatalog(fetcher), {runs: ['chair']});
+  await readAsset('我的椅子', fetcher);
+  assert.deepEqual(calls, ['/viewforge/assets/catalog', '/viewforge/layouts/catalog', `/viewforge/layouts/assets/${encodeURIComponent('我的椅子')}`]);
+  for (const file of ['result.glb', 'preview.glb']) {
+    assert.equal(modelURL('chair', file), `/viewforge/layouts/assets/chair/${file}`);
+  }
+  // Once the backend is upgraded the preferred object API is selected again.
+  await readCatalog(async () => ({ok: true, json: async () => ({runs: []})}));
+  assert.equal(modelURL('chair', 'result.glb'), '/viewforge/assets/chair/result.glb');
+});
+
+test('connection and server errors are reported without falling back to another API', async () => {
+  for (const status of [403, 500, 502]) {
+    const calls = [];
+    await assert.rejects(readCatalog(async (url) => {calls.push(url); return {ok: false, status};}), new RegExp(String(status)));
+    assert.deepEqual(calls, ['/viewforge/assets/catalog']);
+  }
+});
+
+test('older results without a light preview still import with a separate contact scene', async () => {
+  const contact = {}, full = {scene: {clone: () => contact}}, light = {scene: {}};
+  const load = async (url) => url.endsWith('result.glb') ? full : light;
+  assert.deepEqual(await loadModels('chair', load), {full, light});
+  const fallback = await loadModels('chair', async (url) => {
+    if (url.endsWith('preview.glb')) throw new Error('preview 404');
+    return full;
+  });
+  assert.equal(fallback.full, full);
+  assert.equal(fallback.light.scene, contact);
+  assert.notEqual(fallback.light.scene, full.scene);
+});
+
+test('an unavailable full model is still reported as an import failure', async () => {
+  await assert.rejects(loadModels('chair', async () => {throw new Error('model unavailable');}), /model unavailable/);
+});
 
 test('ViewForge run ids become short names', () => {
   assert.equal(objectLabel('20260926_sofa_web_114146_561893'), 'sofa');
