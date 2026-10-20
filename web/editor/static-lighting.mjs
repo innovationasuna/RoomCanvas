@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
-import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 import {SettledRender} from './settled-render.mjs';
+import {createLightingComposite} from './lighting-composite.mjs';
 
 // Optional screen-space contact shading. Does not own or change the room's lights,
-// materials, placement logic or shadow maps. Buffers are allocated only after settling.
+// materials, placement logic or shadow maps. AO buffers are allocated only after settling.
 export function createStaticLighting({renderer, scene, camera, room, roomSize, busy, enabled = true, metrics = null, N8AOPass = null}) {
   const supported = renderer.extensions.has('EXT_color_buffer_float');
-  let active = enabled && supported, cached = false, resources = null, error = null;
+  let active = enabled && supported, cached = false, resources = null, composite = null, error = null;
   const size = new THREE.Vector2();
   const radius = THREE.MathUtils.clamp(Math.min(roomSize.x, roomSize.z) * .025, .08, .2);
   const algorithm = N8AOPass ? 'n8ao' : 'gtao';
@@ -27,33 +27,12 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       aoTarget = new THREE.WebGLRenderTarget(1, 1, {type: THREE.HalfFloatType, depthBuffer: false});
       normalMaterial = new THREE.MeshNormalMaterial({side: THREE.DoubleSide});
     } else {ao.output = GTAOPass.OUTPUT.Off; ao.normalMaterial.side = THREE.DoubleSide;}
-    const beauty = new THREE.WebGLRenderTarget(1, 1, {type: THREE.HalfFloatType, samples: 2});
-    const material = new THREE.ShaderMaterial({
-      uniforms: {beauty: {value: beauty.texture}, ao: {value: aoTarget?.texture || ao.pdRenderTarget.texture}, strength: {value: .35}, background: {value: new THREE.Color()}},
-      depthTest: false, depthWrite: false,
-      vertexShader: `varying vec2 vUv;
-        void main() {vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0);}`,
-      fragmentShader: `uniform sampler2D beauty;
-        uniform sampler2D ao;
-        uniform float strength;
-        uniform vec3 background;
-        varying vec2 vUv;
-        void main() {
-          vec4 color = texture2D(beauty, vUv);
-          float occlusion = mix(1.0, clamp(texture2D(ao, vUv).r, 0.0, 1.0), strength);
-          // MSAA coverage is premultiplied against a transparent clear colour.
-          gl_FragColor = vec4(color.rgb / max(color.a, 0.00001) * occlusion, 1.0);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-          // Three.js clears a Color background without tone mapping. Preserve that behaviour.
-          gl_FragColor.rgb = mix(linearToOutputTexel(vec4(background, 1.0)).rgb, gl_FragColor.rgb, color.a);
-        }`,
-    });
-    resources = {ao, aoTarget, normalMaterial, beauty, material, quad: new FullScreenQuad(material), width: 0, height: 0};
+    resources = {ao, aoTarget, normalMaterial, width: 0, height: 0};
     return resources;
   }
 
   function release() {
+    composite?.dispose(); composite = null;
     if (!resources) return;
     resources.ao.dispose(); resources.ao.gtaoMaterial?.dispose(); resources.ao.blendMaterial?.dispose();
     // N8AO 1.10.2 inherits the empty Pass.dispose(). Release its owned targets,
@@ -62,7 +41,6 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       if (resource?.isWebGLRenderTarget || resource?.isTexture || (resource?.material && typeof resource.dispose === 'function')) resource.dispose();
     }
     resources.aoTarget?.dispose(); resources.normalMaterial?.dispose();
-    resources.beauty.dispose(); resources.material.dispose(); resources.quad.dispose();
     resources = null;
   }
 
@@ -80,7 +58,6 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
     renderer.getDrawingBufferSize(size);
     if (size.x !== r.width || size.y !== r.height) {
       r.width = size.x; r.height = size.y;
-      r.beauty.setSize(size.x, size.y);
       // Half the drawing-buffer resolution, capped at 960 pixels on the long edge.
       const scale = Math.min(.5, 960 / Math.max(size.x, size.y));
       r.ao.setSize(Math.max(1, Math.round(size.x * scale)), Math.max(1, Math.round(size.y * scale)));
@@ -113,32 +90,23 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       renderer.xr.enabled = xrEnabled;
       renderer.setRenderTarget(target);
     }
-    try {
-      // Offscreen beauty stays linear; apply the existing ACES/exposure/sRGB conversion exactly once below.
-      r.material.uniforms.background.value.copy(background?.isColor ? background : clearColor);
-      if (background?.isColor || background === null) scene.background = null;
-      renderer.setClearColor(0x000000, 0);
-      renderer.setRenderTarget(r.beauty);
-      renderer.render(scene, camera);
-      scene.background = background;
-      renderer.setClearColor(clearColor, clearAlpha);
-      renderer.setRenderTarget(null);
-      r.quad.render(renderer);
-      cached = true;
-    } finally {
-      scene.background = background; renderer.setClearColor(clearColor, clearAlpha);
-      renderer.setRenderTarget(target);
-    }
+    composite.render(scene, camera, {ao: r.aoTarget?.texture || r.ao.pdRenderTarget.texture});
+    cached = true;
   }
 
   return {
     render() {
       cached = false;
-      renderer.render(scene, camera);
+      try {
+        if (supported && !error) {
+          composite ||= createLightingComposite(renderer);
+          composite.render(scene, camera);
+        } else renderer.render(scene, camera);
+      } catch (cause) {scheduler.dispose(); fail(cause);}
       if (active) scheduler.invalidate();
     },
     capture() {
-      if (cached) resources.quad.render(renderer);
+      if (composite) composite.present();
       else renderer.render(scene, camera);
     },
     pause() {scheduler.pause();},
@@ -147,7 +115,7 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
     snapshot() {
       return {enabled: active, algorithm, state: !enabled ? 'off' : !supported ? 'unsupported' : error ? 'error' : cached ? 'settled' : 'waiting',
         updates: scheduler.updates, delayMs: scheduler.delay, radius, strength: .35,
-        aoSize: resources ? [resources.ao.width, resources.ao.height] : null, error};
+        aoSize: resources ? [resources.ao.width, resources.ao.height] : null, composite: composite?.snapshot() || null, error};
     },
   };
 }
