@@ -10,11 +10,46 @@
 
 </div>
 
-![三维房间示例：LiteReality 官方样例办公室](docs/images/editor-office.jpg)
+![RoomCanvas 三维工作台：书房与会客区、左侧操作助手和底部家具栏](docs/images/roomcanvas-workspace.png)
 
 RoomCanvas 是一个在浏览器中使用的三维房间布置工作台。导入房间，用鼠标或双手调整家具的位置、高度和朝向，在真实尺寸下尝试新的摆法。
 
 网站把封面、我的房间、创建房间、登录、家具库和三维工作台连在一起。需要新家具时，可以连接物体重建服务，用多张照片生成模型，标定尺寸后放入房间。
+
+<details>
+<summary>展开查看其他界面（7 张截图）</summary>
+
+以下截图拍摄于 2026-10-20；工作台与家具库使用 LiteReality 官方办公室示例。
+
+**封面**
+
+![RoomCanvas 封面与左拉开启入口](docs/images/roomcanvas-home.png)
+
+**我的房间**
+
+![我的房间：房间列表、搜索、排序与创建新房间入口](docs/images/roomcanvas-rooms.png)
+
+**家具库**
+
+![家具库：家具缩略图、名称与尺寸](docs/images/roomcanvas-furniture.png)
+
+**制作进度**
+
+![制作进度：暂无制作任务时的界面](docs/images/roomcanvas-progress.png)
+
+**创建新房间**
+
+![创建新房间：照片生成与文件导入两种入口](docs/images/roomcanvas-create.png)
+
+**照片生成房间（尚未开放）**
+
+![照片生成房间：选图预览入口，生成按钮尚未开放](docs/images/roomcanvas-create-photo.png)
+
+**导入新房间**
+
+![导入新房间：填写名称并选择 ZIP 或配套模型文件](docs/images/roomcanvas-create-import.png)
+
+</details>
 
 ## 可以做什么
 
