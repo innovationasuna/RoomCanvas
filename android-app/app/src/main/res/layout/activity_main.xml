@@ -42,12 +42,6 @@
                 android:text="房间漫游" />
         </LinearLayout>
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRealScale"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="1:1 原始尺寸（预览）" />
-
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
