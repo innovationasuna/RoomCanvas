@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.SparseIntArray
 import android.view.MotionEvent
@@ -18,6 +19,7 @@ import android.view.View
  *
  * - 左下十字键区域：移动；每个手指固定一个方向，多指取并集（前 + 左 = 斜向）。
  * - 右半屏其余区域：视角滑动，`Δx → 偏航`、`Δy → 俯仰`。
+ * - 右半屏轻点（≤ 6dp、≤ 500ms）：开关柜门/窗扇，见 [onTap]。
  *
  * 之所以不用“四个按钮各自 setOnTouchListener + 全屏手势检测”，是因为
  * Android 在第二个手指按下时会把事件派发给 DOWN 时的同一个 View，
@@ -42,9 +44,22 @@ class VrTouchControlsView @JvmOverloads constructor(
 
         private const val DPAD_SIZE_DP = 168f
         private const val DPAD_MARGIN_DP = 20f
+
+        /** 轻点判定：位移与时长上限，和网页 walk/app.js 一致 */
+        private const val TAP_SLOP_DP = 6f
+        private const val TAP_TIMEOUT_MS = 500L
     }
 
     var listener: Listener? = null
+
+    /**
+     * 右半屏“轻点”回调（屏幕坐标）。
+     *
+     * 与 [listener] 的滑动互不排斥：同一根手指按下到抬起位移 ≤ 6dp、
+     * 时长 ≤ 500ms 才触发；转向区出现第二根手指则取消。左手按方向键时，
+     * 右手仍可轻点开关柜门/窗扇。
+     */
+    var onTap: ((x: Float, y: Float) -> Unit)? = null
 
     /** 菜单展开等场景下屏蔽输入；置 false 时清空所有按压状态 */
     var inputEnabled: Boolean = true
@@ -59,6 +74,16 @@ class VrTouchControlsView @JvmOverloads constructor(
 
     /** pointerId → 上一次位置；只保存右半屏的转向手指 */
     private val lookPointers = HashMap<Int, PointF>()
+
+    // ---------------- 轻点状态 ----------------
+
+    private val tapSlopPx get() = TAP_SLOP_DP * density
+    private var tapTracking = false
+    private var tapCancelled = false
+    private var tapPointerId = -1
+    private var tapDownX = 0f
+    private var tapDownY = 0f
+    private var tapDownAtMs = 0L
 
     // ---------------- 绘制 ----------------
 
@@ -131,15 +156,31 @@ class VrTouchControlsView @JvmOverloads constructor(
         if (!inputEnabled) return false
 
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                val index = event.actionIndex
+                val id = event.getPointerId(index)
+                val x = event.getX(index)
+                val y = event.getY(index)
+                assignRole(id, x, y)
+                beginTapTracking(id, x, y)
+                return true
+            }
+
             MotionEvent.ACTION_POINTER_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
                 val index = event.actionIndex
-                assignRole(
-                    event.getPointerId(index),
-                    event.getX(index),
-                    event.getY(index)
-                )
+                val id = event.getPointerId(index)
+                val x = event.getX(index)
+                val y = event.getY(index)
+                if (tapTracking) {
+                    // 转向区再落一根手指是双指手势，不算轻点
+                    tapCancelled = true
+                } else {
+                    // 左手按方向键时，右手仍可轻点开关柜门
+                    beginTapTracking(id, x, y)
+                }
+                assignRole(id, x, y)
                 return true
             }
 
@@ -156,21 +197,76 @@ class VrTouchControlsView @JvmOverloads constructor(
                         listener?.onLookDelta(dx, dy)
                     }
                 }
+                if (tapTracking && !tapCancelled) {
+                    val index = event.findPointerIndex(tapPointerId)
+                    if (index >= 0) {
+                        val dx = event.getX(index) - tapDownX
+                        val dy = event.getY(index) - tapDownY
+                        if (dx * dx + dy * dy > tapSlopPx * tapSlopPx) tapCancelled = true
+                    }
+                }
                 return true
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
-                removePointer(event.getPointerId(event.actionIndex))
+                val id = event.getPointerId(event.actionIndex)
+                if (id == tapPointerId) {
+                    // 另一只手还按着方向键时，抬手走的是 POINTER_UP 而不是 UP，
+                    // 必须在这里完成轻点，否则“边走边点”永远不触发。
+                    completeTapIfValid(event)
+                    resetTap()
+                }
+                removePointer(id)
                 return true
             }
 
-            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_UP -> {
+                completeTapIfValid(event)
+                clearTouches()
+                return true
+            }
+
             MotionEvent.ACTION_CANCEL -> {
                 clearTouches()
                 return true
             }
         }
         return true
+    }
+
+    /** 只把右半屏（转向区）的按下作为轻点候选；左半屏是方向键。 */
+    private fun beginTapTracking(pointerId: Int, x: Float, y: Float) {
+        if (x < width / 2f) {
+            resetTap()
+            return
+        }
+        tapTracking = true
+        tapCancelled = false
+        tapPointerId = pointerId
+        tapDownX = x
+        tapDownY = y
+        tapDownAtMs = SystemClock.elapsedRealtime()
+    }
+
+    /** 抬手点符合“位移 ≤ 6dp、时长 ≤ 500ms”才回调；POINTER_UP 与 UP 共用。 */
+    private fun completeTapIfValid(event: MotionEvent) {
+        if (!tapTracking || tapCancelled) return
+        val index = event.findPointerIndex(tapPointerId)
+        if (index < 0) return
+        val x = event.getX(index)
+        val y = event.getY(index)
+        val dx = x - tapDownX
+        val dy = y - tapDownY
+        val inTime = SystemClock.elapsedRealtime() - tapDownAtMs <= TAP_TIMEOUT_MS
+        if (inTime && dx * dx + dy * dy <= tapSlopPx * tapSlopPx) {
+            onTap?.invoke(x, y)
+        }
+    }
+
+    private fun resetTap() {
+        tapTracking = false
+        tapCancelled = false
+        tapPointerId = -1
     }
 
     private fun assignRole(pointerId: Int, x: Float, y: Float) {
@@ -200,6 +296,7 @@ class VrTouchControlsView @JvmOverloads constructor(
             lookPointers.clear()
             invalidate()
         }
+        resetTap()
     }
 
     private fun dpadDirectionAt(x: Float, y: Float): Int = when {

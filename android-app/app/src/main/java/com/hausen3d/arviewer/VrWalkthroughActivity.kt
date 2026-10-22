@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.net.Uri
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +27,8 @@ import androidx.lifecycle.lifecycleScope
 import com.hausen3d.arviewer.ar.ArPoseRenderer
 import com.hausen3d.arviewer.ar.toMat4
 import com.hausen3d.arviewer.databinding.ActivityVrWalkthroughBinding
+import com.hausen3d.arviewer.vr.ArticulationController
+import com.hausen3d.arviewer.vr.GlbAnimationTargets
 import com.hausen3d.arviewer.vr.VrCameraController
 import com.hausen3d.arviewer.vr.VrTouchControlsView
 import com.google.android.filament.Camera
@@ -35,8 +38,11 @@ import com.huawei.hiar.ARSession
 import com.huawei.hiar.ARWorldTrackingConfig
 import dev.romainguy.kotlin.math.Float3
 import dev.romainguy.kotlin.math.Mat4
+import io.github.sceneview.model.ModelInstance
 import io.github.sceneview.node.ModelNode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 
@@ -74,6 +80,10 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
         /** 切后台 / GC 卡顿后的单帧时间上限，防止位移瞬移 */
         private const val MAX_FRAME_DT_S = 0.05f
+
+        /** 记住上次导入的房间模型，下次启动直接进入 */
+        private const val PREFS_NAME = "vr_walkthrough"
+        private const val PREF_MODEL_PATH = "last_model_path"
     }
 
     private lateinit var binding: ActivityVrWalkthroughBinding
@@ -84,6 +94,18 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private var modelNode: ModelNode? = null
     private var cameraController: VrCameraController? = null
+
+    /** 驱动柜门/窗扇/推拉门的点击开关；模型没有动画时内部条目为空，点击无副作用 */
+    private var articulation: ArticulationController? = null
+
+    /** 正在从文件选择器拷贝/加载模型：期间禁止开始漫游与重复导入 */
+    private var importing = false
+
+    /** 启动时异步加载上次的模型：期间禁用“开始漫游”并显示加载提示 */
+    private var loadingInitialModel = false
+
+    /** 导入失败提示：在开始页常驻，避免被每 500ms 的状态刷新覆盖 */
+    private var importError: String? = null
 
     /** 真实走动（AR 位姿跟踪）是否启用；菜单可切换 */
     private var trackingEnabled = true
@@ -105,7 +127,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
     private var lastPoseLogAt = 0L
     private var realWalkHintShown = false
     private var arEngineDialogShown = false
-    private var suppressSwitchCallback = false
 
     private val speedScales = floatArrayOf(0.5f, 1f, 2f)
     private var speedIndex = 1
@@ -126,6 +147,14 @@ class VrWalkthroughActivity : AppCompatActivity() {
         }
     }
 
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
+
+    /** 直接在当前页面导入房间模型，不再经过“预览页”这一层 */
+    private val pickRoomModel =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importRoomModel(uri)
+        }
+
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
@@ -133,7 +162,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
             } else {
                 // 相机权限只影响真实走动；按键与滑动漫游仍可用
                 trackingEnabled = false
-                setRealWalkChecked(false)
                 Toast.makeText(
                     this,
                     "未授权相机：只能使用方向键和滑动漫游",
@@ -156,10 +184,11 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 漫游期间不使用 SceneView 自带的轨道相机手势
         binding.sceneView.cameraManipulator = null
 
-        loadRoomModel()
-        loadEnvironment()
+        // 先就绪渲染/控件，再加载模型：模型可能来自异步文件选择器
         initPoseRenderer()
         initControls()
+        loadRoomModel()
+        loadEnvironment()
 
         // 先摆到房间起点，开始前就能看到室内
         cameraController?.let {
@@ -214,6 +243,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
         poseRenderer.session = null
         arSession?.stop()
         arSession = null
+        articulation?.release()
+        articulation = null
         if (::binding.isInitialized) {
             binding.sceneView.destroy()
         }
@@ -233,31 +264,101 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     // ---------------- 初始化 ----------------
 
+    /**
+     * 应用启动即进入本页面，模型来源优先级：
+     * Intent 传入 > 上次导入（filesDir） > 无（提示用户直接在本页导入）。
+     */
     private fun loadRoomModel() {
         val assetPath = intent.getStringExtra(EXTRA_MODEL_ASSET)
         val filePath = intent.getStringExtra(EXTRA_MODEL_PATH)
+        val savedPath = prefs.getString(PREF_MODEL_PATH, null)
 
-        val instance = try {
-            when {
-                assetPath != null -> binding.sceneView.modelLoader.createModelInstance(assetPath)
-                filePath != null ->
-                    binding.sceneView.modelLoader.createModelInstance(File(filePath))
-                else -> null
+        when {
+            assetPath != null -> loadModelAsync(
+                targets = { GlbAnimationTargets.parseAsset(assets, assetPath) },
+                loader = { binding.sceneView.modelLoader.createModelInstance(assetPath) }
+            )
+
+            filePath != null -> loadModelAsync(
+                targets = { GlbAnimationTargets.parseFile(File(filePath)) },
+                loader = { binding.sceneView.modelLoader.createModelInstance(File(filePath)) }
+            )
+
+            savedPath != null && File(savedPath).isFile -> loadModelAsync(
+                targets = { GlbAnimationTargets.parseFile(File(savedPath)) },
+                loader = { binding.sceneView.modelLoader.createModelInstance(File(savedPath)) }
+            )
+
+            else -> {
+                // 记住的模型已损坏/被删除：清掉引用，避免每次启动重复失败
+                prefs.edit().remove(PREF_MODEL_PATH).apply()
+                showChooseRoomHint()
             }
+        }
+    }
+
+    /**
+     * 启动时加载模型：只把 JSON 解析放到 IO 线程（大房间的 JSON chunk 可能卡住首帧），
+     * Filament 的 createModelInstance 仍留在主线程。
+     */
+    private fun loadModelAsync(
+        targets: () -> GlbAnimationTargets.Result,
+        loader: () -> ModelInstance?
+    ) {
+        loadingInitialModel = true
+        binding.btnStart.isEnabled = false
+        updateStartHint(force = true)
+        lifecycleScope.launch {
+            try {
+                val animation = withContext(Dispatchers.IO) { targets() }
+                // 解析期间用户可能已经手动导入了别的模型，别用启动时的旧模型覆盖
+                if (importing || modelNode != null) return@launch
+                if (!tryLoadModel(animation, loader)) {
+                    prefs.edit().remove(PREF_MODEL_PATH).apply()
+                    showChooseRoomHint()
+                }
+            } finally {
+                loadingInitialModel = false
+                updateStartHint(force = true)
+            }
+        }
+    }
+
+    private inline fun tryLoadModel(
+        animation: GlbAnimationTargets.Result,
+        block: () -> ModelInstance?
+    ): Boolean {
+        val instance = try {
+            block()
         } catch (e: Exception) {
             Log.e(TAG, "模型加载失败", e)
             null
         }
+        if (instance == null) return false
+        applyModelInstance(instance, animation)
+        return true
+    }
 
-        if (instance == null) {
-            Toast.makeText(this, "没有可加载的模型", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
-
-        val node = ModelNode(modelInstance = instance)
+    /** 把模型挂进场景，并按包围盒重建漫游起点与房间边界 */
+    private fun applyModelInstance(
+        instance: ModelInstance,
+        animation: GlbAnimationTargets.Result = GlbAnimationTargets.Result()
+    ) {
+        modelNode?.let { releaseModelNode(it) }
+        importError = null
+        // 不自动播放：SceneView 默认会对每条动画 playAnimation(loop = true)，
+        // 正是柜门/窗户不停开合的来源。开关改由 ArticulationController 驱动。
+        val node = ModelNode(modelInstance = instance, autoAnimate = false)
         binding.sceneView.addChildNode(node)
         modelNode = node
+        articulation = ArticulationController(
+            sceneView = binding.sceneView,
+            modelNode = node,
+            animationTargets = animation.targets,
+            openTimes = animation.openTimes
+        ) { label, open ->
+            if (started) showStatus(if (open) "正在打开 $label" else "正在关闭 $label")
+        }
 
         // 用模型包围盒自动定地面与人眼高度。重建模型的 y=0 不一定在地面，
         // 例如 Room-nonagent.glb 的地面在 y=-1.595m，所以不能假设原点即地面。
@@ -273,7 +374,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 默认视线朝向房间较长的一条水平轴，看到更开阔的室内
         val yawDeg = if (sizeX >= sizeZ) 90f else 0f
 
-        cameraController = VrCameraController(
+        val controller = VrCameraController(
             startPosition = Float3(centerX, eyeY, centerZ),
             startYawDegrees = yawDeg,
             roomMinX = centerX - sizeX * 0.5f,
@@ -282,6 +383,17 @@ class VrWalkthroughActivity : AppCompatActivity() {
             roomMaxZ = centerZ + sizeZ * 0.5f,
             moveGain = MOVE_GAIN
         )
+        cameraController = controller
+        binding.sceneView.cameraNode.worldTransform = controller.initialCameraPose()
+
+        // 更换模型后回到“开始漫游”状态，避免沿用旧模型的参考位姿
+        started = false
+        lastFrameMs = 0L
+        binding.vrTouchControls.clearTouches()
+        binding.vrTouchControls.inputEnabled = false
+        binding.startOverlay.visibility = View.VISIBLE
+        binding.btnStart.isEnabled = true
+        updateStartHint(force = true)
 
         Log.i(
             TAG,
@@ -297,6 +409,118 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+    /**
+     * 彻底释放旧模型：只 removeChildNode 只是从场景树摘下，
+     * FilamentAsset（几何/贴图）仍由 ModelLoader 持有，必须显式销毁。
+     *
+     * 注意不要先调 node.destroy()：ModelNode 的 entity 就是 asset 的根实体，
+     * destroyModel() 会连同根实体一起销毁，先 destroy 会造成重复销毁。
+     */
+    private fun releaseModelNode(node: ModelNode) {
+        // 控制器持有 animator / asset / 拾取回调，必须先于 destroyModel 失效
+        articulation?.release()
+        articulation = null
+        binding.sceneView.removeChildNode(node)
+        binding.sceneView.modelLoader.destroyModel(node.model)
+    }
+
+    private fun showChooseRoomHint() {
+        articulation?.release()
+        articulation = null
+        modelNode = null
+        cameraController = null
+        binding.btnStart.isEnabled = false
+        binding.startOverlay.visibility = View.VISIBLE
+        binding.tvStartHint.text = "尚未选择房间模型，请点击「选择房间模型」导入 .glb 文件"
+    }
+
+    /** 通过系统文件选择器导入房间模型：拷贝到私有目录并记住，下次启动直接加载 */
+    private fun importRoomModel(uri: Uri) {
+        if (importing) return
+
+        // DISPLAY_NAME 来自外部 DocumentsProvider，必须只取文件名防止路径穿越
+        val safeName = File(displayName(uri)).name
+        val extension = safeName.substringAfterLast('.', "").lowercase()
+        if (extension.isNotEmpty() && extension != "glb") {
+            importError = "请选择 .glb 房间模型（.gltf 需连同外部资源，暂不支持）"
+            updateStartHint(force = true)
+            Toast.makeText(this, importError, Toast.LENGTH_LONG).show()
+            return
+        }
+
+        importing = true
+        importError = null
+        binding.btnStart.isEnabled = false
+        binding.btnPickRoom.isEnabled = false
+        updateStartHint(force = true)
+
+        lifecycleScope.launch {
+            var copied: File? = null
+            var applied = false
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val dir = File(filesDir, "models/current")
+                    if (!dir.exists()) dir.mkdirs()
+                    // 写入唯一文件名，成功加载后再清理旧文件：
+                    // 失败时不会把“上次记住的模型”一起删掉。
+                    val base = safeName.substringBeforeLast('.', safeName).ifBlank { "room" }
+                    val dest = File(dir, "$base-${System.currentTimeMillis()}.glb")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    } ?: throw IllegalStateException("无法读取所选文件")
+                    dest
+                }
+                copied = file
+
+                // 只读 JSON/BIN 里的动画信息，放到 IO 线程；解析失败返回空结果，不影响加载
+                val animation = withContext(Dispatchers.IO) {
+                    GlbAnimationTargets.parseFile(file)
+                }
+                // Filament 的模型创建必须在主线程
+                val instance = binding.sceneView.modelLoader.createModelInstance(file)
+                applyModelInstance(instance, animation)
+                applied = true
+                prefs.edit().putString(PREF_MODEL_PATH, file.absolutePath).apply()
+
+                // 新模型已加载成功，才清掉旧文件
+                withContext(Dispatchers.IO) {
+                    file.parentFile?.listFiles()?.forEach {
+                        if (it != file) it.delete()
+                    }
+                }
+
+                Toast.makeText(
+                    this@VrWalkthroughActivity,
+                    "已加载：${safeName.ifBlank { file.name }}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {
+                Log.e(TAG, "导入房间模型失败", e)
+                // 已经挂进场景的文件不能删，否则下次启动会加载失败
+                if (!applied) copied?.delete()
+                importError = "模型加载失败：${e.message ?: "格式不支持或文件损坏"}"
+                Toast.makeText(
+                    this@VrWalkthroughActivity,
+                    importError,
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                importing = false
+                binding.btnPickRoom.isEnabled = true
+                binding.btnStart.isEnabled = modelNode != null
+                updateStartHint(force = true)
+            }
+        }
+    }
+
+    private fun displayName(uri: Uri): String {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && cursor.moveToFirst()) return cursor.getString(idx) ?: ""
+        }
+        return uri.lastPathSegment ?: ""
     }
 
     private fun loadEnvironment() {
@@ -322,10 +546,23 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private fun initControls() {
         binding.btnStart.setOnClickListener { startWalkthrough() }
+        binding.btnPickRoom.setOnClickListener {
+            pickRoomModel.launch(
+                arrayOf(
+                    // 只支持单文件 .glb；*/* 是部分文件管理器识别不了 glb 时的兜底，
+                    // 选中后仍会按扩展名校验
+                    "model/gltf-binary",
+                    "application/octet-stream",
+                    "*/*"
+                )
+            )
+        }
 
         binding.vrTouchControls.listener = VrTouchControlsView.Listener { dx, dy ->
             cameraController?.applyLookDelta(dx, dy)
         }
+        // 触摸层与 SceneView 同为全屏、同原点，屏幕坐标可直接用于拾取
+        binding.vrTouchControls.onTap = { x, y -> articulation?.toggleAt(x, y) }
 
         binding.btnMenu.setOnClickListener {
             setMenuOpen(binding.menuPanel.visibility != View.VISIBLE)
@@ -343,17 +580,19 @@ class VrWalkthroughActivity : AppCompatActivity() {
             cycleSpeed()
             resetMenuTimer()
         }
-        binding.switchRealWalk.setOnCheckedChangeListener { _, checked ->
-            if (suppressSwitchCallback) return@setOnCheckedChangeListener
-            setTrackingEnabled(checked)
-            resetMenuTimer()
-        }
     }
 
     // ---------------- 开始 / 菜单 ----------------
 
     private fun startWalkthrough() {
-        val controller = cameraController ?: return
+        if (importing || loadingInitialModel) {
+            Toast.makeText(this, "正在加载模型，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val controller = cameraController ?: run {
+            Toast.makeText(this, "请先选择房间模型", Toast.LENGTH_SHORT).show()
+            return
+        }
         controller.resetToStart(null)
         controller.speedScale = speedScales[speedIndex]
 
@@ -374,7 +613,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         binding.vrTouchControls.inputEnabled = binding.menuPanel.visibility != View.VISIBLE
         binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
 
-        if (binding.switchRealWalk.isChecked && !realWalkHintShown) {
+        if (trackingEnabled && !realWalkHintShown) {
             realWalkHintShown = true
             Toast.makeText(this, "走动时请留意现实环境", Toast.LENGTH_LONG).show()
         }
@@ -403,40 +642,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
         val scale = speedScales[speedIndex]
         cameraController?.speedScale = scale
         binding.btnSpeed.text = "速度 ${"%.1f".format(scale)}×"
-    }
-
-    // ---------------- 真实走动开关 ----------------
-
-    private fun setTrackingEnabled(enabled: Boolean) {
-        trackingEnabled = enabled
-        if (enabled) {
-            if (!realWalkHintShown) {
-                realWalkHintShown = true
-                Toast.makeText(this, "走动时请留意现实环境", Toast.LENGTH_LONG).show()
-            }
-            if (checkSelfPermission(Manifest.permission.CAMERA) !=
-                PackageManager.PERMISSION_GRANTED
-            ) {
-                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                return
-            }
-            startArSessionIfPossible(resumeAfterCreate = false)
-            needsReanchor = true
-            showStatus("已开启真实走动")
-        } else {
-            pauseArPump()
-            // 把当前 AR 贡献折算进基准，画面不跳变
-            cameraController?.detachAr()
-            needsReanchor = false
-            showStatus("已关闭真实走动：可继续用方向键和滑动")
-        }
-        updateStartHint(force = true)
-    }
-
-    private fun setRealWalkChecked(checked: Boolean) {
-        suppressSwitchCallback = true
-        binding.switchRealWalk.isChecked = checked
-        suppressSwitchCallback = false
     }
 
     // ---------------- AR 会话 ----------------
@@ -468,7 +673,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 Log.e(TAG, "AR 会话启动失败", e)
                 Toast.makeText(this, "AR 会话启动失败：${e.message}", Toast.LENGTH_LONG).show()
                 trackingEnabled = false
-                setRealWalkChecked(false)
                 updateStartHint(force = true)
                 return
             }
@@ -481,7 +685,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
             Log.e(TAG, "相机打开失败", e)
             Toast.makeText(this, "相机打开失败：${e.message}", Toast.LENGTH_LONG).show()
             trackingEnabled = false
-            setRealWalkChecked(false)
             updateStartHint(force = true)
             return
         }
@@ -510,7 +713,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private fun onArEngineMissing() {
         trackingEnabled = false
-        setRealWalkChecked(false)
         updateStartHint(force = true)
         if (arEngineDialogShown) return
         arEngineDialogShown = true
@@ -549,6 +751,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
             ((now - lastFrameMs) / 1000f).coerceIn(0f, MAX_FRAME_DT_S)
         }
         lastFrameMs = now
+
+        // 开关动画与是否开始漫游无关：开始页也能看到柜门缓慢合上
+        articulation?.step(dt)
 
         if (!started) {
             updateStartHint()
@@ -677,11 +882,26 @@ class VrWalkthroughActivity : AppCompatActivity() {
     // ---------------- 状态文案 ----------------
 
     private fun updateStartHint(force: Boolean = false) {
+        // 导入中/上次导入失败：保持提示，不被每 500ms 的状态刷新覆盖
+        if (importing) {
+            binding.tvStartHint.text = "正在导入模型…"
+            return
+        }
+        if (loadingInitialModel) {
+            binding.tvStartHint.text = "正在加载房间模型…"
+            return
+        }
+        importError?.let {
+            binding.tvStartHint.text = it
+            return
+        }
+
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastStartHintAt < 500) return
         lastStartHintAt = now
         binding.tvStartHint.text = when {
-            !trackingEnabled -> "真实走动已关闭：可用方向键与滑动漫游"
+            modelNode == null -> "尚未选择房间模型，请点击「选择房间模型」导入 .glb 文件"
+            !trackingEnabled -> "相机/AR 不可用：可用方向键与滑动漫游"
             poseRenderer.poseSnapshot.get().isTracking -> "AR 跟踪就绪 · 点击开始漫游"
             else -> "等待 AR 跟踪…（也可直接开始，仅用方向键移动）"
         }

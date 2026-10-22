@@ -10,6 +10,7 @@ import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
 import android.widget.Toast
@@ -21,6 +22,8 @@ import com.hausen3d.arviewer.ar.ArGestureHandler
 import com.hausen3d.arviewer.ar.CameraBackgroundRenderer
 import com.hausen3d.arviewer.ar.toMat4
 import com.hausen3d.arviewer.databinding.ActivityMainBinding
+import com.hausen3d.arviewer.vr.ArticulationController
+import com.hausen3d.arviewer.vr.GlbAnimationTargets
 import com.huawei.hiar.ARConfigBase
 import com.huawei.hiar.AREnginesApk
 import com.huawei.hiar.ARSession
@@ -59,11 +62,36 @@ import java.io.File
  */
 class MainActivity : AppCompatActivity() {
 
+    private companion object {
+        /** 切后台 / GC 卡顿后的单帧时间上限，防止开关动画瞬移 */
+        private const val MAX_FRAME_DT_S = 0.05f
+
+        /** 轻点判定：与网页 walk/app.js 一致 */
+        private const val TAP_SLOP_DP = 6f
+        private const val TAP_TIMEOUT_MS = 500L
+    }
+
     private lateinit var binding: ActivityMainBinding
     private var currentNode: ModelNode? = null
 
     /** 当前已加载的模型实例（查看器与 AR 两种模式共用） */
     private var lastModelInstance: ModelInstance? = null
+
+    /** 柜门/窗扇的点击开关；查看器与 AR 放置各持有自己的节点，切模式时重建 */
+    private var articulation: ArticulationController? = null
+
+    /** 当前模型的动画目标与往返片段中点时间，随模型一起切换 */
+    private var animationInfo: GlbAnimationTargets.Result = GlbAnimationTargets.Result()
+
+    private var lastFrameMs = 0L
+
+    // 查看器轻点判定（不影响 SceneView 自身的旋转/缩放手势）
+    private val tapSlopPx get() = TAP_SLOP_DP * resources.displayMetrics.density
+    private var tapTracking = false
+    private var tapPointerId = -1
+    private var tapDownX = 0f
+    private var tapDownY = 0f
+    private var tapDownAtMs = 0L
 
     /**
      * 当前模型来源：供 [VrWalkthroughActivity] 在新 Engine 中重新加载。
@@ -178,11 +206,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // 1:1 开关变化时按新策略重建模型节点（查看器/AR 均即时生效）
-        binding.switchRealScale.setOnCheckedChangeListener { _, _ ->
-            lastModelInstance?.let { replaceModel(it) }
-        }
-
         // 首次启动加载内置示例模型，便于无文件时冒烟测试
         loadBundledDefault()
     }
@@ -199,7 +222,7 @@ class MainActivity : AppCompatActivity() {
         }
         arGestures = ArGestureHandler(
             this,
-            onTap = { x, y -> arRenderer.requestPlacement(x, y) },
+            onTap = { x, y -> handleArTap(x, y) },
             onRotate = { delta ->
                 gestureYawDeg = (gestureYawDeg + delta) % 360f
                 applyGestureToModel()
@@ -212,8 +235,108 @@ class MainActivity : AppCompatActivity() {
         binding.btnArMode.setOnClickListener {
             if (arModeActive) exitArMode() else tryEnterArMode()
         }
-        // SceneView 每帧渲染前的回调：应用 AR 位姿快照（主线程）
-        binding.sceneView.onFrame = { applyArSnapshots() }
+        // SceneView 每帧渲染前的回调：推进开关动画 + 应用 AR 位姿快照（主线程）
+        binding.sceneView.onFrame = { onSceneFrame() }
+
+        // 查看器轻点：返回 false 保留 SceneView 的旋转/缩放手势。
+        // AR 模式下事件被 setOnTouchListener 吞掉，不会走到这里。
+        binding.sceneView.onTouchEvent = { event, _ ->
+            handleViewerTouch(event)
+            false
+        }
+    }
+
+    private fun onSceneFrame() {
+        val now = SystemClock.elapsedRealtime()
+        val dt = if (lastFrameMs == 0L) {
+            0f
+        } else {
+            ((now - lastFrameMs) / 1000f).coerceIn(0f, MAX_FRAME_DT_S)
+        }
+        lastFrameMs = now
+
+        articulation?.step(dt)
+        applyArSnapshots()
+    }
+
+    // ---------------- 点击开关 ----------------
+
+    /** AR：已放置时点击活动部件只开关；点空处或部件未被命中才重新放置。 */
+    private fun handleArTap(x: Float, y: Float) {
+        if (!arModeActive) return
+        if (!arPlaced) {
+            arRenderer.requestPlacement(x, y)
+            return
+        }
+        val controller = articulation
+        val handled = controller?.toggleAt(x, y) { toggled ->
+            if (!toggled) arRenderer.requestPlacement(x, y)
+        } ?: false
+        if (!handled) arRenderer.requestPlacement(x, y)
+    }
+
+    /** 查看器：位移 / 时长判定与网页一致，拖动旋转不会误触。 */
+    private fun handleViewerTouch(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val index = event.actionIndex
+                tapTracking = true
+                tapPointerId = event.getPointerId(index)
+                tapDownX = event.getX(index)
+                tapDownY = event.getY(index)
+                tapDownAtMs = SystemClock.elapsedRealtime()
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_CANCEL -> tapTracking = false
+
+            MotionEvent.ACTION_MOVE -> {
+                if (tapTracking) {
+                    val index = event.findPointerIndex(tapPointerId)
+                    if (index >= 0) {
+                        val dx = event.getX(index) - tapDownX
+                        val dy = event.getY(index) - tapDownY
+                        if (dx * dx + dy * dy > tapSlopPx * tapSlopPx) tapTracking = false
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (event.getPointerId(event.actionIndex) == tapPointerId) tapTracking = false
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val index = event.actionIndex
+                if (tapTracking && event.getPointerId(index) == tapPointerId) {
+                    val x = event.getX(index)
+                    val y = event.getY(index)
+                    val dx = x - tapDownX
+                    val dy = y - tapDownY
+                    val inTime =
+                        SystemClock.elapsedRealtime() - tapDownAtMs <= TAP_TIMEOUT_MS
+                    if (inTime && dx * dx + dy * dy <= tapSlopPx * tapSlopPx) {
+                        articulation?.toggleAt(x, y)
+                    }
+                }
+                tapTracking = false
+            }
+        }
+    }
+
+    private fun createArticulation(node: ModelNode) {
+        articulation = ArticulationController(
+            sceneView = binding.sceneView,
+            modelNode = node,
+            animationTargets = animationInfo.targets,
+            openTimes = animationInfo.openTimes
+        ) { label, open ->
+            setStatus(if (open) "正在打开 $label" else "正在关闭 $label")
+        }
+    }
+
+    private fun releaseArticulation() {
+        articulation?.release()
+        articulation = null
     }
 
     // ---------------- 房间漫游（VR） ----------------
@@ -271,6 +394,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        releaseArticulation()
         arRenderer.session = null
         arSession?.stop()
         arSession = null
@@ -334,6 +458,7 @@ class MainActivity : AppCompatActivity() {
         binding.arCameraView.onResume()
 
         // 查看器中的模型先撤下，等待点击放置
+        releaseArticulation()
         currentNode?.let { binding.sceneView.removeChildNode(it) }
         currentNode = null
         arPlaced = false
@@ -362,6 +487,7 @@ class MainActivity : AppCompatActivity() {
         binding.arCameraView.visibility = View.GONE
 
         // 移除 AR 场景树
+        releaseArticulation()
         anchorNode?.let { binding.sceneView.removeChildNode(it) }
         anchorNode = null
         gestureNode = null
@@ -494,25 +620,17 @@ class MainActivity : AppCompatActivity() {
             gestureNode = gesture
         }
         arModelNode?.let { gestureNode?.removeChildNode(it) }
+        releaseArticulation()
         val modelNode = createArModelNode(instance)
         gestureNode?.addChildNode(modelNode)
         arModelNode = modelNode
+        createArticulation(modelNode)
         applyGestureToModel()
     }
 
     private fun createArModelNode(instance: ModelInstance): ModelNode {
-        return if (binding.switchRealScale.isChecked) {
-            // 房间模式：1:1 保留原始尺寸与模型自身原点（房间模型地面通常在 y=0，可"走进去"）
-            ModelNode(modelInstance = instance)
-        } else {
-            // 物体模式：归一化到 1 米，包围盒底面贴 Anchor（桌面放置）
-            ModelNode(modelInstance = instance, scaleToUnits = 1.0f).apply {
-                val halfExtent = boundingBox.halfExtent
-                val center = boundingBox.center
-                val s = scale.x
-                position = Position(-center[0] * s, -(center[1] - halfExtent[1]) * s, -center[2] * s)
-            }
-        }
+        // 固定 1:1：保留原始尺寸与模型自身原点（房间模型地面通常在 y=0，可"走进去"）
+        return ModelNode(modelInstance = instance, autoAnimate = false)
     }
 
     private fun applyGestureToModel() {
@@ -531,6 +649,7 @@ class MainActivity : AppCompatActivity() {
                 binding.sceneView.modelLoader.createModelInstance("models/DamagedHelmet.glb")
             currentModelAsset = "models/DamagedHelmet.glb"
             currentModelPath = null
+            animationInfo = GlbAnimationTargets.parseAsset(assets, "models/DamagedHelmet.glb")
             replaceModel(instance)
             setStatus("已加载内置示例模型，点击左上角选择本地模型")
         } catch (e: Exception) {
@@ -566,11 +685,15 @@ class MainActivity : AppCompatActivity() {
                     emptyList()
                 }
                 if (refs.isEmpty()) {
-                    // .glb 或无外部引用的 .gltf：直接加载
+                    // 只读 JSON/BIN 里的动画信息，放到 IO 线程；解析失败返回空结果不影响加载
+                    val animation = withContext(Dispatchers.IO) {
+                        GlbAnimationTargets.parseFile(file)
+                    }
                     // Filament 调用必须在主线程
                     val instance = binding.sceneView.modelLoader.createModelInstance(file)
                     currentModelPath = file.absolutePath
                     currentModelAsset = null
+                    animationInfo = animation
                     replaceModel(instance)
                     setStatus("已加载：${displayName(uri)}")
                 } else {
@@ -643,9 +766,13 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
+                    val animation = withContext(Dispatchers.IO) {
+                        GlbAnimationTargets.parseFile(gltfFile)
+                    }
                     val instance = binding.sceneView.modelLoader.createModelInstance(gltfFile)
                     currentModelPath = gltfFile.absolutePath
                     currentModelAsset = null
+                    animationInfo = animation
                     replaceModel(instance)
                     setStatus("已加载：${gltfFile.name}（含 ${refs.size} 个外部文件）")
                 }
@@ -683,6 +810,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun replaceModel(instance: ModelInstance) {
         lastModelInstance = instance
+        releaseArticulation()
         if (arModeActive) {
             // AR 模式：不直接上屏，等点击放置；已放置则原地热替换
             if (arPlaced && anchorNode != null) {
@@ -694,19 +822,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
         currentNode?.let { binding.sceneView.removeChildNode(it) }
-        val node = if (binding.switchRealScale.isChecked) {
-            // 房间模式：保留模型原始尺寸（1:1）
-            ModelNode(modelInstance = instance, centerOrigin = Position(y = 0.0f))
-        } else {
-            // 物体模式：归一化到 1 米边长，居中于原点
-            ModelNode(
-                modelInstance = instance,
-                scaleToUnits = 1.0f,
-                centerOrigin = Position(y = 0.0f)
-            )
-        }
+        // 固定 1:1：保留模型原始尺寸，居中于原点。
+        // autoAnimate = false：否则 SceneView 会让所有柜门/窗扇无限循环开合。
+        val node = ModelNode(
+            modelInstance = instance,
+            autoAnimate = false,
+            centerOrigin = Position(y = 0.0f)
+        )
         binding.sceneView.addChildNode(node)
         currentNode = node
+        createArticulation(node)
     }
 
     private fun copyToCache(uri: Uri, dir: File): File {
