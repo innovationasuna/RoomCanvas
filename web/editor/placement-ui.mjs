@@ -25,7 +25,6 @@ export function bindPlacementPanel(actions) {
     'session-rotate-right': () => $('#rotate-right').click(),
     'store-object': actions.store,
     'clear-room': actions.clear,
-    light: actions.toggleLight,
   })) $(`#${id}`).onclick = action;
   for (const button of document.querySelectorAll('[data-mode]')) button.onclick = () => actions.setMode(button.dataset.mode);
 }
