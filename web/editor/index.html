@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-49">
+<link rel="stylesheet" href="./editor.css?v=app-50">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -60,7 +60,29 @@
     <button class="rc-action rc-confirm" id="import-object" type="button" disabled>导入并摆放</button>
    </div>
   </details>
-  <button class="rc-tool" id="light" aria-label="切换日光与暖光" aria-pressed="false"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</button>
+  <details class="rc-menu" id="light-menu">
+   <summary class="rc-tool" id="light" aria-label="选择光照与室内灯具"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</summary>
+   <div class="rc-menu-panel rc-lighting-panel rc-time-panel">
+    <label class="rc-lighting-time" for="lighting-time">时段光照（实验）<select id="lighting-time" disabled><option value="balanced">普通光照</option><option value="morning">早晨</option><option value="noon" selected>中午</option><option value="afternoon">下午</option><option value="night">夜间</option></select></label>
+    <label class="rc-lamp-angle" for="lamp-angle"><span>顶灯照射角度（实验）<output for="lamp-angle">160°</output></span><input id="lamp-angle" type="range" min="60" max="170" step="1" value="160" disabled></label>
+    <div class="rc-lamp-power"><span id="lamp-status" role="status">中央顶灯已开启</span><button class="rc-tool" id="lamp-power" type="button" aria-pressed="true" disabled>关灯</button></div>
+    <p class="rc-lighting-note">顶灯位于房间顶部中央；角度为完整光锥角度。白天弱补光，夜间主要照明，按房间记住角度与开关。</p>
+   </div>
+  </details>
+  <details class="rc-menu" id="lighting-menu">
+   <summary class="rc-tool" aria-label="调色实验">调色实验</summary>
+   <div class="rc-menu-panel rc-lighting-panel">
+    <div class="rc-grade-fields">
+     <label for="grade-exposure"><span>曝光 <output for="grade-exposure">0.00 EV</output></span><input id="grade-exposure" data-grade="exposure" type="range" min="-2" max="2" step="0.05" value="0" disabled></label>
+     <label for="grade-white-balance"><span>白平衡（冷暖）<output for="grade-white-balance">中性</output></span><input id="grade-white-balance" data-grade="whiteBalance" type="range" min="-1" max="1" step="0.02" value="0" disabled></label>
+     <label for="grade-contrast"><span>对比度 <output for="grade-contrast">1.00</output></span><input id="grade-contrast" data-grade="contrast" type="range" min="0.6" max="1.4" step="0.01" value="1" disabled></label>
+     <label for="grade-saturation"><span>饱和度 <output for="grade-saturation">1.00</output></span><input id="grade-saturation" data-grade="saturation" type="range" min="0" max="1.6" step="0.01" value="1" disabled></label>
+    </div>
+    <button class="rc-tool" id="grading-reset" type="button" disabled>重置四项调色</button>
+    <p class="rc-lighting-note">调色为实验功能。参数仅本次页面有效，切换时段会保留调色；刷新恢复中性。</p>
+    <p class="rc-lighting-note" id="grading-unavailable" role="status">调色加载中；原始光照对照模式或图形功能不可用时停用。</p>
+   </div>
+  </details>
   <details class="rc-menu" id="tools-menu">
    <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
    <div class="rc-menu-panel">
@@ -189,4 +211,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-49"></script></body></html>
+</div><script type="module" src="./editor.js?v=app-50"></script></body></html>

@@ -379,6 +379,27 @@ body { min-height:100dvh; box-sizing:border-box; }
  #rc-placement-demo { height:calc(100dvh - 12px); }
  #rc-placement-demo .object-row { flex-basis:132px; }
 }
+/* Experimental lighting controls affect the canvas only. */
+#rc-placement-demo .rc-lighting-panel { width: 300px; max-height: min(580px, calc(100dvh - 170px)); overflow-y: auto; text-align: left; }
+#rc-placement-demo .rc-time-panel { width: 260px; }
+#rc-placement-demo .rc-lighting-time { display: grid; gap: 6px; font-size: 13px; }
+#rc-placement-demo .rc-lighting-time select { width: 100%; padding: 7px 9px; border: 1px solid var(--rc-line); border-radius: 8px; background: var(--rc-panel); color: var(--rc-text); font: inherit; }
+#rc-placement-demo .rc-lamp-angle { display: grid; gap: 10px; margin: 15px 0; padding-top: 12px; border-top: 1px solid var(--rc-line); font-size: 12px; }
+#rc-placement-demo .rc-lamp-power { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#rc-placement-demo #lamp-status { font-size: 12px; color: var(--rc-muted); }
+#rc-placement-demo #lamp-power { padding: 6px 14px; font-size: 12px; }
+#rc-placement-demo .rc-lighting-note { margin: 9px 0; color: var(--rc-muted); font-size: 11px; line-height: 1.6; }
+#rc-placement-demo .rc-grade-fields { display: grid; gap: 14px; margin: 16px 0; }
+#rc-placement-demo .rc-grade-fields label { display: grid; gap: 7px; font-size: 12px; }
+#rc-placement-demo :is(.rc-grade-fields label, .rc-lamp-angle) > span { display: flex; justify-content: space-between; gap: 8px; }
+#rc-placement-demo :is(.rc-grade-fields, .rc-lamp-angle) output { color: var(--rc-muted); font-variant-numeric: tabular-nums; }
+#rc-placement-demo :is(.rc-grade-fields, .rc-lamp-angle) input { width: 100%; margin: 0; accent-color: var(--rc-green); cursor: ew-resize; }
+#rc-placement-demo :is(.rc-grade-fields, .rc-lamp-angle) input:focus-visible { outline: 2px solid var(--rc-green); outline-offset: 4px; }
+#rc-placement-demo #grading-reset { width: 100%; justify-content: center; font-size: 12px; }
+#rc-placement-demo #grading-unavailable { color: var(--rc-warn); }
+@media(max-width:740px) {
+ #rc-placement-demo :is(#lighting-menu, #light-menu) .rc-lighting-panel { position: fixed; top: 145px; right: 16px; left: auto; bottom: auto; max-width: calc(100vw - 60px); max-height: calc(100dvh - 200px); }
+}
 /* Objects imported from ViewForge, and the gesture page's hand pointer. */
 #rc-placement-demo .rc-import { display: grid; gap: 10px; left: 0; right: auto; }
 #rc-placement-demo .rc-import label { display: grid; gap: 4px; font-size: 12px; color: var(--rc-muted); }

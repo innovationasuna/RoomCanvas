@@ -137,6 +137,8 @@ try {
     // Real object movement through the UI must continue drawing while AO waits for release.
     const chair = initial.objects.find(object => /Chair/i.test(object.id));
     assert.ok(chair, '场景无测试椅子');
+    // The warehouse drawer may be folded; open it before choosing the real card.
+    if (!await page.locator(`[data-object="${chair.id}"]`).isVisible()) await page.locator('#list-toggle').click();
     await page.locator(`[data-object="${chair.id}"]`).click();
     await settled();
     const stick = page.locator('.rc-move-stick'), box = await stick.boundingBox();
