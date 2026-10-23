@@ -17,7 +17,8 @@ import android.view.View
 /**
  * 手持漫游的统一触摸层：单个 View 按 pointer 分配角色，多指互不干扰。
  *
- * - 左下十字键区域：移动；每个手指固定一个方向，多指取并集（前 + 左 = 斜向）。
+ * - 左下方向键：水平移动；每个手指固定一个方向，多指取并集（前 + 左 = 斜向）。
+ * - 方向键正上方的「升 / 降」：垂直移动。放在左手集群里，右半屏保持纯转向。
  * - 右半屏其余区域：视角滑动，`Δx → 偏航`、`Δy → 俯仰`。
  * - 右半屏轻点（≤ 6dp、≤ 500ms）：开关柜门/窗扇，见 [onTap]。
  *
@@ -37,13 +38,21 @@ class VrTouchControlsView @JvmOverloads constructor(
     }
 
     companion object {
-        private const val DIR_UP = 1
-        private const val DIR_DOWN = 2
+        private const val DIR_FORWARD = 1
+        private const val DIR_BACK = 2
         private const val DIR_LEFT = 4
         private const val DIR_RIGHT = 8
+        private const val DIR_ASCEND = 16
+        private const val DIR_DESCEND = 32
 
-        private const val DPAD_SIZE_DP = 168f
-        private const val DPAD_MARGIN_DP = 20f
+        private const val DPAD_SIZE_DP = 156f
+        private const val DPAD_MARGIN_DP = 22f
+
+        /** 升降键：竖排两枚，位于方向键正上方 */
+        private const val ROCKER_WIDTH_DP = 76f
+        private const val ROCKER_HEIGHT_DP = 104f
+        private const val ROCKER_GAP_DP = 10f
+        private const val ROCKER_INNER_DP = 4f
 
         /** 轻点判定：位移与时长上限，和网页 walk/app.js 一致 */
         private const val TAP_SLOP_DP = 6f
@@ -85,11 +94,15 @@ class VrTouchControlsView @JvmOverloads constructor(
     private var tapDownY = 0f
     private var tapDownAtMs = 0L
 
-    // ---------------- 绘制 ----------------
+    // ---------------- 绘制与命中区域 ----------------
 
     private val density = resources.displayMetrics.density
     private val dpadSizePx = DPAD_SIZE_DP * density
     private val dpadMarginPx = DPAD_MARGIN_DP * density
+    private val rockerWidthPx = ROCKER_WIDTH_DP * density
+    private val rockerHeightPx = ROCKER_HEIGHT_DP * density
+    private val rockerGapPx = ROCKER_GAP_DP * density
+    private val rockerInnerPx = ROCKER_INNER_DP * density
 
     private val dpadRect = RectF()
     private val upRect = RectF()
@@ -97,33 +110,73 @@ class VrTouchControlsView @JvmOverloads constructor(
     private val leftRect = RectF()
     private val rightRect = RectF()
 
-    private val buttonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(70, 255, 255, 255)
-    }
-    private val buttonPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(150, 255, 255, 255)
-    }
-    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(230, 255, 255, 255)
+    private val rockerBounds = RectF()
+    private val ascendRect = RectF()
+    private val descendRect = RectF()
+
+    // 房间模型常是大面积白墙/白天花板，纯白半透明控件会直接“消失”。
+    // 统一改成深色玻璃底 + 白色描边，深色/浅色场景下都能看清。
+    private val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(72, 6, 14, 20)
         style = Paint.Style.FILL
     }
-    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(110, 255, 255, 255)
-        textSize = 12f * density
+    private val plateStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(64, 255, 255, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
     }
-    private val arrowPath = Path()
+    private val buttonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(104, 10, 22, 30)
+        style = Paint.Style.FILL
+    }
+    private val buttonStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(110, 255, 255, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
+    }
+    private val buttonPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(235, 53, 200, 220)
+        style = Paint.Style.FILL
+    }
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(235, 255, 255, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.6f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val arrowPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(4, 20, 26)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.6f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val rockerLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(235, 255, 255, 255)
+        textSize = 11f * density
+        textAlign = Paint.Align.CENTER
+    }
+    private val rockerLabelPressedPaint = Paint(rockerLabelPaint).apply {
+        color = Color.rgb(4, 20, 26)
+    }
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(150, 255, 255, 255)
+        textSize = 11f * density
+    }
+    private val chevronPath = Path()
 
     // ---------------- 状态读取 ----------------
 
     val moveForward: Float
         get() {
             val dirs = activeDirections()
-            val up = dirs and DIR_UP != 0
-            val down = dirs and DIR_DOWN != 0
+            val forward = dirs and DIR_FORWARD != 0
+            val back = dirs and DIR_BACK != 0
             return when {
-                up && down -> 0f
-                up -> 1f
-                down -> -1f
+                forward && back -> 0f
+                forward -> 1f
+                back -> -1f
                 else -> 0f
             }
         }
@@ -137,6 +190,20 @@ class VrTouchControlsView @JvmOverloads constructor(
                 left && right -> 0f
                 right -> 1f
                 left -> -1f
+                else -> 0f
+            }
+        }
+
+    /** +1 上升，-1 下降，0 保持高度 */
+    val moveVertical: Float
+        get() {
+            val dirs = activeDirections()
+            val ascend = dirs and DIR_ASCEND != 0
+            val descend = dirs and DIR_DESCEND != 0
+            return when {
+                ascend && descend -> 0f
+                ascend -> 1f
+                descend -> -1f
                 else -> 0f
             }
         }
@@ -274,12 +341,12 @@ class VrTouchControlsView @JvmOverloads constructor(
             lookPointers[pointerId] = PointF(x, y)
             return
         }
-        val direction = dpadDirectionAt(x, y)
+        val direction = directionAt(x, y)
         if (direction != 0) {
             movePointers.put(pointerId, direction)
             invalidate()
         }
-        // 左半屏但没落在十字键上：吞掉事件，避免误触底层场景
+        // 左半屏但没落在按键上：吞掉事件，避免误触底层场景
     }
 
     private fun removePointer(pointerId: Int) {
@@ -299,9 +366,12 @@ class VrTouchControlsView @JvmOverloads constructor(
         resetTap()
     }
 
-    private fun dpadDirectionAt(x: Float, y: Float): Int = when {
-        upRect.contains(x, y) -> DIR_UP
-        downRect.contains(x, y) -> DIR_DOWN
+    /** 升降键优先于方向键：两者在竖直方向上有 10dp 间隔，不会重叠。 */
+    private fun directionAt(x: Float, y: Float): Int = when {
+        ascendRect.contains(x, y) -> DIR_ASCEND
+        descendRect.contains(x, y) -> DIR_DESCEND
+        upRect.contains(x, y) -> DIR_FORWARD
+        downRect.contains(x, y) -> DIR_BACK
         leftRect.contains(x, y) -> DIR_LEFT
         rightRect.contains(x, y) -> DIR_RIGHT
         else -> 0
@@ -321,72 +391,136 @@ class VrTouchControlsView @JvmOverloads constructor(
         leftRect.set(left, top + cell, left + cell, top + 2f * cell)
         rightRect.set(left + 2f * cell, top + cell, left + 3f * cell, top + 2f * cell)
         downRect.set(left + cell, top + 2f * cell, left + 2f * cell, top + 3f * cell)
+
+        // 升降键：与方向键同一条左侧基准线，位于其正上方
+        val rockerBottom = top - rockerGapPx
+        val rockerTop = rockerBottom - rockerHeightPx
+        rockerBounds.set(left, rockerTop, left + rockerWidthPx, rockerBottom)
+
+        val mid = rockerTop + rockerHeightPx / 2f
+        ascendRect.set(
+            left + rockerInnerPx,
+            rockerTop + rockerInnerPx,
+            left + rockerWidthPx - rockerInnerPx,
+            mid - rockerInnerPx / 2f
+        )
+        descendRect.set(
+            left + rockerInnerPx,
+            mid + rockerInnerPx / 2f,
+            left + rockerWidthPx - rockerInnerPx,
+            rockerBottom - rockerInnerPx
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (dpadRect.isEmpty) return
 
-        drawButton(canvas, upRect, DIR_UP, up = true)
-        drawButton(canvas, downRect, DIR_DOWN, up = false)
-        drawButton(canvas, leftRect, DIR_LEFT, left = true)
-        drawButton(canvas, rightRect, DIR_RIGHT, left = false)
+        // 方向键底板 + 四枚圆形按键
+        val plateRadius = 26f * density
+        canvas.drawRoundRect(dpadRect, plateRadius, plateRadius, platePaint)
+        canvas.drawRoundRect(dpadRect, plateRadius, plateRadius, plateStrokePaint)
 
+        val cell = dpadSizePx / 3f
+        val radius = cell * 0.44f
+        drawDirectionButton(canvas, upRect, DIR_FORWARD, 0f, radius)
+        drawDirectionButton(canvas, leftRect, DIR_LEFT, -90f, radius)
+        drawDirectionButton(canvas, downRect, DIR_BACK, 180f, radius)
+        drawDirectionButton(canvas, rightRect, DIR_RIGHT, 90f, radius)
+
+        // 中心点：让十字看起来是一个整体
+        canvas.drawCircle(
+            dpadRect.centerX(),
+            dpadRect.centerY(),
+            2.5f * density,
+            hintPaint
+        )
+
+        drawRocker(canvas)
+
+        val hint = "拖动右侧转向"
         canvas.drawText(
-            "右半屏滑动转向",
-            width - 16f * density - hintPaint.measureText("右半屏滑动转向"),
+            hint,
+            width - 22f * density - hintPaint.measureText(hint),
             height - 16f * density,
             hintPaint
         )
     }
 
-    private fun drawButton(
+    /** 以圆形按键中心为原点旋转，同一段折线即可表示四个方向。 */
+    private fun drawDirectionButton(
         canvas: Canvas,
         rect: RectF,
         direction: Int,
-        up: Boolean? = null,
-        left: Boolean? = null
+        angleDegrees: Float,
+        radius: Float
     ) {
         val pressed = activeDirections() and direction != 0
-        val radius = 12f * density
-        canvas.drawRoundRect(
-            rect,
-            radius,
-            radius,
-            if (pressed) buttonPressedPaint else buttonPaint
-        )
-
-        // 箭头：用三角表示方向
         val cx = rect.centerX()
         val cy = rect.centerY()
-        val s = rect.width() * 0.22f
-        arrowPath.reset()
-        when {
-            up == true -> {
-                arrowPath.moveTo(cx, cy - s)
-                arrowPath.lineTo(cx - s, cy + s * 0.7f)
-                arrowPath.lineTo(cx + s, cy + s * 0.7f)
-            }
 
-            up == false -> {
-                arrowPath.moveTo(cx, cy + s)
-                arrowPath.lineTo(cx - s, cy - s * 0.7f)
-                arrowPath.lineTo(cx + s, cy - s * 0.7f)
-            }
+        canvas.drawCircle(cx, cy, radius, if (pressed) buttonPressedPaint else buttonPaint)
+        canvas.drawCircle(cx, cy, radius, buttonStrokePaint)
 
-            left == true -> {
-                arrowPath.moveTo(cx - s, cy)
-                arrowPath.lineTo(cx + s * 0.7f, cy - s)
-                arrowPath.lineTo(cx + s * 0.7f, cy + s)
-            }
+        chevronPath.reset()
+        val s = radius * 0.42f
+        chevronPath.moveTo(cx - s, cy + s * 0.55f)
+        chevronPath.lineTo(cx, cy - s * 0.62f)
+        chevronPath.lineTo(cx + s, cy + s * 0.55f)
 
-            else -> {
-                arrowPath.moveTo(cx + s, cy)
-                arrowPath.lineTo(cx - s * 0.7f, cy - s)
-                arrowPath.lineTo(cx - s * 0.7f, cy + s)
-            }
+        canvas.save()
+        canvas.rotate(angleDegrees, cx, cy)
+        canvas.drawPath(chevronPath, if (pressed) arrowPressedPaint else arrowPaint)
+        canvas.restore()
+    }
+
+    private fun drawRocker(canvas: Canvas) {
+        val radius = 22f * density
+        canvas.drawRoundRect(rockerBounds, radius, radius, platePaint)
+        canvas.drawRoundRect(rockerBounds, radius, radius, plateStrokePaint)
+
+        drawRockerHalf(canvas, ascendRect, DIR_ASCEND, "升", up = true)
+        drawRockerHalf(canvas, descendRect, DIR_DESCEND, "降", up = false)
+    }
+
+    private fun drawRockerHalf(
+        canvas: Canvas,
+        rect: RectF,
+        direction: Int,
+        label: String,
+        up: Boolean
+    ) {
+        val pressed = activeDirections() and direction != 0
+        val halfRadius = 17f * density
+        canvas.drawRoundRect(
+            rect,
+            halfRadius,
+            halfRadius,
+            if (pressed) buttonPressedPaint else buttonPaint
+        )
+        canvas.drawRoundRect(rect, halfRadius, halfRadius, buttonStrokePaint)
+
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val s = 4.5f * density
+
+        chevronPath.reset()
+        if (up) {
+            chevronPath.moveTo(cx - s, cy - 5f * density + s * 0.55f)
+            chevronPath.lineTo(cx, cy - 5f * density - s * 0.62f)
+            chevronPath.lineTo(cx + s, cy - 5f * density + s * 0.55f)
+        } else {
+            chevronPath.moveTo(cx - s, cy - 5f * density - s * 0.55f)
+            chevronPath.lineTo(cx, cy - 5f * density + s * 0.62f)
+            chevronPath.lineTo(cx + s, cy - 5f * density - s * 0.55f)
         }
-        arrowPath.close()
-        canvas.drawPath(arrowPath, arrowPaint)
+        canvas.drawPath(chevronPath, if (pressed) arrowPressedPaint else arrowPaint)
+
+        canvas.drawText(
+            label,
+            cx,
+            cy + 13f * density,
+            if (pressed) rockerLabelPressedPaint else rockerLabelPaint
+        )
     }
 }

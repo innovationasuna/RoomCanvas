@@ -48,4 +48,7 @@ dependencies {
     // HUAWEI AR Engine SDK：运动跟踪、平面检测、命中测试、Anchor
     // （华为设备不可用 ARCore，故不用 SceneView 的 arsceneview，位姿由本 SDK 提供）
     implementation("com.huawei.hms:arenginesdk:4.0.0.5")
+
+    // VrCameraController 是纯 Kotlin 数学，可在 JVM 上直接测真实走动/漂移判定
+    testImplementation("junit:junit:4.13.2")
 }

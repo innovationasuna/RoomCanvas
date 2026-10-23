@@ -55,6 +55,24 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- 空态提示：未选择模型时居中显示 -->
+    <TextView
+        android:id="@+id/tvEmptyHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:lineSpacingExtra="6dp"
+        android:padding="24dp"
+        android:shadowColor="@android:color/black"
+        android:shadowDx="1"
+        android:shadowDy="1"
+        android:shadowRadius="3"
+        android:text="还没有选择模型&#10;点击左上角「选择模型」导入 GLB / GLTF 房间模型"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:visibility="gone" />
+
     <ProgressBar
         android:id="@+id/loadingView"
         android:layout_width="wrap_content"
