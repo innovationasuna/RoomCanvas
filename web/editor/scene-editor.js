@@ -24,12 +24,12 @@ import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
 import {createImportMaterials} from './import-materials.mjs?v=app-38';
 import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
 import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
-import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-44';
+import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
 const warehouse = mountWarehouseDrawer({panel: $('#object-panel'), content: $('#warehouse-content'),
-  handle: $('#warehouse-toggle'), toggle: $('#list-toggle'), close: $('#close-list'), hint: $('#warehouse-hint')});
+  toggle: $('#list-toggle'), close: $('#close-list')});
 // The room directory: ?room=<id> for a room of the home page (web/rooms.json); ?scene=<relative
 // path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
 // a published preview (<room>/preview/editor/) with neither.

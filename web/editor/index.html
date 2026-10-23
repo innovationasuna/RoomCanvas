@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-44">
+<link rel="stylesheet" href="./editor.css?v=app-49">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -146,8 +146,7 @@
  <div id="toast" class="rc-toast" role="status" hidden></div>
 </main>
 <div class="rc-warehouse-dock">
-<section class="rc-shelf" id="object-panel" aria-label="仓库">
- <button type="button" class="rc-drawer-handle" id="warehouse-toggle" aria-controls="warehouse-content" aria-expanded="false" aria-label="展开仓库"><span class="rc-drawer-grip" aria-hidden="true"></span><span>仓库</span><svg aria-hidden="true"><use href="#icon-chevron"/></svg><span class="rc-drawer-hint" id="warehouse-hint">上拉展开</span></button>
+<section class="rc-shelf" id="object-panel" aria-label="仓库" hidden>
  <div id="warehouse-content" hidden>
  <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件家具</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索家具" aria-label="搜索场景物体"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
  <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
@@ -190,4 +189,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-44"></script></body></html>
+</div><script type="module" src="./editor.js?v=app-49"></script></body></html>
