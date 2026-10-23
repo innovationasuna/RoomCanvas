@@ -98,7 +98,6 @@ class MainActivity : AppCompatActivity() {
      * 两个 Activity 各自持有 Filament Engine，不能直接共享 ModelInstance。
      */
     private var currentModelPath: String? = null
-    private var currentModelAsset: String? = null
 
     // ---------------- AR 模式状态 ----------------
 
@@ -206,8 +205,8 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // 首次启动加载内置示例模型，便于无文件时冒烟测试
-        loadBundledDefault()
+        // 不内置示例模型：用户导入前显示空态提示
+        showEmptyState()
     }
 
     private fun initAr() {
@@ -343,14 +342,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun startVrWalkthrough() {
         val path = currentModelPath
-        val asset = currentModelAsset
-        if (path == null && asset == null) {
-            Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show()
+        if (path == null) {
+            showNeedModelHint()
             return
         }
         val intent = Intent(this, VrWalkthroughActivity::class.java).apply {
-            if (path != null) putExtra(VrWalkthroughActivity.EXTRA_MODEL_PATH, path)
-            if (asset != null) putExtra(VrWalkthroughActivity.EXTRA_MODEL_ASSET, asset)
+            putExtra(VrWalkthroughActivity.EXTRA_MODEL_PATH, path)
         }
         startActivity(intent)
     }
@@ -404,6 +401,10 @@ class MainActivity : AppCompatActivity() {
     // ---------------- AR 模式进入/退出 ----------------
 
     private fun tryEnterArMode() {
+        if (lastModelInstance == null) {
+            showNeedModelHint()
+            return
+        }
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             enterArMode()
         } else {
@@ -579,7 +580,7 @@ class MainActivity : AppCompatActivity() {
             !cameraTracking -> "跟踪丢失：请对准有纹理的表面，缓慢移动手机"
             !arPlaced && planes == 0 -> "正在检测平面…请将摄像头对准桌面或地面"
             !arPlaced -> "已检测到 $planes 个平面，点击屏幕放置模型"
-            else -> "已放置：单指旋转 · 双指缩放 · 点击重新放置"
+            else -> "已放置：单指旋转，双指缩放，点击重新放置"
         }
         setStatus(text)
     }
@@ -604,7 +605,7 @@ class MainActivity : AppCompatActivity() {
         arGestures.reset()
         arPlaced = true
         attachModelToAnchor(instance)
-        setStatus("已放置：单指旋转 · 双指缩放 · 点击重新放置")
+        setStatus("已放置：单指旋转，双指缩放，点击重新放置")
         lastArStatusAt = SystemClock.uptimeMillis()
     }
 
@@ -642,23 +643,6 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- 模型加载（M1，保留） ----------------
 
-    private fun loadBundledDefault() {
-        showLoading(true)
-        try {
-            val instance =
-                binding.sceneView.modelLoader.createModelInstance("models/DamagedHelmet.glb")
-            currentModelAsset = "models/DamagedHelmet.glb"
-            currentModelPath = null
-            animationInfo = GlbAnimationTargets.parseAsset(assets, "models/DamagedHelmet.glb")
-            replaceModel(instance)
-            setStatus("已加载内置示例模型，点击左上角选择本地模型")
-        } catch (e: Exception) {
-            setStatus("内置模型加载失败：${e.message}")
-        } finally {
-            showLoading(false)
-        }
-    }
-
     private fun loadModel(uri: Uri) {
         // 尝试持久化读取权限（重启后仍可访问）
         try {
@@ -692,7 +676,6 @@ class MainActivity : AppCompatActivity() {
                     // Filament 调用必须在主线程
                     val instance = binding.sceneView.modelLoader.createModelInstance(file)
                     currentModelPath = file.absolutePath
-                    currentModelAsset = null
                     animationInfo = animation
                     replaceModel(instance)
                     setStatus("已加载：${displayName(uri)}")
@@ -771,7 +754,6 @@ class MainActivity : AppCompatActivity() {
                     }
                     val instance = binding.sceneView.modelLoader.createModelInstance(gltfFile)
                     currentModelPath = gltfFile.absolutePath
-                    currentModelAsset = null
                     animationInfo = animation
                     replaceModel(instance)
                     setStatus("已加载：${gltfFile.name}（含 ${refs.size} 个外部文件）")
@@ -810,12 +792,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun replaceModel(instance: ModelInstance) {
         lastModelInstance = instance
+        hideEmptyState()
         releaseArticulation()
         if (arModeActive) {
             // AR 模式：不直接上屏，等点击放置；已放置则原地热替换
             if (arPlaced && anchorNode != null) {
                 attachModelToAnchor(instance)
-                setStatus("模型已更新：单指旋转 · 双指缩放 · 点击重新放置")
+                setStatus("模型已更新：单指旋转，双指缩放，点击重新放置")
             } else {
                 setStatus("模型已就绪，点击平面放置")
             }
@@ -865,6 +848,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLoading(show: Boolean) {
         binding.loadingView.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    /** 未选择模型时的空场景提示 */
+    private fun showEmptyState() {
+        binding.tvEmptyHint.visibility = View.VISIBLE
+    }
+
+    private fun hideEmptyState() {
+        binding.tvEmptyHint.visibility = View.GONE
+    }
+
+    /** 需要模型但还没选：Toast + 保留空态提示，告诉用户下一步点哪里 */
+    private fun showNeedModelHint() {
+        showEmptyState()
+        Toast.makeText(this, "还没选择模型，请先点击左上角「选择模型」导入", Toast.LENGTH_SHORT).show()
     }
 
     private fun setStatus(text: String) {
