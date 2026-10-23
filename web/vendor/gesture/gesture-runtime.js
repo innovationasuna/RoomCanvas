@@ -207,7 +207,7 @@ var OneEuroFilter = class {
 };
 //#endregion
 //#region src/gestures/features.ts
-var distance$1 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+var distance$2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 function features(hand, aspect = 4 / 3) {
 	const p = hand.landmarks;
 	const n = p.map((v) => ({
@@ -215,7 +215,7 @@ function features(hand, aspect = 4 / 3) {
 		y: v.y,
 		z: v.z * aspect
 	}));
-	const scale = (distance$1(n[0], n[5]) + distance$1(n[0], n[9]) + distance$1(n[0], n[17])) / 3;
+	const scale = (distance$2(n[0], n[5]) + distance$2(n[0], n[9]) + distance$2(n[0], n[17])) / 3;
 	const projected = (i) => Math.hypot(n[i].x - n[0].x, n[i].y - n[0].y);
 	const palmScale = (projected(5) + projected(9) + projected(17)) / 3;
 	const w = hand.world.length === 21 ? hand.world : n;
@@ -240,7 +240,7 @@ function features(hand, aspect = 4 / 3) {
 		[12, 10],
 		[16, 14],
 		[20, 18]
-	].every(([tip, pip]) => distance$1(n[tip], n[0]) > distance$1(n[pip], n[0]) * 1.15);
+	].every(([tip, pip]) => distance$2(n[tip], n[0]) > distance$2(n[pip], n[0]) * 1.15);
 	return {
 		pointer: {
 			x: 1 - (p[4].x + p[8].x) / 2,
@@ -261,14 +261,14 @@ function features(hand, aspect = 4 / 3) {
 			y: p[0].y
 		},
 		palmScale,
-		pinchRatio: distance$1(n[4], n[8]) / Math.max(1e-6, scale),
-		openPalm: extended && distance$1(n[4], n[8]) / Math.max(1e-6, scale) > .5,
+		pinchRatio: distance$2(n[4], n[8]) / Math.max(1e-6, scale),
+		openPalm: extended && distance$2(n[4], n[8]) / Math.max(1e-6, scale) > .5,
 		closedFist: [
 			[8, 6],
 			[12, 10],
 			[16, 14],
 			[20, 18]
-		].every(([tip, pip]) => distance$1(n[tip], n[0]) < distance$1(n[pip], n[0]) * .95),
+		].every(([tip, pip]) => distance$2(n[tip], n[0]) < distance$2(n[pip], n[0]) * .95),
 		frontFacing: facing >= CONFIG.minFacing
 	};
 }
@@ -477,7 +477,7 @@ var NUMBER_CONFIG = {
 	neutralMs: 150,
 	lossMs: 200
 };
-var distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
+var distance$1 = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 function validHand(hand) {
 	return hand.score >= CONFIG.operatorScore && hand.landmarks.length === 21 && hand.landmarks.every((p) => Number.isFinite(p.x + p.y + p.z));
 }
@@ -488,7 +488,7 @@ function classifyLeftNumber(hand, aspect = 4 / 3) {
 		v.y,
 		v.z * aspect
 	]);
-	const palm = distance(p[0], p[9]);
+	const palm = distance$1(p[0], p[9]);
 	if (palm < 1e-5) return null;
 	const states = [
 		5,
@@ -506,14 +506,16 @@ function classifyLeftNumber(hand, aspect = 4 / 3) {
 		const distal = p[tip].map((n, i) => n - p[dip][i]);
 		const pipAngle = cosine(proximal, middle), dipAngle = cosine(middle, distal);
 		if (pipAngle === null || dipAngle === null) return null;
-		const reach = distance(p[tip], p[0]) / Math.max(1e-5, distance(p[pip], p[0]));
+		const reach = distance$1(p[tip], p[0]) / Math.max(1e-5, distance$1(p[pip], p[0]));
 		if (pipAngle > .55 && dipAngle > .55 && reach > 1.1) return true;
 		if (reach < .98 || (pipAngle < .45 || dipAngle < .35) && reach < 1.08) return false;
 		return null;
 	});
+	if (states[0] !== true && states.slice(1).every((v) => v === true) && distance$1(p[4], p[8]) / palm < CONFIG.pinchEnter) return 3;
 	if (states.some((v) => v === null)) return null;
 	const pattern = states.map((v) => v ? "1" : "0").join("");
-	return pattern === "1000" ? 1 : pattern === "1100" ? 2 : pattern === "1110" ? 3 : null;
+	const thumbFolded = distance$1(p[4], p[9]) / palm < .8;
+	return pattern === "1000" ? 1 : pattern === "1100" ? 2 : pattern === "1110" ? 3 : pattern === "1111" && thumbFolded ? 4 : null;
 }
 var NumberModeSelector = class {
 	feedback = {
@@ -738,6 +740,142 @@ var ObservationRecognizer = class {
 	}
 };
 //#endregion
+//#region src/gestures/thumb-confirm.ts
+var THUMB_CONFIRM = {
+	holdMs: 500,
+	neutralMs: 150,
+	lossMs: 200
+};
+var length = (v) => Math.hypot(...v);
+var subtract = (a, b) => a.map((v, i) => v - b[i]);
+var distance = (a, b) => length(subtract(a, b));
+var cosine = (a, b) => a.reduce((sum, n, i) => sum + n * b[i], 0) / Math.max(1e-10, length(a) * length(b));
+function isRightThumbsUp(hand, aspect = 4 / 3) {
+	if (hand.side !== "Right" || !validHand(hand) || !Number.isFinite(aspect) || aspect <= 0) return false;
+	const p = hand.landmarks.map((v) => [
+		v.x * aspect,
+		v.y,
+		v.z * aspect
+	]);
+	const palm = (distance(p[0], p[5]) + distance(p[0], p[9]) + distance(p[0], p[17])) / 3;
+	if (palm < 1e-5) return false;
+	const folded = [
+		5,
+		9,
+		13,
+		17
+	].every((mcp) => {
+		const proximal = subtract(p[mcp + 1], p[mcp]);
+		const middle = subtract(p[mcp + 2], p[mcp + 1]);
+		const distal = subtract(p[mcp + 3], p[mcp + 2]);
+		if ([
+			proximal,
+			middle,
+			distal
+		].some((v) => length(v) < palm * .04)) return false;
+		const reach = distance(p[mcp + 3], p[0]) / Math.max(1e-5, distance(p[mcp + 1], p[0]));
+		return reach < .98 || (cosine(proximal, middle) < .45 || cosine(middle, distal) < .35) && reach < 1.08;
+	});
+	const proximal = subtract(p[3], p[2]), distal = subtract(p[4], p[3]), thumb = subtract(p[4], p[2]);
+	return folded && length(proximal) > palm * .12 && length(distal) > palm * .12 && cosine(proximal, distal) > .65 && -thumb[1] > palm * .45 && -thumb[1] / length(thumb) > .72 && -distal[1] > palm * .08 && p[4][1] < Math.min(...[
+		5,
+		9,
+		13,
+		17
+	].map((i) => p[i][1])) - palm * .12 && distance(p[4], p[8]) > palm * .5;
+}
+var ThumbConfirmSelector = class {
+	feedback = {
+		phase: "missing",
+		progress: 0
+	};
+	get state() {
+		return { ...this.feedback };
+	}
+	since = null;
+	neutralSince = null;
+	lastSeen = null;
+	wrist = null;
+	previewId = null;
+	armed = true;
+	sent = false;
+	reset(requireNeutral = true) {
+		this.since = this.neutralSince = this.lastSeen = null;
+		this.wrist = null;
+		this.previewId = null;
+		this.armed = !requireNeutral;
+		this.sent = false;
+		this.feedback = {
+			phase: "missing",
+			progress: 0
+		};
+	}
+	process(frame, aspect, previewId, allowed = true) {
+		const candidates = frame.hands.filter((h) => h.side === "Right");
+		const right = candidates.length === 1 && validHand(candidates[0]) ? candidates[0] : void 0;
+		if (!right || !Number.isFinite(frame.timestamp)) {
+			this.reset();
+			this.feedback.phase = candidates.length > 1 ? "ambiguous" : candidates.length ? "uncertain" : "missing";
+			return null;
+		}
+		const wrist = right.landmarks[0], time = frame.timestamp;
+		if (this.lastSeen !== null && (time <= this.lastSeen || time - this.lastSeen >= THUMB_CONFIRM.lossMs) || this.wrist && Math.hypot(wrist.x - this.wrist.x, wrist.y - this.wrist.y) > CONFIG.identityRadius) this.reset();
+		this.wrist = wrist;
+		this.lastSeen = time;
+		const thumb = isRightThumbsUp(right, aspect);
+		if (this.previewId !== previewId) {
+			this.since = null;
+			if (this.previewId && previewId && thumb) this.armed = false;
+			this.previewId = previewId;
+		}
+		if (!thumb) {
+			this.since = null;
+			this.neutralSince ??= time;
+			if (time - this.neutralSince >= THUMB_CONFIRM.neutralMs) {
+				this.armed = true;
+				this.sent = false;
+			}
+			this.feedback = {
+				phase: previewId ? "pose" : "waiting",
+				progress: 0
+			};
+			return null;
+		}
+		this.neutralSince = null;
+		if (!previewId || !allowed) {
+			this.since = null;
+			if (!previewId) this.armed = false;
+			this.feedback = {
+				phase: this.sent ? "sent" : previewId ? "blocked" : "waiting",
+				progress: this.sent ? 1 : 0
+			};
+			return null;
+		}
+		if (!this.armed) {
+			this.feedback = {
+				phase: this.sent ? "sent" : "neutral",
+				progress: this.sent ? 1 : 0
+			};
+			return null;
+		}
+		this.since ??= time;
+		const progress = Math.min(1, (time - this.since) / THUMB_CONFIRM.holdMs);
+		this.feedback = {
+			phase: "confirming",
+			progress
+		};
+		if (progress < 1) return null;
+		this.armed = false;
+		this.sent = true;
+		this.since = null;
+		this.feedback = {
+			phase: "sent",
+			progress: 1
+		};
+		return previewId;
+	}
+};
+//#endregion
 //#region src/integration/runtime.ts
 var GestureRuntime = class {
 	video;
@@ -746,6 +884,7 @@ var GestureRuntime = class {
 	tracker = new Tracker();
 	gestures = new GestureEngine();
 	numbers = new NumberModeSelector();
+	thumb = new ThumbConfirmSelector();
 	observation = new ObservationRecognizer();
 	generation = 0;
 	running = false;
@@ -785,14 +924,28 @@ var GestureRuntime = class {
 				const gesture = this.gestures.process(frame, aspect);
 				const observation = this.observation.process(frame, aspect);
 				const rightHeld = frame.hands.some((h) => h.side === "Right" && validHand(h) && features(h, aspect).pinchRatio < CONFIG.pinchExit);
-				const modeSelection = this.numbers.process(frame, aspect, this.callbacks.canSwitch() && !rightHeld);
+				const leftHeld = frame.hands.some((h) => h.side === "Left" && validHand(h) && features(h, aspect).pinchRatio < CONFIG.pinchExit);
+				const left = frame.hands.filter((h) => h.side === "Left");
+				const selectingThree = this.callbacks.canSwitch() && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing && left.length === 1 && leftHeld && classifyLeftNumber(left[0], aspect) === 3;
+				if (selectingThree) {
+					gesture.helper = void 0;
+					gesture.helperInterrupted = true;
+				}
+				const target = this.callbacks.confirmationTarget();
+				const safeRight = !!gesture.operator && !gesture.interrupted && !gesture.ambiguous;
+				if (!safeRight) this.thumb.reset();
+				const placementConfirmation = this.thumb.process(frame, aspect, target.previewId, target.allowed && safeRight && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing);
+				const rightConfirmation = this.thumb.state;
+				const modeSelection = this.numbers.process(frame, aspect, this.callbacks.canSwitch() && !rightHeld && (!leftHeld || selectingThree) && rightConfirmation.phase !== "confirming" && !placementConfirmation);
 				this.callbacks.frame({
 					...gesture,
 					observation,
 					modeSelection,
 					leftDetection: this.numbers.state,
-					rightHeld
-				}, performance.timeOrigin + frame.timestamp, frame.inferenceMs);
+					rightHeld,
+					placementConfirmation,
+					rightConfirmation
+				}, performance.timeOrigin + frame.timestamp, frame);
 			};
 			await this.tracker.start();
 			if (generation !== this.generation) return false;
@@ -800,6 +953,7 @@ var GestureRuntime = class {
 			this.gestures.reset();
 			this.observation.reset();
 			this.numbers.reset(false);
+			this.thumb.reset(false);
 			this.running = true;
 			this.stale = false;
 			this.lastResult = performance.now();
@@ -817,6 +971,7 @@ var GestureRuntime = class {
 	interrupt(cancelPending = false, preserveNumbers = false) {
 		this.gestures.reset();
 		this.observation.reset();
+		this.thumb.reset();
 		if (!preserveNumbers) this.numbers.reset();
 		this.callbacks.interrupted(cancelPending);
 	}
@@ -843,6 +998,12 @@ var GestureRuntime = class {
 	}
 };
 //#endregion
+//#region src/shared/hand-guide.ts
+function showFingerGuide(hand) {
+	const ratio = hand?.pinchRatio;
+	return !!hand?.fingertips && typeof ratio === "number" && Number.isFinite(ratio) && ratio >= 0 && ratio < CONFIG.fingerGuideMaxRatio;
+}
+//#endregion
 //#region src/integration/protocol.ts
 function handPointer(signal) {
 	const p = signal?.pointer;
@@ -852,37 +1013,147 @@ function handPointer(signal) {
 	} : void 0;
 }
 function gesturePayload(frame) {
-	const h = frame.operator;
-	const operator = h && Number.isFinite(h.pointer.x + h.pointer.y) && h.pointer.x >= 0 && h.pointer.x <= 1 && h.pointer.y >= 0 && h.pointer.y <= 1 ? {
-		u: h.pointer.x,
-		v: h.pointer.y,
-		pinching: h.pinching,
-		started: h.started,
-		ended: h.ended,
-		releasing: h.releasing ?? false
-	} : void 0;
-	const helper = handPointer(frame.helper);
+	const signal = (h) => {
+		const p = handPointer(h);
+		if (!h || !p) return void 0;
+		const tip = (p) => ({
+			u: Math.max(0, Math.min(1, p.x)),
+			v: Math.max(0, Math.min(1, p.y))
+		});
+		return {
+			...p,
+			pinching: h.pinching,
+			started: h.started,
+			ended: h.ended,
+			releasing: h.releasing ?? false,
+			palmScale: h.palmScale,
+			frontFacing: h.frontFacing,
+			...typeof h.pinchRatio === "number" && Number.isFinite(h.pinchRatio) && h.pinchRatio >= 0 ? { pinchRatio: h.pinchRatio } : {},
+			...showFingerGuide(h) && h.fingertips ? { fingertips: {
+				thumb: tip(h.fingertips.thumb),
+				index: tip(h.fingertips.index)
+			} } : {}
+		};
+	};
 	return {
-		operator,
-		...helper ? { helper } : {},
+		operator: signal(frame.operator),
+		helper: signal(frame.helper),
 		interrupted: frame.interrupted,
+		helperInterrupted: frame.helperInterrupted ?? false,
 		ambiguous: frame.ambiguous
 	};
 }
 function observationPayload(frame) {
-	const payload = gesturePayload({
-		...frame,
-		timestamp: 0,
-		menuRequested: false,
-		ambiguous: false
-	});
+	const h = frame.operator, p = handPointer(h);
 	return {
-		...payload,
-		operator: payload.operator ? {
-			...payload.operator,
-			observation: frame.operator.action
-		} : void 0
+		operator: h && p ? {
+			...p,
+			pinching: h.pinching,
+			started: h.started,
+			ended: h.ended,
+			releasing: h.releasing ?? false,
+			observation: h.action
+		} : void 0,
+		helper: handPointer(frame.helper),
+		interrupted: frame.interrupted,
+		ambiguous: false
 	};
 }
 //#endregion
-export { GestureRuntime, gesturePayload, observationPayload, setVisionBase };
+//#region src/ui/hand-feedback.ts
+var HAND_COLORS = {
+	Right: "#c98248",
+	Left: "#278f83"
+};
+var EDGES = [
+	[0, 1],
+	[1, 2],
+	[2, 3],
+	[3, 4],
+	[0, 5],
+	[5, 6],
+	[6, 7],
+	[7, 8],
+	[5, 9],
+	[9, 10],
+	[10, 11],
+	[11, 12],
+	[9, 13],
+	[13, 14],
+	[14, 15],
+	[15, 16],
+	[13, 17],
+	[0, 17],
+	[17, 18],
+	[18, 19],
+	[19, 20]
+];
+function thumbFeedback(state) {
+	switch (state.phase) {
+		case "missing": return "右手未识别 · 请将整只手放入画面";
+		case "uncertain": return "右手判断不稳定 · 请让整只手清楚入画";
+		case "ambiguous": return "右手身份不明确 · 请分开双手";
+		case "waiting": return "先选择家具，调整后松手保留预览";
+		case "blocked": return "请先结束拖动或缩放，等待放置检查";
+		case "neutral": return "请先放下拇指，再重新竖起确认";
+		case "confirming": return `右手竖拇指 · 确认 ${Math.round(state.progress * 100)}%`;
+		case "sent": return "已发送放置确认 · 结果见房间提示";
+		default: return "右手竖拇指，四指收拢，保持约 0.5 秒";
+	}
+}
+function drawHandFeedback(canvas, frame, gesture, source) {
+	if (source?.videoWidth && source.videoHeight) {
+		if (canvas.width !== source.videoWidth) canvas.width = source.videoWidth;
+		if (canvas.height !== source.videoHeight) canvas.height = source.videoHeight;
+	}
+	const ctx = canvas.getContext("2d");
+	const w = canvas.width, h = canvas.height;
+	ctx.clearRect(0, 0, w, h);
+	for (const hand of frame.hands) {
+		if (hand.landmarks.length !== 21) continue;
+		const color = HAND_COLORS[hand.side];
+		const point = (i) => [(1 - hand.landmarks[i].x) * w, hand.landmarks[i].y * h];
+		ctx.strokeStyle = ctx.fillStyle = color;
+		ctx.lineWidth = 1.5;
+		ctx.globalAlpha = .65;
+		for (const [a, b] of EDGES) {
+			ctx.beginPath();
+			ctx.moveTo(...point(a));
+			ctx.lineTo(...point(b));
+			ctx.stroke();
+		}
+		for (let i = 0; i < 21; i++) {
+			const [x, y] = point(i);
+			ctx.beginPath();
+			ctx.arc(x, y, 2.1, 0, Math.PI * 2);
+			ctx.fill();
+		}
+		const signal = hand.side === "Right" ? gesture.operator : gesture.helper;
+		if (!showFingerGuide(signal)) continue;
+		const [ax, ay] = point(4), [bx, by] = point(8);
+		ctx.globalAlpha = .95;
+		ctx.lineWidth = 2.5;
+		ctx.beginPath();
+		ctx.moveTo(ax, ay);
+		ctx.lineTo(bx, by);
+		ctx.stroke();
+		for (const [x, y] of [[ax, ay], [bx, by]]) {
+			ctx.beginPath();
+			ctx.arc(x, y, 5, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.strokeStyle = "#fff";
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+		}
+		ctx.strokeStyle = color;
+		ctx.fillStyle = color;
+		ctx.lineWidth = 2;
+		ctx.beginPath();
+		ctx.arc((ax + bx) / 2, (ay + by) / 2, signal?.pinching ? 6 : 4, 0, Math.PI * 2);
+		if (signal?.pinching) ctx.fill();
+		else ctx.stroke();
+	}
+	ctx.globalAlpha = 1;
+}
+//#endregion
+export { GestureRuntime, drawHandFeedback, gesturePayload, observationPayload, setVisionBase, thumbFeedback };

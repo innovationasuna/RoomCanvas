@@ -51,6 +51,8 @@ npm run preview
 
 ## 手势操作
 
+本节说明原独立演示 `index.html` 的规则；RoomCanvas 编辑器使用[双手布置规则](docs/roomcanvas-integration.md#操作)。
+
 固定右手控制物体、左手控制视角，不交换角色。先选择操作模式，再捏合抓取。
 
 | 操作 | 手势 | 结果 |
@@ -82,7 +84,7 @@ npm run preview
 
 正式使用请打开 RoomCanvas 编辑器的“手势”开关。识别与场景操作均在本机浏览器完成，不依赖物体重建后端。
 
-调试独立识别页可在仓库根目录执行 `sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/roomcanvas.html>，默认连接 7880 的 RoomCanvas 编辑器。左手 1/2/3 切移动、旋转、观察；右手捏合操作。实现、协议和构建说明见 [RoomCanvas 接入](docs/roomcanvas-integration.md)。
+调试独立识别页可在仓库根目录执行 `sh scripts/gesture.sh dev`，打开 <http://127.0.0.1:8800/roomcanvas.html>，默认连接 7880 的 RoomCanvas 编辑器。左手 1/2/3/4 切移动、抬高、场景缩放、旋转；左手捏合环绕，右手捏合操作家具，竖拇指约 0.5 秒确认。数字 3 支持拇食指成圈、其余三指伸出的手型。实现、协议和构建说明见 [RoomCanvas 接入](docs/roomcanvas-integration.md)。
 
 ## 参数调整
 
