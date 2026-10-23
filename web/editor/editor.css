@@ -476,3 +476,18 @@ body { min-height:100dvh; box-sizing:border-box; }
 #rc-placement-demo .rc-remove-object:hover, #rc-placement-demo .rc-remove-object:focus-visible { color: #b64535; border-color: #b64535; background: #fff3ef; }
 @media(max-width:740px) { #rc-placement-demo .rc-imported-card { flex-basis:146px; } }
 @media(max-width:520px) { #rc-placement-demo .rc-imported-card { flex-basis:132px; } }
+
+/* 双手指尖反馈；完整骨架与摄像头镜像使用同一画面比例。 */
+.rc-hand-pointer { --rc-hand:#c98248; }
+.rc-left-pointer { --rc-hand:#278f83; }
+.rc-finger-overlay { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:999; overflow:visible; }
+.rc-finger-overlay g { color:#c98248; }
+.rc-finger-overlay g[data-hand="helper"] { color:#278f83; }
+.rc-finger-overlay line { stroke:currentColor; stroke-width:2.5; opacity:.8; }
+.rc-finger-overlay circle { fill:currentColor; stroke:#fff; stroke-width:1.5; }
+.rc-gesture-preview { position:relative; aspect-ratio:4/3; overflow:hidden; border-radius:8px; }
+#rc-placement-demo .rc-gesture-preview video,#rc-placement-demo .rc-gesture-preview canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+.rc-gesture-preview canvas { pointer-events:none; transform:none; }
+#rc-placement-demo .rc-gesture-modes { grid-template-columns:repeat(2, 1fr); }
+#gesture-confirm { color:#a86432; }
+#gesture-confirm-progress { width:100%; height:3px; accent-color:#c98248; }

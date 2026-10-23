@@ -16,3 +16,13 @@ export function fist(side:Side='Left',x=.8):Hand{
  h.landmarks[4]={...h.landmarks[8],x:h.landmarks[8].x+.01};
  h.world=h.landmarks.map(p=>({...p}));return h;
 }
+
+// 成圈的数字 3：拇指与弯曲食指相接，另三指伸直。
+export function circleThree(x=.8):Hand {
+ const h=hand('Left',false,x);
+ h.landmarks[7]={x:x-.16,y:.43,z:0};
+ h.landmarks[8]={x:x-.18,y:.52,z:0};
+ h.landmarks[4]={...h.landmarks[8],x:h.landmarks[8].x+.01};
+ h.world=h.landmarks.map(p=>({...p}));
+ return h;
+}
