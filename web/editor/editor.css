@@ -247,12 +247,12 @@ body { margin: 0; padding: 12px; }
 #rc-placement-demo .warehouse-state { position: absolute; right: 7px; top: 7px; font-size: 10px; background: var(--rc-panel); border: 1px solid var(--rc-line); color: var(--rc-muted); padding: 2px 5px; border-radius: 5px; }
 #rc-placement-demo .object-row[data-stored="true"] .warehouse-state { color: var(--rc-green); background: var(--rc-active); }
 #rc-placement-demo .object-copy small { font-size: 10px; white-space: normal; line-height: 1.5; }
-#rc-placement-demo #close-list { display: none; }
-#rc-placement-demo #object-panel.open { position: fixed; z-index: 12; bottom: 14px; left: 18px; right: 18px; max-height: 55vh; border: 1px solid var(--rc-line); border-radius: 15px; box-shadow: 0 12px 48px #1736231c; }
-#rc-placement-demo #object-panel.open #close-list { display: inline-flex; }
-/* The open warehouse floats; its strip's space stays, so the room view keeps its size and framing. */
-#rc-placement-demo #object-panel.open + .rc-footer { margin-top: var(--rc-shelf-space, 0px); }
-#rc-placement-demo #object-panel.open .rc-catalog { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); max-height: calc(55vh - 95px); overflow-y: auto; }
+#rc-placement-demo .rc-warehouse-dock { position: relative; flex: 0 0 0; height: 0; z-index: 12; }
+#rc-placement-demo #object-panel { position: absolute; left: 0; right: 0; bottom: 0; padding: 0; }
+#rc-placement-demo #object-panel.open { display: flex; flex-direction: column; max-height: 55dvh; border-radius: 16px 16px 0 0; box-shadow: 0 -12px 40px #1736231c; }
+#rc-placement-demo #warehouse-content { display: flex; flex-direction: column; min-height: 0; padding: 12px 20px; }
+#rc-placement-demo #close-list { display: inline-flex; }
+#rc-placement-demo #object-panel.open .rc-catalog { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); grid-auto-rows: max-content; align-content: start; min-height: 0; overflow-y: auto; }
 #rc-placement-demo #object-panel.open .object-row { min-width: 0; }
 #rc-placement-demo .rc-files { margin-bottom: 8px; }
 #rc-placement-demo .rc-files summary { color: var(--rc-muted); }
@@ -267,7 +267,7 @@ body { margin: 0; padding: 12px; }
  #rc-placement-demo .rc-controls { width: auto; }
  #rc-placement-demo .rc-tools { max-width: calc(100% - 24px); }
  #rc-placement-demo .object-row { flex-basis: calc((100% - 14px)/3); min-width: 110px; }
- #rc-placement-demo #object-panel.open { bottom: 8px; left: 8px; right: 8px; }
+ #rc-placement-demo #warehouse-content { padding: 12px; }
  #rc-placement-demo .rc-search { margin-left: 0; }
 }
 
@@ -368,16 +368,15 @@ body { min-height:100dvh; box-sizing:border-box; }
 #rc-placement-demo .object-thumb { height:72px; }
 @media(max-width:740px) {
  body { padding:8px; }
- #rc-placement-demo { height:auto; min-height:calc(100dvh - 16px); }
- #rc-placement-demo .rc-stage { flex:none; height:max(490px,calc(100dvh - 260px)); }
+ #rc-placement-demo { height:calc(100dvh - 16px); min-height:640px; }
+ #rc-placement-demo .rc-stage { flex:1 1 auto; height:auto; }
  #rc-placement-demo .rc-shelf { padding:12px; }
  #rc-placement-demo .object-row { flex-basis:146px; }
  #rc-placement-demo .object-thumb { height:64px; }
 }
 @media(max-width:520px) {
  body { padding:6px; }
- #rc-placement-demo { min-height:calc(100dvh - 12px); }
- #rc-placement-demo .rc-stage { height:max(520px,calc(100dvh - 280px)); }
+ #rc-placement-demo { height:calc(100dvh - 12px); }
  #rc-placement-demo .object-row { flex-basis:132px; }
 }
 /* Objects imported from ViewForge, and the gesture page's hand pointer. */
