@@ -24,9 +24,12 @@ import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
 import {createImportMaterials} from './import-materials.mjs?v=app-38';
 import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
 import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
+import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
+const warehouse = mountWarehouseDrawer({panel: $('#object-panel'), content: $('#warehouse-content'),
+  toggle: $('#list-toggle'), close: $('#close-list')});
 // The room directory: ?room=<id> for a room of the home page (web/rooms.json); ?scene=<relative
 // path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
 // a published preview (<room>/preview/editor/) with neither.
@@ -782,8 +785,6 @@ function pickOpenable(clientX, clientY) {
 }
 
 function bindEvents() {
-  const shelf = $('#object-panel');
-  new ResizeObserver(() => {if (!shelf.classList.contains('open')) $('#rc-placement-demo').style.setProperty('--rc-shelf-space', `${shelf.offsetHeight}px`);}).observe(shelf);
   const toolsMenu = $('#tools-menu');
   document.addEventListener('click', event => {if (!toolsMenu.contains(event.target)) toolsMenu.open = false;});
   toolsMenu.addEventListener('keydown', event => {if (event.key === 'Escape') {toolsMenu.open = false; event.stopPropagation();}});
@@ -864,12 +865,12 @@ function bindEvents() {
       event.preventDefault(); endWallRelocation(); updateInspector(); $('#status').textContent = '已取消换墙，原位置保持不变'; return;
     }
     if (!ready || event.target.closest('input,select,textarea,[contenteditable="true"]')) return;
-    if (event.key === '/' && !event.metaKey && !event.ctrlKey) {event.preventDefault(); $('#object-panel').classList.add('open'); $('#list-toggle').setAttribute('aria-expanded', 'true'); $('#search').focus(); return;}
+    if (event.key === '/' && !event.metaKey && !event.ctrlKey) {event.preventDefault(); warehouse.setOpen(true); $('#search').focus(); return;}
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault(); event.shiftKey ? redo() : undo(); return;
     }
     if (event.key === 'Escape') {
-      $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false'); select(null); return;
+      warehouse.setOpen(false); select(null); return;
     }
     if (event.altKey || event.metaKey || event.ctrlKey) return;
     if (pending && event.key === 'Enter') {event.preventDefault(); confirmSession(); return;}
@@ -902,11 +903,6 @@ function bindEvents() {
     }
     $('#object-count').textContent = term ? `${count} / ${ids.length}` : `${ids.length}`;
   };
-  $('#list-toggle').onclick = () => {
-    const open = $('#object-panel').classList.toggle('open');
-    $('#list-toggle').setAttribute('aria-expanded', String(open));
-  };
-  $('#close-list').onclick = () => {$('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');};
   $('#export-layout').onclick = () => {
     if (!ready) return;
     finishHold();
@@ -1018,8 +1014,7 @@ function appendWarehouseRow(entity, first = false) {
     row.innerHTML = `<span class="warehouse-state">在房间</span><img class="object-thumb" alt="" width="264" height="144"><span class="object-copy"><strong>${entity.name}</strong><small>${entity.category}</small></span><span class="object-dot" aria-hidden="true"></span>`;
     row.onclick = () => {
       beginSession(entity.id);
-      $('#object-panel').classList.remove('open');
-      $('#list-toggle').setAttribute('aria-expanded', 'false');
+      warehouse.setOpen(false);
     };
     let card = row;
     if (entity.added) {
@@ -1342,7 +1337,7 @@ function followPointer(clientX, clientY, force = false, grab = null) {
 
 const OPEN_HELP = '点门、柜门、窗可以打开或关上 · 拖动空白处转动视角';
 function setMode(nextMode) {
-  if (nextMode === 'preview') {cancelSession(false); select(null, false);}
+  if (nextMode === 'preview') {cancelSession(false); select(null, false); warehouse.setOpen(false);}
   // Furniture is placed against the closed shapes; doors shut on the way back to arranging.
   else hinged?.closeAll();
   mode = nextMode;
@@ -1360,7 +1355,7 @@ function storeObjects(id = null) {
     for (const item of targets) layout[item] = {...layout[item], visible:false};
   });
   select(null, false);
-  if (!id) {$('#object-panel').classList.add('open'); $('#list-toggle').setAttribute('aria-expanded','true');}
+  if (!id) warehouse.setOpen(true);
   showToast(id ? '已收回仓库，可重新放置或撤销' : '房间已清空，家具都在仓库中 · 可撤销');
 }
 
@@ -1508,7 +1503,7 @@ const gesturePort = {
       if (kind !== 'move') {showToast('从仓库拖出请先切到移动模式（左手 1）'); return false;}
       if (pending?.id !== target.id && !putDownPending()) return false;
       // The piece hangs on the hand; it enters the room only when the hand does.
-      $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
+      warehouse.setOpen(false);
       gesture = {...track, id: target.id, carrying: true};
       handPointer.dataset.label = entities.get(target.id).name;
       $('#status').textContent = `拖着${entities.get(target.id).name} · 移进房间`;
@@ -1615,6 +1610,7 @@ const gestureInput = new GestureInput(gesturePort);
 const gestureState = () => ({busy: !ready || !!falling, phase: gestureView ? 'observing' : falling ? 'validating' : gesture ? 'preview' : 'idle'});
 function setGestureMode(next) {
   gestureMode = next;
+  if (next === 'view') warehouse.setOpen(false);
   if (next !== 'view' && mode !== 'edit') setMode('edit');
   $('#status').textContent = GESTURE_HELP[next]; $('#interaction-help').textContent = GESTURE_HELP[next];
   for (const button of document.querySelectorAll('[data-gesture-mode]')) button.setAttribute('aria-pressed', String(button.dataset.gestureMode === next));
@@ -1683,7 +1679,7 @@ async function openImports() {
   mountAddObject({toast: showToast, onReady: async (run, asset) => {
     if (![...$('#import-run').options].some((option) => option.value === run)) $('#import-run').prepend(new Option(objectLabel(run), run));
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
-    $('#object-panel').classList.remove('open'); $('#list-toggle').setAttribute('aria-expanded', 'false');
+    warehouse.setOpen(false);
     const {axis, value} = asset.calibration;
     await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
       console.error(error); showToast(`导入失败：${error.message || error}`);
