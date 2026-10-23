@@ -44,7 +44,7 @@ try {
       // Lighting acceptance is independent of the reconstruction server and object catalog.
       await page.route('**/viewforge/**',route => route.fulfill({status:200,contentType:'application/json',body:'{"runs":[]}'}));
       const loadStarted = performance.now();
-      await page.goto(new URL(`editor/?room=${encodeURIComponent(id)}&lightingLab=1&${variants[name]}`,values.url).href,{waitUntil:'domcontentloaded'});
+      await page.goto(new URL(`editor/?room=${encodeURIComponent(id)}&lightingLab=1&time=balanced&indoor=off&${variants[name]}`,values.url).href,{waitUntil:'domcontentloaded'});
       const settled = async () => {
         await page.waitForFunction(() => {
           if (window.roomEditorError) throw new Error(window.roomEditorError);

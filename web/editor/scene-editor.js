@@ -3,7 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-36';
 import {createPlacement} from './placement.mjs?v=app-36';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-36';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-48';
 import {PlacementSession} from './placement-session.mjs?v=app-36';
 import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
 import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf} from './wall-visibility.mjs?v=app-36';
@@ -25,6 +25,10 @@ import {createImportMaterials} from './import-materials.mjs?v=app-38';
 import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
 import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
 import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
+import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
+import {colorGrading} from './color-grading.mjs?v=app-48';
+import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
+import {indoorLighting} from './indoor-lighting.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -107,6 +111,29 @@ let environmentLighting = null, environmentStatus = {state: enhancedLighting && 
 let environmentFactory = null;
 let lightingStatus = {enabled: false, state: enhancedLighting && query.get('ao') !== 'off' ? 'loading' : 'off', updates: 0, error: null};
 let shadowMode = 'original';
+let lightingRig = null, grading = colorGrading(), gradingFrame = 0;
+let lightingTime = enhancedLighting ? timePreset(query.get('time')) : 'balanced';
+let indoor = indoorLighting({power: query.get('indoor') !== 'off'});
+const lightingPanel = mountLightingPanel({root: $('#lighting-menu'), timeRoot: $('#light-menu'), initialTime: lightingTime, initialIndoor: indoor,
+  onTime: value => {lightingTime = value; warm = false; lightingRig?.apply(value); requestRender();},
+  onIndoor: value => {
+    const wasOn = indoor.power;
+    indoor = indoorLighting(value); lightingRig?.setIndoor(indoor);
+    try {localStorage.setItem(`roomcanvas:indoor-lighting:${sceneKey}`, JSON.stringify(indoor));} catch {}
+    if (wasOn || indoor.power) requestRender();
+  },
+  onGrade: value => {
+    grading = colorGrading(value); staticLighting?.setGrading(grading);
+    if (gradingFrame || document.hidden) return;
+    gradingFrame = requestAnimationFrame(() => {
+      gradingFrame = 0;
+      // A queued scene frame already picks up the latest grade. Otherwise only re-present
+      // its cached beauty/AO; do not invalidate geometry, shadows or the settled scheduler.
+      if (pendingFrame || !staticLighting?.snapshot().composite) return;
+      renderMetrics.measure('color-grade', () => staticLighting.present());
+    });
+  },
+});
 let analogActive = false, validationFrame = 0, validationTimer = 0;
 let layoutStamp = 0, tallStamp = -1, tall = new Map(), blockingNear = new Set();
 function cancelValidation() {
@@ -184,8 +211,10 @@ function requestRender() {
         if (setSeeThrough(entity.group, faint)) renderer.shadowMap.needsUpdate = true;
       }
     }
+    lightingRig?.syncOccluders();
     updateSelectionVisuals();
     renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, camera);});
+    lightingPanel.availability({time: enhancedLighting && !!lightingRig, grading: enhancedLighting && !!staticLighting?.snapshot().composite});
   });
 }
 
@@ -1061,7 +1090,7 @@ function renderFurnitureThumbnails(list = entities.values()) {
   previewRenderer.toneMapping = renderer.toneMapping;
   previewRenderer.toneMappingExposure = renderer.toneMappingExposure;
   const previewScene = new THREE.Scene();
-  scene.children.filter((object) => object.isLight).forEach((light) => previewScene.add(light.clone()));
+  (lightingRig?.previewLights() || scene.children.filter(object => object.isLight).map(light => light.clone())).forEach(light => previewScene.add(light));
   const previewCamera = new THREE.PerspectiveCamera(36, 264 / 144, .01, 1000);
   let previewEnvironment = null;
   try {
@@ -1373,12 +1402,6 @@ function bindPlacementEvents() {
     store: () => storeObjects(selected),
     clear: () => storeObjects(),
     setMode,
-    toggleLight: () => {
-      warm = !warm;
-      $('#light').setAttribute('aria-pressed', String(warm));
-      scene.children.filter(object => object.isLight).forEach(light => {if (light.isDirectionalLight) light.color.set(warm ? 0xffd2a5 : 0xffffff);});
-      showToast(warm ? '傍晚暖光' : '柔和日光'); requestRender();
-    },
   });
 }
 
@@ -1878,9 +1901,17 @@ async function load() {
   }
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
-  renderFurnitureThumbnails();
   ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  if (enhancedLighting) {
+    try {indoor = indoorLighting(JSON.parse(localStorage.getItem(`roomcanvas:indoor-lighting:${sceneKey}`)));} catch {}
+    if (query.get('indoor') === 'off') indoor = {...indoor, power: false};
+    lightingPanel.setIndoor(indoor);
+    lightingRig = createTimeLighting(THREE, {renderer, scene, room, config, walls: placement.wallTargets(), bounds, floorY, ceilingY, profile: lightProfile,
+      fitShadows: query.get('shadows') !== 'original', environment: query.get('env') !== 'off', indoor});
+    lightingRig.apply(lightingTime);
+  }
+  renderFurnitureThumbnails();
   for (const wall of placement.wallTargets()) {
     const option = document.createElement('option'); option.value = wall.name; option.textContent = wallLabel(wall.name);
     $('#wall-target').appendChild(option);
@@ -1972,11 +2003,12 @@ async function load() {
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
         wallTargets: placement.wallTargets().map(({name,center}) => {const p = new THREE.Vector3().fromArray(center).project(camera), rect = host.getBoundingClientRect(); return {name,center,screen:{x:rect.x+(p.x*.5+.5)*rect.width,y:rect.y+(-p.y*.5+.5)*rect.height}};}),
         undo: history.past.length, redo: history.future.length, audit,
-        lighting: {...(staticLighting?.snapshot() || lightingStatus), profile: lightProfile.name, environment: environmentLighting?.snapshot() || environmentStatus,
+        lighting: {...(staticLighting?.snapshot() || lightingStatus), profile: lightProfile.name, time: lightingRig?.snapshot() || {preset: 'balanced'}, grading: {...grading},
+          environment: environmentLighting ? {...environmentLighting.snapshot(), intensity: scene.environmentIntensity} : environmentStatus,
           shadows: {mode: shadowMode, mapSize: sun.shadow.mapSize.toArray(), bias: sun.shadow.bias, normalBias: sun.shadow.normalBias,
             camera: Object.fromEntries(['left','right','top','bottom','near','far'].map(key => [key, sun.shadow.camera[key]]))},
           lights: scene.children.filter(object => object.isLight).map(light => ({
-          type: light.type, color: light.color.getHexString(), intensity: light.intensity, position: light.position.toArray(), castShadow: light.castShadow,
+          type: light.type, role: light.userData.lightingRole || null, color: light.color.getHexString(), intensity: light.intensity, position: light.position.toArray(), castShadow: light.castShadow, visible: light.visible,
         }))},
         openParts: hinged.parts.map((part) => {
           const box = new THREE.Box3().setFromObject(part.node), p = box.getCenter(new THREE.Vector3()).project(camera), rect = host.getBoundingClientRect();
@@ -1995,14 +2027,14 @@ async function load() {
     },
   });
   if (query.has('lightingLab')) installLightingLab();
-  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); staticLighting?.dispose(); environmentLighting?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
+  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
   // Load the optional effect after the editor works. Missing addons must never prevent editing.
   if (enhancedLighting) void (async () => {
     if (query.get('env') !== 'off') {
       try {
         const {createEnvironmentLighting} = await import('./environment-lighting.mjs?v=app-38');
         environmentFactory = createEnvironmentLighting;
-        environmentLighting = createEnvironmentLighting(renderer, scene, {intensity: lightProfile.environment});
+        environmentLighting = createEnvironmentLighting(renderer, scene, {intensity: query.get('env') === 'off' ? 0 : scene.environmentIntensity});
         requestRender();
       } catch (error) {
         environmentStatus = {state: 'error', error: String(error)};
@@ -2010,9 +2042,9 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-39');
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-48');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
-      staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, enabled: query.get('ao') !== 'off',
+      staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || hinged.moving.size > 0,
       });
       if (document.hidden) staticLighting.pause();
@@ -2032,7 +2064,7 @@ function installLightingLab() {
     return {version: 1, scene: sceneKey, layout: encodeLayout(roomPart(layout), sceneKey),
       camera: {...Object.fromEntries(cameraKeys.map(key => [key, camera[key]])), position: camera.position.toArray(),
         quaternion: camera.quaternion.toArray(), up: camera.up.toArray(), target: controls.target.toArray(), span: cameraSpan},
-      cut: $('#cut').checked, ceiling: $('#ceiling').checked, warm, mode};
+      cut: $('#cut').checked, ceiling: $('#ceiling').checked, warm, mode, lightingTime, indoor: {...indoor}, grading: {...grading}};
   }
   window.roomLightingLab = Object.freeze({
     captureState,
@@ -2046,8 +2078,12 @@ function installLightingLab() {
       setMode(state.mode === 'preview' ? 'preview' : 'edit');
       $('#cut').checked = !!state.cut; $('#ceiling').checked = !!state.ceiling;
       for (const object of ceilingObjects) object.visible = !!state.ceiling;
-      warm = !!state.warm; $('#light').setAttribute('aria-pressed', String(warm));
-      for (const object of scene.children) if (object.isDirectionalLight) object.color.set(warm ? 0xffd2a5 : 0xffffff);
+      warm = !!state.warm;
+      lightingTime = enhancedLighting ? timePreset(state.lightingTime) : 'balanced'; lightingPanel.setTime(lightingTime);
+      indoor = indoorLighting(state.indoor); lightingPanel.setIndoor(indoor); lightingRig?.setIndoor(indoor);
+      if (lightingRig) lightingRig.apply(lightingTime, {warm});
+      else for (const object of scene.children) if (object.isDirectionalLight) object.color.set(warm ? 0xffd2a5 : 0xffffff);
+      grading = colorGrading(state.grading); lightingPanel.setGrade(grading); staticLighting?.setGrading(grading);
       cameraSpan = pose.span; Object.assign(camera, Object.fromEntries(cameraKeys.map(key => [key, pose[key]])));
       camera.position.fromArray(pose.position); camera.up.fromArray(pose.up); camera.quaternion.fromArray(pose.quaternion);
       controls.target.fromArray(pose.target); camera.updateProjectionMatrix(); controls.update();

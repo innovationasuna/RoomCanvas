@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
 import {SettledRender} from './settled-render.mjs';
 import {createLightingComposite} from './lighting-composite.mjs';
+import {colorGrading} from './color-grading.mjs';
 
 // Optional screen-space contact shading. Does not own or change the room's lights,
 // materials, placement logic or shadow maps. AO buffers are allocated only after settling.
-export function createStaticLighting({renderer, scene, camera, room, roomSize, busy, enabled = true, metrics = null, N8AOPass = null}) {
+export function createStaticLighting({renderer, scene, camera, room, roomSize, busy, enabled = true, metrics = null, N8AOPass = null, grading = {}}) {
   const supported = renderer.extensions.has('EXT_color_buffer_float');
   let active = enabled && supported, cached = false, resources = null, composite = null, error = null;
   const size = new THREE.Vector2();
+  let grade = colorGrading(grading);
   const radius = THREE.MathUtils.clamp(Math.min(roomSize.x, roomSize.z) * .025, .08, .2);
   const algorithm = N8AOPass ? 'n8ao' : 'gtao';
   const scheduler = new SettledRender({busy, render: () => metrics ? metrics.measure('static-ao', settle) : settle(), onError: fail});
@@ -100,6 +102,7 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       try {
         if (supported && !error) {
           composite ||= createLightingComposite(renderer);
+          composite.setGrading(grade);
           composite.render(scene, camera);
         } else renderer.render(scene, camera);
       } catch (cause) {scheduler.dispose(); fail(cause);}
@@ -109,13 +112,15 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       if (composite) composite.present();
       else renderer.render(scene, camera);
     },
+    setGrading(value) {grade = colorGrading(value); composite?.setGrading(grade);},
+    present() {if (!composite) return false; composite.present(); return true;},
     pause() {scheduler.pause();},
     resume() {scheduler.resume();},
     dispose() {active = cached = false; scheduler.dispose(); release();},
     snapshot() {
       return {enabled: active, algorithm, state: !enabled ? 'off' : !supported ? 'unsupported' : error ? 'error' : cached ? 'settled' : 'waiting',
         updates: scheduler.updates, delayMs: scheduler.delay, radius, strength: .35,
-        aoSize: resources ? [resources.ao.width, resources.ao.height] : null, composite: composite?.snapshot() || null, error};
+        aoSize: resources ? [resources.ao.width, resources.ao.height] : null, composite: composite?.snapshot() || null, grading: {...grade}, error};
     },
   };
 }
