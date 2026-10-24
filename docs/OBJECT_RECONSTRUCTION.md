@@ -6,7 +6,8 @@
 
 在仓库根目录运行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/>，选择房间。
 
-- 仓库 → **添加物体**：上传 3–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。
+- 仓库 → **添加物体**：上传 1–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。结果那一步显示补拍建议（橙色箭头），可以“补拍”：加照片，在原结果基础上重建。
+- **导入物体**里选中已有结果，也可以“补拍”。
 - **导入物体**：读取已有重建和标定，按真实尺寸摆放。导入物体暂不随布局保存。
 - 编辑器的**手势**开关直接开启本机识别，不需要物体重建服务；只有添加、导入物体需要连接 ViewForge。
 - 原 ViewForge 的 Gradio 页面、Babylon 查看器、房间布局和手势接入页已弃用，代码与原有构建资源保留在 [`legacy/`](../object-reconstruction/legacy/README.md)。正式服务不挂载这些界面，7865 隧道只访问 API；`GET /health` 可检查服务。
@@ -37,9 +38,10 @@ ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH主机别名>
 
 | 接口 | 用途 |
 | --- | --- |
-| `POST /viewforge/objects/create` | 命名并上传 3–40 张 JPEG/PNG，保存原图和转正副本 |
+| `POST /viewforge/objects/create` | 命名并上传 1–40 张 JPEG/PNG，保存原图和转正副本 |
+| `POST /viewforge/objects/capture` | 补拍：表单 `run`（已完成的结果）+ 新照片，存进该结果的物体（记下父结果），返回原照片 `kept` 和全部 `images` |
 | `POST /viewforge/objects/masks` | BiRefNet 抠图，返回任务号 |
-| `POST /viewforge/objects/reconstruct` | 校验照片、蒙版与预览一致，再运行 DA3 + MV-SAM3D + COVER |
+| `POST /viewforge/objects/reconstruct` | 校验照片、蒙版与预览一致，再运行 DA3 + MV-SAM3D + COVER；带 `parent` 时检查原照片都在，按 `run.py --parent-run` 在原结果基础上重建 |
 | `GET /viewforge/objects/jobs/<任务号>` | 查询排队、阶段、完成结果或错误 |
 | `GET /viewforge/objects/previews/<批次>/<照片>.png` | 蒙版预览 |
 | `GET /viewforge/assets/catalog` | 已重建物体目录（`runs`） |
@@ -54,7 +56,7 @@ ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH主机别名>
 
 标定从完整原始模型计算，不修改原模型。用户标定坐标 X / Y / Z 分别对应内部 +X / -Z / +Y；RoomCanvas 应用显示变换、底部居中及米制缩放。已有标定、重建结果和照片均可继续使用。历史补拍 manifest 的旧界面 URL 在 API 返回时适配为受限资产 URL，不改写历史文件；不会暴露任意服务器文件路径。
 
-GPU 仍使用 `VIEWFORGE_GPU_LOCK` 排队，一次使用配置的一张卡。任务记录在服务内存里，服务重启后任务号失效；落盘结果仍可从物体目录读取。COVER 和补拍续建算法、历史数据继续保留；补拍可通过 `scripts/run.py --parent-run <结果>` 及 `scripts/import_photos.py` 使用。RoomCanvas 暂未接入补拍续建界面，旧 Gradio 页面只作归档参考。
+GPU 仍使用 `VIEWFORGE_GPU_LOCK` 排队，一次使用配置的一张卡。任务记录在服务内存里，服务重启后任务号失效；落盘结果仍可从物体目录读取。COVER 和补拍续建算法、历史数据继续保留。RoomCanvas 的补拍走 `capture` + `reconstruct`（带 `parent`）：新照片按上传顺序命名为 `capture_<时间>_001…`，原照片的抠图直接复用，只给新照片跑 BiRefNet；命令行仍可用 `scripts/run.py --parent-run <结果>` 及 `scripts/import_photos.py`。
 
 ## 手势与场景
 
