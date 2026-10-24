@@ -1,6 +1,15 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-20（main 到 #23 `6d56373`，见下面“最近两天”；服务器文件夹已同步到 `6d56373`，但 7862 还是 #15 时启动的旧 Gradio 进程，**没重启**，见“最近两天”#23 一条）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-24（main 到 #29 `7be1dc6`，见下面“最近（10-21 至 24）”；服务器文件夹在 `6daeb80`，7862 已在 2026-10-20 重启为 #23 的新后端；之后合并的都是网页、手势、App，服务器不用同步也不用重启）。
+
+## 最近（2026-10-21 至 24）
+
+- **合并**：#27 lyk 仓库默认收起、去掉上拉把手，顶部“仓库”按钮开合（`ae1d020`）；#28 lyk 时段光照（普通光照／早晨／中午／下午／夜间）、中央顶灯（开关和 60°–170° 光锥）、“调色实验”四个滑条（`0a6b4f7`）——**默认时段是“中午”**，不是原来的普通光照，lyk 在 `web/README.md` 写明默认参数还不是最终方案，原来的样子用菜单“普通光照”或 `&time=balanced`；原来工具栏的日光／暖光开关去掉了；#26 AWHYhuh 双手手势（`493411b`）：左手 1/2/3/4 切移动／抬高／场景缩放／旋转，左手捏合独立环绕，松手只保留预览，右手竖拇指约 0.5 秒确认，双手捏合缩放场景（合并前我把 main 合进他的分支，冲突是缓存版本号、仓库开合代码和 `web/README.md`）；#29 HausenWu Android 漫游 App（`7be1dc6`，用户要求原样合并），见下面一条。
+- **#29 Android App**：`android-app/`，Kotlin + SceneView/Filament + 华为 AR Engine。导入 `Room.glb` 横屏第一人称漫游（方向键、右半屏滑动转向、0.5×/1×/2× 速度），点柜门、窗、门开关（读 glTF 动画：room3 8 段、office 4 段；room3 钢琴盖是 URDF 关节，不在 glTF 动画里，App 里打不开）。AR 位姿默认不驱动相机（P40 Pro 实测漂移大），非华为手机提示一次后照常漫游。构建 `cd android-app && ./gradlew :app:assembleDebug`（JDK 17、Android SDK）。CI 不构建它，我也没在本机构建或真机试过。原样合并时留下的：Gradle 从腾讯云镜像下载但没写 `distributionSha256Sum`（官方 8.11.1 发行包是 `f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6`）；`gradle-wrapper.jar` 是 Gradle 官方 7.0.x 的原版（哈希已核对）；6.3 MB 的 `studio_small_09_2k.hdr` 没写来源（名字看是 Poly Haven，CC0）；871 行的 `MainActivity`（旧查看器和 AR 调试页）没有入口。
+- **关闭未合并**：#24 AWHYhuh 整站界面（`gesture/RoomCanvas.html` 为入口：封面、我的房间、登录、家具库，要 Node 起服务）。手势部分已由 #26 合入；#24 与 main 冲突、与 #26 重叠 38 个文件，已留言请他基于新 main 只重提网站部分，分支 `integration/local-ui-20261020` 保留。#25 是 lyk 自己关的（改为 #27）。
+- **全项目检查（2026-10-24）**：网页单测 208 项、Python 12 项通过，CI 四项通过；本机 Chrome 打开主页、room3、office 编辑器和 8800 手势页，展开仓库、切夜间光照、预览里的可动部件（room3 10 个、office 4 个）、假摄像头打开手势卡片，均无页面错误。四个光照浏览器检查里 `check_import_lighting.mjs` 从 #19 起在本机一直失败：导入的测试物体落在 office 墙边，前面隔着 #18 的半透明墙和一把椅子，关灯时它们变黑，采样到了它们（物体本身不受光）。已改 `roomLightingLab.lightResponseProbe` 只渲染被测物体（只在 `lightingLab=1` 下有），检查恢复通过（原显示 192/192，受光 74/0）。这几个浏览器检查要 Playwright，仓库不带：`--playwright <node_modules/playwright> --browser <Chrome 路径>`。
+- **#16 的三个手势问题**：#26 改了松手和轻捏的规则（松手只停成预览，轻捏不确认，竖拇指才放下），“误报一次松手就把家具放下”和“轻捏误按按钮放下”不再出现；拖动时每帧重算全部家具“是否放稳”的卡顿没有用真人摄像头重测。
+- **本机服务**：7865 隧道、7880 `serve.py`、8800 手势页现在用 nohup 起，日志在 `~/Library/Logs/roomcanvas-*.log`；电脑重启后会停，照“本机常开一个预览服务”重开。
 
 ## 最近两天（2026-10-19、20）
 
@@ -9,7 +18,7 @@
 - **可动物体试验**：见下文“开门、开柜门”一节末尾和服务器 `runs/articulation-trials-20261019/`；方法 2 已用在 room3 钢琴上。
 - **CI 慢**：2026-10-19 晚 GitHub Actions 故障（官方状态页有事故），排队十几分钟；平时一次 1.5–2 分钟。Git 历史已 346 MB（房间模型每版整份留在历史里），以后可考虑 Git LFS、依赖缓存、按改动目录跳过检查。
 - **#23 lyk：ViewForge 只管物体**（`6d56373`，2026-10-20 合并）：`object-reconstruction/scripts/web.py` 改成只有接口的 Starlette / Uvicorn 服务（不再加载 Gradio），上传、抠图、重建、进度、标定接口地址不变；物体读取拆到 `scripts/assets.py`（`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`、`result.ply`、`preview.json`），旧 `/viewforge/layouts/catalog`、`layouts/assets/…` 只兼容物体读取，房间读取、布局页、validate、save 已去掉。旧 Gradio 页面、Babylon 查看器和布局页、ViewForge 手势接入页、旧测试整体挪进 `object-reconstruction/legacy/`（弃用，只作参考，CI 不再构建）；独立手势页改为 `gesture/roomcanvas.html`（协议 `roomcanvas-gesture-v1`）。编辑器新增：重建结果预览的 X/Y/Z 坐标轴（Z 是高度），仓库里可删除重复导入的实例。lyk 验证：后端 CPU 42 项、网页 180 项、本机服务 12 项；GPU 用 CPU 模拟，没真跑重建，没真人摄像头。
-  - **部署状态**：服务器代码已同步到 `6d56373`，**7862 没重启**，仍是旧进程（内存里的旧代码，RoomCanvas 编辑器的添加/导入物体照常可用）。但旧 Gradio 页面运行时从 `scripts/assets/` 读查看器和布局页，这些已挪走，旧页面里这两处会坏。下一步：告诉 lyk 后照“服务器”一节的命令重启 7862（命令不变）。新依赖文件 `configs/api-requirements.txt` 固定 uvicorn 0.54.0，服务器 mvsam3d 环境是 0.52.4（starlette 0.52.1、python-multipart 0.0.32 一致），先不 `pip install`，直接用现有环境启动，起不来再说。重启后旧 Gradio 页面和 ViewForge 布局页就没有了，`/workspace/geyinuo/RoomCanvas-Reconstruction/` 也不再被读（仍先别动）。服务器上 `object-reconstruction/viewer/` 只剩 git 忽略的 `.gitignore`、`.test-build/`（旧查看器测试产物），没删。
+  - **部署状态**（2026-10-20）：服务器代码同步到 `6d56373` 后（之后又同步了 #22，现为 `6daeb80`），7862 已按“服务器”一节的命令重启为新的 Starlette 接口服务，用服务器 mvsam3d 环境现有的包（uvicorn 0.52.4，没按 `configs/api-requirements.txt` 的 0.54.0 去 `pip install`），日志 `ViewForge/logs/roomcanvas-api-20261020.log`；`/health`、物体目录（28 个结果）、`result.glb` 读取都验证过，没在 GPU 上真跑一次重建。旧 Gradio 页面和 ViewForge 布局页已经没有了，`/workspace/geyinuo/RoomCanvas-Reconstruction/` 不再被读（仍先别动）。服务器上 `object-reconstruction/viewer/` 只剩 git 忽略的 `.gitignore`、`.test-build/`，没删。
   - lyk 在本文顶部写的三段原始记录（内容未删）：
     - **ViewForge 只负责物体（本地改动，未部署）**
       - 移除 ViewForge 的 Babylon 房间布局源码、构建产物、房间读取、场景碰撞、承托与布局快照接口；现有服务器外部数据不动。下文关于旧 ViewForge 布局页的描述属于历史。
@@ -44,7 +53,7 @@
 - PR #1（已合并）：选中、原位确认即时；碰撞检查提速 4–5 倍，结果与原来逐项一致。
 - PR #4（已合并）小物件这一步：author 之后读 `Room.blend`，Astra 每件问一次（舍弃 / 程序化 / TRELLIS），TRELLIS 的放回原位、网页里单独可移动。用法见 [房间重建](ROOM_RECONSTRUCTION.md)。`run_room.py` 的 author 返工默认改为 1 轮（官方参数 `--repair-rounds`，没改官方文件）。
 - README 2026-10-19 按常见开源项目的写法重写（用户要求）：标题和一句话、效果图（office 编辑器截图 `docs/images/editor-office.jpg`，不用私人卧室）、功能、快速开始、流程图（mermaid）、目录、文档、对 LiteReality 的改动、隐私、致谢与许可；服务器上的房间重建命令和小物件流程挪到 `docs/ROOM_RECONSTRUCTION.md`。
-- 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。它是由对话的后台任务起的，对话结束可能被停掉，停了就重新运行这条命令。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
+- 本机常开一个预览服务：仓库根目录 `python3 web/scripts/serve.py --port 7880`（静态文件每次重新验证 + 转发 ViewForge 读接口），打开 <http://127.0.0.1:7880/web/>（7870 被用户原来的 office 预览占着；7890 被代理占用）。现在用 nohup 起（`nohup python3 web/scripts/serve.py --port 7880 > ~/Library/Logs/roomcanvas-serve-7880.log 2>&1 &`），对话结束不会停，电脑重启后要重开。还开着到 ViewForge 的 SSH 隧道（7865）和手势页（8800），见下文“ViewForge 和手势”。
 
 ## 约定
 
@@ -52,7 +61,7 @@
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
-- 官方文件尽量少改，改了在 README“对 LiteReality-Agent 改了什么”补一句。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
+- 官方文件尽量少改，改了在 `docs/ROOM_RECONSTRUCTION.md` 的“对 LiteReality-Agent 改了什么”补一句（2026-10-24 用户要求从 README 挪出）。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
 - ViewForge 与手势已通过 PR #5 squash 合入主线；上游许可证和来源说明保留，不再合并原完整历史分支。用户于 2026-10-18 授权将实际服务迁移到 RoomCanvas；后端和本机手势都使用新仓库源码，外部运行数据沿用原目录。入口与范围见 [物体重建说明](OBJECT_RECONSTRUCTION.md)。
 - 私人数据：原始扫描、照片、`room_layout.json` 不进仓库；room3 的 `Room.glb` 和主页缩略图 `thumbnail.jpg` 是用户同意的例外，仓库公开前必须删。
 
@@ -236,11 +245,14 @@ P0 基线工具、P1 通用校准与可回退导入 PBR 实验、P2 两种 AO �
 
 ## 待办和待决定
 
-0. **2026-10-20 新增，按优先级**：
+0. **2026-10-20 起新增，按优先级**：
    - 近侧墙半透明程度：#21 起所有帧在线性颜色空间混合，0.16 的墙和衣柜比原来白、遮挡多（后面的钢琴看不清）；建议调到 0.06–0.08 并给用户对比图（`web/editor/wall-visibility.mjs` 的 `SEE_THROUGH`）。
    - 服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用会报 “codex CLI not on PATH”。修法：把链接指向一份新的包装脚本（内容同 `runs/articulation-trials-20261019/scripts/bin/codex`），待用户决定。
    - room3 钢琴：琴键盖合上只盖住琴键后半；翻开后在谱子下面，从上往下点不回来（预览模式点击只认第一个命中的物体）。
-   - 手势的三个问题（见“最近两天”#16 一条），以及“添加物体”还没用真人手机照片试过。
+   - 手势：#26 的新手势（4 种模式、竖拇指确认、双手缩放）只用合成输入测过，要真人摄像头试；拖动卡顿（#16 记录）没重测。“添加物体”还没用真人手机照片试过。
+   - #29 App 的收尾（见“最近”#29 一条）：补 `distributionSha256Sum`、HDR 来源（或换 1k）、没有入口的 `MainActivity` 删不删；CI 不构建 App。
+   - #24 整站界面：等 AWHYhuh 基于新 main 重提。
+   - 光照默认“中午”是否保留（#28，lyk 说参数未定）。
    - **“添加物体”补齐（用户 2026-10-20 要求，新对话做）**：(a) 照片下限从 3 张改成 1 张（重建本身一张就行，服务器上沙发 1 张、办公椅 2 张；3 张是之前方案里写的，前后端 `MIN_PHOTOS` 都要改，界面只提示多拍几个角度更好）；(b) 结果那一步显示补拍建议：`run.py` 每次都算（`runs/<结果>/cover/`），可参考 ViewForge 原来的补拍查看器（#23 起在 `object-reconstruction/legacy/scripts/assets/cover-viewer.html`，归档代码不再加载；数据接口现为 `/viewforge/assets/<结果>/preview.json`）；(c) 加“补拍”：补传照片 → 和原照片一起抠图 → `run.py --parent-run` 重建，后端 `import_photos(parent_run_id=…)`、`run.py --parent-run` 已支持，`objects.py` 和对话框要接上。改了 `object-reconstruction/`，合并后要同步服务器并重启 7862，重启前告诉 lyk。
 
 1. **编辑器性能**：落点的完整检查已移到后台线程（2026-10-18，用户反馈手势放钢琴卡），手势和确认不再冻住；方向按钮逐步挪动、鼠标悬停摆放仍在页面线程。原记录：只有两个重网格挨着时慢，room3 里是琴凳贴着钢琴，每步约 2 秒；同一把椅子放到房间中央只要 2 毫秒，office 的 TRELLIS 椅子也只要几毫秒。“每个连通部件只测一个点”的捷径会漏判（钢琴由 23 块重叠壳体组成），已放弃。以后要做就给重网格做简化碰撞外形，或放到 Web Worker。

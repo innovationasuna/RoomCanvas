@@ -2163,12 +2163,15 @@ function installLightingLab() {
       const p = box.getCenter(new THREE.Vector3()).project(camera);
       const lights = scene.children.filter(object => object.isLight), intensities = lights.map(light => light.intensity), environment = scene.environment;
       const frame = () => {renderer.render(scene,camera); return renderer.domElement.toDataURL('image/png');};
+      // Measure the object alone: lit see-through walls or furniture in front would respond to the lights.
+      const own = new Set(); entities.get(id).group.traverse(object => own.add(object));
+      const hidden = []; scene.traverse(object => {if (object.isMesh && object.visible && !own.has(object)) {object.visible = false; hidden.push(object);}});
       try {
         const lit = frame();
         lights.forEach(light => {light.intensity=0;}); scene.environment=null;
         const dark=frame(), size=renderer.getDrawingBufferSize(new THREE.Vector2());
         return {lit,dark,center:[Math.round((p.x*.5+.5)*size.x),Math.round((-p.y*.5+.5)*size.y)]};
-      } finally {lights.forEach((light,index) => {light.intensity=intensities[index];});scene.environment=environment;renderer.shadowMap.needsUpdate=true;requestRender();}
+      } finally {for (const object of hidden) object.visible = true; lights.forEach((light,index) => {light.intensity=intensities[index];});scene.environment=environment;renderer.shadowMap.needsUpdate=true;requestRender();}
     },
     metrics: () => renderMetrics.snapshot(),
     resetMetrics: () => renderMetrics.reset(),
