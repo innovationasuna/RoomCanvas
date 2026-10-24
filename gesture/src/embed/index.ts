@@ -6,3 +6,5 @@ export { GestureRuntime } from '../integration/runtime';
 export type { IntegrationFrame } from '../integration/runtime';
 export { gesturePayload, observationPayload } from '../integration/protocol';
 export { setVisionBase } from './tracker';
+
+export { drawHandFeedback, thumbFeedback } from '../ui/hand-feedback';

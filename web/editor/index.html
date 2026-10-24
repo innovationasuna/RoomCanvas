@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-36">
+<link rel="stylesheet" href="./editor.css?v=app-51">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -46,11 +46,11 @@
 <main class="rc-stage">
  <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择家具后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
  <nav class="rc-tools" aria-label="布置工具">
-  <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
+  <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3/4 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
   <button class="rc-tool" id="undo" disabled aria-label="撤销"><svg aria-hidden="true"><use href="#icon-undo"/></svg>撤销</button>
   <button class="rc-tool" id="clear-room" title="将房间中的家具全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
   <button class="rc-tool" id="reset-layout" title="恢复原始家具、位置和朝向，可撤销">↻ 一键还原</button>
-  <button class="rc-tool" id="list-toggle" aria-controls="object-panel" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
+  <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
   <details class="rc-menu" id="import-menu" hidden>
    <summary class="rc-tool" title="把用照片重建的物体按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物体</summary>
    <div class="rc-menu-panel rc-import">
@@ -60,13 +60,36 @@
     <button class="rc-action rc-confirm" id="import-object" type="button" disabled>导入并摆放</button>
    </div>
   </details>
-  <button class="rc-tool" id="light" aria-label="切换日光与暖光" aria-pressed="false"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</button>
+  <details class="rc-menu" id="light-menu">
+   <summary class="rc-tool" id="light" aria-label="选择光照与室内灯具"><svg aria-hidden="true"><use href="#icon-light"/></svg>光照</summary>
+   <div class="rc-menu-panel rc-lighting-panel rc-time-panel">
+    <label class="rc-lighting-time" for="lighting-time">时段光照（实验）<select id="lighting-time" disabled><option value="balanced">普通光照</option><option value="morning">早晨</option><option value="noon" selected>中午</option><option value="afternoon">下午</option><option value="night">夜间</option></select></label>
+    <label class="rc-lamp-angle" for="lamp-angle"><span>顶灯照射角度（实验）<output for="lamp-angle">160°</output></span><input id="lamp-angle" type="range" min="60" max="170" step="1" value="160" disabled></label>
+    <div class="rc-lamp-power"><span id="lamp-status" role="status">中央顶灯已开启</span><button class="rc-tool" id="lamp-power" type="button" aria-pressed="true" disabled>关灯</button></div>
+    <p class="rc-lighting-note">顶灯位于房间顶部中央；角度为完整光锥角度。白天弱补光，夜间主要照明，按房间记住角度与开关。</p>
+   </div>
+  </details>
+  <details class="rc-menu" id="lighting-menu">
+   <summary class="rc-tool" aria-label="调色实验">调色实验</summary>
+   <div class="rc-menu-panel rc-lighting-panel">
+    <div class="rc-grade-fields">
+     <label for="grade-exposure"><span>曝光 <output for="grade-exposure">0.00 EV</output></span><input id="grade-exposure" data-grade="exposure" type="range" min="-2" max="2" step="0.05" value="0" disabled></label>
+     <label for="grade-white-balance"><span>白平衡（冷暖）<output for="grade-white-balance">中性</output></span><input id="grade-white-balance" data-grade="whiteBalance" type="range" min="-1" max="1" step="0.02" value="0" disabled></label>
+     <label for="grade-contrast"><span>对比度 <output for="grade-contrast">1.00</output></span><input id="grade-contrast" data-grade="contrast" type="range" min="0.6" max="1.4" step="0.01" value="1" disabled></label>
+     <label for="grade-saturation"><span>饱和度 <output for="grade-saturation">1.00</output></span><input id="grade-saturation" data-grade="saturation" type="range" min="0" max="1.6" step="0.01" value="1" disabled></label>
+    </div>
+    <button class="rc-tool" id="grading-reset" type="button" disabled>重置四项调色</button>
+    <p class="rc-lighting-note">调色为实验功能。参数仅本次页面有效，切换时段会保留调色；刷新恢复中性。</p>
+    <p class="rc-lighting-note" id="grading-unavailable" role="status">调色加载中；原始光照对照模式或图形功能不可用时停用。</p>
+   </div>
+  </details>
   <details class="rc-menu" id="tools-menu">
    <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
    <div class="rc-menu-panel">
     <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中家具" data-view="focus">聚焦家具</button></div>
-    <div class="rc-footer-tools"><label><input id="cut" type="checkbox" checked>自动隐藏近侧墙</label><label><input id="ceiling" type="checkbox">天花板</label>
- <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
+    <div class="rc-footer-tools"><label><input id="cut" type="checkbox" checked>近侧墙半透明</label><label><input id="ceiling" type="checkbox">天花板</label>
+ <label><input id="import-lighting" type="checkbox">导入物体随光照变化（实验）</label>
+ <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout" data-gesture-ignore title="请使用鼠标或键盘导出布局">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
  <a href="../?model=authored" target="_blank" rel="noopener">原始重建 ↗</a><input id="layout-file" type="file" accept=".json,application/json" hidden></div>
     <p class="rc-scale-note">单位：米</p>
    </div>
@@ -125,13 +148,15 @@
   <span id="selected-count" hidden>0</span>
  </aside>
  <aside class="rc-gesture-card" id="gesture-card" aria-label="手势" hidden>
-  <video id="gesture-video" autoplay muted playsinline></video>
-  <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3）">
-   <button type="button" data-gesture-mode="move" aria-pressed="false"><b>1</b>移动</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>2</b>旋转</button><button type="button" data-gesture-mode="view" aria-pressed="true"><b>3</b>观察</button>
+  <div class="rc-gesture-preview"><video id="gesture-video" autoplay muted playsinline></video><canvas id="gesture-skeleton" width="640" height="480" aria-hidden="true"></canvas></div>
+  <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3 / 4）">
+   <button type="button" data-gesture-mode="move" aria-pressed="true"><b>1</b>移动</button><button type="button" data-gesture-mode="height" aria-pressed="false"><b>2</b>抬高</button><button type="button" data-gesture-mode="scale" aria-pressed="false"><b>3</b>缩放</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>4</b>旋转</button>
   </div>
   <p class="rc-gesture-hand" id="gesture-right" data-seen="false">右手未识别</p>
-  <p class="rc-gesture-hand" id="gesture-left" data-seen="false">左手比 1 / 2 / 3 切换模式</p>
+  <p class="rc-gesture-hand" id="gesture-left" data-seen="false">左手比 1 / 2 / 3 / 4 切换模式</p>
   <progress id="gesture-progress" max="1" value="0" aria-label="左手模式确认进度"></progress>
+  <p class="rc-gesture-hand" id="gesture-confirm" role="status">右手竖拇指确认放置</p>
+  <progress id="gesture-confirm-progress" max="1" value="0" aria-label="右手放置确认进度"></progress>
   <p class="rc-gesture-status" id="gesture-status" role="status" hidden></p>
  </aside>
  <div id="drop-label" class="rc-drop-label" hidden></div>
@@ -144,10 +169,14 @@
  <div id="loading" class="rc-loading" role="status"><strong>正在打开你的房间</strong><progress id="load-progress" max="100" value="0" aria-label="房间加载进度"></progress></div>
  <div id="toast" class="rc-toast" role="status" hidden></div>
 </main>
-<section class="rc-shelf" id="object-panel" aria-label="仓库">
+<div class="rc-warehouse-dock">
+<section class="rc-shelf" id="object-panel" aria-label="仓库" hidden>
+ <div id="warehouse-content" hidden>
  <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件家具</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索家具" aria-label="搜索场景物体"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
- <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" hidden aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
+ <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
+ </div>
 </section>
+</div>
 <dialog class="rc-dialog" id="add-object-dialog" aria-labelledby="add-object-title">
  <form method="dialog" class="rc-dialog-head"><h2 id="add-object-title">添加物体</h2>
   <ol class="rc-steps"><li data-step="photos">照片</li><li data-step="masks">抠图</li><li data-step="build">重建</li><li data-step="size">尺寸</li></ol>
@@ -173,6 +202,7 @@
  </section>
  <section data-panel="size" hidden>
   <div class="rc-add-view" id="add-view"></div>
+  <p class="rc-dialog-note">点击彩色轴标签选择实测边；蓝色 Z 轴表示高度。</p>
   <div class="rc-import-size"><label>实测边<select id="add-axis"><option value="X">X（宽）</option><option value="Y">Y（深）</option><option value="Z" selected>Z（高）</option></select></label><label>长度（米）<input id="add-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
   <p class="rc-dialog-note" id="add-size-note" aria-live="polite"></p>
   <div class="rc-dialog-actions"><button type="button" class="rc-action rc-confirm" id="add-place" disabled>放进房间</button></div>
@@ -183,4 +213,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-36"></script></body></html>
+</div><script type="module" src="./editor.js?v=app-51"></script></body></html>
