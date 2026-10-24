@@ -9,11 +9,15 @@
    node web/scripts/check_room.mjs --scene-dir samples/room3
    # 重建（在 room-reconstruction/ 下）
    uv run ruff check . && uv run pytest -n auto
+   # 物体重建 API（在 object-reconstruction/ 下，CPU 即可，和 CI 同一组）
+   for suite in api assets dimensions objects masks capture runner cover_scene; do python -m unittest discover -s tests -p "test_${suite}.py"; done
+   # 手势（在 gesture/ 下）
+   npm ci && npm run typecheck && npm test && npm run check:resources && npm run build
+   # Android App（在 android-app/ 下，CI 不跑）
+   ./gradlew :app:testDebugUnitTest :app:assembleDebug
    ```
    改了网页界面的，本地打开看一眼，见 [README](README.md#快速开始)。
 3. 开 PR，写清改了什么、怎么验证的。CI 通过、仓库所有者确认后，squash 合并并删除分支。`main` 不能直接推送。
-
-导入完整历史的 `feat/integrate-viewforge` 是例外：审阅通过后应使用普通 merge commit，保留 ViewForge 和手势提交的父链；不要 squash 或 rebase 合并此分支。其他功能沿用上面的流程。
 
 注意：
 

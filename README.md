@@ -20,7 +20,9 @@
 - **每件家具都能动**：移动、旋转、贴墙、收进仓库、一键清空或还原；碰撞和是否放稳实时检查；可撤销，布局自动保存。
 - **门和柜门能打开**：切到“预览”，点一下门、柜门或窗。
 - **拍照添加物体**：在仓库里传 3 张以上照片，服务器抠图、重建，填一条实测边长就按真实大小放进房间。
+- **光照**：普通光照和早晨／中午／下午／夜间时段、中央顶灯、静态环境遮蔽；调色是实验功能。
 - **手势操作**：打开摄像头，左手比 1 / 2 / 3 / 4 切换移动、抬高、场景缩放、旋转；左手捏合环绕，右手操作家具，松手保留预览、竖拇指确认。骨架与指尖辅助显示，识别在本机完成，画面不上传。
+- **手机漫游**：Android App 导入房间模型，横屏第一人称在房间里走一圈，点柜门、窗、门开关。
 
 ## 快速开始
 
@@ -46,6 +48,7 @@ flowchart LR
   glb --> editor["网页编辑器<br/>Three.js"]
   object --> editor
   camera["摄像头"] --> gesture["手势识别<br/>MediaPipe"] --> editor
+  glb --> app["Android 漫游 App<br/>SceneView"]
 ```
 
 | 目录 | 做什么 |
@@ -54,6 +57,7 @@ flowchart LR
 | [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，无界面的重建/标定 API；旧界面在 `legacy/` 弃用归档 |
 | [`web/`](web/) | RoomCanvas 网站：房间主页、编辑器、本机服务 `serve.py` |
 | [`gesture/`](gesture/) | 浏览器手势识别；编辑器内置的识别代码从这里打包 |
+| [`android-app/`](android-app/) | Android 房间漫游 App（Kotlin + SceneView/Filament + 华为 AR Engine）：`cd android-app && ./gradlew :app:assembleDebug` |
 | [`samples/`](samples/) | 两个示例房间：`room3`（手机扫描的卧室）、`office`（LiteReality 官方样例） |
 
 ## 文档
