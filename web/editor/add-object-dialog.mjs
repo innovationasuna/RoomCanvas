@@ -1,11 +1,13 @@
 // The "添加物体" dialog: name + photos → mask previews (drop bad ones) → reconstruction progress →
 // the result with one measured edge → into the room. The reconstruction runs on the server and
 // survives closing the dialog or reloading the page (its job id is kept in localStorage).
+// The result shows COVER's suggestion of where to shoot next; 补拍 adds photos from there and
+// rebuilds on top of the result (its photos stay in, their masks are reused).
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject,
-  startMasks, startReconstruction, follow, previewURL, saveMeasurement} from './add-object.mjs?v=app-36';
+import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject, captureObject,
+  startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest} from './add-object.mjs?v=app-53';
 import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs?v=app-42';
 import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs?v=app-43';
 
@@ -34,6 +36,8 @@ export function mountAddObject({onReady, toast}) {
 
   function show(step) {
     state.step = step;
+    dialog.querySelector('[data-step="photos"]').textContent = state.parent ? '补拍' : '照片';
+    $('#add-object-title').textContent = state.parent ? '补拍' : '添加物体';
     for (const panel of dialog.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== step;
     const order = ['photos', 'masks', 'build', 'size'];
     for (const item of dialog.querySelectorAll('[data-step]')) {
@@ -54,8 +58,11 @@ export function mountAddObject({onReady, toast}) {
       cell.querySelector('button').onclick = () => {URL.revokeObjectURL(entry.url); state.files.splice(index, 1); renderPhotos();};
       return cell;
     }));
-    const count = state.files.length, name = objectName($('#add-name').value);
-    $('#add-photos-note').textContent = count ? `${count} 张${count < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}` : '';
+    const count = state.files.length, name = state.parent ? state.object : objectName($('#add-name').value);
+    $('#add-name-field').hidden = !!state.parent;
+    $('#add-capture-intro').hidden = $('#add-capture-cancel').hidden = !state.parent;
+    if (state.parent) $('#add-capture-intro').textContent = `给「${state.object || state.parent}」补拍：原来的照片都保留，再加几张新角度（照着尺寸那一步的橙色箭头拍）。`;
+    $('#add-photos-note').textContent = count ? `${count} 张${count > MAX_PHOTOS ? `，最多 ${MAX_PHOTOS} 张` : ''}` : '';
     $('#add-upload').disabled = !name || count < MIN_PHOTOS || count > MAX_PHOTOS;
   }
   async function addFiles(list) {
@@ -77,14 +84,14 @@ export function mountAddObject({onReady, toast}) {
   drop.ondrop = (event) => {event.preventDefault(); drop.dataset.over = 'false'; void addFiles([...event.dataTransfer.files]);};
   $('#add-name').oninput = renderPhotos;
   $('#add-upload').onclick = async () => {
-    const name = objectName($('#add-name').value);
+    const name = objectName($('#add-name').value), files = state.files.map((entry) => entry.file);
+    const progress = (part) => {$('#add-photos-note').textContent = part < 1 ? `正在上传 ${Math.round(part * 100)}%` : '正在保存照片…';};
     $('#add-upload').disabled = true;
     try {
-      const created = await createObject(name, state.files.map((entry) => entry.file), (part) => {
-        $('#add-photos-note').textContent = part < 1 ? `正在上传 ${Math.round(part * 100)}%` : '正在保存照片…';
-      });
+      const created = state.parent ? await captureObject(state.parent, files, progress) : await createObject(name, files, progress);
       state.files.forEach((entry) => URL.revokeObjectURL(entry.url));
-      state = {step: 'masks', files: [], object: created.object, images: created.images, excluded: new Set()};
+      state = {step: 'masks', files: [], object: created.object, images: created.images, excluded: new Set(),
+        parent: created.parent || null, kept: new Set(created.kept || [])};
       await runMasks();
     } catch (error) {
       $('#add-photos-note').textContent = error.message;
@@ -118,6 +125,10 @@ export function mountAddObject({onReady, toast}) {
       cell.type = 'button'; cell.className = 'rc-mask'; cell.setAttribute('aria-pressed', 'true');
       cell.innerHTML = `<img alt=""><span>不用</span>`;
       cell.querySelector('img').src = previewURL(url);
+      if (state.kept?.has(name)) {
+        cell.dataset.kept = 'true'; cell.disabled = true; cell.title = '原来的照片，补拍时保留';
+        return cell;
+      }
       cell.onclick = () => {
         state.excluded.has(name) ? state.excluded.delete(name) : state.excluded.add(name);
         cell.setAttribute('aria-pressed', String(!state.excluded.has(name)));
@@ -129,8 +140,9 @@ export function mountAddObject({onReady, toast}) {
   }
   function describeMasks() {
     const kept = state.images.filter((name) => !state.excluded.has(name)).length;
-    $('#add-masks-note').textContent = `绿色是识别出的物体。点一张可以不用它 · 用 ${kept} 张${kept < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}`;
-    $('#add-build').disabled = kept < MIN_PHOTOS;
+    const earlier = state.kept?.size ? ` · 其中原来的 ${state.kept.size} 张保留（灰框）` : '';
+    $('#add-masks-note').textContent = `绿色是识别出的物体。点一张可以不用它 · 用 ${kept} 张${earlier}${kept < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}`;
+    $('#add-build').disabled = kept < MIN_PHOTOS || (state.kept?.size && kept <= state.kept.size);
     $('#add-build').textContent = `开始重建（${kept} 张）`;
   }
   $('#add-retry-masks').onclick = () => void runMasks();
@@ -138,9 +150,9 @@ export function mountAddObject({onReady, toast}) {
     $('#add-build').disabled = true;
     const images = state.images.filter((name) => !state.excluded.has(name));
     try {
-      const job = await startReconstruction(state.object, images, state.masks);
+      const job = await startReconstruction(state.object, images, state.masks, undefined, state.parent);
       state.build = job.id;
-      remember({object: state.object, build: job.id});
+      remember({object: state.object, build: job.id, parent: state.parent});
       void runBuild();
     } catch (error) {
       $('#add-masks-note').textContent = `没能开始重建：${error.message}`;
@@ -162,7 +174,7 @@ export function mountAddObject({onReady, toast}) {
         cardState(`${stageLabel(update)} · ${duration(update.elapsed_seconds)}`);
       });
       state.run = job.run;
-      remember({object: state.object, build: state.build, run: job.run});
+      remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
       cardState('重建好了，填尺寸');
       if (!dialog.open) toast(`${state.object} 重建好了：点仓库里的“添加物体”填尺寸`);
       await openSize();
@@ -183,7 +195,7 @@ export function mountAddObject({onReady, toast}) {
     const saved = savedMeasurement(state.asset);
     if (saved) {$('#add-axis').value = saved.axis; $('#add-meters').value = String(+saved.meters.toFixed(3));}
     describeSize();
-    await openViewer(state.run, state.asset.base);
+    await openViewer(state.run, state.asset.base, state.asset.manifest_url);
   }
   function measured() {
     return metricScale(state.asset.base, $('#add-axis').value, Number($('#add-meters').value));
@@ -215,8 +227,10 @@ export function mountAddObject({onReady, toast}) {
     }
   };
 
-  async function openViewer(run, base) {
+  async function openViewer(run, base, manifestURL) {
     closeViewer();
+    $('#add-cover-view').hidden = true;
+    $('#add-cover-note').textContent = manifestURL ? '正在读取补拍建议…' : '这个结果没有补拍建议，也可以直接补拍。';
     const host = $('#add-view'), width = host.clientWidth || 480, height = host.clientHeight || 260;
     const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -252,14 +266,14 @@ export function mountAddObject({onReady, toast}) {
       camera.updateProjectionMatrix(); draw();
     });
     resize.observe(host);
-    viewer = {renderer, controls, scene, resize, labels, selectAxis(axis) {
+    viewer = {renderer, camera, controls, scene, resize, labels, selectAxis(axis) {
       guides?.select(axis);
       buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.measureAxis === axis)));
       draw();
     }};
-    let gltf;
+    let gltf, model = 'glb_preview';
     try {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'preview.glb'));}
-    catch {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'result.glb'));}
+    catch {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'result.glb')); model = 'glb';}
     if (viewer?.renderer !== renderer) {disposeObjectTree(gltf.scene); return;}
     // Unit-sized, standing on y = 0, as the editor places it; the box shows the measured extent.
     const shape = new THREE.Group();
@@ -278,6 +292,48 @@ export function mountAddObject({onReady, toast}) {
     controls.target.copy(middle);
     controls.update();
     viewer.selectAxis($('#add-axis').value);
+    if (manifestURL) showSuggestion(renderer, manifestURL, model, shape, box, draw).catch((error) => {
+      console.error(error); $('#add-cover-note').textContent = '补拍建议没能显示，也可以直接补拍。';
+    });
+  }
+  // COVER's next shot, drawn as an orange arrow toward the object; 看推荐角度 looks from there.
+  async function showSuggestion(renderer, url, model, shape, box, draw) {
+    let suggestion = null, manifest = null;
+    try {manifest = await readManifest(url); suggestion = coverSuggestion(manifest, model);} catch {}
+    if (viewer?.renderer !== renderer) return;
+    if (!suggestion) {
+      $('#add-cover-note').textContent = `${manifest?.status === 'complete' || !manifest?.message ? '这次没有算出补拍建议' : manifest.message}，也可以直接补拍。`;
+      return;
+    }
+    shape.updateMatrixWorld(true);
+    const toView = shape.matrixWorld.clone().multiply(new THREE.Matrix4().fromArray(suggestion.transform).invert());
+    const eye = new THREE.Vector3(...suggestion.position).applyMatrix4(toView);
+    const look = new THREE.Vector3(...suggestion.target).applyMatrix4(toView);
+    const middle = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
+    const toward = look.clone().sub(eye).normalize();
+    // A solid arrow outside the object, pointing at it from the suggested side, drawn over the model.
+    const arrow = new THREE.Group(), paint = new THREE.MeshBasicMaterial({color: 0xd9822b, depthTest: false, transparent: true});
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(size * .018, size * .018, size * .32, 12), paint);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(size * .06, size * .14, 20), paint);
+    shaft.position.y = size * .16; head.position.y = size * .39;
+    arrow.add(shaft, head); arrow.renderOrder = 10; arrow.traverse((part) => {part.renderOrder = 10;});
+    arrow.position.copy(middle).addScaledVector(toward, -size * .95);
+    arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toward);
+    viewer.scene.add(arrow);
+    const {camera, controls} = viewer, overview = {position: camera.position.clone(), target: controls.target.clone(), fov: camera.fov};
+    let recommended = false;
+    $('#add-cover-note').textContent = '橙色箭头是建议补拍的方向：从那里再拍一两张，模型会更完整。';
+    $('#add-cover-view').hidden = false;
+    $('#add-cover-view').textContent = '看推荐角度';
+    $('#add-cover-view').onclick = () => {
+      recommended = !recommended;
+      const pose = recommended ? {position: eye, target: look, fov: suggestion.fovDegrees} : overview;
+      camera.position.copy(pose.position); controls.target.copy(pose.target); camera.fov = pose.fov;
+      camera.updateProjectionMatrix(); controls.update(); arrow.visible = !recommended;
+      $('#add-cover-view').textContent = recommended ? '回到整体' : '看推荐角度';
+      draw();
+    };
+    draw();
   }
   function closeViewer() {
     if (!viewer) return;
@@ -285,6 +341,26 @@ export function mountAddObject({onReady, toast}) {
     viewer.renderer.dispose(); viewer.renderer.domElement.remove(); viewer.labels.remove();
     viewer = null;
   }
+
+  // 补拍: more photos for the object of a finished run. back: where 不补拍了 returns to.
+  function capture(run, object, back = null) {
+    state.files?.forEach((entry) => URL.revokeObjectURL(entry.url));
+    state = {step: 'photos', files: [], parent: run, object, back};
+    $('#add-photos-note').textContent = '';
+    show('photos');
+    renderPhotos();
+    cardState(`补拍 ${object || ''}`.trim());
+    if (!dialog.open) dialog.showModal();
+  }
+  $('#add-capture').onclick = () => capture(state.run, state.object, {object: state.object, build: state.build, run: state.run, parent: state.parent});
+  $('#add-capture-cancel').onclick = () => {
+    const back = state.back;
+    if (!back) {reset(); return;}
+    state.files.forEach((entry) => URL.revokeObjectURL(entry.url));
+    state = {step: 'size', files: [], ...back};
+    cardState('重建好了，填尺寸');
+    void openSize();
+  };
 
   function reset() {
     state.files?.forEach((entry) => URL.revokeObjectURL(entry.url));
@@ -308,8 +384,9 @@ export function mountAddObject({onReady, toast}) {
   // A reconstruction started before the page was reloaded.
   const saved = recall();
   if (saved?.build) {
-    state = {step: 'build', files: [], object: saved.object, build: saved.build, run: saved.run};
+    state = {step: 'build', files: [], object: saved.object, build: saved.build, run: saved.run, parent: saved.parent || null};
     if (saved.run) {cardState('重建好了，填尺寸'); show('size');}
     else void runBuild();
   }
+  return {capture};
 }

@@ -1,5 +1,9 @@
 """Photos → reconstructed object for RoomCanvas's editor: upload, masks, reconstruction, progress.
 
+One photo is enough to rebuild; more angles help. 补拍 (capture) adds photos to the object of a
+finished run and rebuilds on top of it (run.py --parent-run): the run's photos stay, in order,
+their masks are reused, and the run's COVER suggestion says where to shoot next.
+
 Photo import → prepare_masks.py → run.py use the existing data root, cache and GPU lock.
 The service and job validation are independent of any reconstruction UI.
 Jobs wait their turn for the GPU instead of failing while another job holds the lock.
@@ -22,9 +26,9 @@ from PIL import Image
 
 from run import CODE, component, input_manifest
 from prepare_masks import file_signatures
-from import_photos import import_photos
+from import_photos import import_photos, parent_selection
 
-MIN_PHOTOS, MAX_PHOTOS = 3, 40
+MIN_PHOTOS, MAX_PHOTOS = 1, 40
 MAX_UPLOAD = 400 * 1024 * 1024
 GPU_POLL_SECONDS = 2
 JOBS, JOBS_LOCK = {}, threading.Lock()
@@ -46,14 +50,10 @@ def gpu_free(root):
         return True
 
 
-def create_object(root, name, uploads):
+def check_photos(uploads, room=MAX_PHOTOS):
     """uploads: [(filename, path)]. Every photo is checked before anything is written."""
-    try:
-        name = component(name)
-    except ValueError as exc:
-        raise ValueError('名称须为 1–80 个中文、字母、数字、下划线或连字符') from exc
-    if not MIN_PHOTOS <= len(uploads) <= MAX_PHOTOS:
-        raise ValueError(f'请上传 {MIN_PHOTOS}–{MAX_PHOTOS} 张照片')
+    if not MIN_PHOTOS <= len(uploads) <= room:
+        raise ValueError(f'请上传 {MIN_PHOTOS}–{room} 张照片')
     for filename, path in uploads:
         try:
             with Image.open(path) as image:
@@ -62,6 +62,14 @@ def create_object(root, name, uploads):
                 image.verify()
         except Exception as exc:
             raise ValueError(f'{filename}：不是 JPEG 或 PNG 照片') from exc
+
+
+def create_object(root, name, uploads):
+    try:
+        name = component(name)
+    except ValueError as exc:
+        raise ValueError('名称须为 1–80 个中文、字母、数字、下划线或连字符') from exc
+    check_photos(uploads)
     directory = root/'data/inputs'/name
     if directory.exists():
         raise ValueError('这个名称已经有了，换一个')
@@ -70,11 +78,32 @@ def create_object(root, name, uploads):
     return dict(object=name, images=[r['name'] for r in record['images']], errors=record['errors'])
 
 
+def parent_photos(root, run_id):
+    """The object of a finished run and its photos, which a rebuild on top of it has to keep."""
+    try:
+        run_id = component(run_id)
+        name, kept = parent_selection(root, run_id)
+        input_manifest(root, name, kept)
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError('这个结果不能补拍：原来的重建或照片已经不在了') from exc
+    return run_id, name, kept
+
+
+def add_capture(root, run_id, uploads):
+    run_id, name, kept = parent_photos(root, run_id)
+    check_photos(uploads, MAX_PHOTOS - len(kept))
+    # Named in upload order (capture_<time>_001…), after the object's earlier photos.
+    prefix = f'capture_{datetime.now():%Y%m%d_%H%M%S_%f}'
+    record = import_photos(root, name, [path for _, path in uploads], parent_run_id=run_id, image_prefix=prefix)
+    added = [r['name'] for r in record['images']]
+    return dict(object=name, parent=run_id, kept=kept, images=kept + added, added=added, errors=record['errors'])
+
+
 class Job:
     def __init__(self, kind, root, name, images, command):
         self.id = uuid.uuid4().hex
         self.kind, self.root, self.object, self.images, self.command = kind, root, name, images, command
-        self.status, self.error, self.result = 'queued', None, None
+        self.status, self.error, self.result, self.parent = 'queued', None, None, None
         self.started = time.monotonic()
         self.attempt, self.signatures = None, {}
 
@@ -82,6 +111,8 @@ class Job:
         data = dict(id=self.id, kind=self.kind, object=self.object, images=self.images,
                     status=self.status, error=self.error,
                     elapsed_seconds=round(time.monotonic() - self.started, 1))
+        if self.parent:
+            data['parent'] = self.parent
         if self.kind == 'reconstruct':
             run = self.run_dir()
             state = {}
@@ -173,11 +204,16 @@ def start_reconstruction(root, payload):
     rows = input_manifest(root, name, images)['images']
     if any(masks.signatures[row['name']] != sig for row, sig in zip(rows, file_signatures(rows))):
         raise ValueError('照片或抠图已变化，请重新抠图')
+    parent = payload.get('parent')
+    if parent:
+        parent, parent_name, kept = parent_photos(root, str(parent))
+        if parent_name != name or not set(kept) <= set(images):
+            raise ValueError('补拍要保留原来的照片')
     attempt = datetime.now().strftime('web_%H%M%S_%f')
     command = [sys.executable, str(CODE/'scripts/run.py'), '--object', name, '--attempt', attempt,
-               '--images', *images, '--wait-gpu']
+               '--images', *images, '--wait-gpu', *(['--parent-run', parent] if parent else [])]
     job = Job('reconstruct', root, name, images, command)
-    job.attempt = attempt
+    job.attempt, job.parent = attempt, parent or None
     return start(job)
 
 
@@ -200,7 +236,7 @@ class ObjectsMiddleware:
                 origin = request.headers.get('origin')
                 if origin and urlsplit(origin).netloc != request.headers.get('host'):
                     raise ValueError('请在当前页面操作')
-            if request.method == 'POST' and route == 'create':
+            if request.method == 'POST' and route in ('create', 'capture'):
                 if int(request.headers.get('content-length') or 0) > MAX_UPLOAD:
                     raise ValueError('照片总量过大')
                 form = await request.form(max_files=MAX_PHOTOS + 1, max_fields=4, max_part_size=1024)
@@ -214,7 +250,10 @@ class ObjectsMiddleware:
                         with path.open('xb') as out:
                             shutil.copyfileobj(upload.file, out)
                         uploads.append((filename, path))
-                    result = await run_in_threadpool(create_object, self.root, str(form.get('name', '')), uploads)
+                    if route == 'create':
+                        result = await run_in_threadpool(create_object, self.root, str(form.get('name', '')), uploads)
+                    else:
+                        result = await run_in_threadpool(add_capture, self.root, str(form.get('run', '')), uploads)
                 finally:
                     await form.close()
                     shutil.rmtree(staging, ignore_errors=True)

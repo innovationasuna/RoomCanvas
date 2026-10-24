@@ -25,9 +25,9 @@ class Forwarding(unittest.TestCase):
     def test_adding_an_object_goes_to_viewforge(self):
         job, chair = 'a' * 32, quote('20261018_我的椅子_web_101010_000001')
         for path in [f'/viewforge/objects/jobs/{job}', f'/viewforge/objects/previews/20261018_101010_ab12cd34/{quote("我的椅子_001")}.png',
-                     f'/viewforge/assets/{chair}', f'/viewforge/assets/{chair}/result.glb']:
+                     f'/viewforge/assets/{chair}', f'/viewforge/assets/{chair}/result.glb', f'/viewforge/assets/{chair}/preview.json']:
             self.assertEqual(forwarded(path), path)
-        for path in ['/viewforge/objects/create', '/viewforge/objects/masks', '/viewforge/objects/reconstruct', f'/viewforge/dimensions/{chair}']:
+        for path in ['/viewforge/objects/create', '/viewforge/objects/capture', '/viewforge/objects/masks', '/viewforge/objects/reconstruct', f'/viewforge/dimensions/{chair}']:
             self.assertEqual(forwarded(path, 'POST'), path)
             self.assertIsNone(forwarded(path))
         for path in ['/viewforge/layouts/save', f'/viewforge/assets/{chair}', '/viewforge/objects/jobs', f'/viewforge/dimensions/{chair}/model.glb',
