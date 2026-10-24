@@ -18,7 +18,7 @@ import {createGestureCamera} from './gesture-camera.mjs?v=gesture-20261023';
 import {canGestureActivate, isExplicitExport} from './gesture-target.mjs?v=gesture-20261023';
 import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
 import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-43';
+import {mountAddObject} from './add-object-dialog.mjs?v=app-53';
 import {shadowSettings} from './lighting-settings.mjs?v=app-37';
 import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
 import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
@@ -1759,7 +1759,7 @@ for (const button of document.querySelectorAll('[data-gesture-mode]')) {
 let addedCount = 0, importAsset = null;
 async function openImports() {
   // "添加物体": photos → a new object on the same server, then straight into the room.
-  mountAddObject({toast: showToast, onReady: async (run, asset) => {
+  const adder = mountAddObject({toast: showToast, onReady: async (run, asset) => {
     if (![...$('#import-run').options].some((option) => option.value === run)) $('#import-run').prepend(new Option(objectLabel(run), run));
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
     warehouse.setOpen(false);
@@ -1768,6 +1768,13 @@ async function openImports() {
       console.error(error); showToast(`导入失败：${error.message || error}`);
     });
   }});
+  // 补拍 an object rebuilt earlier: more photos, rebuilt on top of that result.
+  $('#import-capture').onclick = () => {
+    const run = $('#import-run').value;
+    if (!run) return;
+    $('#import-menu').open = false;
+    adder.capture(run, objectLabel(run));
+  };
   $('#import-run').onchange = () => void chooseImport();
   $('#import-axis').onchange = $('#import-meters').oninput = describeImport;
   $('#import-object').onclick = () => void importObject().catch((error) => {
@@ -1785,11 +1792,12 @@ async function openImports() {
 }
 async function chooseImport() {
   const run = $('#import-run').value;
-  importAsset = null; $('#import-object').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
+  importAsset = null; $('#import-object').disabled = $('#import-capture').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
   const asset = await readAsset(run).catch(() => null);
   if ($('#import-run').value !== run) return;
   if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
   importAsset = {...asset, run};
+  $('#import-capture').disabled = false;
   const saved = savedMeasurement(asset);
   if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
   else $('#import-meters').value = '';

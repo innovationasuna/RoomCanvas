@@ -1,6 +1,6 @@
 # COVER 补拍引导
 
-当前补拍算法和命令行继续保留；旧 Gradio 界面已弃用，归档在 `legacy/`，RoomCanvas 尚未接入补拍续建界面。以下网页步骤仅为历史记录。
+当前补拍算法和命令行继续保留；旧 Gradio 界面已弃用，归档在 `legacy/`。RoomCanvas 的“添加物体”已接入补拍：结果一步画出推荐方向的箭头、可切到推荐视角，“补拍”上传新照片后按 `--parent-run` 重建（见 [物体重建](../../docs/OBJECT_RECONSTRUCTION.md)）。以下原网页步骤仅为历史记录。
 
 保留 MV-SAM3D 的全量重建，使用 NBV-Gym `6e5e5ef48a59f369a821802842504668eac23325` 原版 COVER 为当前模型选择下一拍摄方向。代码与许可证在 `scripts/vendor/cover/`。不使用 Nerfstudio 训练循环，也不读取尚未加入本轮的照片。
 
