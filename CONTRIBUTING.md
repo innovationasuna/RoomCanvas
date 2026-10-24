@@ -21,6 +21,6 @@
 
 注意：
 
-- `room-reconstruction/` 里的官方文件尽量少改，必须改的保持官方写法，并在 README 的“对 LiteReality-Agent 改了什么”里补一句。
+- `room-reconstruction/` 里的官方文件尽量少改，必须改的保持官方写法，并在 [房间重建](docs/ROOM_RECONSTRUCTION.md#对-litereality-agent-改了什么)的“对 LiteReality-Agent 改了什么”里补一句。
 - 新的扫描数据、照片、运行结果、重建模型权重、`.env` 不进仓库。已有 `samples/`、ViewForge 原上游公开示例，以及手势工程随版本提供的识别模型/WASM 资源保留，来源与规则见各模块 README。
 - 3090 上一个作业只用一张空闲 GPU，结果写到新目录，不覆盖旧结果。
