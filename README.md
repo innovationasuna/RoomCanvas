@@ -6,11 +6,7 @@
 
 **扫描你的房间，在浏览器里按真实尺寸重新布置。**
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-2f6b4f)](LICENSE)
-[![Three.js](https://img.shields.io/badge/Three.js-r180-1f2937)](https://threejs.org/)
-[![Python](https://img.shields.io/badge/Python-3-3776ab)](https://www.python.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-22.12%2B-5fa04e)](https://nodejs.org/)
-[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-6b7280)](#快速开始)
+[![License](https://img.shields.io/badge/license-Apache--2.0-2f6b4f)](LICENSE) [![Three.js](https://img.shields.io/badge/Three.js-r180-1f2937)](https://threejs.org/) [![Python](https://img.shields.io/badge/Python-3-3776ab)](https://www.python.org/) [![Node.js](https://img.shields.io/badge/Node.js-22.12%2B-5fa04e)](https://nodejs.org/) [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-6b7280)](#快速开始)
 
 [功能](#功能) · [截图](#截图) · [快速开始](#快速开始) · [怎么用](#怎么用) · [工作原理](#工作原理) · [开发](#开发与测试) · [路线图](#路线图) · [文档](#文档)
 
