@@ -26,8 +26,8 @@ NAME = r'[\w.-]+'
 READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
                    rf'|layouts/(catalog|assets/{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
                    rf'|objects/(jobs/[0-9a-f]{{32}}|previews/\w+/{NAME}\.png))$')
-# Its writes: new object with photos, masks, reconstruction, measured size.
-WRITES = re.compile(rf'^/viewforge/(objects/(create|masks|reconstruct)|dimensions/{NAME})$')
+# Its writes: new object with photos, more photos for a finished one (补拍), masks, reconstruction, measured size.
+WRITES = re.compile(rf'^/viewforge/(objects/(create|capture|masks|reconstruct)|dimensions/{NAME})$')
 MAX_BODY = 400 * 1024 * 1024
 
 
