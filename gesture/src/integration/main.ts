@@ -1,10 +1,14 @@
 import './style.css';
+import { NUMBER_MODES } from '../gestures/number-mode';
+import { drawHandFeedback, numberFeedback, thumbFeedback } from '../ui/hand-feedback';
 import { GestureRuntime } from './runtime';
 import { PROTOCOL, gesturePayload, integrationURL, parseSceneState, observationPayload } from './protocol';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const iframe = $<HTMLIFrameElement>('scene');
 const video = $<HTMLVideoElement>('camera');
+const skeleton = $<HTMLCanvasElement>('skeleton');
+const clearSkeleton = () => skeleton.getContext('2d')!.clearRect(0,0,skeleton.width,skeleton.height);
 const start = $<HTMLButtonElement>('start');
 const stop = $<HTMLButtonElement>('stop');
 const address = $<HTMLInputElement>('address');
@@ -15,12 +19,23 @@ let cameraGeneration = 0;
 let sceneState: ReturnType<typeof parseSceneState> = null;
 let pendingMode: number | null = null;
 function canSwitch() { return ready && !!sceneState && !sceneState.busy && sceneState.phase === 'idle'; }
+function confirmationTarget() {
+  const supported = ready && !!sceneState?.capabilities?.includes('thumb-confirm-v1');
+  return {previewId: supported ? sceneState?.previewId ?? null : null,
+    allowed: supported && sceneState?.canConfirm === true && pendingMode === null};
+}
+function supportsMode(mode: string) {
+  return !!sceneState?.capabilities?.includes('dual-hand-v2') || ['move','rotate','view'].includes(mode);
+}
 function requestMode(mode: string, gesture = false) {
-  if (!canSwitch() || pendingMode !== null || mode === sceneState?.mode) return;
+  if (!supportsMode(mode) || !canSwitch() || pendingMode !== null || mode === sceneState?.mode) return;
   runtime.interrupt(false,gesture); send({ type: 'mode', mode }); pendingMode = sequence;
 }
 const leftStatus = (text: string, progress=0) => {
   $('left-status').textContent=text;$<HTMLProgressElement>('left-progress').value=progress;
+};
+const rightStatus = (text: string, progress=0) => {
+  $('right-status').textContent=text;$<HTMLProgressElement>('right-progress').value=progress;
 };
 const status = (text: string) => { $('camera-status').textContent = text; };
 function send(body: Record<string, unknown>) {
@@ -29,36 +44,39 @@ function send(body: Record<string, unknown>) {
 }
 const runtime = new GestureRuntime(video, {
   canSwitch,
-  frame(frame, sampleTime, inferenceMs) {
-    if (frame.modeSelection) requestMode(({1:'move',2:'rotate',3:'view'} as const)[frame.modeSelection],true);
+  confirmationTarget,
+  frame(frame, sampleTime, tracking) {
+    if (frame.modeSelection) requestMode(NUMBER_MODES[frame.modeSelection],true);
     if (ready) {
-      const observing = sceneState?.mode === 'view' && sceneState.capabilities?.includes('observe-pinch-v1');
-      send({ type: 'frame', sampleTime, frame: observing ? observationPayload({...frame.observation,helper:frame.helper}) : gesturePayload(frame) });
+      const legacy = !sceneState?.capabilities?.includes('dual-hand-v2');
+      const observing = legacy && sceneState?.mode === 'view' && sceneState.capabilities?.includes('observe-pinch-v1');
+      send({type:'frame',sampleTime,frame:observing ? observationPayload({...frame.observation,helper:frame.helper}) : gesturePayload(frame)});
+      // 先处理释放帧，再确认同一预览，不模拟控件点击。
+      const target = confirmationTarget();
+      if (frame.placementConfirmation && target.allowed && frame.placementConfirmation === target.previewId) {
+        send({type:'confirm',sampleTime,previewId:frame.placementConfirmation});
+      }
     }
-    status(`${frame.operator ? '右手已识别（蓝色）' : '右手未识别 · 左手仍可选模式'} · 推理 ${inferenceMs.toFixed(0)} ms`);
-    const left=frame.leftDetection;
-    const labels={1:'移动物体',2:'旋转物体',3:'仅观察'} as const;
-    const target=left.digit?labels[left.digit]:'';
-    let text='左手未识别，请将左手放入画面';
-    if(left.phase==='uncertain')text='左手判断不稳定，请让手掌朝向摄像头';
-    else if(left.phase==='ambiguous')text='左手身份不明确，请分开双手';
-    else if(left.phase==='blocked')text=sceneState?.busy?'左手已识别 · 操作结束后张掌再选模式':frame.rightHeld?'左手已识别 · 请先松开右手捏合':'左手已识别 · 等待场景连接';
-    else if(left.phase==='neutral')text='左手已识别 · 请先张掌，再摆出 1 / 2 / 3';
-    else if(left.phase==='pose')text='左手已识别（绿色）· 请摆出 1 / 2 / 3，其他手指收拢';
-    else if(left.phase==='confirming')text=`左手 ${left.digit} → ${target} · 确认 ${Math.round(left.progress*100)}%`;
-    else if(left.phase==='selected')text=`左手 ${left.digit} → ${target} · 已识别`;
-    leftStatus(text,left.progress);
+    drawHandFeedback(skeleton,tracking,frame,video);
+    status(`${frame.operator ? '右手已识别' : '右手未识别'} · 推理 ${tracking.inferenceMs.toFixed(0)} ms`);
+    leftStatus(frame.leftDetection.digit && !supportsMode(NUMBER_MODES[frame.leftDetection.digit]) ?
+      '当前场景不支持这个模式，请更新编辑器' : numberFeedback(frame.leftDetection),frame.leftDetection.progress);
+    rightStatus(sceneState?.capabilities?.includes('thumb-confirm-v1') ? thumbFeedback(frame.rightConfirmation) :
+      '当前场景不支持竖拇指确认，请使用放置按钮',frame.rightConfirmation.progress);
   },
   interrupted(cancelPending) {
-    leftStatus('检测已暂停，请先张掌再选择模式');
+    clearSkeleton();
+    leftStatus(stop.disabled ? '左手检测未开启' : '检测已暂停，请先张掌再选择模式');
+    rightStatus(stop.disabled ? '右手确认检测未开启' : '检测已暂停，请放下拇指后再确认');
     if (cancelPending) send({ type: 'stop' });
     else if (ready) send({ type: 'frame', sampleTime: performance.timeOrigin + performance.now(),
-      frame: { interrupted: true, ambiguous: false } });
+      frame: { interrupted: true, helperInterrupted: true, ambiguous: false } });
   },
-  error(message) { cameraGeneration++; start.disabled = !ready; stop.disabled = true; status(message); },
+  error(message) { clearSkeleton(); rightStatus('右手确认检测未开启'); cameraGeneration++; start.disabled = !ready; stop.disabled = true; status(message); },
 });
 function stopCamera() {
   cameraGeneration++; runtime.stop(); start.disabled = !ready; stop.disabled = true; status('摄像头已关闭');leftStatus('左手检测未开启');
+  clearSkeleton();rightStatus('右手确认检测未开启');
 }
 function loadScene() {
   try {
@@ -80,10 +98,23 @@ window.addEventListener('message', event => {
   if (!state || state.sequence < acknowledged || state.sequence > sequence) return;
   acknowledged = state.sequence; ready = true; lastState = performance.now(); sceneState = state;
   if (pendingMode !== null && state.sequence >= pendingMode) pendingMode = null;
-  start.disabled = !stop.disabled;
-  modeButtons.forEach(b => { b.disabled = state.busy; b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)); });
-  $('scene-status').textContent = state.layoutReady || state.mode === 'view' ? state.message : '请先在下方确认房间尺寸并加入物体。';
-  $('gesture-help').textContent = state.mode === 'view' ? '右手拇指＋食指捏合环绕；拇指＋食指＋中指合拢平移。松开固定视角。' : state.mode === 'move' ? '右手指向物体后捏合拖动，松开检查承托与碰撞。' : '右手指向物体后捏合，左右移动自由旋转，松开检查碰撞。';
+  start.disabled = !state.layoutReady || !stop.disabled;
+  modeButtons.forEach(b => {
+    b.disabled = !canSwitch() || pendingMode !== null || !supportsMode(b.dataset.mode!);
+    b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
+  });
+  $('scene-status').textContent = state.layoutReady ? state.message : '请等待下方 RoomCanvas 房间加载完成。';
+  $('gesture-help').textContent = ({
+    move:'右手捏住家具沿平面移动，保持当前高度；松手保留预览，竖拇指约 0.5 秒确认放置。',
+    height:'右手捏住家具升降；松手保持悬空，切换 1 可继续平移；确认后才落下。',
+    scale:'数字 3：拇食指成圈，其余三指伸出。选中后先松手，再双手捏合拉开或靠近缩放场景。',
+    rotate:'右手横移一画面宽度旋转 1080°；松手保留预览，竖拇指确认。',
+    view:'左手捏合环绕；双手捏合拉开或靠近缩放场景。',
+  })[state.mode];
+  if (!state.capabilities?.includes('dual-hand-v2')) {
+    $('gesture-help').textContent = state.mode === 'view' ? '旧版观察：右手两指捏合环绕、三指合拢平移。' :
+      '当前连接为旧版场景；移动、旋转和放置沿用场景原有规则。更新编辑器后使用完整双手控制。';
+  }
 });
 modeButtons.forEach(b => b.addEventListener('click', () => requestMode(b.dataset.mode!)));
 connect.addEventListener('click', loadScene);
@@ -106,5 +137,5 @@ const timer = window.setInterval(() => {
   }
 }, 500);
 address.value = new URLSearchParams(location.search).get('layout') ??
-  'http://127.0.0.1:7865/viewforge/layouts/viewer';
+  'http://127.0.0.1:7880/web/editor/?room=room3';
 loadScene();

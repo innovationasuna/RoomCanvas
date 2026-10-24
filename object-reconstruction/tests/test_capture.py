@@ -7,7 +7,6 @@ from unittest.mock import patch
 from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from import_photos import import_photos, parent_selection
-from mask_state import Confirmation
 import run
 
 
@@ -77,11 +76,5 @@ class CaptureTests(unittest.TestCase):
             run.execute_cover(directory,result)
         self.assertEqual(result['status'],'complete')
         self.assertEqual(result['cover_status'],'failed')
-
-    def test_late_ready_cannot_restore_after_upload_selection_change(self):
-        state=Confirmation('toy',['1'])
-        token=state.begin('toy',['1'])
-        state.invalidate('toy',['1','new'])
-        self.assertFalse(state.finish(token,dict(status='complete')))
 
 if __name__=='__main__':unittest.main()

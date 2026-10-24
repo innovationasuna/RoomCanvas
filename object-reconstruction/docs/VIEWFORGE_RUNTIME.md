@@ -1,5 +1,7 @@
 # ViewForge 运行说明
 
+当前职责（2026-10-20）：只提供物体 API，使用 Starlette / Uvicorn，不加载 Gradio。前端、坐标轴、场景与手势统一在 RoomCanvas。原界面与查看器已弃用并保留于 `legacy/`，不要使用本文件历史段落中的界面操作作为当前启动说明。运行环境先安装 `python -m pip install -r configs/api-requirements.txt`，再按原参数运行 `python scripts/web.py --host <地址> --port 7862`。
+
 RoomCanvas 整合说明：本模块现位于 `object-reconstruction/`，从该目录执行下面的相对启动命令；手势入口位于 RoomCanvas 的 `gesture/`。环境、权重和数据仍由 `VIEWFORGE_ROOT` 配置。下文的独立 `code/`、`upstream` 远程和旧部署路径属于原 ViewForge 运行记录，当前目录与历史保留方式以 [整合说明](../../docs/OBJECT_RECONSTRUCTION.md) 为准。
 
 `code/` 是保留上游历史的 MV-SAM3D 仓库。`upstream` 指向原作者仓库，当前部署基于 `abb04b5`；尚未创建 GitHub 账号下的远程 fork。
@@ -33,7 +35,7 @@ git diff upstream/main -- sam3d_objects run_inference.py run_inference_weighted.
 
 旧包装仓库及旧源码归档于 `logs/setup/upstream-repo-20260913/`；历史提交和实验记录不改写。
 
-## 网页
+## 历史网页记录（已弃用，仅供追溯）
 
 在 code 目录执行：
 
@@ -104,4 +106,4 @@ bash scripts/launch.sh --object stuffed_toy --images 1 3 5 7 --attempt a03
 另建独立物体 `birefnet_partial_20260913`，四张原图只作链接，并复制本次输出的 1、5 为 `_mask.png` 形式。真实准备复用 1、5，仅生成 3、7，共 38.542 秒；两张已有 mask 的大小和 mtime 未改变。记录为 `logs/masks/20260913_161310_9d2bedad/`。原 `stuffed_toy` 的全部照片和 mask 的大小及 mtime 与首轮准备记录一致，最终两张 GPU 均回到 2 MiB。
 
 
-项目运行根目录已于 2026-09-13 统一为 `/workspace/geyinuo/ViewForge`，网页标题为 ViewForge。目录用途见 [项目目录](DIRECTORY_LAYOUT.md)。原路径 `/workspace/geyinuo/viewforge-mvsam3d` 保留为指向 `ViewForge` 的兼容软链接，用于已有环境入口、历史记录和符号链接；历史结果内容未批量改写。
+项目运行根目录已于 2026-09-13 统一为 `/workspace/geyinuo/ViewForge`，网页标题为 ViewForge（物体重建）。目录用途见 [项目目录](DIRECTORY_LAYOUT.md)。原路径 `/workspace/geyinuo/viewforge-mvsam3d` 保留为指向 `ViewForge` 的兼容软链接，用于已有环境入口、历史记录和符号链接；历史结果内容未批量改写。
