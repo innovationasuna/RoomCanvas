@@ -15,7 +15,8 @@ $PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
 
 - 自动挑一张空闲 GPU 并加锁；
 - author 视觉验收后的返工默认只做 1 轮（官方默认 2 轮，`--repair-rounds 0` 只验收不返工）；
-- 确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）。
+- 确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）；
+- 建模阶段写出房间后，**默认接着跑“可动部件”这一步**（见下文），结果在 `<运行目录>/articulate/room_preview/`，网页用这一份；建模阶段自己的 `room_preview/` 和发布出来的房间不带新切的部件。不要就加 `--no-articulate`；中断后重跑同一命令会接着做。
 
 运行环境、模型权重和 `.env` 在服务器的 `ROOMCANVAS_HOME`（默认 `/workspace/geyinuo/RoomCanvas`）。
 
@@ -55,7 +56,7 @@ $PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipelin
 
 ## 可动部件：Astra 判断哪些东西能打开，切开装上合页
 
-建模阶段只给按类别规则该动的程序化物体（有门的柜子、升降桌……）和门窗加关节；TRELLIS 重建的、类别规则覆盖不到的、建模时做成一整块的，都不能动。这一步在 author 之后读 `Room.blend`，不重跑 author，给这些东西补上能开的部件（做法是可动物体试验的方法 2：直接切现有模型，不重新生成）：
+建模阶段只给按类别规则该动的程序化物体（有门的柜子、升降桌……）和门窗加关节；TRELLIS 重建的、类别规则覆盖不到的、建模时做成一整块的，都不能动。这一步在 author 之后读 `Room.blend`，不重跑 author，给这些东西补上能开的部件（做法是可动物体试验的方法 2：直接切现有模型，不重新生成）。完整重建默认会在最后自动跑它；对已有的运行单独跑：
 
 ```bash
 $PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<场景> <新目录> --check

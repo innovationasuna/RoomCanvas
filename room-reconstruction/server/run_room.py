@@ -2,7 +2,7 @@
 """Run the reconstruction module on the 3090 server, configuring only machine paths and keys.
 
 usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N]
-                   [--set KEY=VALUE ...] [--check]
+                   [--set KEY=VALUE ...] [--no-articulate] [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
        run_room.py --articulate SCENE_DIR OUT_DIR [--through STEP] [--only ID ...] [--check]
 
@@ -15,6 +15,10 @@ model calls. --small-objects runs the small-object pass on a finished run's scen
 (runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
 --articulate does the same for openable parts: Astra decides per object whether it has parts that
 open and where, Blender cuts them out and hinges them (see realism_authoring/articulate/).
+
+A full run does that pass by default once author has written its room: into RUN_DIR/articulate/
+(its room_preview/ is the room to use; the author's own and the published one stay without the
+new parts). --no-articulate skips it; a rerun picks it up where it stopped.
 """
 
 import argparse
@@ -65,6 +69,8 @@ p.add_argument("--repair-rounds", default="1", choices="0123", help="author repa
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
 p.add_argument("--only", nargs="*", help="with a pass: only these objects")
+p.add_argument("--no-articulate", action="store_true",
+               help="a full run: do not run the openable-parts pass after author")
 p.add_argument("--check", action="store_true", help="print the configuration and exit")
 a = p.parse_args()
 
@@ -124,6 +130,15 @@ record = {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--por
           "workarounds": workarounds,
           "model_settings": {k: env[k] for k in sorted(env)
                              if k.startswith(("LR_", "HARNESS_")) and not SECRET_NAME.search(k)}}
+# A full run that reaches author is followed by the openable-parts pass on the author's room.
+articulate = None
+if not (a.small_objects or a.articulate or a.no_articulate) and \
+        a.through not in ("ingest", "reconstruct", "seed"):
+    articulate = [str(runtime / "litereality-env/bin/python"), "-m",
+                  "litereality_agent.pipeline.realism_authoring.articulate",
+                  "<scene dir under RUN_DIR/pipeline>", "--out",
+                  str((a.run_dir / "articulate").resolve())]
+    record["then"] = articulate
 if a.check:
     print(json.dumps(record, indent=2))
     raise SystemExit(0)
@@ -142,3 +157,15 @@ with GpuLock(runtime / "locks", gpu), (attempt / "pipeline.log").open("w") as lo
     rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
 (attempt / "exit").write_text(f"{rc}\n")
 print(attempt.name, "exit", rc)
+# Author may stop short of publishing (its visual review) and still leave a usable room. The scene
+# directory is named by the pipeline (hausen_room3 for a scan folder room3): the one with a room.
+scenes = [d for d in sorted((a.run_dir / "pipeline").glob("*"))
+          if (d / "scene.json").is_file()
+          and (d / "realism_authoring/room_preview/Room.blend").is_file()
+          and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
+if articulate and len(scenes) == 1:
+    articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
+    with (attempt / "articulate.log").open("w") as log:
+        art = subprocess.run(articulate, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
+    (attempt / "articulate-exit").write_text(f"{art}\n")
+    print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
