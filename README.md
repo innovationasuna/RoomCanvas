@@ -218,6 +218,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 
 - [x] 扫描 → 真实尺寸的房间（LiteReality + Astra）
 - [x] 网页里布置家具：碰撞、支撑、撤销、自动保存
+- [x] 一键清空房间，家具收进仓库再按需摆回
 - [x] 门、柜门、窗能打开
 - [x] 自动判断哪些东西能打开，切出抽屉、盖子装上滑轨或合页
 - [x] 拍几张照片添加物体，按实测尺寸放进房间
@@ -225,7 +226,6 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - [x] 摄像头双手手势
 - [x] 时段光照、顶灯和环境遮蔽
 - [x] Android 第一人称漫游
-- [ ] 清空房间，导出空房间
 - [ ] 给一个商品链接，找多视角图和尺寸重建
 - [ ] 网页上传扫描，服务器排队重建房间，并降低成本
 - [ ] 手机 App 直接扫描房间
