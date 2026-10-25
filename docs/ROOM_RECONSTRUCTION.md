@@ -53,6 +53,26 @@ $PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipelin
 
 结果在 `<新目录>/room_preview/`（`Room.blend`、`Room.glb`、`room_layout.json`，重建的物件标 `"rebuilt": "trellis"`），每件的照片、渲染对比、Astra 的回答和费用在 `items.json`、`summary.md`、`overview.jpg`。中断后重跑同一命令会接着做。重建的物件在网页里单独可移动，放在家具上的会随家具移动。
 
+## 可动部件：Astra 判断哪些东西能打开，切开装上合页
+
+建模阶段只给按类别规则该动的程序化物体（有门的柜子、升降桌……）和门窗加关节；TRELLIS 重建的、类别规则覆盖不到的、建模时做成一整块的，都不能动。这一步在 author 之后读 `Room.blend`，不重跑 author，给这些东西补上能开的部件（做法是可动物体试验的方法 2：直接切现有模型，不重新生成）：
+
+```bash
+$PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<场景> <新目录> --check
+$PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<场景> <新目录> \
+  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
+# 先试几件：--only Pedestal0 Laptop0（不写最终房间）；只出图不问模型：--through views
+```
+
+1. **挑候选**：家具和房间里的东西，不含房间结构、门窗、固定设施、挂在别的物体上的附件（门上的衣服、显示器的线），以及最长边不到 20 厘米的。已经有关节的也算，告诉 Astra 哪些部件已经能动，只问缺的。
+2. **出图**：每件单独渲染，在它自己的坐标系里（原点和朝向取自它在房间里的位置，米，Z 朝上）：正视、侧视两张带米制刻度的正交图，和从四个斜角看的透视图；再按相机投影裁 3 张照片。
+3. **Astra 判断**（每件一次）：照着照片判断真实物体有没有人会打开的部件（门、抽屉、盖子、屏幕、翻板；瓶盖这类取下来的不算），在模型里找到它，给出范围框、转轴或滑动方向、能开多大、模型里现在是开着还是合着、合上时后面是不是空的。模型里没有能切出来的面就答“没有”，不猜。框、转轴都对齐到坐标轴；离物体外表面 1.5 厘米以内的框边推到外面，免得留下一条边。
+4. **切开**：按框把面切下来，合成一个部件，原点放在转轴上（滑动的放在框中心），挂在新的 `<物体>_Hinges` 下；合上时后面是空的部件，后面补深色内腔，抽屉再在前脸后面补一个开口朝上的屉子跟着滑；加一段“合上 → 全开 → 合上”的动画（App 用）。
+5. **检查**（每件一次）：四个斜角的“合上”和“打开”图和照片一起给 Astra，每个部件开得对才留下；开错的比不能开更糟，直接去掉。
+6. **写结果**：留下的部件从 author 的 `Room.blend` 重新切一遍，写到 `<新目录>/room_preview/`（`Room.blend`、`Room.glb`、原样的 `room_layout.json`）；每件的关节写成 `<新目录>/room/Objects/Articulated/<物体>/sim/<物体>.urdf`，原运行的 `room/Objects` 链接在旁边，所以 `python3 web/scripts/room_objects.py <新目录>/room_preview` 能一次读到全部关节。
+
+记录在 `items.json`、`summary.md`、`overview.jpg`（照片 | 合上 | 打开）。中断后重跑同一命令会接着做。
+
 ## 对 LiteReality-Agent 改了什么
 
 基线是官方 `28ffe1f4`（2026-10-03），即本仓库的第一个提交，原样放在 `room-reconstruction/`。之后：
