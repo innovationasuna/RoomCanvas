@@ -1,8 +1,14 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-24（main 到 #29 `7be1dc6`，见下面“最近（10-21 至 24）”；服务器文件夹在 `6daeb80`，7862 已在 2026-10-20 重启为 #23 的新后端；之后合并的都是网页、手势、App，服务器不用同步也不用重启）。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-25（见下面“最近”；服务器文件夹在 `126eb28`（#31），7862 已在 2026-10-24 重启为 #31 的后端；分支 `feat/articulate-objects` 加了“可动部件”这一步）。
 
-## 最近（2026-10-21 至 24）
+## 最近（2026-10-21 至 25）
+
+- **可动部件这一步（2026-10-25，分支 `feat/articulate-objects`，用户要求接进全流程、用方法 2、拿 office 验证）**：`run_room.py --articulate <场景> <新目录>`，代码在 `room-reconstruction/src/litereality_agent/pipeline/realism_authoring/articulate/`，说明见 [房间重建](ROOM_RECONSTRUCTION.md#可动部件astra-判断哪些东西能打开切开装上合页)。每件候选 Astra 看正视/侧视刻度图、四个斜角的透视图和照片，回答有没有能开的部件、在模型哪里、怎么动；Blender 切开挂到 `<物体>_Hinges` 下，后面空的补深色内腔、抽屉补屉子；Astra 再看四个斜角的合上/打开图，开错的去掉；留下的写 `Room.glb` 和 `room/Objects/Articulated/<物体>/sim/<物体>.urdf`，`room_objects.py` 直接读。
+  - **office 结果**（服务器 `runs/office-articulate-20261025/`，本机 `~/Downloads/RoomCanvas-runs/office-articulate-20261025/` 有 `summary.md`、`overview.jpg`）：28 件候选，最终留下抽屉柜 `Pedestal0` 的两个抽屉（第三个抽屉 Astra 说照片里看不清，没切）；笔记本电脑的屏幕切了，但开合时屏幕碎成三角片，检查没通过、没留；椅子、桌子、显示器等都判断为不能开；瓶盖、喷雾罐盖按改后的提示不算。`room_objects.json` 读到 6 个关节（2 个新抽屉 + 原来的升降桌、门、两扇窗），`check_room` 18/18；本机编辑器“预览”里点抽屉能拉出来。整个验证（含几次返工重跑）共 41 次 Astra 调用。本机看效果：`samples/office-articulated/`（不进 git，`.git/info/exclude`），<http://127.0.0.1:7880/web/editor/?scene=../../samples/office-articulated>。
+  - **验证中修掉的问题**：网格刻度的负号看不出来（改成 `Z -0.60`）；只有一个透视角度看不到抽屉面（改为四个斜角）；检查图只从背面看，Astra 把向前拉的抽屉看成向后（改为四个斜角）；笔记本的框只读到 −0.603，比模型顶 −0.6028 低 0.2 毫米，顶边留在原处（离外表面 1.5 厘米内的框边推到外面）；不该补内腔的盖子也补了（Astra 说明后面空不空）；内腔和抽屉面一样宽，从柜子侧面露出来（内缩 3 厘米）。
+  - **服务器 codex 链接已修**（2026-10-25，用户同意）：`runtime/bin/codex` 原来链接到挪进 `archive/` 的 `scripts/codex_api.sh`，现在是一个包装脚本（内容同原来的 `codex_api.sh`，按自己的位置找仓库），旧链接改名 `codex.broken-link-20261025` 留着。`run_room.py` 的 Astra 调用恢复。
+  - 测试时用的服务器临时副本 `/workspace/geyinuo/rc-articulate-test` 已删；运行目录 `runs/office-articulate-20261025/` 保留（里面的 `attempt-01..05` 是几次重跑的日志）。
 
 - **合并**：#27 lyk 仓库默认收起、去掉上拉把手，顶部“仓库”按钮开合（`ae1d020`）；#28 lyk 时段光照（普通光照／早晨／中午／下午／夜间）、中央顶灯（开关和 60°–170° 光锥）、“调色实验”四个滑条（`0a6b4f7`）——**默认时段是“中午”**，不是原来的普通光照，lyk 在 `web/README.md` 写明默认参数还不是最终方案，原来的样子用菜单“普通光照”或 `&time=balanced`；原来工具栏的日光／暖光开关去掉了；#26 AWHYhuh 双手手势（`493411b`）：左手 1/2/3/4 切移动／抬高／场景缩放／旋转，左手捏合独立环绕，松手只保留预览，右手竖拇指约 0.5 秒确认，双手捏合缩放场景（合并前我把 main 合进他的分支，冲突是缓存版本号、仓库开合代码和 `web/README.md`）；#29 HausenWu Android 漫游 App（`7be1dc6`，用户要求原样合并），见下面一条。
 - **#29 Android App**：`android-app/`，Kotlin + SceneView/Filament + 华为 AR Engine。导入 `Room.glb` 横屏第一人称漫游（方向键、右半屏滑动转向、0.5×/1×/2× 速度），点柜门、窗、门开关（读 glTF 动画：room3 8 段、office 4 段；room3 钢琴盖是 URDF 关节，不在 glTF 动画里，App 里打不开）。AR 位姿默认不驱动相机（P40 Pro 实测漂移大），非华为手机提示一次后照常漫游。构建 `cd android-app && ./gradlew :app:assembleDebug`（JDK 17、Android SDK）。CI 不构建它，我也没在本机构建或真机试过。原样合并时留下的：Gradle 从腾讯云镜像下载但没写 `distributionSha256Sum`（官方 8.11.1 发行包是 `f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6`）；`gradle-wrapper.jar` 是 Gradle 官方 7.0.x 的原版（哈希已核对）；6.3 MB 的 `studio_small_09_2k.hdr` 没写来源（名字看是 Poly Haven，CC0）；871 行的 `MainActivity`（旧查看器和 AR 调试页）没有入口。
@@ -248,13 +254,14 @@ P0 基线工具、P1 通用校准与可回退导入 PBR 实验、P2 两种 AO �
 
 0. **2026-10-20 起新增，按优先级**：
    - 近侧墙半透明程度：#21 起所有帧在线性颜色空间混合，0.16 的墙和衣柜比原来白、遮挡多（后面的钢琴看不清）；建议调到 0.06–0.08 并给用户对比图（`web/editor/wall-visibility.mjs` 的 `SEE_THROUGH`）。
-   - 服务器 `runtime/bin/codex` 链接到已挪进 `archive/` 的 `scripts/codex_api.sh`，`run_room.py` 的 Astra 调用会报 “codex CLI not on PATH”。修法：把链接指向一份新的包装脚本（内容同 `runs/articulation-trials-20261019/scripts/bin/codex`），待用户决定。
+   - ~~服务器 `runtime/bin/codex` 链接坏了~~：2026-10-25 已修，见“最近”。
+   - 可动部件这一步：还没在 room3 上跑（看能不能自动挑出钢琴、标对两个盖子）；薄而贴着别的面的部件（笔记本屏幕）切出来容易碎，可以加一轮按检查意见返工；`samples/office` 要不要换成带抽屉的这版，待用户定。
    - room3 钢琴：琴键盖合上只盖住琴键后半；翻开后在谱子下面，从上往下点不回来（预览模式点击只认第一个命中的物体）。
    - 手势：#26 的新手势（4 种模式、竖拇指确认、双手缩放）只用合成输入测过，要真人摄像头试；拖动卡顿（#16 记录）没重测。“添加物体”还没用真人手机照片试过。
    - #29 App 的收尾（见“最近”#29 一条）：补 `distributionSha256Sum`、HDR 来源（或换 1k）、没有入口的 `MainActivity` 删不删；CI 不构建 App。
    - #24 整站界面：等 AWHYhuh 基于新 main 重提。
    - 光照默认“中午”是否保留（#28，lyk 说参数未定）。
-   - **“添加物体”补齐**（用户 2026-10-20 要求，2026-10-24 做完，分支 `feat/add-object-capture`）：(a) 1 张照片就能重建（前后端 `MIN_PHOTOS` = 1）；(b) 结果一步读 `cover/preview.json`，模型旁画橙色箭头指向建议补拍的方向，“看推荐角度”切到推荐相机；(c) “补拍”：新接口 `POST /viewforge/objects/capture`（表单 `run` + 照片）把照片存进原物体、记下父结果，重建带 `parent` → `run.py --parent-run`，原照片锁定、抠图复用；“导入物体”里选中已有结果也能补拍。合并后要同步服务器、重启 7862（改了 `object-reconstruction/scripts/objects.py`），重启前告诉 lyk。
+   - **“添加物体”补齐**（用户 2026-10-20 要求，2026-10-24 做完，分支 `feat/add-object-capture`）：(a) 1 张照片就能重建（前后端 `MIN_PHOTOS` = 1）；(b) 结果一步读 `cover/preview.json`，模型旁画橙色箭头指向建议补拍的方向，“看推荐角度”切到推荐相机；(c) “补拍”：新接口 `POST /viewforge/objects/capture`（表单 `run` + 照片）把照片存进原物体、记下父结果，重建带 `parent` → `run.py --parent-run`，原照片锁定、抠图复用；“导入物体”里选中已有结果也能补拍。已合并（#31），2026-10-24 同步服务器并重启了 7862。
 
 1. **编辑器性能**：落点的完整检查已移到后台线程（2026-10-18，用户反馈手势放钢琴卡），手势和确认不再冻住；方向按钮逐步挪动、鼠标悬停摆放仍在页面线程。原记录：只有两个重网格挨着时慢，room3 里是琴凳贴着钢琴，每步约 2 秒；同一把椅子放到房间中央只要 2 毫秒，office 的 TRELLIS 椅子也只要几毫秒。“每个连通部件只测一个点”的捷径会漏判（钢琴由 23 块重叠壳体组成），已放弃。以后要做就给重网格做简化碰撞外形，或放到 Web Worker。
 2. **清空房间、导出空房间**：按 `room_objects.json` 的 `role` 删家具，导出 `empty_room.glb`。窗帘、挂画、白板算不算家具未最终定（现在窗帘留在房间，挂画、白板算家具）。
