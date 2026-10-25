@@ -30,7 +30,7 @@
 
 - LiteReality 从扫描重建房间结构和家具，Agent 用 GPT-6 Astra 审图、建模、摆放
 - 小物件逐件判断：舍弃、程序化建模，或用 TRELLIS 重建
-- 门、柜门、窗、升降桌带关节，能打开
+- 门、柜门、窗、升降桌带关节，能打开；其他东西由 Astra 看照片判断有没有能开的抽屉、门、盖子，自动切出来装上滑轨或合页
 
 </td><td width="50%" valign="top">
 
@@ -219,6 +219,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - [x] 扫描 → 真实尺寸的房间（LiteReality + Astra）
 - [x] 网页里布置家具：碰撞、支撑、撤销、自动保存
 - [x] 门、柜门、窗能打开
+- [x] 自动判断哪些东西能打开，切出抽屉、盖子装上滑轨或合页
 - [x] 拍几张照片添加物体，按实测尺寸放进房间
 - [x] 补拍：按建议方向补照片，在原结果上重建
 - [x] 摄像头双手手势
@@ -234,7 +235,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | 文档 | 内容 |
 |---|---|
 | [网页说明](web/README.md) | 编辑器的全部操作、房间文件格式、光照参数和调研、测试、已知问题 |
-| [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建一个房间、小物件这一步、接到网页，以及对 LiteReality-Agent 的改动 |
+| [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建一个房间、小物件和可动部件这两步、接到网页，以及对 LiteReality-Agent 的改动 |
 | [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体后端的部署、接口和 SSH 隧道 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
 | [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
