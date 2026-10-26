@@ -113,6 +113,8 @@ export function createStaticLighting({renderer, scene, camera, room, roomSize, b
       else renderer.render(scene, camera);
     },
     setGrading(value) {grade = colorGrading(value); composite?.setGrading(grade);},
+    // The AO pass belongs to one camera: a new camera (漫游's) rebuilds it on the next settle.
+    setCamera(next) {if (next === camera) return; camera = next; cached = false; scheduler.cancel(); release();},
     present() {if (!composite) return false; composite.present(); return true;},
     pause() {scheduler.pause();},
     resume() {scheduler.resume();},
