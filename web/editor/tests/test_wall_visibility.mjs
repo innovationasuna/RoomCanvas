@@ -155,3 +155,17 @@ test('see-through window glass drops its transmission, and gets it back', () => 
   setSeeThrough(window, false);
   assert.ok(pane.material === glass && glass.transmission === 1);
 });
+
+test('a see-through wall can be hidden outright, and comes back solid', () => {
+  const material = new THREE.MeshStandardMaterial({color: 0xeeeeee});
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 2.6, .1), material);
+  mesh.castShadow = true;
+  const wall = new THREE.Group();
+  wall.add(mesh);
+  assert.equal(setSeeThrough(wall, true), true);
+  assert.equal(setSeeThrough(wall, true, 0), true, 'see-through → hidden is a change');
+  assert.ok(seeThrough(mesh) && mesh.material.opacity === 0, 'hidden: drawn at no opacity, picked through');
+  assert.equal(setSeeThrough(wall, true, 0), false);
+  assert.equal(setSeeThrough(wall, false), true);
+  assert.ok(mesh.material === material && material.opacity === 1 && mesh.castShadow && !seeThrough(mesh));
+});
