@@ -1,5 +1,5 @@
 // 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, Q and E
-// lower and raise the eye, dragging looks and Esc leaves. The mouse is never captured: a captured
+// raise and lower the eye, dragging looks and Esc leaves. The mouse is never captured: a captured
 // mouse brings the browser's own banner, and Esc would only give the mouse back. A click on a door,
 // cabinet door or drawer opens or closes it, as in 预览.
 // The body is a column of RADIUS. Rays across the floor at knee, waist and chest height, from its
@@ -8,7 +8,7 @@
 export const EYE = 1.6, RADIUS = .25, WALK = 1.4, RUN = 2.8, LOOK = .003, RISE = .8, EYES = [.5, 2.2];
 const HEIGHTS = [.3, .9, 1.45], EDGE = .7, PITCH = 1.45;
 const KEYS = {KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0]};
-const SHIFT = new Set(['ShiftLeft', 'ShiftRight']), LIFT = {KeyE: 1, KeyQ: -1};
+const SHIFT = new Set(['ShiftLeft', 'ShiftRight']), LIFT = {KeyQ: 1, KeyE: -1};
 
 // The direction on the floor ([x, z], unit) for the held keys, facing `yaw` (0 faces -Z, as a camera does).
 export function walkDirection(held, yaw) {
@@ -97,7 +97,7 @@ export function createBody(THREE, {room, floorY, solid}) {
 }
 
 // bounds: {min: [x, z], max: [x, z]} to stay inside; onChange: the view moved; onClick(ndc): a click
-// at a screen point; onHover(ndc): the mouse rests over a screen point; onExit: Esc.
+// at a screen point; onHover(ndc, event): the mouse rests over a screen point; onExit: Esc.
 export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange, onClick, onHover = () => {}, onExit}) {
   const camera = new THREE.PerspectiveCamera(70, 1, .05, 200);
   camera.rotation.order = 'YXZ';
@@ -166,7 +166,7 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
     drag = {x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
   }
   function pointermove(event) {
-    if (!drag) {if (event.pointerType === 'mouse') onHover(at(event)); return;}
+    if (!drag) {if (event.pointerType === 'mouse') onHover(at(event), event); return;}
     if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 5) drag.moved = true;
     if (drag.moved) look(event.clientX - drag.px, event.clientY - drag.py);
     drag.px = event.clientX; drag.py = event.clientY;

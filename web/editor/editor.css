@@ -517,3 +517,5 @@ body { min-height:100dvh; box-sizing:border-box; }
 
 /* 漫游: only the view, the lighting menus and the help line stay. */
 #rc-placement-demo[data-mode="walk"] :is(.rc-controls, .rc-joysticks, .rc-view-tools, #gesture-toggle, #undo, #clear-room, #reset-layout, #list-toggle, #import-menu, #tools-menu, #object-panel) { display: none; }
+#rc-placement-demo .rc-open-hint { position: absolute; z-index: 4; pointer-events: none; padding: 4px 9px; border-radius: 8px; background: var(--rc-panel); border: 1px solid var(--rc-line); color: var(--rc-green); font-size: 11px; white-space: nowrap; box-shadow: 0 2px 8px #0000001a; }
+#rc-placement-demo .rc-open-hint[hidden] { display: none; }
