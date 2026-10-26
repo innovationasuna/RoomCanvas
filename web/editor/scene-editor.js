@@ -6,7 +6,7 @@ import {createPlacement} from './placement.mjs?v=app-36';
 import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-51';
 import {PlacementSession} from './placement-session.mjs?v=gesture-20261023';
 import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
-import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs?v=app-58';
+import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs?v=app-59';
 import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
 
 import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
@@ -30,7 +30,7 @@ import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
 import {colorGrading} from './color-grading.mjs?v=app-48';
 import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
 import {indoorLighting} from './indoor-lighting.mjs';
-import {createWalk} from './walk.mjs?v=app-58';
+import {createWalk} from './walk.mjs?v=app-59';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -2191,7 +2191,7 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-58');
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-59');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
       staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0 || !!walk?.moving(),
