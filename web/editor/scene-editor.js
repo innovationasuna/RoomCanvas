@@ -30,7 +30,7 @@ import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
 import {colorGrading} from './color-grading.mjs?v=app-48';
 import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
 import {indoorLighting} from './indoor-lighting.mjs';
-import {createWalk} from './walk.mjs?v=app-54';
+import {createWalk} from './walk.mjs?v=app-55';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -69,7 +69,7 @@ let previewSerial = 0;
 const ghostMaterials = [];
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
-let hinged = null, walk = null, walkAimAt = 0;
+let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
@@ -1393,7 +1393,7 @@ function setMode(nextMode) {
   if (nextMode !== 'edit') {cancelSession(false); select(null, false); warehouse.setOpen(false);}
   // Furniture is placed against the closed shapes; doors shut on the way back to arranging.
   else hinged?.closeAll();
-  if (nextMode === 'walk' && !walk.active) enterWalk();
+  if (nextMode === 'walk' && !walk.active) {walkFrom = mode; enterWalk();}
   else if (nextMode !== 'walk' && walk?.active) exitWalk();
   mode = nextMode;
   if (mode === 'walk') walkHelp();
@@ -1413,29 +1413,22 @@ function enterWalk() {
   renderer.shadowMap.needsUpdate = true;
   walk.resize(host.clientWidth, host.clientHeight);
   walk.enter();
-  walkLocked(walk.locked);
 }
 function exitWalk() {
   walk.exit();
   controls.enabled = !gestureView && !gestureScale;
   for (const object of ceilingObjects) object.visible = $('#ceiling').checked;
   renderer.shadowMap.needsUpdate = true;
-  $('#walk-crosshair').hidden = true; $('#walk-start').hidden = true;
+  host.style.cursor = '';
 }
 function walkHelp() {
-  $('#interaction-help').textContent = walk.locked ? 'WASD / 方向键走动 · Shift 快走 · 移动鼠标转头 · 点门、柜门开关 · Esc 放开鼠标'
-    : walk.dragLook ? 'WASD / 方向键走动 · Shift 快走 · 拖动转头 · 点门、柜门开关' : '点一下画面开始漫游';
+  $('#interaction-help').textContent = 'WASD / 方向键走动 · Shift 快走 · Q / E 降低、升高视线 · 拖动转头 · 点门、柜门开关 · Esc 退出';
 }
-function walkLocked(locked) {
-  $('#walk-crosshair').hidden = !locked;
-  $('#walk-start').hidden = locked || walk.dragLook;
-  walkHelp();
-}
-// The crosshair turns green over something that opens.
-function walkAim() {
-  if (!walk.locked || performance.now() - walkAimAt < 120) return;
+// The pointer becomes a hand over something that opens.
+function walkAim(at) {
+  if (performance.now() - walkAimAt < 120) return;
   walkAimAt = performance.now();
-  $('#walk-crosshair').dataset.openable = String(!!openableAt({x: 0, y: 0}, walk.camera));
+  host.style.cursor = openableAt(at, walk.camera) ? 'pointer' : '';
 }
 
 function storeObjects(id = null) {
@@ -2059,10 +2052,8 @@ async function load() {
   const floorBox = new THREE.Box3().setFromObject(room.getObjectByName('Floor0'));
   walk = createWalk(THREE, {canvas: renderer.domElement, room, floorY, solid: solidHit,
     bounds: {min: [floorBox.min.x, floorBox.min.z], max: [floorBox.max.x, floorBox.max.z]},
-    onChange: () => {requestRender(); walkAim();},
-    onClick: (at) => {const part = openableAt(at, walk.camera); if (part) hinged.toggle(part);},
-    onLock: walkLocked});
-  $('#walk-start').onclick = () => walk.lock();
+    onChange: requestRender, onHover: walkAim, onExit: () => setMode(walkFrom),
+    onClick: (at) => {const part = openableAt(at, walk.camera); if (part) hinged.toggle(part);}});
   ready = true;
   // Entering a room always shows its authored layout. Merely opening it must
   // not overwrite the last confirmed arrangement in browser storage.
@@ -2171,7 +2162,7 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-54');
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-55');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
       staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0 || !!walk?.moving(),
