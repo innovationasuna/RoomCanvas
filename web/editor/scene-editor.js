@@ -30,6 +30,7 @@ import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
 import {colorGrading} from './color-grading.mjs?v=app-48';
 import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
 import {indoorLighting} from './indoor-lighting.mjs';
+import {createWalk} from './walk.mjs?v=app-56';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -68,7 +69,7 @@ let previewSerial = 0;
 const ghostMaterials = [];
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
-let hinged = null;
+let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
@@ -176,9 +177,11 @@ function requestRender() {
   requestAnimationFrame(() => {
     pendingFrame = false;
     if (!renderer) return;
+    // Walking, every wall and tall piece is solid: nothing is cut away for a bird's-eye view.
+    const walking = !!walk?.active;
     if (wallVisibility) {
       const editingWall = selected && placement.isWall(selected) ? placementStates.get(selected)?.wall : null;
-      const result = wallVisibility.update(camera.position.clone().sub(controls.target).toArray(), {enabled: $('#cut').checked, reveal: !!wallRelocation, revealWalls: editingWall ? [editingWall] : []});
+      const result = wallVisibility.update(camera.position.clone().sub(controls.target).toArray(), {enabled: !walking && $('#cut').checked, reveal: !!wallRelocation, revealWalls: editingWall ? [editingWall] : []});
       host.dataset.hiddenWalls = result.hidden.join(',');
       setEditingWall(result.revealed[0] || null);
       if (result.changed) renderer.shadowMap.needsUpdate = true;
@@ -201,6 +204,7 @@ function requestRender() {
       const view = camera.position.clone().sub(controls.target).toArray();
       const blocking = new Set();
       for (const [id, {points, center: middle}] of tall) {
+        if (walking) continue;
         if (nearWalls.some((wall) => againstWall(points, wall, {floor: floorY}))
             || ($('#cut').checked && inNearHalf(middle, [center.x, center.y, center.z], view, blockingNear.has(id)))) blocking.add(id);
       }
@@ -215,7 +219,9 @@ function requestRender() {
     }
     lightingRig?.syncOccluders();
     updateSelectionVisuals();
-    renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, camera);});
+    const view = walking ? walk.camera : camera;
+    staticLighting?.setCamera(view);
+    renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, view);});
     lightingPanel.availability({time: enhancedLighting && !!lightingRig, grading: enhancedLighting && !!staticLighting?.snapshot().composite});
   });
 }
@@ -798,21 +804,26 @@ function pick(clientX, clientY) {
   return null;
 }
 
-// The part that opens under a screen point, in preview mode (see joints.mjs).
-function pickOpenable(clientX, clientY) {
+// A ray hit on something shown and solid: not hidden, see-through or clipped away.
+function solidHit(hit) {
+  for (let object = hit.object; object; object = object.parent) if (!object.visible) return false;
+  if (seeThrough(hit.object)) return false;
+  const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
+  return !material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0);
+}
+
+// The part that opens at a screen point ({x, y} from -1 to 1), in 预览 or 漫游 (see joints.mjs).
+function openableAt(at, view = camera) {
   if (!ready || !hinged) return null;
-  camera.updateMatrixWorld();
-  const rect = host.getBoundingClientRect();
-  raycaster.setFromCamera(new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1), camera);
-  for (const hit of raycaster.intersectObject(room, true)) {
-    let visible = true;
-    for (let object = hit.object; object; object = object.parent) {if (!object.visible) visible = false;}
-    if (!visible || seeThrough(hit.object)) continue;
-    const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
-    if (material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;
-    return openableOf(hit.object);
-  }
+  view.updateMatrixWorld();
+  raycaster.setFromCamera(new THREE.Vector2(at.x, at.y), view);
+  for (const hit of raycaster.intersectObject(room, true)) if (solidHit(hit)) return openableOf(hit.object);
   return null;
+}
+
+function pickOpenable(clientX, clientY) {
+  const rect = host.getBoundingClientRect();
+  return openableAt({x: (clientX - rect.left) / rect.width * 2 - 1, y: -(clientY - rect.top) / rect.height * 2 + 1});
 }
 
 function bindEvents() {
@@ -891,6 +902,7 @@ function bindEvents() {
   };
   $('#undo').onclick = undo;
   document.addEventListener('keydown', (event) => {
+    if (mode === 'walk') return;
     if (ready && pending && event.key === 'Escape') {event.preventDefault(); cancelSession(); return;}
     if (ready && event.key === 'Escape' && wallRelocation) {
       event.preventDefault(); endWallRelocation(); updateInspector(); $('#status').textContent = '已取消换墙，原位置保持不变'; return;
@@ -962,6 +974,7 @@ function bindEvents() {
     pointerStart = {x: event.clientX, y: event.clientY, id: event.pointerId, dragged: false};
   });
   renderer.domElement.addEventListener('pointermove', (event) => {
+    if (mode === 'walk') return;
     if (pointerStart && Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 5) pointerStart.dragged = true;
     if (event.buttons || event.pointerType !== 'mouse') return;
     if (pending && !pending.locked) {
@@ -971,13 +984,14 @@ function bindEvents() {
     if (performance.now() - lastHoverTime < 45) return;
     lastHoverTime = performance.now();
     if (wallRelocation) {host.style.cursor = pickWall(event.clientX, event.clientY) ? 'crosshair' : ''; return;}
-    if (mode === 'preview') {host.style.cursor = pickOpenable(event.clientX, event.clientY) ? 'pointer' : ''; return;}
+    if (mode === 'preview') {showOpenHint(pickOpenable(event.clientX, event.clientY), event.clientX, event.clientY); return;}
     const id = pick(event.clientX, event.clientY);
     host.style.cursor = id ? 'pointer' : '';
     hovered = id;
     // Hover only changes the DOM cursor. Keep the settled frame and its AO cache intact.
   });
   renderer.domElement.addEventListener('pointerup', (event) => {
+    if (mode === 'walk') {pointerStart = null; return;}
     if (pointerStart?.id === event.pointerId && !pointerStart.dragged && event.button === 0) {
       if (pending && wallRelocation) {
         const target = pickWall(event.clientX, event.clientY);
@@ -990,12 +1004,12 @@ function bindEvents() {
         const target = pickWall(event.clientX, event.clientY);
         if (target) previewWall(target.name, target.point); else showToast('请点击墙面实体部分；拖动场景可以调整视角');
       } else if (mode === 'edit') {const id = pick(event.clientX, event.clientY); if (id) beginSession(id); else if (!pending) select(null);}
-      else if (mode === 'preview') {const part = pickOpenable(event.clientX, event.clientY); if (part) hinged.toggle(part);}
+      else if (mode === 'preview') {const part = pickOpenable(event.clientX, event.clientY); if (part) {hinged.toggle(part); showOpenHint(part, event.clientX, event.clientY);}}
     }
     pointerStart = null;
   });
   renderer.domElement.addEventListener('pointercancel', () => {pointerStart = null;});
-  renderer.domElement.addEventListener('pointerleave', () => {hovered = null; host.style.cursor = '';});
+  renderer.domElement.addEventListener('pointerleave', () => {hovered = null; hideOpenHint();});
   window.addEventListener('pagehide', () => {joysticks?.stop(); finishHold(); persist();});
 }
 
@@ -1375,16 +1389,67 @@ function followPointer(clientX, clientY, force = false, grab = null) {
 
 const OPEN_HELP = '点门、柜门、窗可以打开或关上 · 拖动空白处转动视角';
 function setMode(nextMode) {
-  if (nextMode === 'preview') {cancelSession(false); select(null, false); warehouse.setOpen(false);}
+  if (nextMode === 'walk' && !walk) return;
+  hideOpenHint();
+  if (nextMode !== 'edit') {cancelSession(false); select(null, false); warehouse.setOpen(false);}
   // Furniture is placed against the closed shapes; doors shut on the way back to arranging.
   else hinged?.closeAll();
+  if (nextMode === 'walk' && !walk.active) {walkFrom = mode; enterWalk();}
+  else if (nextMode !== 'walk' && walk?.active) exitWalk();
   mode = nextMode;
-  if (hinged?.parts.length) $('#interaction-help').textContent = mode === 'preview' ? OPEN_HELP : handsOn() ? GESTURE_HELP[gestureMode] : MOUSE_HELP;
+  if (mode === 'walk') walkHelp();
+  else if (hinged?.parts.length) $('#interaction-help').textContent = mode === 'preview' ? OPEN_HELP : handsOn() ? GESTURE_HELP[gestureMode] : MOUSE_HELP;
+  else $('#interaction-help').textContent = handsOn() ? GESTURE_HELP[gestureMode] : MOUSE_HELP;
   $('#rc-placement-demo').dataset.mode = mode;
   alignCameraToStage();
   for (const button of document.querySelectorAll('[data-mode]')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   requestRender();
 }
+
+// 漫游: the ceiling is shown (as in the room itself), gestures and the orbiting camera rest.
+function enterWalk() {
+  if (gestureCamera?.on) {gestureCamera.stop(); showGestures(false);}
+  controls.enabled = false;
+  for (const object of ceilingObjects) object.visible = true;
+  renderer.shadowMap.needsUpdate = true;
+  walk.resize(host.clientWidth, host.clientHeight);
+  walk.enter();
+}
+function exitWalk() {
+  walk.exit();
+  controls.enabled = !gestureView && !gestureScale;
+  for (const object of ceilingObjects) object.visible = $('#ceiling').checked;
+  renderer.shadowMap.needsUpdate = true;
+  hideOpenHint();
+}
+function walkHelp() {
+  $('#interaction-help').textContent = 'WASD / 方向键走动 · Shift 快走 · Q / E 升高、降低视线 · 拖动转头 · 点门、柜门开关 · Esc 退出';
+}
+function walkAim(at, event) {
+  if (performance.now() - walkAimAt < 120) return;
+  walkAimAt = performance.now();
+  showOpenHint(openableAt(at, walk.camera), event.clientX, event.clientY);
+}
+
+// Over something that opens, in 预览 and 漫游: a hand, and beside it what it is and what a click does.
+function openHintText(part) {
+  const {node, object, type, axis} = part.joint, open = hinged.isOpen(part);
+  const category = config.label(object);
+  const name = /drawer/i.test(node) ? '抽屉' : /lift/i.test(node) ? '升降桌面' : /lid|fallboard/i.test(node) ? '盖板'
+    : category === '门' || category === '窗户' ? category : /door/i.test(node) ? '柜门' : category;
+  const lifts = type === 'prismatic' && Math.abs(axis[1]) > .9;
+  return `${name} · 点击${lifts ? (open ? '降下' : '升起') : open ? '关上' : '打开'}`;
+}
+function showOpenHint(part, clientX, clientY) {
+  host.style.cursor = part ? 'pointer' : '';
+  const hint = $('#open-hint');
+  hint.hidden = !part;
+  if (!part) return;
+  hint.textContent = openHintText(part);
+  const rect = host.getBoundingClientRect();
+  hint.style.left = `${clientX - rect.left + 14}px`; hint.style.top = `${clientY - rect.top + 18}px`;
+}
+const hideOpenHint = () => {$('#open-hint').hidden = true; host.style.cursor = '';};
 
 function storeObjects(id = null) {
   cancelSession(false);
@@ -1911,6 +1976,7 @@ async function load() {
     if (!width || !height) return;
     const aspectChanged = Math.abs((width / height) / camera.aspect - 1) > .18;
     camera.aspect = width / height; alignCameraToStage(); camera.updateProjectionMatrix();
+    walk?.resize(width, height);
     renderer.setSize(width, height);
     if (ready && aspectChanged) view(activeView);
     requestRender();
@@ -2002,6 +2068,13 @@ async function load() {
     return {joint, node, rest: node.matrix.clone(), riders};
   }), {render: requestRender, settled: () => {renderer.shadowMap.needsUpdate = true; requestRender();}});
   audit.openParts = hinged.parts.length;
+  // The floor's own box keeps the walk indoors where a door or a window has no wall to stop it.
+  const floorBox = new THREE.Box3().setFromObject(room.getObjectByName('Floor0'));
+  walk = createWalk(THREE, {canvas: renderer.domElement, room, floorY, solid: solidHit,
+    bounds: {min: [floorBox.min.x, floorBox.min.z], max: [floorBox.max.x, floorBox.max.z]},
+    // Looking around or walking leaves the hint behind; it comes back when the mouse moves again.
+    onChange: () => {hideOpenHint(); requestRender();}, onHover: walkAim, onExit: () => setMode(walkFrom),
+    onClick: (at) => {const part = openableAt(at, walk.camera); if (part) {hinged.toggle(part); $('#open-hint').textContent = openHintText(part);}}});
   ready = true;
   // Entering a room always shows its authored layout. Merely opening it must
   // not overwrite the last confirmed arrangement in browser storage.
@@ -2061,12 +2134,12 @@ async function load() {
   // Read-only diagnostics for real-browser verification; no controls or mutable scene exposed.
   window.roomEditor = Object.freeze({
     get ready() {return ready;},
-    captureFrame() {renderMetrics.measure('capture', () => {if (staticLighting) staticLighting.capture(); else renderer.render(scene, camera);}); return renderer.domElement.toDataURL('image/png');},
+    captureFrame() {renderMetrics.measure('capture', () => {if (staticLighting) staticLighting.capture(); else renderer.render(scene, walk?.active ? walk.camera : camera);}); return renderer.domElement.toDataURL('image/png');},
     projectFloor(x, z) { const p = new THREE.Vector3(x, floorY, z).project(camera), r = host.getBoundingClientRect(); return {x:r.x+(p.x*.5+.5)*r.width,y:r.y+(-p.y*.5+.5)*r.height}; },
     snapshot() {
       room.updateMatrixWorld(true);
       camera.updateMatrixWorld();
-      return {scene: sceneKey, formatVersion: VERSION, selected, view: activeView, mode, cameraBasis: basis(), layout: copyLayout(pending ? pending.before : layout),
+      return {scene: sceneKey, formatVersion: VERSION, selected, view: activeView, mode, walk: walk?.snapshot() || null, cameraBasis: basis(), layout: copyLayout(pending ? pending.before : layout),
         pending: pending ? {id: pending.id, locked: pending.locked, valid: pending.valid, message: pending.message, candidate: copyLayout(pending.candidate)} : null, placement: Object.fromEntries(placementStates), motionNotice,
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
         wallTargets: placement.wallTargets().map(({name,center}) => {const p = new THREE.Vector3().fromArray(center).project(camera), rect = host.getBoundingClientRect(); return {name,center,screen:{x:rect.x+(p.x*.5+.5)*rect.width,y:rect.y+(-p.y*.5+.5)*rect.height}};}),
@@ -2110,10 +2183,10 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-48');
+      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-56');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
       staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
-        busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0,
+        busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0 || !!walk?.moving(),
       });
       if (document.hidden) staticLighting.pause();
       requestRender();
