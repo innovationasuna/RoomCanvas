@@ -6,7 +6,7 @@ import {createPlacement} from './placement.mjs?v=app-36';
 import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-51';
 import {PlacementSession} from './placement-session.mjs?v=gesture-20261023';
 import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
-import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf} from './wall-visibility.mjs?v=app-36';
+import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs?v=app-56';
 import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
 
 import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
@@ -179,9 +179,11 @@ function requestRender() {
     if (!renderer) return;
     // Walking, every wall and tall piece is solid: nothing is cut away for a bird's-eye view.
     const walking = !!walk?.active;
+    // Near walls go see-through (近侧墙半透明) or, with what hangs on them, out of sight (隐藏近侧墙).
+    const hideNear = $('#hide-near').checked, cutting = hideNear || $('#cut').checked;
     if (wallVisibility) {
       const editingWall = selected && placement.isWall(selected) ? placementStates.get(selected)?.wall : null;
-      const result = wallVisibility.update(camera.position.clone().sub(controls.target).toArray(), {enabled: !walking && $('#cut').checked, reveal: !!wallRelocation, revealWalls: editingWall ? [editingWall] : []});
+      const result = wallVisibility.update(camera.position.clone().sub(controls.target).toArray(), {enabled: !walking && cutting, reveal: !!wallRelocation, revealWalls: editingWall ? [editingWall] : []});
       host.dataset.hiddenWalls = result.hidden.join(',');
       setEditingWall(result.revealed[0] || null);
       if (result.changed) renderer.shadowMap.needsUpdate = true;
@@ -206,15 +208,17 @@ function requestRender() {
       for (const [id, {points, center: middle}] of tall) {
         if (walking) continue;
         if (nearWalls.some((wall) => againstWall(points, wall, {floor: floorY}))
-            || ($('#cut').checked && inNearHalf(middle, [center.x, center.y, center.z], view, blockingNear.has(id)))) blocking.add(id);
+            || (cutting && inNearHalf(middle, [center.x, center.y, center.z], view, blockingNear.has(id)))) blocking.add(id);
       }
       blockingNear = blocking;
       for (const [id, entity] of entities) {
         const visible = layout[id].visible !== false && !wallGhostSources.has(id);
         if (entity.group.visible !== visible) {entity.group.visible = visible; renderer.shadowMap.needsUpdate = true;}
         // On a near wall (a painting) or against one: see-through, unless it is the piece being arranged.
-        const faint = id !== selected && ((placement.isWall(id) && hidden.has(placementStates.get(id)?.wall)) || blockingNear.has(id));
-        if (setSeeThrough(entity.group, faint)) renderer.shadowMap.needsUpdate = true;
+        // What hangs on a hidden wall is hidden with it.
+        const onNearWall = placement.isWall(id) && hidden.has(placementStates.get(id)?.wall);
+        const faint = id !== selected && (onNearWall || blockingNear.has(id));
+        if (setSeeThrough(entity.group, faint, onNearWall && hideNear ? 0 : SEE_THROUGH)) renderer.shadowMap.needsUpdate = true;
       }
     }
     lightingRig?.syncOccluders();
@@ -486,9 +490,15 @@ function endWallRelocation() {
   }
   wallMaterialRestore.length = 0;
   wallRelocation = null;
-  $('#cut').disabled = false;
+  syncNearWallOptions();
   host.style.cursor = '';
   requestRender();
+}
+
+// Hiding the near walls overrides making them see-through.
+function syncNearWallOptions() {
+  $('#hide-near').disabled = false;
+  $('#cut').disabled = $('#hide-near').checked;
 }
 
 function beginWallRelocation() {
@@ -508,7 +518,7 @@ function beginWallRelocation() {
     mesh.material = Array.isArray(original) ? original.map(translucent) : translucent(original);
     wallMaterialRestore.push([mesh, original]);
   });
-  $('#cut').disabled = true;
+  $('#cut').disabled = $('#hide-near').disabled = true;
   $('#status').textContent = '换墙模式 · 点选墙面位置，预览后确认 · Esc 取消';
   updateInspector(); requestRender();
 }
@@ -926,6 +936,7 @@ function bindEvents() {
   document.addEventListener('keyup', (event) => {if (hold?.owner === event.code) finishHold();});
   for (const id of ['overview', 'top', 'focus']) $(`#${id}`).onclick = () => view(id);
   $('#cut').onchange = requestRender;
+  $('#hide-near').onchange = () => {syncNearWallOptions(); requestRender();};
   $('#ceiling').onchange = () => {ceilingObjects.forEach((object) => {object.visible = $('#ceiling').checked;}); renderer.shadowMap.needsUpdate = true; requestRender();};
   $('#import-lighting').checked = query.get('materials') === 'pbr';
   $('#import-lighting').onchange = () => {
@@ -2053,7 +2064,7 @@ async function load() {
   audit.placement = placement.audit;
   rebuildCollision();
   audit.collision = collision.audit;
-  wallVisibility = createWallVisibility(room, placement.wallTargets(), {...wallOptions(placement.wallTargets()), conceal: setSeeThrough});
+  wallVisibility = createWallVisibility(room, placement.wallTargets(), {...wallOptions(placement.wallTargets()), conceal: (root, on) => setSeeThrough(root, on, $('#hide-near').checked ? 0 : SEE_THROUGH)});
   // GLTFLoader may rename a node; the original name is kept in userData.name.
   const named = new Map();
   room.traverse((object) => named.set(object.userData?.name || object.name, object));
@@ -2160,7 +2171,7 @@ async function load() {
           const box = new THREE.Box3().setFromObject(entity.group);
           const projected = box.getCenter(new THREE.Vector3()).project(camera);
           const rect = host.getBoundingClientRect();
-          return {id: entity.id, name: entity.name, visible: entity.group.visible, roots: entity.roots, origin: entity.origin.toArray(),
+          return {id: entity.id, name: entity.name, visible: entity.group.visible, seeThrough: entity.group.userData.seeThrough ? entity.group.userData.seeThroughOpacity : null, roots: entity.roots, origin: entity.origin.toArray(),
             bounds: {min: box.min.toArray(), max: box.max.toArray()},
             members: entity.group.children.map((child) => ({name: child.userData.name || child.name, position: child.getWorldPosition(new THREE.Vector3()).toArray()})),
             screen: {x: rect.x + (projected.x * .5 + .5) * rect.width, y: rect.y + (-projected.y * .5 + .5) * rect.height}};
@@ -2205,7 +2216,7 @@ function installLightingLab() {
     return {version: 1, scene: sceneKey, layout: encodeLayout(roomPart(layout), sceneKey),
       camera: {...Object.fromEntries(cameraKeys.map(key => [key, camera[key]])), position: camera.position.toArray(),
         quaternion: camera.quaternion.toArray(), up: camera.up.toArray(), target: controls.target.toArray(), span: cameraSpan},
-      cut: $('#cut').checked, ceiling: $('#ceiling').checked, warm, mode, lightingTime, indoor: {...indoor}, grading: {...grading}};
+      cut: $('#cut').checked, hideNear: $('#hide-near').checked, ceiling: $('#ceiling').checked, warm, mode, lightingTime, indoor: {...indoor}, grading: {...grading}};
   }
   window.roomLightingLab = Object.freeze({
     captureState,
@@ -2217,7 +2228,8 @@ function installLightingLab() {
       cancelSession(false); select(null); hinged.closeAll();
       layout = {...restored, ...addedPart(layout)};
       setMode(state.mode === 'preview' ? 'preview' : 'edit');
-      $('#cut').checked = !!state.cut; $('#ceiling').checked = !!state.ceiling;
+      $('#cut').checked = !!state.cut; $('#hide-near').checked = !!state.hideNear; syncNearWallOptions();
+      $('#ceiling').checked = !!state.ceiling;
       for (const object of ceilingObjects) object.visible = !!state.ceiling;
       warm = !!state.warm;
       lightingTime = enhancedLighting ? timePreset(state.lightingTime) : 'balanced'; lightingPanel.setTime(lightingTime);
