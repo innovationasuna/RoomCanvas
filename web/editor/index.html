@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css?v=app-36">
-<link rel="stylesheet" href="./editor.css?v=app-56">
+<link rel="stylesheet" href="./editor.css?v=app-59">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -87,7 +87,7 @@
    <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
    <div class="rc-menu-panel">
     <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中家具" data-view="focus">聚焦家具</button></div>
-    <div class="rc-footer-tools"><label><input id="cut" type="checkbox" checked>近侧墙半透明</label><label><input id="ceiling" type="checkbox">天花板</label>
+    <div class="rc-footer-tools"><span class="rc-near-walls" role="radiogroup" aria-label="近侧墙">近侧墙<label><input type="radio" name="near-walls" value="solid">实心</label><label><input type="radio" name="near-walls" value="faint" checked>半透明</label><label><input type="radio" name="near-walls" value="hidden">隐藏</label></span><label><input id="ceiling" type="checkbox">天花板</label>
  <label><input id="import-lighting" type="checkbox">导入物体随光照变化（实验）</label>
  <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout" data-gesture-ignore title="请使用鼠标或键盘导出布局">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
  <a href="../?model=authored" target="_blank" rel="noopener">原始重建 ↗</a><input id="layout-file" type="file" accept=".json,application/json" hidden></div>
@@ -216,4 +216,4 @@
  <div class="rc-footer-status"><span id="status" class="rc-sr-only" aria-live="polite">正在加载房间模型…</span><span id="save-state">更改确认后自动保存</span></div>
 </footer>
 
-</div><script type="module" src="./editor.js?v=app-56"></script></body></html>
+</div><script type="module" src="./editor.js?v=app-59"></script></body></html>
