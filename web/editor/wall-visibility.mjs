@@ -70,11 +70,15 @@ export function worldVertices(THREE, root) {
 // The near walls stay in the picture, see-through, with what hangs on them and the tall pieces
 // that stand against them (a built-in wardrobe), instead of leaving those standing in the open. A
 // see-through mesh casts and takes no shadow and writes no depth, so what is behind it shows, and the
-// editor's picking passes through it (seeThrough).
-export const SEE_THROUGH = .16;
+// editor's picking passes through it (seeThrough). Opacity 0 hides it the same way: the lights treat
+// it as they treat a see-through one, so hiding a wall does not let the sun in.
+export const SEE_THROUGH = .08;
 export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
-  if (!!root.userData.seeThrough === on) return false;
+  const was = root.userData.seeThrough ? root.userData.seeThroughOpacity : null;
+  if (was === (on ? opacity : null)) return false;
+  if (was !== null && on) setSeeThrough(root, false);
   root.userData.seeThrough = on;
+  if (on) root.userData.seeThroughOpacity = opacity; else delete root.userData.seeThroughOpacity;
   root.traverse((mesh) => {
     if (!mesh.isMesh) return;
     if (on) {
