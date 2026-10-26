@@ -469,6 +469,12 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 
 示例房间里 room3 有 8 个（衣柜和柜子的 6 扇门、房门、一扇推拉窗），office 有 4 个（房门、两扇平开窗、升降桌）。office 办公桌的抽屉在重建里只是面板，没有滑轨，打不开。
 
+## 漫游
+
+切到顶部“漫游”，以第一人称在房间里走（眼睛离地 1.6 米）。点一下画面锁定鼠标，移动鼠标转头，WASD 或方向键走动，按住 Shift 快走，Esc 放开鼠标；浏览器不让锁定鼠标时改为拖动转头。准星对准门、柜门、抽屉、窗时变绿，点一下开关，和“预览”一样。
+
+身体按半径 0.25 米的圆柱算：沿走动方向，从身体中间和左右两边、在离地 0.3 / 0.9 / 1.45 米三个高度各打一条射线，碰到墙和家具就停下，贴着它滑过去；门洞、窗洞外由地板的范围挡住。起点是房间中间，被家具占着就往外一圈圈找空地，朝向最空旷的方向；离开再回来接着上次的位置。漫游时墙和高家具都不变半透明，天花板显示出来，手势和布置工具收起；切回“布置”后还原。代码在 `editor/walk.mjs`。
+
 ## 手势和导入物体
 
 `scripts/serve.py` 在仓库根目录起网页服务，同时把 `/viewforge/assets/` 下的读请求（物体目录、尺寸、模型）和“添加物体”用的 `/viewforge/objects/`（上传、抠图、重建、进度）、`/viewforge/dimensions/<结果>`（保存实测尺寸）转给 ViewForge 服务器（默认 SSH 隧道 `127.0.0.1:7865`）。只转这几类地址，写请求只接受本页发出的。
@@ -504,6 +510,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office
 | `editor/collision.mjs` | 逐三角面的连续碰撞 |
 | `editor/wall-visibility.mjs` | 剖墙、墙角连接 |
 | `editor/layout.mjs` | 布局数据、撤销重做、导入导出 |
+| `editor/walk.mjs` | 漫游：第一人称相机、键盘鼠标、射线碰撞、找起点 |
 | `editor/placement-*.mjs`、`joystick-ui.mjs` | 预览后确认的放置流程、控制卡、摇杆 |
 | `editor/joints.mjs` | 开合部件：合页、滑轨的变换和开关动画，以及放在部件上跟着动的东西 |
 | `editor/gesture-bridge.mjs` | 手势输入（`GestureInput`：抓取、移动、抬高、旋转、预览暂停、竖拇指确认、独立环绕与场景缩放）和手势页协议的接收端 |
