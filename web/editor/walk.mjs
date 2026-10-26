@@ -1,13 +1,14 @@
-// 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, the mouse
-// looks. A click captures the mouse (pointer lock; Esc gives it back); where the browser refuses,
-// dragging looks instead. A click on a door, cabinet door or drawer opens or closes it, as in 预览.
+// 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, Q and E
+// lower and raise the eye, dragging looks and Esc leaves. The mouse is never captured: a captured
+// mouse brings the browser's own banner, and Esc would only give the mouse back. A click on a door,
+// cabinet door or drawer opens or closes it, as in 预览.
 // The body is a column of RADIUS. Rays across the floor at knee, waist and chest height, from its
 // middle and both edges, stop it at walls and furniture, and it slides along what it meets.
 
-export const EYE = 1.6, RADIUS = .25, WALK = 1.4, RUN = 2.8, LOOK = .0022;
+export const EYE = 1.6, RADIUS = .25, WALK = 1.4, RUN = 2.8, LOOK = .003, RISE = .8, EYES = [.5, 2.2];
 const HEIGHTS = [.3, .9, 1.45], EDGE = .7, PITCH = 1.45;
 const KEYS = {KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0]};
-const SHIFT = new Set(['ShiftLeft', 'ShiftRight']);
+const SHIFT = new Set(['ShiftLeft', 'ShiftRight']), LIFT = {KeyE: 1, KeyQ: -1};
 
 // The direction on the floor ([x, z], unit) for the held keys, facing `yaw` (0 faces -Z, as a camera does).
 export function walkDirection(held, yaw) {
@@ -96,13 +97,13 @@ export function createBody(THREE, {room, floorY, solid}) {
 }
 
 // bounds: {min: [x, z], max: [x, z]} to stay inside; onChange: the view moved; onClick(ndc): a click
-// at a screen point (0, 0 is the crosshair); onLock(locked): the mouse was captured or let go.
-export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange, onClick, onLock}) {
+// at a screen point; onHover(ndc): the mouse rests over a screen point; onExit: Esc.
+export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange, onClick, onHover = () => {}, onExit}) {
   const camera = new THREE.PerspectiveCamera(70, 1, .05, 200);
   camera.rotation.order = 'YXZ';
   const {cast, free} = createBody(THREE, {room, floorY, solid});
   const held = new Set();
-  let x = 0, z = 0, yaw = 0, pitch = 0, active = false, frame = 0, last = 0, lookedAt = 0, drag = null, dragLook = false;
+  let x = 0, z = 0, eye = EYE, yaw = 0, pitch = 0, active = false, frame = 0, last = 0, lookedAt = 0, drag = null;
   const inside = [bounds.min[0] + RADIUS, bounds.min[1] + RADIUS, bounds.max[0] - RADIUS, bounds.max[1] - RADIUS];
 
   // Face the longest clear view from where the walk starts.
@@ -117,7 +118,7 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
   }
 
   function place() {
-    camera.position.set(x, floorY + EYE, z);
+    camera.position.set(x, floorY + eye, z);
     camera.rotation.set(pitch, yaw, 0);
     camera.updateMatrixWorld();
   }
@@ -132,11 +133,14 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
   function tick(now) {
     frame = 0;
     const dt = Math.min(.05, (now - last) / 1000); last = now;
-    const step = walkDirection(held, yaw);
-    if (!step) return;
-    const speed = [...held].some((code) => SHIFT.has(code)) ? RUN : WALK;
-    [x, z] = slide([x, z], [step[0] * speed * dt, step[1] * speed * dt], cast);
-    x = Math.min(inside[2], Math.max(inside[0], x)); z = Math.min(inside[3], Math.max(inside[1], z));
+    const step = walkDirection(held, yaw), lift = [...held].reduce((sum, code) => sum + (LIFT[code] || 0), 0);
+    if (!step && !lift) return;
+    if (step) {
+      const speed = [...held].some((code) => SHIFT.has(code)) ? RUN : WALK;
+      [x, z] = slide([x, z], [step[0] * speed * dt, step[1] * speed * dt], cast);
+      x = Math.min(inside[2], Math.max(inside[0], x)); z = Math.min(inside[3], Math.max(inside[1], z));
+    }
+    eye = Math.min(EYES[1], Math.max(EYES[0], eye + lift * RISE * dt));
     place(); onChange();
     frame = requestAnimationFrame(tick);
   }
@@ -144,53 +148,44 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
   const typing = (event) => event.target.closest?.('input,select,textarea,[contenteditable="true"]');
   function keydown(event) {
     if (typing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
-    if (!KEYS[event.code] && !SHIFT.has(event.code)) return;
+    if (event.code === 'Escape') {event.preventDefault(); onExit(); return;}
+    if (!KEYS[event.code] && !LIFT[event.code] && !SHIFT.has(event.code)) return;
     event.preventDefault();
     held.add(event.code);
-    if (!frame && KEYS[event.code]) {last = performance.now(); frame = requestAnimationFrame(tick);}
+    if (!frame && (KEYS[event.code] || LIFT[event.code])) {last = performance.now(); frame = requestAnimationFrame(tick);}
   }
   const keyup = (event) => {held.delete(event.code);};
   const blur = () => {held.clear();};
-  const locked = () => document.pointerLockElement === canvas;
-  const lockchange = () => {held.clear(); onLock(locked());};
-  const mousemove = (event) => {if (locked()) look(event.movementX, event.movementY);};
+  const at = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return {x: (event.clientX - rect.left) / rect.width * 2 - 1, y: -(event.clientY - rect.top) / rect.height * 2 + 1};
+  };
   function pointerdown(event) {
-    if (event.button !== 0 || !event.isPrimary || locked()) return;
+    if (event.button !== 0 || !event.isPrimary) return;
+    canvas.setPointerCapture?.(event.pointerId);
     drag = {x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
   }
   function pointermove(event) {
-    if (!drag || locked()) return;
+    if (!drag) {if (event.pointerType === 'mouse') onHover(at(event)); return;}
     if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 5) drag.moved = true;
-    if (drag.moved && dragLook) look(event.clientX - drag.px, event.clientY - drag.py);
+    if (drag.moved) look(event.clientX - drag.px, event.clientY - drag.py);
     drag.px = event.clientX; drag.py = event.clientY;
   }
   function pointerup(event) {
-    if (event.button !== 0) return;
-    if (locked()) {onClick({x: 0, y: 0}); return;}
-    const click = drag && !drag.moved; drag = null;
-    if (!click) return;
-    const rect = canvas.getBoundingClientRect();
-    const at = {x: (event.clientX - rect.left) / rect.width * 2 - 1, y: -(event.clientY - rect.top) / rect.height * 2 + 1};
-    if (dragLook) onClick(at); else capture(at);
+    if (event.button !== 0 || !drag) return;
+    const click = !drag.moved; drag = null;
+    if (click) onClick(at(event));
   }
-  // The first click captures the mouse. A browser that refuses falls back to dragging to look.
-  function capture(at = null) {
-    const refused = () => {dragLook = true; onLock(false); if (at) onClick(at);};
-    if (!canvas.requestPointerLock) {refused(); return;}
-    Promise.resolve().then(() => canvas.requestPointerLock()).catch(refused);
-  }
+  const pointercancel = () => {drag = null;};
   const listeners = [[document, 'keydown', keydown], [document, 'keyup', keyup], [window, 'blur', blur],
-    [document, 'pointerlockchange', lockchange], [document, 'pointerlockerror', () => {dragLook = true; onLock(false);}],
-    [document, 'mousemove', mousemove], [canvas, 'pointerdown', pointerdown], [canvas, 'pointermove', pointermove], [canvas, 'pointerup', pointerup]];
+    [canvas, 'pointerdown', pointerdown], [canvas, 'pointermove', pointermove], [canvas, 'pointerup', pointerup], [canvas, 'pointercancel', pointercancel]];
 
   let start = null;
   return {
     camera,
     get active() {return active;},
-    get locked() {return locked();},
-    get dragLook() {return dragLook;},
     // Walking or just turned: the settled lighting waits.
-    moving: () => active && (frame !== 0 || performance.now() - lookedAt < 200),
+    moving: () => active && (frame !== 0 || drag?.moved || performance.now() - lookedAt < 200),
     enter() {
       if (active) return;
       active = true;
@@ -200,7 +195,7 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
         const middle = [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2];
         start = middle;
         for (const spot of spots(middle, {min: inside.slice(0, 2), max: inside.slice(2)})) if (free(spot)) {start = spot; break;}
-        [x, z] = start; yaw = openest(start); pitch = -.08;
+        [x, z] = start; yaw = openest(start); pitch = -.08; eye = EYE;
       } else [x, z] = start;
       for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
       place(); onChange();
@@ -210,10 +205,8 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
       active = false; start = [x, z];
       cancelAnimationFrame(frame); frame = 0; held.clear(); drag = null;
       for (const [target, type, handler] of listeners) target.removeEventListener(type, handler);
-      if (locked()) document.exitPointerLock();
     },
-    lock() {if (active && !locked()) capture();},
     resize(width, height) {camera.aspect = width / height; camera.updateProjectionMatrix();},
-    snapshot: () => ({active, position: [x, floorY + EYE, z], yaw, pitch, locked: locked(), dragLook}),
+    snapshot: () => ({active, position: [x, floorY + eye, z], eye, yaw, pitch}),
   };
 }
