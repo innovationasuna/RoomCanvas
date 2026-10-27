@@ -1,36 +1,37 @@
 import * as THREE from 'three';
+import {setLayer} from './material-layers.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-36';
-import {createPlacement} from './placement.mjs?v=app-36';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-51';
-import {PlacementSession} from './placement-session.mjs?v=gesture-20261023';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
-import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs?v=app-59';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs';
+import {createPlacement} from './placement.mjs';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs';
+import {PlacementSession} from './placement-session.mjs';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs';
+import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
-import {analogDelta} from './placement-motion.mjs?v=app-36';
+import {mountJoysticks} from './joystick-ui.mjs';
+import {analogDelta} from './placement-motion.mjs';
 
-import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-20261023';
-import {createGestureCamera} from './gesture-camera.mjs?v=gesture-20261023';
-import {canGestureActivate, isExplicitExport} from './gesture-target.mjs?v=gesture-20261023';
-import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
-import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-60';
-import {shadowSettings} from './lighting-settings.mjs?v=app-37';
-import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
-import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
-import {createImportMaterials} from './import-materials.mjs?v=app-60';
-import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
-import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
-import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
-import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
-import {colorGrading} from './color-grading.mjs?v=app-48';
-import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs';
+import {createGestureCamera} from './gesture-camera.mjs';
+import {canGestureActivate, isExplicitExport} from './gesture-target.mjs';
+import {Openings, openableOf, ridersOf} from './joints.mjs';
+import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs';
+import {mountAddObject} from './add-object-dialog.mjs';
+import {shadowSettings} from './lighting-settings.mjs';
+import {lightingProfile} from './lighting-profiles.mjs';
+import {createRenderMetrics} from './render-metrics.mjs';
+import {createImportMaterials} from './import-materials.mjs';
+import {forgetImportedObject} from './imported-objects.mjs';
+import {disposeObjectTree} from './object-dimensions.mjs';
+import {mountWarehouseDrawer} from './warehouse-drawer.mjs';
+import {createTimeLighting, timePreset} from './time-lighting.mjs';
+import {colorGrading} from './color-grading.mjs';
+import {mountLightingPanel} from './lighting-panel.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
-import {createWalk} from './walk.mjs?v=app-59';
+import {createWalk} from './walk.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -66,21 +67,22 @@ const placementSpecs = {};
 let dropPlan = null, falling = null;
 let pending = null, mode = 'edit', warm = false;
 let previewSerial = 0;
-const ghostMaterials = [];
+// Meshes shown as the drag preview → their preview layer (see material-layers.mjs).
+const previewLayers = new Map();
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
 let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
-const wallMaterialRestore = [];
-const editingWallMaterials = [];
+const wallChoiceMeshes = [];
+const editingWallMeshes = [];
 let translucentEditingWall = null;
 let placementStates = new Map();
 let selected = null, hovered = null, pendingFrame = false, hold = null, pointerStart = null;
 let toastTimer, lastHoverTime = 0, activeView = 'overview', ready = false;
 const entities = new Map();
-const ceilingObjects = [], materialRestore = [];
+const ceilingObjects = [], selectedMeshes = [];
 const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#e9ede5');
@@ -451,20 +453,19 @@ function updateInspector() {
 
 function wallLabel(name) {return /^Wall\d+$/.test(name) ? `墙面 ${Number(name.slice(4)) + 1}` : '墙面';}
 
+// The wall a hanging piece is being arranged on, faint so the piece shows (a near wall too).
+const EDITING_WALL = {material: (material) => Object.assign(material.clone(), {transparent: true, opacity: .18, depthWrite: false, side: THREE.DoubleSide})};
+// Every wall, while choosing which one a hanging piece moves to.
+const WALL_CHOICE = {material: (material) => Object.assign(material.clone(), {transparent: true, opacity: .18, depthWrite: false, clippingPlanes: [], side: THREE.DoubleSide})};
 function setEditingWall(name) {
   if (name === translucentEditingWall) return;
-  for (const [mesh, original] of editingWallMaterials) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  editingWallMaterials.length = 0;
+  for (const mesh of editingWallMeshes) setLayer(mesh, 'editingWall', null);
+  editingWallMeshes.length = 0;
   translucentEditingWall = name;
   if (name) room.getObjectByName(name)?.traverse(mesh => {
     if (!mesh.isMesh) return;
-    const original = mesh.material;
-    const tint = material => {const clone = material.clone(); clone.transparent = true; clone.opacity = .18; clone.depthWrite = false; clone.side = THREE.DoubleSide; return clone;};
-    mesh.material = Array.isArray(original) ? original.map(tint) : tint(original);
-    editingWallMaterials.push([mesh, original]);
+    setLayer(mesh, 'editingWall', EDITING_WALL);
+    editingWallMeshes.push(mesh);
   });
   renderer.shadowMap.needsUpdate = true;
 }
@@ -482,11 +483,8 @@ function clearWallGhost() {
 function endWallRelocation() {
   if (!wallRelocation) return;
   clearWallGhost();
-  for (const [mesh, original] of wallMaterialRestore) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  wallMaterialRestore.length = 0;
+  for (const mesh of wallChoiceMeshes) setLayer(mesh, 'wallChoice', null);
+  wallChoiceMeshes.length = 0;
   wallRelocation = null;
   syncNearWallOptions();
   host.style.cursor = '';
@@ -511,10 +509,8 @@ function beginWallRelocation() {
   // Reveal complete walls while choosing; restore the user's original cutaway on exit.
   for (const root of room.children.filter((object) => /^Wall\d+$/.test(object.userData.name || object.name))) root.traverse((mesh) => {
     if (!mesh.isMesh) return;
-    const original = mesh.material;
-    const translucent = (material) => {const clone = material.clone(); clone.transparent = true; clone.opacity = .18; clone.depthWrite = false; clone.clippingPlanes = []; clone.side = THREE.DoubleSide; return clone;};
-    mesh.material = Array.isArray(original) ? original.map(translucent) : translucent(original);
-    wallMaterialRestore.push([mesh, original]);
+    setLayer(mesh, 'wallChoice', WALL_CHOICE);
+    wallChoiceMeshes.push(mesh);
   });
   syncNearWallOptions(true);
   $('#status').textContent = '换墙模式 · 点选墙面位置，预览后确认 · Esc 取消';
@@ -613,12 +609,15 @@ function pickWall(clientX, clientY) {
   return nearest;
 }
 
+// The selected piece glows a little.
+const SELECTED = {material: (material) => {
+  const clone = material.clone();
+  if (clone.emissive) {clone.emissive.set(0x146852); clone.emissiveIntensity = .14;}
+  return clone;
+}};
 function restoreMaterials() {
-  for (const [mesh, original] of materialRestore) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  materialRestore.length = 0;
+  for (const mesh of selectedMeshes) setLayer(mesh, 'selected', null);
+  selectedMeshes.length = 0;
 }
 
 function select(id, announce = true) {
@@ -644,14 +643,8 @@ function select(id, announce = true) {
   if (id) {
     entities.get(id).group.traverse((mesh) => {
       if (!mesh.isMesh) return;
-      const original = mesh.material;
-      const tint = (material) => {
-        const clone = material.clone();
-        if (clone.emissive) {clone.emissive.set(0x146852); clone.emissiveIntensity = .14;}
-        return clone;
-      };
-      materialRestore.push([mesh, original]);
-      mesh.material = Array.isArray(original) ? original.map(tint) : tint(original);
+      setLayer(mesh, 'selected', SELECTED);
+      selectedMeshes.push(mesh);
     });
     $('#selection-label').classList.remove('just-selected');
     requestAnimationFrame(() => $('#selection-label').classList.add('just-selected'));
@@ -1151,8 +1144,8 @@ function renderFurnitureThumbnails(list = entities.values()) {
 }
 
 function restoreGhostMaterials() {
-  for (const [mesh, original, castShadow] of ghostMaterials) {mesh.material.dispose(); mesh.material = original; mesh.castShadow = castShadow;}
-  ghostMaterials.length = 0;
+  for (const mesh of previewLayers.keys()) setLayer(mesh, 'preview', null);
+  previewLayers.clear();
   if (renderer) renderer.shadowMap.needsUpdate = true;
 }
 
@@ -1228,27 +1221,27 @@ function refreshSession() {
   if (valid) pending.lastReachable = copyLayout(layout);
   pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
   const moved = ids.filter(id => id === selected || ['x','y','z','yaw'].some(key => Math.abs((layout[id][key] || 0) - (pending.before[id][key] || 0)) > 1e-9));
-  const originals = new Map(ghostMaterials.map(record => [record[0], record]));
+  const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
   const activeMeshes = new Set();
   for (const id of moved) entities.get(id).group.traverse(mesh => {
     if (!mesh.isMesh || mesh.userData.contactOnly) return;
     activeMeshes.add(mesh);
-    let record = originals.get(mesh);
-    if (!record) {
-      record = [mesh, mesh.material, mesh.castShadow];
-      ghostMaterials.push(record);
-      mesh.castShadow = false;
+    const layer = previewLayers.get(mesh);
+    if (!layer) {
+      // The layer remembers its colour: when a layer under it changes, it is made again.
+      const fresh = {color, castShadow: false, material() {return new THREE.MeshBasicMaterial({color: this.color, transparent: true, opacity: .34, depthWrite: false, side: THREE.DoubleSide});}};
+      previewLayers.set(mesh, fresh); setLayer(mesh, 'preview', fresh);
       renderer.shadowMap.needsUpdate = true;
-      mesh.material = new THREE.MeshBasicMaterial({transparent:true, opacity:.34, depthWrite:false, side:THREE.DoubleSide});
+    } else if (layer.color !== color) {
+      // The preview is the top layer and replaces the material outright, so what shows is its own.
+      layer.color = color;
+      for (const material of [mesh.material].flat()) material.color.setHex(color);
     }
-    const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
-    mesh.material.color.setHex(color);
   });
-  for (let i=ghostMaterials.length-1; i>=0; i--) {
-    const [mesh, original, castShadow] = ghostMaterials[i];
+  for (const mesh of [...previewLayers.keys()]) {
     if (activeMeshes.has(mesh)) continue;
-    mesh.material.dispose(); mesh.material = original; mesh.castShadow = castShadow;
-    ghostMaterials.splice(i,1); renderer.shadowMap.needsUpdate = true;
+    setLayer(mesh, 'preview', null); previewLayers.delete(mesh);
+    renderer.shadowMap.needsUpdate = true;
   }
 }
 
@@ -1414,6 +1407,10 @@ function setMode(nextMode) {
   requestRender();
 }
 
+// The orbiting camera comes back when nothing else is steering the view: not while walking (the
+// gesture page can still send gestures then), nor while a hand still turns or scales the scene.
+function releaseOrbit() {controls.enabled = !walk?.active && !gesture && !gestureView && !gestureScale;}
+
 // 漫游: the ceiling is shown (as in the room itself), gestures and the orbiting camera rest.
 function enterWalk() {
   if (gestureCamera?.on) {gestureCamera.stop(); showGestures(false);}
@@ -1425,7 +1422,7 @@ function enterWalk() {
 }
 function exitWalk() {
   walk.exit();
-  controls.enabled = !gestureView && !gestureScale;
+  releaseOrbit();
   for (const object of ceilingObjects) object.visible = $('#ceiling').checked;
   renderer.shadowMap.needsUpdate = true;
   hideOpenHint();
@@ -1563,7 +1560,7 @@ function gestureStep(step) {
 }
 function endGesture() {
   cancelAnimationFrame(gestureFrame); gestureFrame = 0;
-  gesture = null; analogActive = false; controls.enabled = !gestureView && !gestureScale;
+  gesture = null; analogActive = false; releaseOrbit();
   delete handPointer.dataset.label;
 }
 // 与移动使用同一承托面投影，保持手与物体的抓取偏移。
@@ -1729,7 +1726,7 @@ const gesturePort = {
     finish(cancel) {
       if (!gestureView) return;
       if (cancel) applyCamera(gestureView.base);
-      gestureView = null; controls.enabled = !gesture && !gestureScale;
+      gestureView = null; releaseOrbit();
     },
   },
   scale: {
@@ -1745,7 +1742,7 @@ const gesturePort = {
       applyCamera({...gestureScale.base, zoom:Math.max(.3, Math.min(4, gestureScale.base.zoom * ratio))});
     },
     finish(interrupted) {
-      gestureScale = null; controls.enabled = !gesture && !gestureView;
+      gestureScale = null; releaseOrbit();
       $('#status').textContent = interrupted ? '缩放已冻结 · 松手后继续' : '缩放结束 · 左手捏合可继续环绕';
     },
   },
@@ -1780,7 +1777,8 @@ const embedded = connectGestureBridge({
 const handsOn = () => !!embedded || !!gestureCamera?.on;
 
 // The camera card: MediaPipe runs in a worker on this computer; no image leaves the browser.
-const VISION = new URL('../../gesture/public/vision/', import.meta.url);
+// vendor/vision links to gesture/public/vision; publish.py copies what it points to.
+const VISION = new URL('../vendor/vision/', import.meta.url);
 let gestureCamera = null;
 const MOUSE_HELP = $('#interaction-help').textContent;
 function showGestures(on) {
@@ -1803,7 +1801,7 @@ async function toggleGestures() {
   button.disabled = true;
   try {
     if (!gestureCamera) {
-      const lib = await import('../vendor/gesture/gesture-runtime.js?v=gesture-20261023');
+      const lib = await import('../vendor/gesture/gesture-runtime.js');
       lib.setVisionBase(VISION);
       gestureCamera = createGestureCamera({lib, video: $('#gesture-video'), canvas: $('#gesture-skeleton'), input: gestureInput, ui: {
         right(text, seen) {$('#gesture-right').textContent = text; $('#gesture-right').dataset.seen = String(seen);},
@@ -2115,7 +2113,7 @@ async function load() {
     },
     onEnd() {
       analogActive = false;
-      controls.enabled = true;
+      releaseOrbit();
       const before = joystickBefore; joystickBefore = null;
       if (before && pending) validateAfterRender();
       else if (before) commit(before);
@@ -2182,7 +2180,7 @@ async function load() {
   if (enhancedLighting) void (async () => {
     if (query.get('env') !== 'off') {
       try {
-        const {createEnvironmentLighting} = await import('./environment-lighting.mjs?v=app-38');
+        const {createEnvironmentLighting} = await import('./environment-lighting.mjs');
         environmentFactory = createEnvironmentLighting;
         environmentLighting = createEnvironmentLighting(renderer, scene, {intensity: query.get('env') === 'off' ? 0 : scene.environmentIntensity});
         requestRender();
@@ -2192,7 +2190,7 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-59');
+      const {createStaticLighting} = await import('./static-lighting.mjs');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
       staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0 || !!walk?.moving(),

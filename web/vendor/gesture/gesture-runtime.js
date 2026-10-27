@@ -989,12 +989,13 @@ var GestureRuntime = class {
 		this.animation = requestAnimationFrame(this.loop);
 	};
 	stop() {
+		const wasRunning = this.running;
 		this.generation++;
 		this.running = false;
 		cancelAnimationFrame(this.animation);
 		this.tracker.stop();
 		this.camera.stop();
-		this.interrupt(true);
+		this.interrupt(wasRunning);
 	}
 };
 //#endregion

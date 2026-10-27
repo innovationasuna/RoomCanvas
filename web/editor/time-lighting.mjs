@@ -1,5 +1,6 @@
 import {shadowSettings} from './lighting-settings.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
+import {hasLayer, ownMaterial, ownShadows, setOwnMaterial} from './material-layers.mjs';
 
 // Relative to the principal window, not geographic north or clock time.
 export const TIME_PRESETS = Object.freeze({
@@ -47,7 +48,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     if (!source.some(material => (material.emissive && material.emissive.r + material.emissive.g + material.emissive.b > 0) || material.isMeshBasicMaterial)) return;
     const copies = source.map(material => material.clone());
     exterior.push({mesh, source: mesh.material, copies, bases: source.map(material => ({emission: material.emissiveIntensity, color: material.color?.clone(), unlit: !!material.isMeshBasicMaterial}))});
-    mesh.material = Array.isArray(mesh.material) ? copies : copies[0];
+    setOwnMaterial(mesh, Array.isArray(mesh.material) ? copies : copies[0]);
   });
 
   // A hidden ceiling still blocks sunlight. These tiny shared-geometry proxies draw no
@@ -121,7 +122,8 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     for (const {object, proxy} of roofs) proxy.visible = physical && !object.visible;
     const emissionScale = TIME_PRESETS[selected].exterior ?? 1;
     for (const {mesh, copies, bases} of exterior) {
-      for (const materials of [copies, [mesh.material].flat(), [mesh.userData.solid?.material].flat().filter(Boolean)]) materials.forEach((material, index) => {
+      // The copies and, over them, whatever a layer shows right now (a see-through clone).
+      for (const materials of [copies, [mesh.material].flat()]) materials.forEach((material, index) => {
         const base = bases[index];
         if (base.emission !== undefined) material.emissiveIntensity = base.emission * emissionScale;
         if (base.unlit && base.color) material.color.copy(base.color).multiplyScalar(emissionScale);
@@ -129,9 +131,10 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     }
     room.traverse(mesh => {
       if (!mesh.isMesh) return;
-      const solid = mesh.userData.solid;
-      const opaque = [solid?.material || mesh.material].flat().every(material => !material.transparent && !(material.transmission > 0));
-      if (solid) mesh.castShadow = physical && opaque && solid.castShadow;
+      // A see-through near wall still stops the sun when the lights are physical.
+      const faint = hasLayer(mesh, 'seeThrough');
+      const opaque = [ownMaterial(mesh)].flat().every(material => !material.transparent && !(material.transmission > 0));
+      if (faint) mesh.castShadow = physical && opaque && ownShadows(mesh).castShadow;
       else if (!opaque) {
         if (!glassCasters.has(mesh)) glassCasters.set(mesh, mesh.castShadow);
         mesh.castShadow = physical ? false : glassCasters.get(mesh);
@@ -181,7 +184,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
         intensity: spot.intensity, level: TIME_PRESETS[selected].indoor || 0, decay: spot.decay, visible: spot.visible} : null}),
     dispose() {
       for (const {mesh, source, copies} of exterior) {
-        if (mesh.userData.solid) mesh.userData.solid.material = source; else mesh.material = source;
+        setOwnMaterial(mesh, source);
         copies.forEach(material => material.dispose());
       }
       roof.removeFromParent(); roofMaterial.dispose();
