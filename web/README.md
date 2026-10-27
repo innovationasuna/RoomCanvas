@@ -132,6 +132,8 @@ node web/scripts/check_time_lighting.mjs --output /tmp/roomcanvas-time-lighting 
 
 ### 光影调研
 
+2026-10-26 新增 [重建与材质调研](../docs/RECONSTRUCTION_MODEL_RESEARCH.md)：当前资产审计、材质／光照分离、SUPRA-Tex 等六个候选与共用重建后端。下面保留 2026-10-19 的渲染侧实验记录，历史统计不代表当前每份资产。
+
 原 `docs/LIGHTING_RESEARCH.md`（lyk，2026-10-19）：RoomCanvas 光影改进调研与接入任务。
 
 调研与实现日期：2026-10-19。基线：`main@7b4377b`。当前分支已完成可重放画面、整帧 CPU/GPU 计时、通用光源校准、可回退导入 PBR 实验以及 GTAO / N8AO 的首轮对照，操作说明见 [web/README.md](#通用光影增强)。下面区分已测结果与未验收边界；烘焙 GI 不在当前范围。

@@ -97,6 +97,16 @@ class AssetsTests(unittest.TestCase):
             self.assertIn(self.client.get('/viewforge/assets/' + path).status_code, [400, 404])
         self.assertFalse((self.root/'data/layouts').exists())
 
+    def test_trellis_capabilities_do_not_advertise_gaussian_or_capture(self):
+        run = self.model('trellis_chair')
+        (run/'result.json').write_text(json.dumps(dict(backend='trellis', status='complete')))
+        asset = self.client.get('/viewforge/assets/trellis_chair').json()
+        self.assertEqual(asset['capabilities']['material_mode'], 'pbr')
+        self.assertFalse(asset['capabilities']['capture'])
+        self.assertFalse(asset['capabilities']['gaussian'])
+        self.assertEqual(self.client.get('/viewforge/assets/trellis_chair/result.glb').status_code, 200)
+        self.assertEqual(self.client.get('/viewforge/assets/trellis_chair/result.ply').status_code, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

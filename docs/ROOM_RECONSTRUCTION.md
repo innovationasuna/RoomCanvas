@@ -2,6 +2,8 @@
 
 把手机扫描（iPhone LiDAR + RoomPlan）重建成真实尺寸、带纹理的 `Room.glb`，再接到网页编辑器上。代码在 [`room-reconstruction/`](../room-reconstruction/)（LiteReality-Agent 官方代码，Agent 改用 Codex / GPT-6 Astra，改动见下文[对 LiteReality-Agent 改了什么](#对-litereality-agent-改了什么)）。在 3090 服务器上运行，目录和环境见 [交接文档](HANDOFF.md)。
 
+从扫描到逐物体建模、场景组装和后处理的完整逻辑见 [场景重建流程](ROOM_RECONSTRUCTION_PIPELINE.md)；与独立物体重建共用模型、PBR 材质和光影改进的选型见 [重建与材质调研](RECONSTRUCTION_MODEL_RESEARCH.md)。
+
 ## 运行
 
 ```bash

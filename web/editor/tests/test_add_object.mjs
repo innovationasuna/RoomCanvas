@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MIN_PHOTOS, objectName, stageLabel, duration, follow, previewURL, startReconstruction, saveMeasurement, coverSuggestion} from '../add-object.mjs';
+import {MIN_PHOTOS, objectName, stageLabel, duration, follow, previewURL, startReconstruction, saveMeasurement, coverSuggestion, reconstructionStages} from '../add-object.mjs';
 
 test('object names are what the server accepts', () => {
   assert.equal(objectName('  我的 椅子 '), '我的_椅子');
@@ -16,6 +16,12 @@ test('progress reads as the reconstruction stages', () => {
   assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'unknown'}), '准备输入');
   assert.equal(stageLabel({kind: 'masks', status: 'running'}), '正在抠图');
   assert.equal(duration(185.7), '03:05');
+});
+
+test('single-image progress does not promise DA3 or COVER stages', () => {
+  assert.deepEqual(reconstructionStages({pipeline_stages: ['queued', 'preparing', 'reconstruction']}).map(([id]) => id),
+    ['queued', 'preparing', 'reconstruction']);
+  assert.ok(reconstructionStages({}).some(([id]) => id === 'cover'));
 });
 
 test('a job is followed until it finishes, and a failure carries the server message', async () => {
