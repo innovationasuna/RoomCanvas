@@ -5,7 +5,7 @@
 ## 从这里开始（2026-10-27 交接）
 
 **现在的状态**
-- 开着的 PR：无。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `ce39cd4`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提。
+- 开着的 PR：无。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `ce39cd4`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提；它的分支 `integration/local-ui-20261020` 2026-10-27 按用户要求删了（在 #24 页面点“Restore branch”可恢复）。远端现在只留 `main` 和开着的 PR 分支。
 - **待用户通知 lyk 后重启 7862**：#42 改了 `object-reconstruction/scripts/objects.py`（名字上限 53、已有抠图不等 GPU、同名并发 400），正在跑的后端（进程 72353）还是旧的，重启后才生效；`run.py`（#3：拿到锁才查显存）是每次任务新起的子进程，同步后已生效。`env.sh` 去掉了 `MV_ROOT`，重启时一起生效。重启命令见“服务器”一节。
 - 本机仓库 `.git/config` 原来有 `user.name = t`，2026-10-27 用户要求改成自己的，已删掉这条本地设置，作者用全局的 `innovationAusna <2474070799@qq.com>`。本机 `uv` 是 0.7.6，`room-reconstruction` 要求 ≥0.9.17：用 `uvx uv@0.9.17 run pytest -n auto`（在 `room-reconstruction/` 下会建 `.venv`，已在 `.gitignore`）。
 - 本机仓库 2026-10-27 从 `~/fable/RoomCanvas` 挪到 `~/research/RoomCanvas`（用户要求），7880、8800 已从新位置重启。
