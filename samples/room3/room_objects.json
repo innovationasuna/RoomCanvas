@@ -1554,18 +1554,6 @@
    "upper": 0.0
   },
   {
-   "node": "Table0_TopLid",
-   "object": "Table0",
-   "type": "revolute",
-   "axis": [
-    1.0,
-    0.0,
-    0.0
-   ],
-   "lower": -1.39626,
-   "upper": 0.0
-  },
-  {
    "node": "Door_Leaf",
    "object": "Door0",
    "type": "revolute",
