@@ -30,7 +30,7 @@ from .adjust import ANCHOR_TOL, check
 from .graph import wall_distance
 from .shell import wall_frame
 
-__all__ = ["propose", "apply_proposals", "solve_v10"]
+__all__ = ["propose", "apply_proposals"]
 
 MAX_SCALE = 0.60          # a proposal may not change a dimension by more than this fraction
 MAX_SHIFT = 0.60          # nor move a centre further than this, in metres
@@ -306,59 +306,3 @@ def apply_proposals(shell: dict[str, Any], proposals: list[dict[str, Any]]) -> t
             log.append({**proposal, "accepted": False,
                         "reason": f"violations {before} -> {after}, {broke} anchors broken"})
     return current, log
-
-
-def _cache_path(root: Path) -> Path:
-    return root / "agent_proposals.json"
-
-
-def solve_v10(shell: dict[str, Any], *, batch_dir: str | Path | None = None,
-              model: str = "sonnet", refresh: bool = False, detail: bool = False):
-    """v9, then one bounded agent pass over whatever geometry could not settle.
-
-    Accepted proposals are CACHED beside the scene. A model asked the same question twice does not
-    give the same answer, and an arena whose score moves between runs cannot tell a real
-    improvement from a reroll — fallside-kitchen passed on one run of this and failed the next with
-    no code change in between. Caching makes the solver reproducible, makes a rebuild free, and
-    means the model is consulted once per finding rather than once per build. Delete the cache, or
-    pass ``refresh``, to ask again.
-    """
-    from .repair import repair as _repair
-
-    out = _repair(shell)[0]
-    errors = [v for v in check(out) if v.severity == "error"]
-    root = Path(batch_dir) if batch_dir else Path(
-        (shell.get("meta") or {}).get("batch_dir") or ".")
-    if not errors or not root.is_dir():
-        return (out, []) if detail else out
-
-    cache_file = _cache_path(root)
-    cached: dict[str, Any] = {}
-    if cache_file.is_file() and not refresh:
-        try:
-            cached = json.loads(cache_file.read_text())
-        except json.JSONDecodeError:
-            cached = {}
-
-    proposals, keys = [], []
-    for violation in errors:
-        key = f"{violation.object}:{violation.kind}:{violation.other or ''}"
-        if key in cached:
-            proposals.append(cached[key])
-            keys.append(key)
-            continue
-        proposal = propose(out, violation, root, model)
-        if proposal:
-            proposals.append(proposal)
-            keys.append(key)
-
-    fixed, log = apply_proposals(out, proposals)
-
-    # ONLY accepted proposals are cached. Storing every reply froze the first thing the model
-    # happened to say, so a scene the agent had repaired on one run stayed broken on every run
-    # afterwards — the cache was preserving its worst answer as eagerly as its best. A rejected
-    # proposal is simply not knowledge, and asking again next time costs one call.
-    keep = {k: p for k, p, entry in zip(keys, proposals, log) if entry.get("accepted")}
-    if keep != cached:
-        cache_file.write_text(json.dumps(keep, indent=1), encoding="utf-8")
-    return (fixed, log) if detail else fixed
