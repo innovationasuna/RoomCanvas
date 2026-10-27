@@ -24,11 +24,14 @@ import uuid
 
 from PIL import Image
 
-from run import CODE, component, input_manifest
+from run import CODE, component, input_manifest, match_masks, selected_images
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection
 
 MIN_PHOTOS, MAX_PHOTOS = 1, 40
+# Photo and run ids are built from the name and must stay valid names (80 characters):
+# runs are <date>_<name>_web_<time> (27 more), photos <name>_001 (4 more).
+MAX_NAME = 53
 MAX_UPLOAD = 400 * 1024 * 1024
 GPU_POLL_SECONDS = 2
 JOBS, JOBS_LOCK = {}, threading.Lock()
@@ -67,13 +70,17 @@ def check_photos(uploads, room=MAX_PHOTOS):
 def create_object(root, name, uploads):
     try:
         name = component(name)
+        if len(name) > MAX_NAME:
+            raise ValueError
     except ValueError as exc:
-        raise ValueError('名称须为 1–80 个中文、字母、数字、下划线或连字符') from exc
+        raise ValueError(f'名称须为 1–{MAX_NAME} 个中文、字母、数字、下划线或连字符') from exc
     check_photos(uploads)
     directory = root/'data/inputs'/name
-    if directory.exists():
-        raise ValueError('这个名称已经有了，换一个')
-    (directory/'images').mkdir(parents=True)
+    try:  # not exist_ok: of two uploads under one name, only one gets it
+        directory.mkdir(parents=True)
+    except FileExistsError:
+        raise ValueError('这个名称已经有了，换一个') from None
+    (directory/'images').mkdir()
     record = import_photos(root, name, [path for _, path in uploads], image_prefix=name)
     return dict(object=name, images=[r['name'] for r in record['images']], errors=record['errors'])
 
@@ -132,16 +139,28 @@ class Job:
         runs = sorted((self.root/'runs').glob(f'*_{self.object}_{self.attempt}')) if self.attempt else []
         return runs[-1] if runs else None
 
+    def needs_gpu(self):
+        """Masks that all exist already are only previewed, which needs no GPU."""
+        if self.kind != 'masks':
+            return True
+        try:
+            rows = match_masks(selected_images(self.root, self.object, self.images, validate=False),
+                               allow_missing=True)['images']
+        except (ValueError, OSError):
+            return True  # prepare_masks.py reports it
+        return any(row['mask'] is None for row in rows)
+
     def wait_for_gpu(self):
         # Whoever holds the lock (a CLI run or another job) finishes first. The script
         # then takes the lock with --wait-gpu, so losing a race to it only waits a bit longer.
         while not gpu_free(self.root):
             time.sleep(GPU_POLL_SECONDS)
-        self.status = 'running'
 
     def work(self):
         try:
-            self.wait_for_gpu()
+            if self.needs_gpu():
+                self.wait_for_gpu()
+            self.status = 'running'
             logs = self.root/'logs'
             logs.mkdir(parents=True, exist_ok=True)
             with (logs/f'rc_{self.kind}_{self.object}_{datetime.now():%Y%m%d_%H%M%S_%f}.log').open('x') as log:
