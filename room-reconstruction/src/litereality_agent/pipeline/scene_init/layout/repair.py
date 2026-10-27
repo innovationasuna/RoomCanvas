@@ -62,7 +62,7 @@ from .adjust import (
 from .graph import build_graph, in_category, obb_mtv, wall_distance
 from .shell import object_footprint, wall_frame
 
-__all__ = ["duplicates", "score", "repair", "solve_v11"]
+__all__ = ["duplicates", "score", "repair"]
 
 REVIEW_SHIFT = 0.22  # past this, a move is a claim about the room rather than a correction
 DUP_SAME = 0.50      # overlap / smaller volume, for two boxes of the same category
@@ -667,107 +667,3 @@ def repair(shell: dict[str, Any], *, max_rounds: int = 14, beam: int = 3,
                               "trimmed to its measured depth" if resized
                               else "repaired within the room's own structure"))
     return work, moves + opening_moves, log
-
-
-def solve_v11(shell: dict[str, Any], *, detail: bool = False):
-    """Action-based repair with a strict monotone gate. Cannot return a worse room than it got."""
-    out, moves, log = repair(shell)
-    return (out, moves, log) if detail else out
-
-
-def solve_v12(shell: dict[str, Any], *, detail: bool = False):
-    """v11, with the reference photograph as the last resort rather than the first.
-
-    The action set is deliberately exhausted before any model is asked. By the time ``on_stuck``
-    fires, every cheap, checkable, deterministic repair has already been tried and rejected, so the
-    question put to the model is narrow and the evidence for it — the crop with the box drawn on
-    the photo — is the only thing left that geometry does not have. Its answer goes through the
-    same gate as everything else: applied to a copy, kept only if the room improves.
-    """
-    from pathlib import Path
-
-    from .agent import apply_proposals, propose
-
-    root = Path((shell.get("meta") or {}).get("batch_dir") or ".")
-
-    def ask(state, errors):
-        if not root.is_dir() or not (root / "references").is_dir():
-            return None
-        proposals = [p for v in errors if (p := propose(state, v, root))]
-        if not proposals:
-            return None
-        fixed, _log = apply_proposals(state, proposals)
-        return fixed
-
-    out, moves, log = repair(shell, on_stuck=ask)
-    return (out, moves, log) if detail else out
-
-
-def solve_v13(shell: dict[str, Any], *, detail: bool = False):
-    """Deterministic first; where its answer is legal but implausible, UNDO it and ask.
-
-    v11 clears Airbnb-Cam — by sliding a table half a metre across the room. Nothing in the
-    violation count objects, and to a person the result is obviously wrong: that table did not move
-    50 cm, and the wardrobe beside it plainly belongs in its corner rather than 25 cm out from it.
-    Scoring cannot see this, because the room is genuinely collision-free either way.
-
-    So a move that is large enough to be a claim rather than a correction is treated as a question,
-    not an answer. Those objects are put BACK where the scan measured them — the model is asked
-    about the real measurement, not about a guess it would have to unpick — and it answers with
-    "attach it to these walls", "it is this size", or "leave it". Whatever it says goes through the
-    same gate, and if nothing it proposes beats the deterministic result, that result stands. The
-    ceiling is never lower than v11's; only the reasoning is better.
-    """
-    from pathlib import Path
-
-    from .agent import apply_proposals, propose
-
-    baseline = copy.deepcopy(shell)
-    solved, moves, log = repair(shell)
-    root = Path((shell.get("meta") or {}).get("batch_dir") or ".")
-
-    walls = solved.get("walls") or {}
-    suspects: dict[str, str] = {}
-    for oid, obj in (solved.get("objects") or {}).items():
-        was = (baseline.get("objects") or {}).get(oid)
-        if not was:
-            continue
-        travelled = math.dist(obj["center"][:2], was["center"][:2])
-        if travelled > REVIEW_SHIFT:
-            suspects[oid] = f"sliding it {travelled * 100:.0f} cm from where the scan put it"
-    for violation in (v for v in check(solved) if v.severity == "error"):
-        suspects.setdefault(violation.object, "failing to resolve it at all")
-
-    if not suspects or not root.is_dir() or not (root / "references").is_dir():
-        return (solved, moves, log) if detail else solved
-
-    # put the suspects back where the scan measured them, and ask about THAT
-    reverted = copy.deepcopy(solved)
-    for oid, _why in suspects.items():
-        was = (baseline.get("objects") or {}).get(oid)
-        if was:
-            reverted["objects"][oid]["center"] = list(was["center"])
-            reverted["objects"][oid]["size"] = list(was["size"])
-
-    held = {oid: set(attachments(o, walls)) for oid, o in (baseline.get("objects") or {}).items()}
-    held = {k: v for k, v in held.items() if v}
-    proposals = []
-    for violation in check(reverted):
-        if violation.severity != "error" or violation.object not in suspects:
-            continue
-        proposal = propose(reverted, violation, root, suspicion=suspects[violation.object])
-        if proposal:
-            proposals.append(proposal)
-    if not proposals:
-        return (solved, moves, log) if detail else solved
-
-    asked, gate = apply_proposals(reverted, proposals)
-    # let the deterministic actions clean up whatever the model's edit left behind
-    finished, more_moves, more_log = repair(asked)
-
-    if score(finished, baseline, held) < score(solved, baseline, held):
-        log = log + [{"action": "rollback+ask", "detail": ", ".join(
-            f"{g.get('object_id')}:{g.get('action')}:{'kept' if g.get('accepted') else 'dropped'}"
-            for g in gate)}] + more_log
-        return (finished, more_moves, log) if detail else finished
-    return (solved, moves, log) if detail else solved
