@@ -217,15 +217,17 @@ def main():
                  root/'third_party/dinov2/hubconf.py'):
         if not path.exists():
             raise FileNotFoundError(path)
-    gpu = check_gpu(cfg['runtime']['min_free_gib'])
     if args.check:
+        gpu = check_gpu(cfg['runtime']['min_free_gib'])
         print(json.dumps(dict(status='preflight_passed', images=len(inputs['images']), gpu=gpu)))
         return
     lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
-        check_gpu(cfg['runtime']['min_free_gib'])
+        # Free memory means something only once the lock is ours: before that, the job holding
+        # it is using the memory, and --wait-gpu should wait for it rather than fail.
+        gpu = check_gpu(cfg['runtime']['min_free_gib'])
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
