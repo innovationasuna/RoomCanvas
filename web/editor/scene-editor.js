@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {setLayer} from './material-layers.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-36';
@@ -66,21 +67,22 @@ const placementSpecs = {};
 let dropPlan = null, falling = null;
 let pending = null, mode = 'edit', warm = false;
 let previewSerial = 0;
-const ghostMaterials = [];
+// Meshes shown as the drag preview → their preview layer (see material-layers.mjs).
+const previewLayers = new Map();
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
 let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
 const wallGhostSources = new Set();
-const wallMaterialRestore = [];
-const editingWallMaterials = [];
+const wallChoiceMeshes = [];
+const editingWallMeshes = [];
 let translucentEditingWall = null;
 let placementStates = new Map();
 let selected = null, hovered = null, pendingFrame = false, hold = null, pointerStart = null;
 let toastTimer, lastHoverTime = 0, activeView = 'overview', ready = false;
 const entities = new Map();
-const ceilingObjects = [], materialRestore = [];
+const ceilingObjects = [], selectedMeshes = [];
 const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#e9ede5');
@@ -451,20 +453,19 @@ function updateInspector() {
 
 function wallLabel(name) {return /^Wall\d+$/.test(name) ? `墙面 ${Number(name.slice(4)) + 1}` : '墙面';}
 
+// The wall a hanging piece is being arranged on, faint so the piece shows (a near wall too).
+const EDITING_WALL = {material: (material) => Object.assign(material.clone(), {transparent: true, opacity: .18, depthWrite: false, side: THREE.DoubleSide})};
+// Every wall, while choosing which one a hanging piece moves to.
+const WALL_CHOICE = {material: (material) => Object.assign(material.clone(), {transparent: true, opacity: .18, depthWrite: false, clippingPlanes: [], side: THREE.DoubleSide})};
 function setEditingWall(name) {
   if (name === translucentEditingWall) return;
-  for (const [mesh, original] of editingWallMaterials) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  editingWallMaterials.length = 0;
+  for (const mesh of editingWallMeshes) setLayer(mesh, 'editingWall', null);
+  editingWallMeshes.length = 0;
   translucentEditingWall = name;
   if (name) room.getObjectByName(name)?.traverse(mesh => {
     if (!mesh.isMesh) return;
-    const original = mesh.material;
-    const tint = material => {const clone = material.clone(); clone.transparent = true; clone.opacity = .18; clone.depthWrite = false; clone.side = THREE.DoubleSide; return clone;};
-    mesh.material = Array.isArray(original) ? original.map(tint) : tint(original);
-    editingWallMaterials.push([mesh, original]);
+    setLayer(mesh, 'editingWall', EDITING_WALL);
+    editingWallMeshes.push(mesh);
   });
   renderer.shadowMap.needsUpdate = true;
 }
@@ -482,11 +483,8 @@ function clearWallGhost() {
 function endWallRelocation() {
   if (!wallRelocation) return;
   clearWallGhost();
-  for (const [mesh, original] of wallMaterialRestore) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  wallMaterialRestore.length = 0;
+  for (const mesh of wallChoiceMeshes) setLayer(mesh, 'wallChoice', null);
+  wallChoiceMeshes.length = 0;
   wallRelocation = null;
   syncNearWallOptions();
   host.style.cursor = '';
@@ -511,10 +509,8 @@ function beginWallRelocation() {
   // Reveal complete walls while choosing; restore the user's original cutaway on exit.
   for (const root of room.children.filter((object) => /^Wall\d+$/.test(object.userData.name || object.name))) root.traverse((mesh) => {
     if (!mesh.isMesh) return;
-    const original = mesh.material;
-    const translucent = (material) => {const clone = material.clone(); clone.transparent = true; clone.opacity = .18; clone.depthWrite = false; clone.clippingPlanes = []; clone.side = THREE.DoubleSide; return clone;};
-    mesh.material = Array.isArray(original) ? original.map(translucent) : translucent(original);
-    wallMaterialRestore.push([mesh, original]);
+    setLayer(mesh, 'wallChoice', WALL_CHOICE);
+    wallChoiceMeshes.push(mesh);
   });
   syncNearWallOptions(true);
   $('#status').textContent = '换墙模式 · 点选墙面位置，预览后确认 · Esc 取消';
@@ -613,12 +609,15 @@ function pickWall(clientX, clientY) {
   return nearest;
 }
 
+// The selected piece glows a little.
+const SELECTED = {material: (material) => {
+  const clone = material.clone();
+  if (clone.emissive) {clone.emissive.set(0x146852); clone.emissiveIntensity = .14;}
+  return clone;
+}};
 function restoreMaterials() {
-  for (const [mesh, original] of materialRestore) {
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
-    mesh.material = original;
-  }
-  materialRestore.length = 0;
+  for (const mesh of selectedMeshes) setLayer(mesh, 'selected', null);
+  selectedMeshes.length = 0;
 }
 
 function select(id, announce = true) {
@@ -644,14 +643,8 @@ function select(id, announce = true) {
   if (id) {
     entities.get(id).group.traverse((mesh) => {
       if (!mesh.isMesh) return;
-      const original = mesh.material;
-      const tint = (material) => {
-        const clone = material.clone();
-        if (clone.emissive) {clone.emissive.set(0x146852); clone.emissiveIntensity = .14;}
-        return clone;
-      };
-      materialRestore.push([mesh, original]);
-      mesh.material = Array.isArray(original) ? original.map(tint) : tint(original);
+      setLayer(mesh, 'selected', SELECTED);
+      selectedMeshes.push(mesh);
     });
     $('#selection-label').classList.remove('just-selected');
     requestAnimationFrame(() => $('#selection-label').classList.add('just-selected'));
@@ -1151,8 +1144,8 @@ function renderFurnitureThumbnails(list = entities.values()) {
 }
 
 function restoreGhostMaterials() {
-  for (const [mesh, original, castShadow] of ghostMaterials) {mesh.material.dispose(); mesh.material = original; mesh.castShadow = castShadow;}
-  ghostMaterials.length = 0;
+  for (const mesh of previewLayers.keys()) setLayer(mesh, 'preview', null);
+  previewLayers.clear();
   if (renderer) renderer.shadowMap.needsUpdate = true;
 }
 
@@ -1228,27 +1221,27 @@ function refreshSession() {
   if (valid) pending.lastReachable = copyLayout(layout);
   pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
   const moved = ids.filter(id => id === selected || ['x','y','z','yaw'].some(key => Math.abs((layout[id][key] || 0) - (pending.before[id][key] || 0)) > 1e-9));
-  const originals = new Map(ghostMaterials.map(record => [record[0], record]));
+  const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
   const activeMeshes = new Set();
   for (const id of moved) entities.get(id).group.traverse(mesh => {
     if (!mesh.isMesh || mesh.userData.contactOnly) return;
     activeMeshes.add(mesh);
-    let record = originals.get(mesh);
-    if (!record) {
-      record = [mesh, mesh.material, mesh.castShadow];
-      ghostMaterials.push(record);
-      mesh.castShadow = false;
+    const layer = previewLayers.get(mesh);
+    if (!layer) {
+      // The layer remembers its colour: when a layer under it changes, it is made again.
+      const fresh = {color, castShadow: false, material() {return new THREE.MeshBasicMaterial({color: this.color, transparent: true, opacity: .34, depthWrite: false, side: THREE.DoubleSide});}};
+      previewLayers.set(mesh, fresh); setLayer(mesh, 'preview', fresh);
       renderer.shadowMap.needsUpdate = true;
-      mesh.material = new THREE.MeshBasicMaterial({transparent:true, opacity:.34, depthWrite:false, side:THREE.DoubleSide});
+    } else if (layer.color !== color) {
+      // The preview is the top layer and replaces the material outright, so what shows is its own.
+      layer.color = color;
+      for (const material of [mesh.material].flat()) material.color.setHex(color);
     }
-    const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
-    mesh.material.color.setHex(color);
   });
-  for (let i=ghostMaterials.length-1; i>=0; i--) {
-    const [mesh, original, castShadow] = ghostMaterials[i];
+  for (const mesh of [...previewLayers.keys()]) {
     if (activeMeshes.has(mesh)) continue;
-    mesh.material.dispose(); mesh.material = original; mesh.castShadow = castShadow;
-    ghostMaterials.splice(i,1); renderer.shadowMap.needsUpdate = true;
+    setLayer(mesh, 'preview', null); previewLayers.delete(mesh);
+    renderer.shadowMap.needsUpdate = true;
   }
 }
 
