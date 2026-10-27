@@ -56,7 +56,7 @@
 - **可动物体试验**：见下文“开门、开柜门”一节末尾和服务器 `runs/articulation-trials-20261019/`；方法 2 已用在 room3 钢琴上。
 - **CI 慢**：2026-10-19 晚 GitHub Actions 故障（官方状态页有事故），排队十几分钟；平时一次 1.5–2 分钟。Git 历史已 346 MB（房间模型每版整份留在历史里），以后可考虑 Git LFS、依赖缓存、按改动目录跳过检查。
 - **#23 lyk：ViewForge 只管物体**（`6d56373`，2026-10-20 合并）：`object-reconstruction/scripts/web.py` 改成只有接口的 Starlette / Uvicorn 服务（不再加载 Gradio），上传、抠图、重建、进度、标定接口地址不变；物体读取拆到 `scripts/assets.py`（`/viewforge/assets/catalog`、`<结果>`、`<结果>/{result,preview}.glb`、`result.ply`、`preview.json`），旧 `/viewforge/layouts/catalog`、`layouts/assets/…` 只兼容物体读取，房间读取、布局页、validate、save 已去掉。旧 Gradio 页面、Babylon 查看器和布局页、ViewForge 手势接入页、旧测试整体挪进 `object-reconstruction/legacy/`（弃用，只作参考，CI 不再构建）；独立手势页改为 `gesture/roomcanvas.html`（协议 `roomcanvas-gesture-v1`）。编辑器新增：重建结果预览的 X/Y/Z 坐标轴（Z 是高度），仓库里可删除重复导入的实例。lyk 验证：后端 CPU 42 项、网页 180 项、本机服务 12 项；GPU 用 CPU 模拟，没真跑重建，没真人摄像头。
-  - **部署状态**（2026-10-20）：服务器代码同步到 `6d56373` 后（之后又同步了 #22，现为 `6daeb80`），7862 已按“服务器”一节的命令重启为新的 Starlette 接口服务，用服务器 mvsam3d 环境现有的包（uvicorn 0.52.4，没按 `configs/api-requirements.txt` 的 0.54.0 去 `pip install`），日志 `ViewForge/logs/roomcanvas-api-20261020.log`；`/health`、物体目录（28 个结果）、`result.glb` 读取都验证过，没在 GPU 上真跑一次重建。旧 Gradio 页面和 ViewForge 布局页已经没有了，`/workspace/geyinuo/RoomCanvas-Reconstruction/` 不再被读（仍先别动）。服务器上 `object-reconstruction/viewer/` 只剩 git 忽略的 `.gitignore`、`.test-build/`，没删。
+  - **部署状态**（2026-10-20）：服务器代码同步到 `6d56373` 后（之后又同步了 #22，现为 `6daeb80`），7862 已按“服务器”一节的命令重启为新的 Starlette 接口服务，用服务器 mvsam3d 环境现有的包（uvicorn 0.52.4，没按 `configs/api-requirements.txt` 的 0.54.0 去 `pip install`），日志 `ViewForge/logs/roomcanvas-api-20261020.log`；`/health`、物体目录（28 个结果）、`result.glb` 读取都验证过，没在 GPU 上真跑一次重建。旧 Gradio 页面和 ViewForge 布局页已经没有了，`/workspace/geyinuo/RoomCanvas-Reconstruction/` 不再被读（2026-10-27 已挪进 `archive/`）。服务器上 `object-reconstruction/viewer/` 只剩 git 忽略的 `.gitignore`、`.test-build/`，没删。
   - lyk 在本文顶部写的三段原始记录（内容未删）：
     - **ViewForge 只负责物体（本地改动，未部署）**
       - 移除 ViewForge 的 Babylon 房间布局源码、构建产物、房间读取、场景碰撞、承托与布局快照接口；现有服务器外部数据不动。下文关于旧 ViewForge 布局页的描述属于历史。
@@ -119,11 +119,11 @@
 | `runs/` | 所有运行结果，不覆盖 |
 | `runs/room3-astra-20261016/pipeline/hausen_room3/realism_authoring/room_preview/` | room3 的 `Room.glb`、`room_layout.json` |
 | `runs/full-astra-20260919/office_room/realism_authoring/room_preview/` | office 的 `room_layout.json` |
-| `archive/` | 只挪不删的旧东西：9 月旧仓库、旧脚本（`astra_run.py`、`repo/`、`official/` 等）、小物件试跑 |
+| `archive/` | 只挪不删的旧东西：9 月旧仓库、旧脚本（`astra_run.py`、`repo/`、`official/` 等）、小物件试跑、9 月早期重建试验 `RoomCanvas-Reconstruction/`（2026-10-27 从 `/workspace/geyinuo/` 挪进来，17 GB，里面 190 条绝对路径软链接已改指新位置；里面的 Python 环境写死了旧路径，不能再直接用） |
 
 同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `room-reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `room-reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
 
-`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）原先供 ViewForge 旧布局读取；2026-10-20 本地代码已移除这项依赖，但尚未部署，仍**不要动**。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
+`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）原先供 ViewForge 旧布局读取；7862 换成新后端（#23，2026-10-20 部署）后已无进程、软链接或配置引用它，2026-10-27 用户同意后挪进本文件夹的 `archive/`。只有 lyk 不再启动的旧代码 `ViewForge/code/scripts/layouts.py` 和他的 `lyk_HANDOFF.md` 还写着旧路径。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
 
 ## 最近的结果
 
