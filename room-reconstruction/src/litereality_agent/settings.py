@@ -67,7 +67,7 @@ class LiteRealitySettings(BaseSettings):
     )
     codex_model: str | None = Field(default="gpt-6-astra", validation_alias="LR_CODEX_MODEL")
     codex_effort: str = Field(default="high", validation_alias="LR_CODEX_EFFORT")
-    codex_session_seconds: float = Field(default=1800, gt=0, validation_alias="LR_CODEX_SESSION_SECONDS")
+    codex_session_seconds: float = Field(default=3600, gt=0, validation_alias="LR_CODEX_SESSION_SECONDS")
 
     harness_model: str = Field(default="claude-opus-5", validation_alias="HARNESS_MODEL")
     critic_model: str | None = Field(default=None, validation_alias="HARNESS_CRITIC_MODEL")
