@@ -1,9 +1,11 @@
+import fcntl
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -118,6 +120,40 @@ class RunnerTests(unittest.TestCase):
                 reconstruction.main()
                 for key, value in options.items():
                     self.assertEqual(call.call_args.kwargs[key], value)
+
+    def test_gpu_memory_is_checked_once_the_lock_is_ours(self):
+        """While another job holds the lock it also holds the memory; --wait-gpu waits for it."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for path in ('weights/da3-nested-giant-large/x', 'weights/sam3d/pipeline.yaml',
+                         'third_party/dinov2/hubconf.py'):
+                (root/path).parent.mkdir(parents=True, exist_ok=True)
+                (root/path).touch()
+            lock_path = root/'gpu.lock'
+            holder = lock_path.open('a')
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            checked, errors = [], []
+            def check_gpu(_):
+                checked.append(holder.closed)
+                return 'GPU-test'
+            def main():
+                try:
+                    runner.main()
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+            argv = ['run.py', '--object', 'chair', '--attempt', 'a01', '--wait-gpu']
+            env = dict(VIEWFORGE_ROOT=str(root), VIEWFORGE_GPU_LOCK=str(lock_path))
+            with patch.dict(runner.os.environ, env), patch.object(sys, 'argv', argv), \
+                 patch.object(runner, 'input_manifest', return_value=dict(images=[{}])), \
+                 patch.object(runner, 'check_gpu', side_effect=check_gpu), \
+                 patch.object(runner, 'stage_inputs', side_effect=RuntimeError('stop here')):
+                thread = threading.Thread(target=main)
+                thread.start()
+                time.sleep(.2)
+                self.assertEqual(checked, [])
+                holder.close()
+                thread.join(5)
+            self.assertEqual((checked, errors), ([True], ['stop here']))
 
 
 if __name__ == '__main__':
