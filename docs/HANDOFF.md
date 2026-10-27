@@ -1,6 +1,6 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27（main `152eb12`；服务器文件夹同步到 `152eb12`；7862 是 2026-10-26 容器重启后照原命令重起的后端，代码和 #31 起的一样，进程 3201，日志 `ViewForge/logs/roomcanvas-api-20261026.log`）。新对话先读下面“从这里开始”。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27（main `038f568`；服务器文件夹同步到 `038f568`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
 
 ## 从这里开始（2026-10-27 交接）
 
@@ -107,7 +107,7 @@
 
 `ssh 3090x2-docker`（免密）。RoomCanvas 在服务器上只有一个文件夹 `/workspace/geyinuo/RoomCanvas/`（2026-10-17 整理），它就是本仓库 main 的 checkout，也是 `ROOMCANVAS_HOME`。下表的服务器专用目录写在 `.git/info/exclude` 里，不进 git。
 
-**这个文件夹里跑着正式服务**：ViewForge 后端（2026-10-18 起，lyk 迁移）从 `object-reconstruction/` 启动，监听 `172.18.0.2:7862`。所以：这里始终停在 main、工作区保持干净（不在这里直接改文件，改动走 PR）；更新代码后，若 `object-reconstruction/` 的代码有变，先告诉 lyk，再重启这个服务（在该目录 `source configs/local.env && source scripts/env.sh && python scripts/web.py --host 172.18.0.2 --port 7862`）；只改文档、网页时不用重启。
+**这个文件夹里跑着正式服务**：ViewForge 后端（2026-10-18 起，lyk 迁移）从 `object-reconstruction/` 启动，监听 `172.18.0.2:7862`。所以：这里始终停在 main、工作区保持干净（不在这里直接改文件，改动走 PR）；更新代码后，若 `object-reconstruction/` 的代码有变，先告诉 lyk，再重启这个服务（在该目录 `source configs/local.env && source scripts/env.sh && python scripts/web.py --host 172.18.0.2 --port 7862`，用 nohup 起，日志写 `runtime/object-reconstruction/logs/roomcanvas-api-<日期>.log`）；只改文档、网页时不用重启。
 
 | 路径（在 `/workspace/geyinuo/RoomCanvas/` 下） | 内容 |
 |---|---|
@@ -123,7 +123,7 @@
 
 同步代码：服务器访问 GitHub 不稳定，用 `git bundle` + `scp`，在这个文件夹里先 `git status` 确认干净，再 `git fetch <bundle> main:refs/tmp/main`、`git merge --ff-only refs/tmp/main`。运行一律用 `room-reconstruction/server/run_room.py`（先加 `--check`），它会确认加载的是这份 checkout 的代码。litereality-env 的可编辑安装已改为指向这里的 `room-reconstruction/src`。手动跑 Blender 要带 `LD_LIBRARY_PATH`（见 `run_room.py`）。
 
-`/workspace/geyinuo/` 下的 `ViewForge/` 是 lyk 的运行目录（Python 环境、权重、照片、重建结果；旧的 `ViewForge/code` 不再启动），上面的 ViewForge 后端从这里读，不要动；`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）原先供 ViewForge 旧布局读取；7862 换成新后端（#23，2026-10-20 部署）后已无进程、软链接或配置引用它，2026-10-27 用户同意后挪进本文件夹的 `archive/`。只有 lyk 不再启动的旧代码 `ViewForge/code/scripts/layouts.py` 和他的 `lyk_HANDOFF.md` 还写着旧路径。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
+物体重建（原 ViewForge）的运行目录：原来是 `/workspace/geyinuo/ViewForge/`，2026-10-27 用户要求整个并进本文件夹，现在是 `runtime/object-reconstruction/`（`envs/`、`weights/`、`cache/`、`third_party/`、`data/`、`runs/`、`logs/`，约 105 GB；`configs/local.env` 的 `VIEWFORGE_ROOT`、`VIEWFORGE_GPU_LOCK` 已改指这里，代码不用改），不再用的旧代码 `code/` 和 lyk 的 `lyk_HANDOFF.md`、`README.md` 挪到 `archive/ViewForge-old-20261027/`。目录里 1056 条指向自己的绝对路径软链接已改指新位置。`/workspace/geyinuo/ViewForge` 暂时留了一条指向新位置的软链接：挪的时候另一个会话正在用 `roomcanvas-trellis-20261027-_7w1rz47/` 临时目录（软链到旧路径的环境、权重）测试，那边测完就可以删这条软链接。环境里 `worldsculpt` 的部分脚本、`mvsam3d` 的 Cython 命令行脚本写死了旧路径，当前流程不用它们。`rc3090/` 等是 RoboSyn 的，也不要动。`/workspace/geyinuo/RoomCanvas-Reconstruction/`（9 月的早期重建试验）原先供 ViewForge 旧布局读取；7862 换成新后端（#23，2026-10-20 部署）后已无进程、软链接或配置引用它，2026-10-27 用户同意后挪进本文件夹的 `archive/`。只有 lyk 不再启动的旧代码 `code/scripts/layouts.py` 和他的 `lyk_HANDOFF.md`（现都在 `archive/ViewForge-old-20261027/`）还写着旧路径。挪服务器上任何目录前，先查别的项目和正在运行的进程是否引用它。
 
 ## 最近的结果
 
@@ -148,7 +148,7 @@
 
 ## ViewForge 和手势（PR #5 合进来的，lyk 的部分）
 
-- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端 2026-10-18 起从本仓库的 `object-reconstruction/` 运行（见上文“服务器”），运行环境、权重、照片、历史结果仍来自 `/workspace/geyinuo/ViewForge`；服务器上的 `object-reconstruction/configs/local.env` 已配好，不进 git。
+- 代码：`object-reconstruction/`（ViewForge：照片 → 抠图 → 多视角重建 → 尺寸标定；布局页用 Babylon，松手时请服务器做承托和碰撞校验），`gesture/`（本机浏览器里用摄像头识别手势，通过 `viewforge-gesture-v1` 消息协议驱动嵌入的布局页）。服务器后端 2026-10-18 起从本仓库的 `object-reconstruction/` 运行（见上文“服务器”），运行环境、权重、照片、历史结果在本文件夹的 `runtime/object-reconstruction/`（2026-10-27 前是 `/workspace/geyinuo/ViewForge`）；服务器上的 `object-reconstruction/configs/local.env` 已配好，不进 git。
 - （#23 起旧布局页已归档到 `object-reconstruction/legacy/`，正式后端不再提供，以下为历史）本机试 ViewForge 原布局：开隧道 `ssh -C -N -o IPQoS=none -o ServerAliveInterval=15 -L 127.0.0.1:7865:172.18.0.2:7862 3090x2-docker`（lyk 的机器把 `3090x2-docker` 换成他自己的 SSH 别名）；仓库根目录 `sh scripts/gesture.sh install`、`sh scripts/gesture.sh dev`；Chrome 打开 <http://127.0.0.1:8800/viewforge.html>。房间打开时是空的（服务器上没有保存的布局），要先“确认尺寸并固定”，再在“加入重建物体”里选 `20260926_sofa_web_114146_561893`（沙发）、“重新读取已保存尺寸”、“加入场景”。左手比 1/2/3 切移动/旋转/观察，右手捏合抓取。
 - 旋转偏慢的原因：`object-reconstruction/viewer/src/layout-gesture.ts` 里旋转量 = 手在画面中横移比例 × π，手扫过整个画面才转 180°，平时一次只转 36–54°；移动则是 1:1 指向地面，所以流畅。改成 2π 倍率或按手速加速即可，是否改待和 lyk 商量。我们自己的接收端用 2π。
 - **room3 接进手势页（2026-10-18，#8 已合并）**：定为做法 (a)，给 RoomCanvas 编辑器加手势协议接收端（`web/editor/gesture-bridge.mjs`），手势页用 `?layout=` 指向编辑器，`gesture/` 和 ViewForge 一行没改。room3 全部家具可用手势移动、旋转，观察模式环绕/平移；手的指针覆盖整个编辑器（捏合按钮=点击），从仓库卡片捏住拖出（手进房间家具才出现），松手只停成预览，在预览上轻捏一下=放置并落下（用户 2026-10-18 要求；原来松手即放下、仓库拖不出来）；编辑器“导入物体”按实测尺寸导入 ViewForge 物体（显示完整模型，碰撞用轻量预览，自动放到最近空地）。打开：<http://127.0.0.1:8800/viewforge.html?layout=http%3A%2F%2F127.0.0.1%3A7880%2Fweb%2Feditor%2F%3Fscene%3D..%2F..%2Fsamples%2Froom3>（需隧道 7865、手势页 8800、`serve.py` 7880）。用 Playwright 驱动真实手势页、模拟手势消息验证过：连接、切模式、环绕、导入 Cody（约 12 秒）、手势拖动放下、旋转 45°；没有真人摄像头验收。已知：导入的物体不随布局保存；琴凳夹在床和钢琴之间，原地转 15° 就碰床（原有逻辑如此）。做法 (b) 不做。
@@ -179,9 +179,9 @@
    - 没做的：GPU 只用 `local.env` 里授权的那一张（现为 GPU0），不在两张卡之间挑空闲的；任务记录在后端进程内存里，重启服务后进行中的任务跟踪不到；补拍（基于已有结果加照片）原来只在 ViewForge 的 Gradio 页面有，#23 起该页面已归档，RoomCanvas 里待补（见待办 0）。
    原计划：
    - 后端（用户 2026-10-18 定）：ViewForge 是本项目的一部分，在本仓库里一起维护、修改，不是 lyk 独立的只读代码。所以直接在现有后端（`object-reconstruction/scripts/web.py` 起的服务）上加给 RoomCanvas 用的接口（通过同服务的 ASGI middleware），不另起服务。流程用仓库 `object-reconstruction/` 的脚本：`import_photos`（导入照片）→ `scripts/prepare_masks.py`（BiRefNet 抠图预览）→ `scripts/run.py`（DA3 深度 + SAM3D 重建，产出 `reconstruction/result.glb`、`preview.glb`）→ 尺寸标定（`dimensions.py`），参考 `scripts/web.py` 的 Gradio 流程。
-   - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（`/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
+   - 目录：沿用后端现有的 `VIEWFORGE_ROOT`（2026-10-27 起为 `runtime/object-reconstruction/`，之前是 `/workspace/geyinuo/ViewForge`：`envs/mvsam3d`、`weights/`、`cache/`、`third_party/`，数据在 `data/inputs`、`runs/`），数据和缓存共用；新重建的物体直接进现有物体目录，编辑器“导入物体”就能读到。GPU 排队用后端已有的 `VIEWFORGE_GPU_LOCK`，一次占一张空闲 GPU。
    - 前端：仓库栏“+ 添加物体”卡片 → 分步对话框：命名 + 上传照片（拖拽，3 张起）→ 抠图预览（可剔除坏图）→ 重建进度 → 结果预览 + 填一条实测边长 → 进仓库（复用现有“导入物体”的显示/碰撞做法）。浏览器经 `serve.py` 转发 + 现有 SSH 隧道（7865）到这个服务。
-   - 服务器上的后端是正在运行的服务：改了 `object-reconstruction/` 的代码，同步后要重启它才生效，重启前告诉 lyk（他可能正在用）。`/workspace/geyinuo/ViewForge` 运行目录不挪。
+   - 服务器上的后端是正在运行的服务：改了 `object-reconstruction/` 的代码，同步后要重启它才生效，重启前告诉 lyk（他可能正在用）。运行目录 2026-10-27 已并进 `runtime/object-reconstruction/`。
 
 ## 光影增强（lyk，#19）
 

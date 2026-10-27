@@ -16,7 +16,7 @@ RoomCanvas/
 └── scripts/gesture.sh     本机手势启动入口
 ```
 
-源码统一由 RoomCanvas 根目录的 Git 管理，各模块内没有嵌套 Git。物体重建运行数据仍由 `VIEWFORGE_ROOT` 指向外部目录；现有服务器使用 `/workspace/geyinuo/ViewForge`：
+源码统一由 RoomCanvas 根目录的 Git 管理，各模块内没有嵌套 Git。物体重建运行数据仍由 `VIEWFORGE_ROOT` 指向外部目录；现有服务器使用 RoomCanvas 服务器文件夹里的 `runtime/object-reconstruction/`（2026-10-27 起；之前是 `/workspace/geyinuo/ViewForge`）：
 
 ```text
 $VIEWFORGE_ROOT/
