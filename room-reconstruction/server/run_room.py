@@ -54,6 +54,12 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def scene_dirs(run_dir: Path) -> list[Path]:
+    """Scene directories a run has written. The pipeline names them (hausen_room3 for a scan
+    folder room3), so they are found by their scene.json rather than by the scan's name."""
+    return [d for d in sorted((run_dir / "pipeline").glob("*")) if (d / "scene.json").is_file()]
+
+
 def git(*args: str) -> str:
     return subprocess.run(["git", "-C", str(CHECKOUT), *args], capture_output=True,
                           text=True).stdout.strip()
@@ -110,7 +116,13 @@ package = Path(probe.stdout.strip() or "?")
 if not package.is_relative_to(RECON / "src"):
     raise SystemExit(f"litereality_agent loads from {package}, not {RECON / 'src'}\n{probe.stderr}")
 
-target = a.scan if not a.from_stage else a.run_dir / "pipeline" / a.scan.name
+target = a.scan
+if a.from_stage:  # resume the run's own scene; without one the CLI starts it from the scan
+    found = scene_dirs(a.run_dir)
+    if len(found) > 1:
+        raise SystemExit(f"--from: more than one scene under {a.run_dir / 'pipeline'}: "
+                         + ", ".join(d.name for d in found))
+    target = found[0] if found else a.scan
 cmd = [str(runtime / "litereality-env/bin/litereality"), "run", str(target),
        "--author-profile", "open", "--output-root", str(a.run_dir / "pipeline"),
        "--repair-rounds", a.repair_rounds]
@@ -157,11 +169,10 @@ with GpuLock(runtime / "locks", gpu), (attempt / "pipeline.log").open("w") as lo
     rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
 (attempt / "exit").write_text(f"{rc}\n")
 print(attempt.name, "exit", rc)
-# Author may stop short of publishing (its visual review) and still leave a usable room. The scene
-# directory is named by the pipeline (hausen_room3 for a scan folder room3): the one with a room.
-scenes = [d for d in sorted((a.run_dir / "pipeline").glob("*"))
-          if (d / "scene.json").is_file()
-          and (d / "realism_authoring/room_preview/Room.blend").is_file()
+# Author may stop short of publishing (its visual review) and still leave a usable room: take the
+# scene that has one.
+scenes = [d for d in scene_dirs(a.run_dir)
+          if (d / "realism_authoring/room_preview/Room.blend").is_file()
           and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
 if articulate and len(scenes) == 1:
     articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
