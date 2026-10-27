@@ -12,6 +12,7 @@ from unittest.mock import patch
 from PIL import Image
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 SPEC = importlib.util.spec_from_file_location('layout_runner', Path(__file__).resolve().parents[1]/'scripts/run.py')
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)

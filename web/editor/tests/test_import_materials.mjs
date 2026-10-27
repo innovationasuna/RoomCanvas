@@ -51,3 +51,20 @@ test('unlit textured imports keep texture and alpha semantics in the opt-in PBR 
   assert.equal(mesh.material.opacity,.6); assert.equal(mesh.material.alphaTest,.1); assert.equal(mesh.material.depthWrite,false);
   adapter.dispose();
 });
+
+test('native PBR imports retain textures and lighting independently of the legacy colour toggle', () => {
+  const texture = new THREE.Texture(), roughness = new THREE.Texture();
+  const source = new THREE.MeshStandardMaterial({map: texture, roughnessMap: roughness, metalness: .4});
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), source), root = new THREE.Group(); root.add(mesh);
+  const adapter = createImportMaterials(THREE, root, {preservePBR: true});
+  for (const mode of ['original', 'pbr', 'original']) {
+    adapter.setMode(mode);
+    assert.ok(mesh.material.isMeshStandardMaterial);
+    assert.equal(mesh.material.map, texture);
+    assert.equal(mesh.material.roughnessMap, roughness);
+    assert.equal(mesh.material.metalness, .4);
+    assert.equal(mesh.receiveShadow, true);
+  }
+  assert.equal(adapter.snapshot().mode, 'pbr');
+  adapter.dispose(); assert.equal(mesh.material, source);
+});

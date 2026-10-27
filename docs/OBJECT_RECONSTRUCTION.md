@@ -2,6 +2,8 @@
 
 更新：2026-10-20。RoomCanvas 是唯一正式界面，负责照片重建流程、模型与坐标轴预览、实测尺寸输入、房间摆放和手势。`object-reconstruction/` 提供无界面的物体重建 API，保留 BiRefNet、DA3 / MV-SAM3D、COVER 及尺寸计算。
 
+2026-10-27 的实验分支新增可选 TRELLIS.2 后端，复用场景侧启动器和权重；默认仍是下述 MV-SAM3D 流程。首图输入、PBR、能力差异、隔离测试与命令见 [TRELLIS 物体实验](OBJECT_TRELLIS_EXPERIMENT.md)。
+
 ## 使用入口
 
 在仓库根目录运行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/>，选择房间。

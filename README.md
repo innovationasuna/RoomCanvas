@@ -252,6 +252,9 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | [网页说明](web/README.md) | 编辑器的全部操作、房间文件格式、光照参数和调研、测试、已知问题 |
 | [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建一个房间、小物件和可动部件这两步、接到网页，以及对 LiteReality-Agent 的改动 |
 | [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体后端的部署、接口和 SSH 隧道 |
+| [场景重建流程](docs/ROOM_RECONSTRUCTION_PIPELINE.md) / [物体重建流程](docs/OBJECT_RECONSTRUCTION_PIPELINE.md) | 两条重建链路的输入、模型、尺度、产物和后处理 |
+| [重建与材质调研](docs/RECONSTRUCTION_MODEL_RESEARCH.md) | 共用模型的可行性、六个候选与 TRELLIS.2 基线、PBR／去光照和实验顺序 |
+| [TRELLIS 物体重建实验](docs/OBJECT_TRELLIS_EXPERIMENT.md) | 独立拍照入口复用场景侧 TRELLIS.2，首图生成、PBR 导入及验证记录 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
 | [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
 | [交接文档](docs/HANDOFF.md) | 当前进度、服务器目录和待办 |

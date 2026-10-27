@@ -14,5 +14,9 @@ mv:
   stage2_entropy_alpha: 30.0
   stage2_attention_layer: 6
   stage2_attention_step: 0
+trellis:
+  pipeline_type: 1024_cascade
+  texture_size: 2048
+  decimation: 50000
 runtime:
   min_free_gib: 22

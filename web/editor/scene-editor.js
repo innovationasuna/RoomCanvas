@@ -18,11 +18,11 @@ import {createGestureCamera} from './gesture-camera.mjs?v=gesture-20261023';
 import {canGestureActivate, isExplicitExport} from './gesture-target.mjs?v=gesture-20261023';
 import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
 import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-53';
+import {mountAddObject} from './add-object-dialog.mjs?v=app-60';
 import {shadowSettings} from './lighting-settings.mjs?v=app-37';
 import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
 import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
-import {createImportMaterials} from './import-materials.mjs?v=app-38';
+import {createImportMaterials} from './import-materials.mjs?v=app-60';
 import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
 import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
 import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
@@ -1837,7 +1837,7 @@ async function openImports() {
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
     warehouse.setOpen(false);
     const {axis, value} = asset.calibration;
-    await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
+    await importRun(run, asset.base, metricScale(asset.base, axis, value), asset.capabilities).catch((error) => {
       console.error(error); showToast(`导入失败：${error.message || error}`);
     });
   }});
@@ -1870,7 +1870,7 @@ async function chooseImport() {
   if ($('#import-run').value !== run) return;
   if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
   importAsset = {...asset, run};
-  $('#import-capture').disabled = false;
+  $('#import-capture').disabled = asset.capabilities?.capture === false;
   const saved = savedMeasurement(asset);
   if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
   else $('#import-meters').value = '';
@@ -1901,10 +1901,10 @@ async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
   $('#import-object').disabled = true;
-  try {await importRun(run, base, scale);} finally {$('#import-object').disabled = false;}
+  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = false;}
   $('#import-menu').open = false;
 }
-async function importRun(run, base, scale) {
+async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
@@ -1918,7 +1918,8 @@ async function importRun(run, base, scale) {
     mesh.userData.collision = false; mesh.raycast = () => {};
     mesh.castShadow = true;
   });
-  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original',
+    preservePBR: capabilities?.material_mode === 'pbr'});
   light.scene.name = light.scene.userData.name = contact;
   light.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;
