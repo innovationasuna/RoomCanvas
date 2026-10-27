@@ -82,4 +82,4 @@ $PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<
 - **新增、不改官方文件**：3090 运行脚本 `room-reconstruction/server/`；小物件这一步 `pipeline/realism_authoring/small_objects/`（复用官方的证据图、参考图、TRELLIS 启动器和看图问答）。
 - **CI**：`.github/workflows/ci.yml` 先用 gitleaks 扫描全部历史里的密钥，再跑官方测试和网页测试。
 
-逐行改动看提交 2。
+逐行改动看提交 2。另删了没有任何地方调用的官方代码（2026-10-27，用户同意删死代码）：`pipeline/scene_init/layout/agent_loop.py`、`toolcli.py`（让模型调用的 `physical_engine.toolcli` 包早已不存在），`layout/agent.py` 的 `solve_v10`、`layout/repair.py` 的 `solve_v11`–`solve_v13`，`agent/tools/shared/config.py` 的 `RANK_TOOL`、`ANNOTATE_TOOL`。
