@@ -144,9 +144,7 @@ def ensure_dirs() -> None:
 
 # tools — all inside the SDK now (render + view selection consolidated here)
 RENDER_TOOL = SDK / "room_render" / "render_room_cameras.py"
-ANNOTATE_TOOL = SDK / "room_render" / "annotate_views.py"
 SELECT_TOOL = TOOLS / "select_views" / "source" / "select_views.py"
-RANK_TOOL = SDK / "room_render" / "rank_views.py"  # moved into the SDK
 
 # stage 1 — rectified head-on "ortho" reference per surface (the agent's material
 # ground truth). The SDK tool stitches walls; surface_reference.py extends it to the

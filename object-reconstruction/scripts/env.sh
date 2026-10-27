@@ -2,7 +2,6 @@
 # Source configs/local.env explicitly before this file; never auto-load it.
 : "${VIEWFORGE_ROOT:?Set VIEWFORGE_ROOT, or explicitly source configs/local.env first}"
 : "${CUDA_VISIBLE_DEVICES:?Set one authorized CUDA_VISIBLE_DEVICES value}"
-export MV_ROOT="$VIEWFORGE_ROOT"
 export CONDA_PREFIX="$VIEWFORGE_ROOT/envs/mvsam3d"
 export PATH="$CONDA_PREFIX/bin:$PATH" CUDA_HOME="$CONDA_PREFIX"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}" MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}" MAX_JOBS="${MAX_JOBS:-4}"
