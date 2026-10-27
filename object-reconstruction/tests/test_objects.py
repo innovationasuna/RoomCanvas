@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -175,6 +176,43 @@ class ObjectsTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         lock.close()
         self.assertEqual(self.wait(job['id'])['status'], 'complete')
+
+    def test_longest_name_can_still_be_captured(self):
+        # Ids built from the name (photo <name>_001, run <date>_<name>_web_<time>) stay valid.
+        name = '椅' * objects.MAX_NAME
+        self.assertIn(f'1–{objects.MAX_NAME}', self.create(name=name + '椅').json()['error'])
+        first = self.build(self.create(name=name, photos=2).json()['images'], name=name)
+        self.assertEqual(first['status'], 'complete', first)
+        captured = self.capture(first['run']).json()
+        self.assertEqual(captured['parent'], first['run'], captured)
+
+    def test_same_name_at_once_gets_one_object(self):
+        results, barrier = [], threading.Barrier(2)
+        upload = [('IMG.jpg', self.root/'IMG.jpg')]
+        upload[0][1].write_bytes(photo())
+        def create():
+            barrier.wait()
+            try:
+                results.append(objects.create_object(self.root, 'chair', upload)['object'])
+            except ValueError as exc:
+                results.append(str(exc))
+        threads = [threading.Thread(target=create) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(sorted(results), ['chair', '这个名称已经有了，换一个'])
+
+    def test_previewing_existing_masks_does_not_wait_for_the_gpu(self):
+        images = self.create().json()['images']
+        self.assertEqual(self.build(images)['status'], 'complete')
+        lock = (self.root/'cache/gpu.lock').open('a')
+        fcntl.flock(lock, fcntl.LOCK_EX)  # a reconstruction is running
+        try:
+            job = self.client.post('/viewforge/objects/masks', json=dict(object='chair', images=images)).json()
+            self.assertEqual(self.wait(job['id'])['status'], 'complete')
+        finally:
+            lock.close()
 
     def test_other_sites_cannot_post(self):
         response = self.client.post('/viewforge/objects/masks', json={}, headers=dict(origin='http://evil.example'))
