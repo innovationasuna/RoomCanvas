@@ -106,4 +106,4 @@ bash scripts/launch.sh --object stuffed_toy --images 1 3 5 7 --attempt a03
 另建独立物体 `birefnet_partial_20260913`，四张原图只作链接，并复制本次输出的 1、5 为 `_mask.png` 形式。真实准备复用 1、5，仅生成 3、7，共 38.542 秒；两张已有 mask 的大小和 mtime 未改变。记录为 `logs/masks/20260913_161310_9d2bedad/`。原 `stuffed_toy` 的全部照片和 mask 的大小及 mtime 与首轮准备记录一致，最终两张 GPU 均回到 2 MiB。
 
 
-项目运行根目录已于 2026-09-13 统一为 `/workspace/geyinuo/ViewForge`，网页标题为 ViewForge（物体重建）。目录用途见 [项目目录](DIRECTORY_LAYOUT.md)。原路径 `/workspace/geyinuo/viewforge-mvsam3d` 保留为指向 `ViewForge` 的兼容软链接，用于已有环境入口、历史记录和符号链接；历史结果内容未批量改写。
+项目运行根目录已于 2026-09-13 统一为 `/workspace/geyinuo/ViewForge`，网页标题为 ViewForge（物体重建）。目录用途见 [项目目录](DIRECTORY_LAYOUT.md)。原路径 `/workspace/geyinuo/viewforge-mvsam3d` 保留为指向 `ViewForge` 的兼容软链接，用于已有环境入口、历史记录和符号链接；历史结果内容未批量改写。2026-10-27 起运行根目录并入 RoomCanvas 服务器文件夹的 `runtime/object-reconstruction/`（`/workspace/geyinuo/ViewForge` 暂留为指向它的软链接，`viewforge-mvsam3d` 早已不存在），本文以上记录里的旧路径保持原样。
