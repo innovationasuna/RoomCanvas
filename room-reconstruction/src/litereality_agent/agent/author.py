@@ -470,10 +470,12 @@ def _n_frames(scan: Path) -> int:
 
 
 def _blender_bin() -> str:
-    d = os.environ.get("LITEREALITY_BLENDER", "")
-    if d:
-        return str(Path(d) / "blender")
-    return shutil.which("blender") or "blender"
+    # Only named in the prompt, so a missing Blender should not stop authoring here.
+    from litereality_agent.room_ops.paths import find_blender
+    try:
+        return find_blender()
+    except SystemExit:
+        return shutil.which("blender") or "blender"
 
 
 def room_compiles(room: Path) -> str:

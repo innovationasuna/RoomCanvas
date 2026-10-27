@@ -41,9 +41,9 @@ render_room_from_cameras(scene, out_dir, frames=frames, res_div=res_div,
 
 
 def _blender_bin() -> str:
-    d = os.environ.get("LITEREALITY_BLENDER", "")
-    b = Path(d) / "blender" if d else Path("blender")
-    return str(b)
+    # $LITEREALITY_BLENDER may name the install directory or the binary itself.
+    from litereality_agent.room_ops.paths import find_blender
+    return find_blender()
 
 
 def _resolve_assets(room: Path) -> Path:
