@@ -1414,6 +1414,10 @@ function setMode(nextMode) {
   requestRender();
 }
 
+// The orbiting camera comes back when nothing else is steering the view: not while walking (the
+// gesture page can still send gestures then), nor while a hand still turns or scales the scene.
+function releaseOrbit() {controls.enabled = !walk?.active && !gesture && !gestureView && !gestureScale;}
+
 // 漫游: the ceiling is shown (as in the room itself), gestures and the orbiting camera rest.
 function enterWalk() {
   if (gestureCamera?.on) {gestureCamera.stop(); showGestures(false);}
@@ -1425,7 +1429,7 @@ function enterWalk() {
 }
 function exitWalk() {
   walk.exit();
-  controls.enabled = !gestureView && !gestureScale;
+  releaseOrbit();
   for (const object of ceilingObjects) object.visible = $('#ceiling').checked;
   renderer.shadowMap.needsUpdate = true;
   hideOpenHint();
@@ -1563,7 +1567,7 @@ function gestureStep(step) {
 }
 function endGesture() {
   cancelAnimationFrame(gestureFrame); gestureFrame = 0;
-  gesture = null; analogActive = false; controls.enabled = !gestureView && !gestureScale;
+  gesture = null; analogActive = false; releaseOrbit();
   delete handPointer.dataset.label;
 }
 // 与移动使用同一承托面投影，保持手与物体的抓取偏移。
@@ -1729,7 +1733,7 @@ const gesturePort = {
     finish(cancel) {
       if (!gestureView) return;
       if (cancel) applyCamera(gestureView.base);
-      gestureView = null; controls.enabled = !gesture && !gestureScale;
+      gestureView = null; releaseOrbit();
     },
   },
   scale: {
@@ -1745,7 +1749,7 @@ const gesturePort = {
       applyCamera({...gestureScale.base, zoom:Math.max(.3, Math.min(4, gestureScale.base.zoom * ratio))});
     },
     finish(interrupted) {
-      gestureScale = null; controls.enabled = !gesture && !gestureView;
+      gestureScale = null; releaseOrbit();
       $('#status').textContent = interrupted ? '缩放已冻结 · 松手后继续' : '缩放结束 · 左手捏合可继续环绕';
     },
   },
@@ -2114,7 +2118,7 @@ async function load() {
     },
     onEnd() {
       analogActive = false;
-      controls.enabled = true;
+      releaseOrbit();
       const before = joystickBefore; joystickBefore = null;
       if (before && pending) validateAfterRender();
       else if (before) commit(before);
