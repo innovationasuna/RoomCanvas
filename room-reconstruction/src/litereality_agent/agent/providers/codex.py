@@ -340,7 +340,7 @@ class CodexHarness:
         model = _codex_model()
         if model:
             cmd += ["-m", model]
-        seconds = spec.timeout_seconds or float(os.environ.get("LR_CODEX_SESSION_SECONDS", "1800"))
+        seconds = spec.timeout_seconds or float(os.environ.get("LR_CODEX_SESSION_SECONDS", "3600"))
         for image in spec.images:
             cmd += ["--image", str(image)]
         if spec.images:
