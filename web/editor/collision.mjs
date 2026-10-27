@@ -1,6 +1,6 @@
 // Surface collision uses authored triangles; bounds only prune the search.
 // Translation is swept continuously, so even a long step cannot jump a thin wall.
-import {carryPose} from './placement.mjs?v=wall-draft-13';
+import {carryPose} from './placement.mjs';
 const EPS = 1e-6;
 const CLEARANCE = .0002;
 const IDENTITY = {x: 0, y: 0, z: 0, yaw: 0};

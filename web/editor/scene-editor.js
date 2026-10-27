@@ -1,36 +1,36 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs?v=app-36';
-import {createPlacement} from './placement.mjs?v=app-36';
-import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs?v=app-51';
-import {PlacementSession} from './placement-session.mjs?v=gesture-20261023';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs?v=app-36';
-import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs?v=app-59';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs?v=app-36';
+import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs';
+import {createPlacement} from './placement.mjs';
+import {updatePlacementPanel, bindPlacementPanel} from './placement-ui.mjs';
+import {PlacementSession} from './placement-session.mjs';
+import {collisionOwners, buildCollision, packOwners} from './collision.mjs';
+import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs';
+import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs';
 
-import {mountJoysticks} from './joystick-ui.mjs?v=app-36';
-import {analogDelta} from './placement-motion.mjs?v=app-36';
+import {mountJoysticks} from './joystick-ui.mjs';
+import {analogDelta} from './placement-motion.mjs';
 
-import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs?v=app-36';
-import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs?v=gesture-20261023';
-import {createGestureCamera} from './gesture-camera.mjs?v=gesture-20261023';
-import {canGestureActivate, isExplicitExport} from './gesture-target.mjs?v=gesture-20261023';
-import {Openings, openableOf, ridersOf} from './joints.mjs?v=app-36';
-import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs?v=app-42';
-import {mountAddObject} from './add-object-dialog.mjs?v=app-53';
-import {shadowSettings} from './lighting-settings.mjs?v=app-37';
-import {lightingProfile} from './lighting-profiles.mjs?v=app-38';
-import {createRenderMetrics} from './render-metrics.mjs?v=app-38';
-import {createImportMaterials} from './import-materials.mjs?v=app-38';
-import {forgetImportedObject} from './imported-objects.mjs?v=app-43';
-import {disposeObjectTree} from './object-dimensions.mjs?v=app-43';
-import {mountWarehouseDrawer} from './warehouse-drawer.mjs?v=app-49';
-import {createTimeLighting, timePreset} from './time-lighting.mjs?v=app-50';
-import {colorGrading} from './color-grading.mjs?v=app-48';
-import {mountLightingPanel} from './lighting-panel.mjs?v=app-50';
+import {predictDrop, dropStart, dropVerdict, fallFraction} from './drop-placement.mjs';
+import {connectGestureBridge, GestureInput, observationPose} from './gesture-bridge.mjs';
+import {createGestureCamera} from './gesture-camera.mjs';
+import {canGestureActivate, isExplicitExport} from './gesture-target.mjs';
+import {Openings, openableOf, ridersOf} from './joints.mjs';
+import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs';
+import {mountAddObject} from './add-object-dialog.mjs';
+import {shadowSettings} from './lighting-settings.mjs';
+import {lightingProfile} from './lighting-profiles.mjs';
+import {createRenderMetrics} from './render-metrics.mjs';
+import {createImportMaterials} from './import-materials.mjs';
+import {forgetImportedObject} from './imported-objects.mjs';
+import {disposeObjectTree} from './object-dimensions.mjs';
+import {mountWarehouseDrawer} from './warehouse-drawer.mjs';
+import {createTimeLighting, timePreset} from './time-lighting.mjs';
+import {colorGrading} from './color-grading.mjs';
+import {mountLightingPanel} from './lighting-panel.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
-import {createWalk} from './walk.mjs?v=app-59';
+import {createWalk} from './walk.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -1780,7 +1780,8 @@ const embedded = connectGestureBridge({
 const handsOn = () => !!embedded || !!gestureCamera?.on;
 
 // The camera card: MediaPipe runs in a worker on this computer; no image leaves the browser.
-const VISION = new URL('../../gesture/public/vision/', import.meta.url);
+// vendor/vision links to gesture/public/vision; publish.py copies what it points to.
+const VISION = new URL('../vendor/vision/', import.meta.url);
 let gestureCamera = null;
 const MOUSE_HELP = $('#interaction-help').textContent;
 function showGestures(on) {
@@ -1803,7 +1804,7 @@ async function toggleGestures() {
   button.disabled = true;
   try {
     if (!gestureCamera) {
-      const lib = await import('../vendor/gesture/gesture-runtime.js?v=gesture-20261023');
+      const lib = await import('../vendor/gesture/gesture-runtime.js');
       lib.setVisionBase(VISION);
       gestureCamera = createGestureCamera({lib, video: $('#gesture-video'), canvas: $('#gesture-skeleton'), input: gestureInput, ui: {
         right(text, seen) {$('#gesture-right').textContent = text; $('#gesture-right').dataset.seen = String(seen);},
@@ -2181,7 +2182,7 @@ async function load() {
   if (enhancedLighting) void (async () => {
     if (query.get('env') !== 'off') {
       try {
-        const {createEnvironmentLighting} = await import('./environment-lighting.mjs?v=app-38');
+        const {createEnvironmentLighting} = await import('./environment-lighting.mjs');
         environmentFactory = createEnvironmentLighting;
         environmentLighting = createEnvironmentLighting(renderer, scene, {intensity: query.get('env') === 'off' ? 0 : scene.environmentIntensity});
         requestRender();
@@ -2191,7 +2192,7 @@ async function load() {
       }
     }
     try {
-      const {createStaticLighting} = await import('./static-lighting.mjs?v=app-59');
+      const {createStaticLighting} = await import('./static-lighting.mjs');
       const N8AOPass = query.get('ao') === 'n8ao' ? (await import('../vendor/n8ao/N8AOPass.js')).N8AOPass : null;
       staticLighting = createStaticLighting({renderer, scene, camera, room, roomSize, metrics: renderMetrics, N8AOPass, grading, enabled: query.get('ao') !== 'off',
         busy: () => !ready || document.hidden || orbitActive || analogActive || !!falling || !!hold || !!gestureView || !!gestureScale || hinged.moving.size > 0 || !!walk?.moving(),
