@@ -36,6 +36,7 @@
 
 1. **修上面的 bug**，各自加测试。——2026-10-27 已做，PR #41–#45。
 2. **低风险清理**（删的东西先列清单给用户确认）：
+   - **2026-10-27 已删（#47）**：下面房间重建死代码里除 `export/mujoco_replay.py`、`room_render/rank_views.py` 以外的都删了（这两个是能跑的手动命令行工具，只是没人调用，保留）；安卓三项、`viewer/`、`MV_ROOT` 都删了。`legacy/` 不删：#23 时用户要求保留全部旧 UI 归档。
    - 房间重建死代码：`layout/agent_loop.py`、`layout/toolcli.py`、`layout/agent.py` 的 `solve_v10`、`layout/repair.py` 的 `solve_v11`–`v13`、`export/mujoco_replay.py`、`room_render/rank_views.py` 和 `shared/config.py` 里不用的 `RANK_TOOL`、`ANNOTATE_TOOL`。
    - 安卓 `MainActivity.kt`、`ar/ArGestureHandler.kt`、`res/layout/activity_main.xml`；空的 `object-reconstruction/viewer/`；`env.sh` 的 `MV_ROOT`。
    - `object-reconstruction/legacy/` 打标签留档后移出；`data/example` 移不移用户定（移出不缩小 `.git`，改写历史不建议）。
