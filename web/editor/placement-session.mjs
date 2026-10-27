@@ -1,4 +1,4 @@
-import {copyLayout} from './layout.mjs?v=store-selected-25';
+import {copyLayout} from './layout.mjs';
 
 // Preview owns an isolated full-room candidate, including carried objects.
 // Persist, export and recovery always read committed(), never the candidate.
