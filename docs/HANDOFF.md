@@ -1,12 +1,12 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27 晚（main `deb869f`；服务器文件夹同步到 `deb869f`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27 晚（main `84a7dba`；服务器文件夹同步到 `84a7dba`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
 
 ## 从这里开始（2026-10-27 交接）
 
 **现在的状态**
-- 开着的 PR（都等用户确认合并，CI 全过，两两合并无冲突，五个依次合并后测试通过）：重构计划第 1 批的 12 个 bug——#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7（统一的换材质模块）；#47 第 2 批删死代码；以及本文档 PR #46（含 #40 合并时漏掉的两个交接提交：`REFACTOR_PLAN.md` 和约定里的两条）。七个依次合并无冲突。#24 已关，等 AWHYhuh 重提。
-- **合并后要做**：照“服务器”一节用 `git bundle` 同步服务器（服务器上 `git pull` 会卡住）；#42 改了 `object-reconstruction/scripts/`，按约定先告诉 lyk，再重启 7862 后端；其他 PR 只同步不用重启。#47 删了 `object-reconstruction/viewer/.gitignore`，服务器这个目录里有被忽略的旧产物 `.test-build`：同步时在服务器 `.git/info/exclude` 加 `/object-reconstruction/viewer/`（不删产物）。
+- 开着的 PR：无。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `84a7dba`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提；它的分支 `integration/local-ui-20261020` 2026-10-27 按用户要求删了（在 #24 页面点“Restore branch”可恢复）。远端现在只留 `main` 和开着的 PR 分支。
+- **待用户通知 lyk 后重启 7862**：#42 改了 `object-reconstruction/scripts/objects.py`（名字上限 53、已有抠图不等 GPU、同名并发 400），正在跑的后端（进程 72353）还是旧的，重启后才生效；`run.py`（#3：拿到锁才查显存）是每次任务新起的子进程，同步后已生效。`env.sh` 去掉了 `MV_ROOT`，重启时一起生效。重启命令见“服务器”一节。
 - 本机仓库 `.git/config` 原来有 `user.name = t`，2026-10-27 用户要求改成自己的，已删掉这条本地设置，作者用全局的 `innovationAusna <2474070799@qq.com>`。本机 `uv` 是 0.7.6，`room-reconstruction` 要求 ≥0.9.17：用 `uvx uv@0.9.17 run pytest -n auto`（在 `room-reconstruction/` 下会建 `.venv`，已在 `.gitignore`）。
 - 本机仓库 2026-10-27 从 `~/fable/RoomCanvas` 挪到 `~/research/RoomCanvas`（用户要求），7880、8800 已从新位置重启。
 - **代码审查与重构计划**（2026-10-27，用户要求）：见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。用户说“接着做 / 继续修 bug”，第 1 批 12 个 bug 都已修、各开 PR（上一条）；第 4 批里“统一的换材质模块”和第 3 批里“`?v=` 发布时统一盖版本号”顺带做了。第 2 批删死代码用户说“确定是死的就删”，已删（#47）；没删的见 `REFACTOR_PLAN.md`。第 2 批的 CI 补充项和第 3 批还没做。ZCode 找 bug 等用户在桌面版跑完。
@@ -103,7 +103,9 @@
 - 回复用中文；提交不加 Claude 署名，作者用 git 全局配置（innovationAusna）。
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 自己开的 PR 在每处改动上加中文行内评论，说明改了什么、为什么。
-- PR 标题用英文（用户 2026-10-27 要求；之前中文标题的 #1–#41 已全部改成英文），正文和行内评论仍用中文。
+- **提交签名**（2026-10-27）：`~/.ssh/id_ed25519.pub` 已登记为 GitHub 签名密钥（Signing Key，id 1277661），本仓库 `.git/config` 设了 `user.signingkey` 和 `gpg.ssh.allowedSignersFile`（`.git/allowed_signers`）。PATH 里的 `/usr/local/bin/git` 是 2.33，不支持 SSH 签名，**不要**把 `gpg.format = ssh` 写进仓库配置（会让 2.33 的所有命令报错）；签名提交用系统的 `/usr/bin/git`（2.54）：`/usr/bin/git -c gpg.format=ssh -c commit.gpgsign=true commit …`，GitHub 显示 Verified。经 GitHub 网页 squash 合并的提交由 GitHub 签名，也是 Verified。
+- **2026-10-27 改写过 main 的 7 个提交**（用户要求把 #41–#47 的中文提交说明换成英文）：内容、作者、时间不变，用上面的密钥重签（Verified），`ce39cd4` → `84a7dba`。做法：临时打开 main 保护规则的 “Allow force pushes”，`--force-with-lease` 推送后恢复原规则（核对逐项一致）。今天下午拉过 main 的协作者要 `git fetch && git reset --hard origin/main`；服务器已对齐。
+- PR 标题和提交说明用英文（用户 2026-10-27 要求；之前中文标题的 #1–#41 已改成英文，main 上已有的中文提交说明不改，改要重写历史）。squash 合并时只有一个提交的 PR 会用提交说明当 main 上的标题，所以提交说明也要写英文。PR 正文和行内评论仍用中文。
 - 重建效果（用户 2026-10-17）：做得不像实物的物体宁可去掉，也不要留一个粗糙的几何体占位；不设固定尺寸阈值，由 Astra 逐件判断。
 - 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
