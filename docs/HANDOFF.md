@@ -100,6 +100,8 @@
 
 - 回复用中文；提交不加 Claude 署名，作者用 git 全局配置（innovationAusna）。
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
+- 自己开的 PR 在每处改动上加中文行内评论，说明改了什么、为什么。
+- 重建效果（用户 2026-10-17）：做得不像实物的物体宁可去掉，也不要留一个粗糙的几何体占位；不设固定尺寸阈值，由 Astra 逐件判断。
 - 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
 - 官方文件尽量少改，改了在 `docs/ROOM_RECONSTRUCTION.md` 的“对 LiteReality-Agent 改了什么”补一句（2026-10-24 用户要求从 README 挪出）。用户不要 `AGENTS.md`、另写的 pyproject 或 pre-commit。
