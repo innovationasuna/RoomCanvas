@@ -102,7 +102,10 @@ export class GestureRuntime {
     this.animation = requestAnimationFrame(this.loop);
   };
   stop() {
+    // Only a running camera can have been driving the preview. start() stops first, and turning the
+    // camera on must not cancel a piece just dragged out with the mouse.
+    const wasRunning = this.running;
     this.generation++; this.running = false; cancelAnimationFrame(this.animation);
-    this.tracker.stop(); this.camera.stop(); this.interrupt(true);
+    this.tracker.stop(); this.camera.stop(); this.interrupt(wasRunning);
   }
 }
