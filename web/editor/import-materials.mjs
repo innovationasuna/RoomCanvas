@@ -1,3 +1,5 @@
+import {setOwnMaterial, setOwnShadows} from './material-layers.mjs';
+
 // Keep the existing vertex-colour display and an independent, reversible lit version.
 // Only the visible reconstruction is registered here; collision proxies are untouched.
 export function createImportMaterials(THREE, root, {mode = 'original', preservePBR = false} = {}) {
@@ -31,8 +33,9 @@ export function createImportMaterials(THREE, root, {mode = 'original', preserveP
       // lighting experiment is off. That toggle still controls legacy SAM3D imports.
       const lit = mode === 'pbr' || preservePBR;
       const materials = lit ? entry.lit : entry.original;
-      entry.mesh.material = entry.array ? materials : materials[0];
-      entry.mesh.receiveShadow = lit;
+      // The mesh's own look: a selection tint or a see-through layer stays on top of it.
+      setOwnMaterial(entry.mesh, entry.array ? materials : materials[0]);
+      setOwnShadows(entry.mesh, {receiveShadow: lit});
     }
   }
   setMode(mode);
@@ -43,7 +46,10 @@ export function createImportMaterials(THREE, root, {mode = 'original', preserveP
       litTypes: [...new Set(entries.flatMap(e => e.lit.map(m => m.type)))],
       sourcePBR: entries.filter(e => e.source.every(m => m.isMeshStandardMaterial)).length};},
     dispose() {
-      for (const entry of entries) {entry.mesh.material = entry.array ? entry.source : entry.source[0]; entry.mesh.geometry = entry.sourceGeometry; entry.mesh.receiveShadow = entry.receiveShadow;}
+      for (const entry of entries) {
+        setOwnMaterial(entry.mesh, entry.array ? entry.source : entry.source[0]);
+        setOwnShadows(entry.mesh, {receiveShadow: entry.receiveShadow}); entry.mesh.geometry = entry.sourceGeometry;
+      }
       // Source materials may be shared with the GLTF scene; their ownership stays with the caller.
       const sources = new Set(entries.flatMap(entry => entry.source));
       for (const resource of resources) if (!sources.has(resource)) resource.dispose();

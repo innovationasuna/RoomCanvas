@@ -105,7 +105,7 @@ python3 web/scripts/serve.py --port 7881 --viewforge http://127.0.0.1:<测试隧
 - 对同一物体单独采样，开灯／环境时中心区域平均 RGB 约 **162.11**，关灯并移除环境时为 **0**。这是受光路径验证，不是材质物理准确性或“比旧模型更真实”的证明。
 - 浏览器无页面异常。截图和报告位于 `/tmp/roomcanvas-trellis-preview/browser/`：`dimensions.png`、`placed.png`、`lit.png`、`dark.png`、`report.json`。临时目录不是长期存档，结果和私人截图不加入 Git。
 
-最初沙发试跑确认两个入口能够复用同一份 TRELLIS.2 推理代码与权重，并接入独立物体的标定和摆放；当时尚未比较同物体的旧结果。后续已有 [历史结果对照](OBJECT_RECONSTRUCTION_COMPARISON.md)，仍未测量几何真值误差、材质真值或重复运行稳定性。本次未合并、提交、推送或更新正式后端。
+最初沙发试跑确认两个入口能够复用同一份 TRELLIS.2 推理代码与权重，并接入独立物体的标定和摆放；当时尚未比较同物体的旧结果。后续已有 [历史结果对照](OBJECT_RECONSTRUCTION_COMPARISON.md)，仍未测量几何真值误差、材质真值或重复运行稳定性。正式后端未切换；后续代码与 main 同步的验证见文末。
 
 ### 当前可试用的隔离入口
 
@@ -163,3 +163,15 @@ python3 web/scripts/serve.py --port 7881 --viewforge http://127.0.0.1:<测试隧
 - 每份 `reconstruction/generation.json` 的包装器及共用启动器 SHA-256 与当前本地分支文件一致，确认没有误用旧结果或换成另一套模型。
 - 本机对比图 `comparison.jpg`、单样本对比图、四方向渲染与网页报告在 `/tmp/roomcanvas-trellis-validation-20261027/`；临时结果、私人图片与模型均不加入 Git。
 - 批次结束后 GPU 1 恢复约 24 GB 空闲，两把测试锁已释放，正式与隔离 `/health` 均为 200。本轮 CLI 使用 GPU 1；原隔离 API 仍沿用上次的 GPU 0 配置，未重启或切卡。网页可以读取和导入这些已完成结果，新增 GPU 任务需重新检查空闲卡。
+
+### 与 main 的 GPU 调度和材质层兼容
+
+随后将 `main@ce39cd4` 合入实验分支，兼容保留两边的改动：
+
+- GPU 调度先取得 ViewForge 锁，TRELLIS 再仅查询 GPU UUID 并取得对应场景锁，**两把锁都取得后才检查空闲显存**。等待场景作业时不会因该作业占显存而提前失败；非等待模式遇忙会释放已取得的物体锁，不创建运行目录。独立 `--check` 仍执行显存预检。
+- 原生 PBR 的 `preservePBR` 规则通过 main 的 `setOwnMaterial`／`setOwnShadows` 更新基础材质，保留选中、半透明和摆放预览叠加层；退出临时状态后恢复原生贴图与阴影设置。
+- 源码导入采用 main 的无版本号地址，由发布脚本统一生成缓存版本，保留 TRELLIS 新增的能力查询、动态进度和材质预览。
+
+同步后的验证：后端 CPU **60 项**、编辑器 **223 项**、网页代理／发布 **14 项**及 **6 组**真实房间检查通过。新增回归检查覆盖双锁等待后才检查显存、非等待模式锁释放，以及 PBR 在选中／半透明／预览叠加时切换和恢复。
+
+另通过当前合并源码启动本机临时 API 和网页，使用先前真实生成的沙发 GLB 验证尺寸预览、X 轴 2 米测试标定、房间摆放、PBR 保留与开关灯响应，页面无异常；2 米仍是流程测试值，不是实物测量。本轮未重跑 GPU 推理或修改正式服务。报告和截图在 `/tmp/roomcanvas-trellis-merge-validation-20261027/browser/20261027_sofa_trial_a02/`。

@@ -100,10 +100,25 @@ def input_manifest(root, name, selected=None):
     return match_masks(selected_images(root, name, selected))
 
 
-def check_gpu(min_free_gib):
+def visible_gpu():
     visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if not visible or ',' in visible or visible == '-1':
         raise ValueError('Set CUDA_VISIBLE_DEVICES to exactly one authorized GPU')
+    return visible
+
+
+def gpu_uuid():
+    """Resolve the lock name without requiring free memory while a room job is running."""
+    output = subprocess.check_output(['nvidia-smi', f'--id={visible_gpu()}',
+        '--query-gpu=uuid', '--format=csv,noheader,nounits'], text=True)
+    rows = output.strip().splitlines()
+    if len(rows) != 1 or not rows[0].strip():
+        raise RuntimeError('Expected exactly one GPU UUID')
+    return rows[0].strip()
+
+
+def check_gpu(min_free_gib):
+    visible = visible_gpu()
     output = subprocess.check_output(['nvidia-smi', f'--id={visible}',
         '--query-gpu=uuid,memory.free', '--format=csv,noheader,nounits'], text=True)
     rows = list(csv.reader(output.splitlines()))
@@ -228,8 +243,8 @@ def main():
                      root/'third_party/dinov2/hubconf.py'):
             if not path.exists():
                 raise FileNotFoundError(path)
-    gpu = check_gpu(cfg['runtime']['min_free_gib'])
     if args.check:
+        gpu = check_gpu(cfg['runtime']['min_free_gib'])
         print(json.dumps(dict(status='preflight_passed', images=len(inputs['images']), gpu=gpu)))
         return
     lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
@@ -239,11 +254,14 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
         if args.backend == 'trellis':
             # Coordinate with room reconstruction, which holds this per-GPU lock.
+            gpu = gpu_uuid()
             room_lock_path = home/'runtime/locks'/f'gpu-{gpu}.lock'
             room_lock_path.parent.mkdir(parents=True, exist_ok=True)
             room_lock = stack.enter_context(room_lock_path.open('a'))
             fcntl.flock(room_lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
-        check_gpu(cfg['runtime']['min_free_gib'])
+        # Free memory means something only once the lock is ours: before that, the job holding
+        # either lock is using the memory; --wait-gpu must wait for both before checking it.
+        gpu = check_gpu(cfg['runtime']['min_free_gib'])
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()

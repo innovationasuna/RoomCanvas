@@ -1,3 +1,5 @@
+import {setLayer} from './material-layers.mjs';
+
 // Walls carry inward normals. Near walls (exterior-facing or nearly edge-on) are concealed with
 // their attached openings: hidden, or see-through in the editor. Collision and support never change.
 export function hiddenWalls(walls, direction, previous = new Set()) {
@@ -76,30 +78,19 @@ export const SEE_THROUGH = .08;
 export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
   const was = root.userData.seeThrough ? root.userData.seeThroughOpacity : null;
   if (was === (on ? opacity : null)) return false;
-  if (was !== null && on) setSeeThrough(root, false);
   root.userData.seeThrough = on;
   if (on) root.userData.seeThroughOpacity = opacity; else delete root.userData.seeThroughOpacity;
-  root.traverse((mesh) => {
-    if (!mesh.isMesh) return;
-    if (on) {
-      mesh.userData.solid = {material: mesh.material, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow};
-      const faint = (material) => {
-        const clone = Object.assign(material.clone(), {transparent: true, depthWrite: false,
-          opacity: Math.min(material.opacity ?? 1, opacity)});
-        // Glass with transmission shows the room behind from a small blurred render, in blocks:
-        // as a faint layer over the room it would print a mosaic over everything seen through it.
-        if ('transmission' in clone) clone.transmission = 0;
-        return clone;
-      };
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(faint) : faint(mesh.material);
-      // Nor take one: the shadow map's square texels on window glass would print over the room seen through it.
-      mesh.castShadow = mesh.receiveShadow = false;
-    } else if (mesh.userData.solid) {
-      for (const material of [mesh.material].flat()) material.dispose();
-      ({material: mesh.material, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow} = mesh.userData.solid);
-      delete mesh.userData.solid;
-    }
-  });
+  const faint = (material) => {
+    const clone = Object.assign(material.clone(), {transparent: true, depthWrite: false,
+      opacity: Math.min(material.opacity ?? 1, opacity)});
+    // Glass with transmission shows the room behind from a small blurred render, in blocks:
+    // as a faint layer over the room it would print a mosaic over everything seen through it.
+    if ('transmission' in clone) clone.transmission = 0;
+    return clone;
+  };
+  // Nor take a shadow: the shadow map's square texels on window glass would print over the room seen through it.
+  const layer = on ? {material: faint, castShadow: false, receiveShadow: false} : null;
+  root.traverse((mesh) => {if (mesh.isMesh) setLayer(mesh, 'seeThrough', layer);});
   return true;
 }
 export function seeThrough(object) {
