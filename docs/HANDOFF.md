@@ -1,13 +1,15 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27（main `038f568`；服务器文件夹同步到 `038f568`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27 晚（main `deb869f`；服务器文件夹同步到 `deb869f`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
 
 ## 从这里开始（2026-10-27 交接）
 
 **现在的状态**
-- 开着的 PR：#40（交接：服务器目录收拢、代码审查，等用户确认合并；合并后照“服务器”一节用 `git bundle` 同步服务器，服务器上 `git pull` 会卡住）。main `038f568`，服务器同步到同一版本。#24 已关，等 AWHYhuh 重提。
+- 开着的 PR（都等用户确认合并，CI 全过，两两合并无冲突，五个依次合并后测试通过）：重构计划第 1 批的 12 个 bug——#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7（统一的换材质模块）；以及本文档 PR（含 #40 合并时漏掉的两个交接提交：`REFACTOR_PLAN.md` 和约定里的两条）。#24 已关，等 AWHYhuh 重提。
+- **合并后要做**：照“服务器”一节用 `git bundle` 同步服务器（服务器上 `git pull` 会卡住）；#42 改了 `object-reconstruction/scripts/`，按约定先告诉 lyk，再重启 7862 后端；其他 PR 只同步不用重启。
+- 本机仓库 `.git/config` 里 `user.name` 是 `t`（不是用户的），提交时用 `git -c user.name="$(git config --global user.name)" -c user.email="$(git config --global user.email)" commit …`，否则作者是 `t`，squash 时会被 GitHub 列成 `Co-authored-by`。本机 `uv` 是 0.7.6，`room-reconstruction` 要求 ≥0.9.17：用 `uvx uv@0.9.17 run pytest -n auto`（在 `room-reconstruction/` 下会建 `.venv`，已在 `.gitignore`）。
 - 本机仓库 2026-10-27 从 `~/fable/RoomCanvas` 挪到 `~/research/RoomCanvas`（用户要求），7880、8800 已从新位置重启。
-- **代码审查与重构计划**（2026-10-27，用户要求）：见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)，12 个确认的 bug 和分四批的重构计划，还没动手，等用户定从哪批开始；ZCode 找 bug 等用户在桌面版跑完。
+- **代码审查与重构计划**（2026-10-27，用户要求）：见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。用户说“接着做 / 继续修 bug”，第 1 批 12 个 bug 都已修、各开 PR（上一条）；第 4 批里“统一的换材质模块”和第 3 批里“`?v=` 发布时统一盖版本号”顺带做了。第 2 批要删东西，先列清单给用户确认。ZCode 找 bug 等用户在桌面版跑完。
 - **展示完整重建过程**（2026-10-27 讨论）：建议先做“回放”页（左 3D 随阶段长出房间、右 agent 操作流、底部时间轴），数据用 room3 的 `trace.jsonl`（203 条，各阶段起止）和 `authoring_trace.*.jsonl`（agent 每一步）加各阶段产物；实时（`run_room.py` 加 `--live` 透传）以后再做。等用户定是否先用 room3 出样稿。官方 live 页（`litereality_agent.pipeline.realism_authoring.live`，只覆盖 author 阶段）给用户看过：服务器 `runs/room3-polish-20261027/live_view.py`（进程 64607，端口 8770）还开着，本机 8770 隧道已断；不用了可停。
 - 网页编辑器：2026-10-27 合并了“漫游”（#35，第一人称走动）和“近侧墙 实心 / 半透明 / 隐藏”（#36），见下文“最近”。
 - 房间重建：`run_room.py` 完整重建默认在建模之后跑“可动部件”（#32、#33），结果在 `<运行目录>/articulate/room_preview/`；服务器 `runtime/bin/codex` 已修，Astra 调用正常。
@@ -101,6 +103,7 @@
 - 回复用中文；提交不加 Claude 署名，作者用 git 全局配置（innovationAusna）。
 - 一个功能一个分支一个 PR，挪文件、改文档随功能一起；用户确认后 `gh pr merge --squash --delete-branch`。
 - 自己开的 PR 在每处改动上加中文行内评论，说明改了什么、为什么。
+- PR 标题用英文（用户 2026-10-27 要求；之前中文标题的 #1–#41 已全部改成英文），正文和行内评论仍用中文。
 - 重建效果（用户 2026-10-17）：做得不像实物的物体宁可去掉，也不要留一个粗糙的几何体占位；不设固定尺寸阈值，由 Astra 逐件判断。
 - 提交没有签名，GitHub 上只有经 GitHub 合并（squash）的提交显示 Verified，本地推的（最早 4 个提交、#5）显示 unsigned。main 不要求签名，没有影响；要本地提交也带 Verified 需配置 SSH 签名，旧提交不改（要改就得重写 main 历史）。
 - 只用 squash 合并。合并前看提交说明末尾，`Co-authored-by` 只保留用户和 lyk（GitHub 会把分支里所有提交者自动列上，#5 的 ViewForge 上游作者就是这样带进来的）；上游的署名靠许可证和 NOTICE 文件保留，不能删。
