@@ -11,13 +11,6 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.ARViewer">
-        <!-- 旧模型预览/AR 调试页：保留代码，但不再作为入口 -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-
         <!-- 应用入口：直接进入房间漫游（VR），横屏、沉浸式 -->
         <activity
             android:name=".VrWalkthroughActivity"
