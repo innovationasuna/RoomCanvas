@@ -30,11 +30,11 @@ export function decodeLayout(data, scene, ids) {
   if (!data || data.format !== FORMAT || ![1, 2, VERSION].includes(data.version) || data.scene !== scene) {
     throw new Error('这份布局不属于当前房间或版本不兼容');
   }
-  if (!Array.isArray(data.objects) || data.objects.length !== ids.length) throw new Error('布局物体数量不匹配');
+  if (!Array.isArray(data.objects) || data.objects.length !== ids.length) throw new Error('布局物品数量不匹配');
   const allowed = new Set(ids);
   const output = {};
   for (const item of data.objects) {
-    if (!item || !allowed.has(item.id) || Object.hasOwn(output, item.id)) throw new Error('布局包含重复或未知物体');
+    if (!item || !allowed.has(item.id) || Object.hasOwn(output, item.id)) throw new Error('布局包含重复或未知物品');
     const coordinates = data.version === 1 ? ['x', 'z', 'yaw'] : ['x', 'y', 'z', 'yaw'];
     if (!coordinates.every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]))) {
       throw new Error('布局中存在无效坐标');

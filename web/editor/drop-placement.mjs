@@ -31,11 +31,11 @@ export function dropStart(id, source, placement, {previewOnly = false} = {}) {
 // contact: collision.checkPlacement(candidate, moved); sweep: collision.limit(source, candidate,
 // moved), needed only when contact is clear.
 export function dropVerdict(base, contact, sweep) {
-  if (!contact.ok) return {...base, ok:false, message:`落点会碰到${contact.other?.name || '其他物体'}`};
+  if (!contact.ok) return {...base, ok:false, message:`落点会碰到${contact.other?.name || '其他物品'}`};
   // A fall that stops within 2 mm of a landing already checked clear has landed: a flat
   // base meeting a curved seat stops a hair early at its first touch.
   const short = (1 - (sweep.fraction ?? 0)) * base.distance;
-  if (sweep.blocked && short > .002) return {...base, ok:false, message:`下落途中会碰到${sweep.other?.name || '其他物体'}，请调整位置或高度`};
+  if (sweep.blocked && short > .002) return {...base, ok:false, message:`下落途中会碰到${sweep.other?.name || '其他物品'}，请调整位置或高度`};
   return {...base, ok:true, checked:true, message:`将落到${base.state.label.replace(/^已放稳 · /, '')}`};
 }
 
