@@ -33,7 +33,7 @@
 <header><span class="logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</header>
 <main>
   <h1>选一个房间开始布置</h1>
-  <p class="lead">手机扫描重建的真实尺寸房间。挪家具、收进仓库、换位置，用鼠标，或打开编辑器里的“手势”用摄像头。</p>
+  <p class="lead">手机扫描重建的真实尺寸房间。挪动物品、收进仓库、换位置，用鼠标，或打开编辑器里的“手势”用摄像头。</p>
   <div class="rooms" id="rooms" aria-live="polite"></div>
 </main>
 <footer>本机运行：在仓库根目录 <code>python3 web/scripts/serve.py</code>，打开 <code>http://127.0.0.1:7880/web/</code>。房间列表在 <code>web/rooms.json</code>。</footer>
@@ -61,7 +61,7 @@ async function describe(room, base) {
     fetch(new URL('Room.glb', dir), {method: 'HEAD', cache: 'no-cache'}).catch(() => null),
   ]);
   if (!objects) {facts.textContent = '读不到这个房间的文件'; facts.classList.add('error'); return;}
-  facts.textContent = [`${objects.groups.length} 件家具`, megabytes(Number(model?.headers.get('content-length')))].filter(Boolean).join(' · ');
+  facts.textContent = [`${objects.groups.length} 件物品`, megabytes(Number(model?.headers.get('content-length')))].filter(Boolean).join(' · ');
 }
 const manifest = new URL('rooms.json', location.href);
 fetch(manifest, {cache: 'no-cache'}).then((r) => r.json()).then(({rooms}) => {
