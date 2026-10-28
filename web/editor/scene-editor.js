@@ -396,8 +396,8 @@ function updateInspector() {
   const support = placementStates.get(selected)?.support;
   joysticks?.setState({enabled: !!selected && mode === 'edit' && !falling, wall: selected && placement?.isWall(selected), support: entities.get(support)?.name || '地面', landing:dropPlan ? dropPlan.label || (dropPlan.ok ? '地面' : '无可用落点') : ''});
   if (!selected) {
-    $('#selected-name').textContent = '挑一件家具，试着摆放';
-    $('#selected-category').textContent = '从房间或下方家具栏选择';
+    $('#selected-name').textContent = '挑一件物品，试着摆放';
+    $('#selected-category').textContent = '从房间或下方物品栏选择';
     return;
   }
   const entity = entities.get(selected);
@@ -417,8 +417,8 @@ function updateInspector() {
   $('#rotate-left').title = $('#rotate-right').title = wall ? '壁挂物件保持安装朝向' : '旋转 15°';
   $('#direction-note').textContent = wall ? '上下左右沿墙移动 · 前后按当前视角换墙' : '按当前视角移动 · 可调整高度';
   $('.control-shortcut').textContent = wall ? '↑ ↓ ← → · W / S 换墙' : '↑ ↓ ← →';
-  $('.direction-pad').setAttribute('aria-label', wall ? '沿墙上下左右移动选中物体' : '沿地面移动选中物体');
-  $('.height-buttons').setAttribute('aria-label', wall ? '按当前视角前后换墙' : '调整选中物体的高度');
+  $('.direction-pad').setAttribute('aria-label', wall ? '沿墙上下左右移动选中物品' : '沿地面移动选中物品');
+  $('.height-buttons').setAttribute('aria-label', wall ? '按当前视角前后换墙' : '调整选中物品的高度');
   $('.height-heading span').textContent = wall ? '前后换墙 · 保持高度' : '高度偏移';
   const controls = [
     ['.move-forward', wall ? 'up' : 'forward', wall ? '上' : '前'],
@@ -549,7 +549,7 @@ function previewWall(name, point) {
 
 function lockWallPreview() {
   if (!pending || !wallRelocation?.candidate) {
-    showToast('请先在能容纳物体的墙面上选择位置');
+    showToast('请先在能容纳物品的墙面上选择位置');
     return false;
   }
   // Lock only the draft. An obstructed mount can still be nudged clear, but
@@ -569,7 +569,7 @@ function wallCandidate(name, point) {
   const carried = result.ok ? placement.carry(selected, layout, candidate) : result;
   const contact = carried.ok ? collision.checkPlacement(candidate, carried.moved) : {ok: false};
   const valid = !!carried.ok && contact.ok;
-  const message = !carried.ok ? carried.message : !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请在墙上另选一个位置。` : `${wallLabel(name)} · 可以放置。确认后可用方向按钮微调。`;
+  const message = !carried.ok ? carried.message : !contact.ok ? `这里会碰到${contact.other?.name || '其他物品'}，请在墙上另选一个位置。` : `${wallLabel(name)} · 可以放置。确认后可用方向按钮微调。`;
   return {candidate, result, carried, valid, message};
 }
 
@@ -649,7 +649,7 @@ function select(id, announce = true) {
     $('#selection-label').classList.remove('just-selected');
     requestAnimationFrame(() => $('#selection-label').classList.add('just-selected'));
     if (announce) $('#status').textContent = `已选中${entities.get(id).name}，可以用方向按钮移动`;
-  } else if (announce) $('#status').textContent = '点选物体，开始布置房间';
+  } else if (announce) $('#status').textContent = '点选物品，开始布置房间';
   updateInspector();
   requestRender();
 }
@@ -718,7 +718,7 @@ function editObject(change, direction) {
   const contact = pending && analogActive ? {layout:next, blocked:false} : destination ? {...destination, layout: destination.ok || installing ? next : before} : collision.limit(before, next, carried.moved || [selected]);
   layout = contact.layout;
   if (contact.blocked) {
-    const name = typeof contact.other === 'string' ? (entities.get(contact.other)?.name || contact.other) : contact.other?.name || '其他物体';
+    const name = typeof contact.other === 'string' ? (entities.get(contact.other)?.name || contact.other) : contact.other?.name || '其他物品';
     motionNotice = {id: selected, contactInvalid: !!installing, message: installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
     showToast(motionNotice.message);
   }
@@ -1018,7 +1018,7 @@ function groupScene(gltf, originalMatrices) {
   // Validate all required names first; never silently publish a partly editable scene.
   const assigned = new Set();
   for (const spec of config.catalog) for (const name of spec.roots) {
-    if (assigned.has(name)) throw new Error(`物体重复归组 ${name}`);
+    if (assigned.has(name)) throw new Error(`物品重复归组 ${name}`);
     assigned.add(name);
   }
   const members = new Map(config.catalog.map((spec) => [spec.id, topMembers(room, spec.roots)]));
@@ -1043,7 +1043,7 @@ function groupScene(gltf, originalMatrices) {
   for (const [object, matrix] of originalMatrices) {
     matrix.elements.forEach((value, i) => {groupingError = Math.max(groupingError, Math.abs(value - object.matrixWorld.elements[i]));});
   }
-  if (groupingError > 1e-6) throw new Error('物体归组改变了原始位置');
+  if (groupingError > 1e-6) throw new Error('物品归组改变了原始位置');
   sceneKey = `${config.sceneId}:v2:${gltf.parser.json.buffers.map((buffer) => buffer.byteLength).join('-')}:${gltf.parser.json.nodes.length}`;
   storageKey = `roomcanvas:layout:${sceneKey}`;
   for (const entity of entities.values()) appendWarehouseRow(entity);
@@ -1068,7 +1068,7 @@ function appendWarehouseRow(entity, first = false) {
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'rc-remove-object';
       remove.dataset.removeObject = entity.id;
       remove.setAttribute('aria-label', `删除${entity.name}这一份`);
-      remove.title = '删除这一份物体，保留重建结果';
+      remove.title = '删除这一份物品，保留重建结果';
       remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
       remove.onclick = () => removeImportedObject(entity.id);
       card.append(row, remove);
@@ -1079,7 +1079,7 @@ function appendWarehouseRow(entity, first = false) {
 function removeImportedObject(id) {
   if (!ready || !entities.get(id)?.added) return;
   if (falling || gesture || gestureView || gestureScale || analogActive || hold || (pending && pending.id !== id)) {
-    showToast('请先结束当前操作，再删除这份物体'); return;
+    showToast('请先结束当前操作，再删除这份物品'); return;
   }
   cancelSession(false); select(null, false); cancelValidation(); setMode('edit');
   const entity = forgetImportedObject(id, {entities, ids, layout, placementSpecs, history});
@@ -1093,7 +1093,7 @@ function removeImportedObject(id) {
   rebuildCollision(); applyLayout(); persist();
   if ($('#search').value) $('#search').dispatchEvent(new Event('input'));
   $('#status').textContent = `已删除${entity.name}这一份，重建结果仍保留`;
-  showToast('已删除这一份，可从“导入物体”重新添加');
+  showToast('已删除这一份，可从“导入物品”重新添加');
 }
 
 function renderFurnitureThumbnails(list = entities.values()) {
@@ -1219,7 +1219,7 @@ function refreshSession() {
   const contact = !analogActive && !pending.gravity && (installing || placement.isWall(selected)) ? collision.checkPlacement(layout, [selected]) : null;
   const valid = !analogActive && (pending.gravity ? dropPlan.ok && dropPlan.checked !== false : state?.state === 'stable' && !motionNotice?.previewInvalid && !motionNotice?.contactInvalid && (!contact || contact.ok));
   if (valid) pending.lastReachable = copyLayout(layout);
-  pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物体'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
+  pending.update(layout, valid, pending.gravity ? dropPlan.message : contact && !contact.ok ? `这里会碰到${contact.other?.name || '其他物品'}，请选择其他位置` : motionNotice?.message || state?.label || '等待落位');
   const moved = ids.filter(id => id === selected || ['x','y','z','yaw'].some(key => Math.abs((layout[id][key] || 0) - (pending.before[id][key] || 0)) > 1e-9));
   const color = analogActive || (dropPlan?.checked === false && dropPlan.ok) ? 0xb39a62 : valid ? 0x62c6b1 : 0xed766b;
   const activeMeshes = new Set();
@@ -1330,7 +1330,7 @@ function completePlacement() {
   hasEdited = true;
   persist();
   $('#status').textContent = `已放置${name} · 可撤销或重新摆放`;
-  showToast('家具已放置，布局已保存');
+  showToast('物品已放置，布局已保存');
 }
 
 // 抓取和相机环绕后的重定位必须使用同一投影，否则承托面高度会造成跳动。
@@ -1381,7 +1381,7 @@ function followPointer(clientX, clientY, force = false, grab = null) {
     // While a hand drags it (analogActive) this is a preview; release checks it in full.
     const contact = analogActive ? {layout:next, blocked:false} : relocating ? {...collision.checkPlacement(next, carried.moved), layout:next} : collision.limit(before, next, carried.moved);
     layout = contact.layout;
-    if (contact.blocked) motionNotice = {id:selected, previewInvalid:relocating, message:`碰到${contact.other?.name || '物体'}，请调整预览位置`};
+    if (contact.blocked) motionNotice = {id:selected, previewInvalid:relocating, message:`碰到${contact.other?.name || '物品'}，请调整预览位置`};
     if (!contact.blocked || pending.before[selected].visible !== false) pending.lastReachable = copyLayout(layout);
   }
   applyLayout();
@@ -1464,7 +1464,7 @@ function storeObjects(id = null) {
   });
   select(null, false);
   if (!id) warehouse.setOpen(true);
-  showToast(id ? '已收回仓库，可重新放置或撤销' : '房间已清空，家具都在仓库中 · 可撤销');
+  showToast(id ? '已收回仓库，可重新放置或撤销' : '房间已清空，物品都在仓库中 · 可撤销');
 }
 
 function bindPlacementEvents() {
@@ -1569,7 +1569,7 @@ function surfaceUnder({x, y}) {return placementPoint(x, y).point;}
 function canTakeAnotherPiece() {
   if (!pending) return true;
   const name = entities.get(pending.id).name;
-  showToast(`请先确认${name}的预览或取消，再拿另一件家具`);
+  showToast(`请先确认${name}的预览或取消，再拿另一件物品`);
   return false;
 }
 // 保存正交相机的实际缩放，以及环绕时需要的屏幕坐标基。
@@ -1617,7 +1617,7 @@ const gesturePort = {
     let id = pick(point.x, point.y);
     // A pinch on the preview, or on empty floor while there is one, keeps working on it.
     if (pending && (!id || id === pending.id)) id = pending.id;
-    if (!id) {$('#status').textContent = '没有指到家具：指向家具或仓库卡片后再捏合'; return false;}
+    if (!id) {$('#status').textContent = '没有指到物品：指向物品或仓库卡片后再捏合'; return false;}
     if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
     const placing = pending?.id === id;
     if (!placing && !canTakeAnotherPiece()) return false;
@@ -1930,7 +1930,7 @@ async function importRun(run, base, scale) {
   group.add(shape); room.add(group); room.updateMatrixWorld(true);
   group.traverse((object) => {if (object.isMesh) object.userData.editorId = id;});
   const size = sizeInMeters(base, scale), name = objectLabel(run);
-  const entity = {id, name, category: '导入物体 · 真实尺寸', roots: [contact], group, origin, added: true, importMaterials,
+  const entity = {id, name, category: '导入物品 · 真实尺寸', roots: [contact], group, origin, added: true, importMaterials,
     sizeLabel: `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} ${config.units}`};
   entities.set(id, entity); ids.push(id);
   placementSpecs[id] = {body: [contact]};
@@ -1960,7 +1960,7 @@ async function load() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = lightProfile.exposure;
   renderMetrics = createRenderMetrics(renderer, {gpu: query.has('lightingLab'), limit: query.has('lightingLab') ? 2400 : 120});
-  renderer.domElement.setAttribute('aria-label', '房间三维场景，点选家具或使用物体列表');
+  renderer.domElement.setAttribute('aria-label', '房间三维场景，点选物品或使用物品列表');
   host.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = false;
@@ -2134,7 +2134,7 @@ async function load() {
   applyLayout();
   progress.value = 100;
   $('#loading').hidden = true;
-  $('#status').textContent = `${entities.size} 件物体可布置 · 点选房间或下方家具卡片`;
+  $('#status').textContent = `${entities.size} 件物品可布置 · 点选房间或下方物品卡片`;
   view('overview');
   void openImports();
   // Read-only diagnostics for real-browser verification; no controls or mutable scene exposed.
@@ -2321,7 +2321,7 @@ async function versionedModelURL() {
 async function loadRoomConfig() {
   const {dir, name} = await roomReady;
   const response = await fetch(`${dir}/room_objects.json`, {cache: 'no-cache'});
-  if (!response.ok) throw new Error(`物体清单读取失败（${response.status}）`);
+  if (!response.ok) throw new Error(`物品清单读取失败（${response.status}）`);
   const room = roomConfig(await response.json());
   return name ? {...room, title: name} : room;
 }

@@ -105,8 +105,8 @@ window.addEventListener('message', event => {
   });
   $('scene-status').textContent = state.layoutReady ? state.message : '请等待下方 RoomCanvas 房间加载完成。';
   $('gesture-help').textContent = ({
-    move:'右手捏住家具沿平面移动，保持当前高度；松手保留预览，竖拇指约 0.5 秒确认放置。',
-    height:'右手捏住家具升降；松手保持悬空，切换 1 可继续平移；确认后才落下。',
+    move:'右手捏住物品沿平面移动，保持当前高度；松手保留预览，竖拇指约 0.5 秒确认放置。',
+    height:'右手捏住物品升降；松手保持悬空，切换 1 可继续平移；确认后才落下。',
     scale:'数字 3：拇食指成圈，其余三指伸出。选中后先松手，再双手捏合拉开或靠近缩放场景。',
     rotate:'右手横移一画面宽度旋转 1080°；松手保留预览，竖拇指确认。',
     view:'左手捏合环绕；双手捏合拉开或靠近缩放场景。',

@@ -3,11 +3,11 @@ export function mountJoysticks(stage, actions) {
   const doc = stage.ownerDocument;
   const panel = doc.createElement('section');
   panel.className = 'rc-joysticks';
-  panel.setAttribute('aria-label', '移动和旋转家具');
+  panel.setAttribute('aria-label', '移动和旋转物品');
   panel.hidden = true;
   panel.innerHTML = `
     <div class="rc-joystick-control">
-      <button type="button" class="rc-move-stick" aria-label="移动摇杆，方向键移动家具">
+      <button type="button" class="rc-move-stick" aria-label="移动摇杆，方向键移动物品">
         <span class="rc-stick-axis rc-stick-axis-x" aria-hidden="true"></span>
         <span class="rc-stick-axis rc-stick-axis-y" aria-hidden="true"></span>
         <span class="rc-stick-knob" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16M4 12h16M9 7l3-3 3 3M9 17l3 3 3-3M7 9l-3 3 3 3M17 9l3 3-3 3"/></svg></span>
@@ -15,15 +15,15 @@ export function mountJoysticks(stage, actions) {
       <span class="rc-joystick-label rc-move-label">移动</span>
     </div>
     <div class="rc-joystick-control">
-      <button type="button" class="rc-rotate-dial" aria-label="旋转圆盘，左右方向键旋转家具">
+      <button type="button" class="rc-rotate-dial" aria-label="旋转圆盘，左右方向键旋转物品">
         <span class="rc-dial-pointer" aria-hidden="true"></span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 8M19 3v5h-5"/></svg>
       </button>
       <span class="rc-joystick-label rc-rotate-label">旋转</span>
     </div>
     <div class="rc-lift-row">
-      <button type="button" class="rc-lift-button rc-lift-up" aria-label="按住升高家具">升高 ↑</button>
-      <button type="button" class="rc-lift-button rc-lift-down" aria-label="按住降低家具">降低 ↓</button>
+      <button type="button" class="rc-lift-button rc-lift-up" aria-label="按住升高物品">升高 ↑</button>
+      <button type="button" class="rc-lift-button rc-lift-down" aria-label="按住降低物品">降低 ↓</button>
     </div>
     <span class="rc-landing-hint" aria-live="polite"></span>
     <button type="button" class="rc-surface-button" hidden>换墙</button>`;
@@ -190,8 +190,8 @@ export function mountJoysticks(stage, actions) {
       const landingText = landing ? `落点：${landing}` : '确认后落下';
       if (landingHint.textContent !== landingText) landingHint.textContent = landingText;
       landingHint.title = landingHint.textContent;
-      liftUp.title = '按住升高家具，也可按住空格或回车';
-      liftDown.title = '按住降低家具，也可按住空格或回车';
+      liftUp.title = '按住升高物品，也可按住空格或回车';
+      liftDown.title = '按住降低物品，也可按住空格或回车';
       move.title = wall ? '拖动摇杆沿墙面左右、上下移动' : '拖动摇杆全向移动，使用升高和降低调整高度';
       positionPanel();
     },
