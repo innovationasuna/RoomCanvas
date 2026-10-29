@@ -287,4 +287,4 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 
 ## 许可
 
-[Apache License 2.0](LICENSE)，第三方组件的署名见 [NOTICE](NOTICE)。
+[Apache License 2.0](LICENSE)
