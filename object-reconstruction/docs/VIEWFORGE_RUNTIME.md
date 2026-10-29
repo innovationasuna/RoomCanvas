@@ -1,38 +1,51 @@
 # 运行说明
 
-本文说明物体重建模块的环境安装、命令行重建和自动抠图。API 服务的部署与接口见 [物体重建](../../docs/OBJECT_RECONSTRUCTION.md)。以下命令都在 `object-reconstruction/` 下执行。
+本文说明物体重建模块的环境安装、命令行重建和自动抠图。API 服务的部署与接口见 [物体重建](../../docs/OBJECT_RECONSTRUCTION.md)。以下操作都在 Linux GPU 服务器的 Bash 中完成，本机编辑器不需要这些环境。
 
-## 本机配置
+## 服务器配置
 
-从 [`configs/local.env.example`](../configs/local.env.example) 复制出 `configs/local.env`（不进仓库），每次使用前显式加载：
+先按 [首次部署](../../docs/OBJECT_RECONSTRUCTION.md#首次部署) 运行安装入口。脚本从 [`configs/local.env.example`](../configs/local.env.example) 生成缺失的 `configs/local.env`（不进仓库）；编辑以下变量，已有配置保留。每次运行服务或重建前都要显式加载。
 
 | 变量 | 含义 |
 | --- | --- |
-| `VIEWFORGE_ROOT` | 外部数据根目录，存放环境、权重、照片和结果 |
+| `VIEWFORGE_ROOT` | 外部数据根目录的绝对路径，需可写，存放环境、权重、照片和结果 |
 | `CUDA_VISIBLE_DEVICES` | 授权使用的一张 GPU |
-| `VIEWFORGE_GPU_LOCK` | 共享 GPU 锁文件，所有使用这张卡的应用应指向同一路径 |
+| `VIEWFORGE_GPU_LOCK` | 共享 GPU 锁文件的绝对路径，父目录需可写；所有使用这张卡的应用应指向同一路径 |
 | `TORCH_CUDA_ARCH_LIST` | CUDA 架构，如 RTX 30 系列为 `8.6` |
 | `TZ` | 时区；没有 tzdata 的容器可用 `CST-8` 表示 UTC+8 |
 
 ## 安装
 
-1. 在 Linux GPU 服务器上，用 Conda 按 [`environments/default.yml`](../environments/default.yml) 创建环境，安装位置指定为 `$VIEWFORGE_ROOT/envs/mvsam3d`。该文件固定了 Python、CUDA 工具链和系统库；先完成上面的本机配置，再加载环境：
+统一入口是 [`scripts/setup.sh`](../scripts/setup.sh)。准备条件见 [首次部署](../../docs/OBJECT_RECONSTRUCTION.md#首次部署)；**服务器上**，在 `RoomCanvas/object-reconstruction/` 执行：
 
-   ```bash
-   source configs/local.env
-   source scripts/env.sh
-   ```
+```bash
+# 无 local.env 时可先 export VIEWFORGE_ROOT='<外部运行目录的绝对路径>'
+export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'
+bash scripts/setup.sh --dry-run
+bash scripts/setup.sh
+```
 
-2. 在重建环境中安装 [`requirements.txt`](../requirements.txt)、[`requirements.p3d.txt`](../requirements.p3d.txt) 和 [`requirements.inference.txt`](../requirements.inference.txt) 中的依赖；包索引与 `p3d` / `inference` 依赖分组见 [`pyproject.toml`](../pyproject.toml)。再安装 API 服务依赖 [`configs/api-requirements.txt`](../configs/api-requirements.txt)：
+已有 `configs/local.env` 时读取其中的 `VIEWFORGE_ROOT`；终端也设置了不同值时停止，并给出使用配置目录的确切重跑命令。默认目录为 `$ROOMCANVAS_HOME/runtime/object-reconstruction`，`ROOMCANVAS_HOME` 默认是仓库根目录。其他 GPU、锁和编译变量需显式 export，不会随根目录一起导入。
 
-   ```bash
-   python -m pip install -r configs/api-requirements.txt
-   ```
+脚本完成这些步骤，路径均相对 `$VIEWFORGE_ROOT`：
 
-3. 按运行脚本准备外部代码和权重：`third_party/depth-anything-3/` 放置 DA3 并安装其依赖，`third_party/dinov2/` 放置 DINOv2；`weights/sam3d/` 保存 `pipeline.yaml` 及其引用的配置和权重，`weights/da3-nested-giant-large/` 保存默认 DA3 权重。路径依据见 [`env.sh`](../scripts/env.sh)、[`run.py`](../scripts/run.py) 和 [`run_reconstruction.py`](../scripts/run_reconstruction.py)，DA3 模型名以 [`configs/default.yaml`](../configs/default.yaml) 为准。
-4. 按下方[自动抠图](#自动抠图birefnet)步骤运行 [`scripts/setup_birefnet.sh`](../scripts/setup_birefnet.sh)，在独立环境安装 [`configs/birefnet-requirements.txt`](../configs/birefnet-requirements.txt) 并下载固定版本的模型。准备好照片和蒙版后，执行下一节的 `--check` 检查输入、权重路径与 GPU 配置。
+| 步骤 | 配方与产物 |
+| --- | --- |
+| 重建环境 | `envs/mvsam3d/`；[`default.yml`](../environments/default.yml) 提供 Python 3.11 / CUDA 12.1，脚本安装 torch 2.5.1 + cu121、[`requirements.txt`](../requirements.txt) 与 `p3d/inference/dev` extras，含 API 依赖 |
+| Kaolin | [`requirements.inference.txt`](../requirements.inference.txt) 固定 0.17.0，安装时通过 `-f` 使用 torch 2.5.1 / cu121 wheel 页面 |
+| 外部源码 | `third_party/depth-anything-3/`、`dinov2/`、`utils3d/`；DA3 与 utils3d 按 [`upstream_versions.json`](../configs/upstream_versions.json) 固定版本，DINOv2 pin 在安装脚本中 |
+| 重建权重 | `weights/sam3d/` 校验 pipeline 引用的配置与 checkpoint；`weights/da3-nested-giant-large/` 校验配置和模型权重；`weights/dinov2/hub/checkpoints/` 校验可读取的 state dict |
+| BiRefNet | `envs/birefnet/` 与 `weights/birefnet/` 分别安装、验证，沿用 [`setup_birefnet.sh`](../scripts/setup_birefnet.sh) 的依赖和固定版本配方 |
+
+每步开始前写 `.roomcanvas-setup-incomplete`，验证通过后改为 `.roomcanvas-setup-complete`。重跑同一入口即可恢复未完成步骤、跳过已完成步骤；无标记的已有目录只验证，失败时停止，不自动修补或覆盖。BiRefNet 环境和权重分别判断，一方已有不影响另一方安装。下载先写同目录临时文件，完成后才改名。
+
+局部失败直接重跑 `bash scripts/setup.sh`；只更新 API 依赖的命令见 [更新与重启](../../docs/OBJECT_RECONSTRUCTION.md#更新与重启)。完整环境的依赖或模型需要升级时，先核对脚本配方，在新的 `VIEWFORGE_ROOT` 安装，并同步修改 `local.env`；完成标记不会自动触发升级。不要直接调用旧的 BiRefNet 安装器覆盖已有目录。
+
+本次安装入口只在 macOS 做静态检查与 `--dry-run`；Linux 安装、CUDA 编译及 GPU 推理尚未实测。
 
 ## 命令行重建
+
+**服务器上**，在 `RoomCanvas/object-reconstruction/` 执行；先将下方约定的照片和蒙版放入 `stuffed_toy` 输入目录，或用自己的物体名替换：
 
 ```bash
 source configs/local.env
@@ -48,16 +61,11 @@ bash scripts/launch.sh --object stuffed_toy --attempt a02
 
 ## 自动抠图（BiRefNet）
 
-首次部署，在与重建环境隔离的独立环境中安装：
-
-```bash
-source configs/local.env
-bash scripts/setup_birefnet.sh
-```
+BiRefNet 已包含在上面的统一安装入口中，无需另装。
 
 模型版本固定在 `configs/birefnet.json`。环境为 `$VIEWFORGE_ROOT/envs/birefnet`，官方代码与权重在 `$VIEWFORGE_ROOT/weights/birefnet`，推理只从本地加载。服务器无法访问 Hugging Face 时，可在联网机器下载对应 revision 的完整 snapshot 后复制到该目录。
 
-单独准备蒙版：
+单独准备蒙版，**服务器上**，在 `RoomCanvas/object-reconstruction/` 执行（先准备对应物体的照片）：
 
 ```bash
 source configs/local.env
@@ -72,6 +80,8 @@ python scripts/prepare_masks.py --object stuffed_toy --images 1 3 5 7
 命令行重建不会自动补蒙版，缺少蒙版时直接报错。
 
 ## 检查
+
+**服务器上**，在 `RoomCanvas/object-reconstruction/`、完成环境和依赖安装后执行：
 
 ```bash
 source configs/local.env

@@ -102,17 +102,27 @@
 
 ### 1. 启动
 
-网页跑在本机，物体重建服务跑在 GPU 服务器上，两边各执行一次。
+网页跑在本机，房间重建和物体重建跑在 Linux GPU 服务器上。
 
-**服务器上**：启动物体重建服务（首次部署先按 [物体重建](docs/OBJECT_RECONSTRUCTION.md) 装好环境和权重；服务器重启后再执行一次）。
+**服务器上**：克隆仓库，一个脚本装好两套重建环境和模型权重，再启动物体重建服务。
+
+先准备：
+
+- Linux x86_64 + NVIDIA GPU 和可用驱动，Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17。
+- Debian/Ubuntu 的 apt；缺少系统包时需要 sudo（或 root）。
+- 有 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌。
+- 房间重建还需要已登录的 Codex CLI，并在 `.env` 填写 API 密钥。
 
 ```bash
-cd RoomCanvas/object-reconstruction
-source configs/local.env && source scripts/env.sh
-nohup python scripts/web.py --host 127.0.0.1 --port 7862 > "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
+git clone https://github.com/innovationasuna/RoomCanvas.git
+cd RoomCanvas
+export HF_TOKEN='<Hugging Face 令牌>'   # SAM 3D 权重需先在 Hugging Face 申请访问
+sh scripts/setup_server.sh            # 可先加 --dry-run 只看步骤；已装好的部分会跳过
 ```
 
-**本机**：启动网页，同时打开到服务器的 SSH 隧道。
+脚本结束时会提示需要填写的 `.env` 和 `object-reconstruction/configs/local.env`，以及启动物体重建服务的命令。
+
+**本机**：克隆仓库，一条命令启动网页并连上服务器。
 
 ```bash
 git clone https://github.com/innovationasuna/RoomCanvas.git
@@ -120,7 +130,7 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。按 `Ctrl-C` 停止网页，隧道会一起关闭。服务监听的不是 `127.0.0.1`（例如在 Docker 容器里监听容器 IP）时，本机命令加上 `--remote <监听地址>:7862`。
+打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。按 `Ctrl-C` 停止时隧道一起关闭。服务监听的不是服务器的 `127.0.0.1:7862` 时，加 `--remote <监听地址>:7862`；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
 房间原有物品的布局自动保存在浏览器里，刷新不会丢；照片重建的物品可以从“导入物品”重新添加。
 
@@ -128,12 +138,16 @@ python3 web/scripts/serve.py --ssh <SSH 主机>
 
 在编辑器工具栏点 **手势**，允许摄像头即可，识别代码已经打包在 `web/vendor/gesture/`。要调试独立的识别页：
 
+**本机**，从 `RoomCanvas/` 仓库根目录执行：
+
 ```bash
 sh scripts/gesture.sh install   # 第一次，需要 Node.js 22.12+
 sh scripts/gesture.sh dev       # 打开 http://127.0.0.1:8800/roomcanvas.html
 ```
 
 ### 3. Android App
+
+**本机**，从 `RoomCanvas/` 仓库根目录执行：
 
 ```bash
 cd android-app

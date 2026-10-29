@@ -6,11 +6,33 @@ RoomCanvas 的网页部分：主页（`index.html`）列出房间，点进布置
 
 ## 启动
 
+本机需要 Git、Python 3 和 SSH 客户端，网页无需安装 Python 包或执行前端构建。服务器先按 [物体重建部署](../docs/OBJECT_RECONSTRUCTION.md#部署) 安装并启动 API。
+
+**本机**，任意目录先执行 `ssh '<SSH 主机>'` 验证登录，登录后用 `exit` 返回本机。主机可用 `~/.ssh/config` 中的别名或 `user@host`。然后从准备存放源码的目录开始（已有仓库则直接进入 `RoomCanvas/`，省略克隆）：
+
 ```bash
-python3 web/scripts/serve.py --ssh <SSH 主机>   # 在仓库根目录运行
+git clone https://github.com/innovationasuna/RoomCanvas.git
+cd RoomCanvas
+python3 web/scripts/serve.py --ssh '<SSH 主机>'
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选择房间。`serve.py` 同时打开到物体重建服务的 SSH 隧道（本机 `127.0.0.1:7865`，可用 `--viewforge <地址>` 修改端口），把物品重建相关的请求转发过去，停止时隧道一起关闭，见 [物品导入与添加](#物品导入与添加)。服务器端的启动命令见 [README 快速开始](../README.md#1-启动)；服务监听的不是 `127.0.0.1` 时加 `--remote <监听地址>:7862`，隧道已在别处打开时省略 `--ssh`。
+打开 <http://127.0.0.1:7880/web/>，选择房间。`serve.py` 将本机 `127.0.0.1:7865` 隧道连接到 SSH 主机一侧的 `127.0.0.1:7862`，并转发物品相关请求。按 `Ctrl-C` 停止网页时隧道一起关闭。后续从本机 `RoomCanvas/` 运行同一启动命令即可；更新代码时先停止网页，再执行 `git pull --ff-only`。
+
+**本机**，在 `RoomCanvas/` 根目录，服务不是监听 SSH 主机的回环地址时，用以下命令替代启动命令：
+
+```bash
+python3 web/scripts/serve.py --ssh '<SSH 主机>' --remote '<监听地址>:7862'
+```
+
+`<监听地址>` 要填从 SSH 主机能连接的服务地址；服务器的 `--host` 必须绑定可由这一侧访问的接口。容器中监听 `0.0.0.0` 时，用宿主机映射地址或可达的容器 IP 作 `--remote`，不填 `0.0.0.0`。地址对应关系见 [启动与检查](../docs/OBJECT_RECONSTRUCTION.md#启动与检查)。隧道本机端口需更换时，加 `--viewforge http://127.0.0.1:<本机隧道端口>`。
+
+**本机**，在 `RoomCanvas/` 根目录，只用编辑器时执行：
+
+```bash
+python3 web/scripts/serve.py
+```
+
+无需服务器也能打开示例房间、调整布局；[添加物品和导入物品](#物品导入与添加)需要物体服务在线。如果已有外部隧道，同样省略 `--ssh`，并确保隧道在 `127.0.0.1:7865`，或用 `--viewforge` 指向它。
 
 ## 房间文件
 
