@@ -283,9 +283,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - TRELLIS.2 - https://github.com/microsoft/TRELLIS.2
 - MediaPipe - https://github.com/google-ai-edge/mediapipe
 - Three.js - https://github.com/mrdoob/three.js
-- N8AO - https://github.com/N8python/n8ao
 - SceneView - https://github.com/SceneView/sceneview-android
-- Filament - https://github.com/google/filament
 
 ## 许可
 
