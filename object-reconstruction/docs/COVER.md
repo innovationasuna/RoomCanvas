@@ -2,7 +2,7 @@
 
 重建完成后，COVER 为当前模型计算下一张照片的最佳拍摄方向。网页编辑器在结果旁用橙色箭头显示这个方向，“补拍”上传新照片后在原结果基础上重建（见 [物体重建](../../docs/OBJECT_RECONSTRUCTION.md#补拍)）。
 
-COVER 根据当前的重建结果和参与重建的照片计算覆盖评分；评分组件及其许可证在 `scripts/vendor/cover/`，引用见 [模块 README](../README.md#引用)。
+COVER 根据当前的重建结果和参与重建的照片计算覆盖评分；评分组件及其许可证在 `scripts/vendor/cover/`，引用见 [项目致谢](../../README.md#致谢)。
 
 ## 命令行
 

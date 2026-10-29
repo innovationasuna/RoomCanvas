@@ -4,7 +4,7 @@
 
 ## 本机配置
 
-从 `configs/local.env.example` 复制出 `configs/local.env`（不进仓库），每次使用前显式加载：
+从 [`configs/local.env.example`](../configs/local.env.example) 复制出 `configs/local.env`（不进仓库），每次使用前显式加载：
 
 | 变量 | 含义 |
 | --- | --- |
@@ -14,7 +14,23 @@
 | `TORCH_CUDA_ARCH_LIST` | CUDA 架构，如 RTX 30 系列为 `8.6` |
 | `TZ` | 时区；没有 tzdata 的容器可用 `CST-8` 表示 UTC+8 |
 
-重建环境为 `$VIEWFORGE_ROOT/envs/mvsam3d`，按 [SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects) 和 [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) 的说明安装。
+## 安装
+
+1. 在 Linux GPU 服务器上，用 Conda 按 [`environments/default.yml`](../environments/default.yml) 创建环境，安装位置指定为 `$VIEWFORGE_ROOT/envs/mvsam3d`。该文件固定了 Python、CUDA 工具链和系统库；先完成上面的本机配置，再加载环境：
+
+   ```bash
+   source configs/local.env
+   source scripts/env.sh
+   ```
+
+2. 在重建环境中安装 [`requirements.txt`](../requirements.txt)、[`requirements.p3d.txt`](../requirements.p3d.txt) 和 [`requirements.inference.txt`](../requirements.inference.txt) 中的依赖；包索引与 `p3d` / `inference` 依赖分组见 [`pyproject.toml`](../pyproject.toml)。再安装 API 服务依赖 [`configs/api-requirements.txt`](../configs/api-requirements.txt)：
+
+   ```bash
+   python -m pip install -r configs/api-requirements.txt
+   ```
+
+3. 按运行脚本准备外部代码和权重：`third_party/depth-anything-3/` 放置 DA3 并安装其依赖，`third_party/dinov2/` 放置 DINOv2；`weights/sam3d/` 保存 `pipeline.yaml` 及其引用的配置和权重，`weights/da3-nested-giant-large/` 保存默认 DA3 权重。路径依据见 [`env.sh`](../scripts/env.sh)、[`run.py`](../scripts/run.py) 和 [`run_reconstruction.py`](../scripts/run_reconstruction.py)，DA3 模型名以 [`configs/default.yaml`](../configs/default.yaml) 为准。
+4. 按下方[自动抠图](#自动抠图birefnet)步骤运行 [`scripts/setup_birefnet.sh`](../scripts/setup_birefnet.sh)，在独立环境安装 [`configs/birefnet-requirements.txt`](../configs/birefnet-requirements.txt) 并下载固定版本的模型。准备好照片和蒙版后，执行下一节的 `--check` 检查输入、权重路径与 GPU 配置。
 
 ## 命令行重建
 
