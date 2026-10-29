@@ -88,4 +88,4 @@ $VIEWFORGE_ROOT/
 
 ## 引用
 
-多视角重建基于 [MV-SAM3D](https://arxiv.org/abs/2603.11633)，抠图使用 BiRefNet，补拍方向使用 COVER 指标，完整引用见 [README](../README.md#引用与致谢) 和 [`object-reconstruction/README.md`](../object-reconstruction/README.md#引用)。
+多视角重建基于 [MV-SAM3D](https://arxiv.org/abs/2603.11633)，抠图使用 BiRefNet，补拍方向使用 COVER 指标，致谢见 [README](../README.md#致谢) 和 [`object-reconstruction/README.md`](../object-reconstruction/README.md#引用)。

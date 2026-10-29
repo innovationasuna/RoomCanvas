@@ -272,15 +272,23 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 </tr>
 </table>
 
-## 引用与致谢
+## 致谢
 
-RoomCanvas 以 [Apache License 2.0](LICENSE) 发布，第三方组件的署名和许可见 [NOTICE](NOTICE)。项目用到了以下工作，在研究中使用 RoomCanvas 时请一并引用：
+感谢以下项目的作者开源他们的工作：
 
-- **房间重建流程**：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)（[arXiv:2610.01863](https://arxiv.org/abs/2610.01863)，BibTeX 见 [citation.bib](room-reconstruction/citation.bib)）；示例房间 `office` 来自其公开样例
-- **多视角物体重建**：[MV-SAM3D](https://arxiv.org/abs/2603.11633)、[SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects)、[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)
-- **抠图与补拍**：[BiRefNet](https://github.com/ZhengPeng7/BiRefNet)；补拍方向使用 NBV-Gym 中的 COVER 指标
-- **小物件生成**：[TRELLIS.2](https://github.com/microsoft/TRELLIS.2)
-- **手势识别**：[MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe)（Apache-2.0）
-- **渲染**：网页使用 [Three.js](https://threejs.org/)（MIT）和 [N8AO](https://github.com/N8python/n8ao)（CC0），Android App 使用 [SceneView](https://github.com/SceneView/sceneview-android)（Apache-2.0）和 [Filament](https://github.com/google/filament)
+- [LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)
+- [MV-SAM3D](https://github.com/devinli123/MV-SAM3D)
+- [SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects)
+- [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)
+- [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)
+- [NBV-Gym](https://github.com/chengine/nbv_gym)
+- [TRELLIS.2](https://github.com/microsoft/TRELLIS.2)
+- [MediaPipe](https://github.com/google-ai-edge/mediapipe)
+- [Three.js](https://github.com/mrdoob/three.js)
+- [N8AO](https://github.com/N8python/n8ao)
+- [SceneView](https://github.com/SceneView/sceneview-android)
+- [Filament](https://github.com/google/filament)
 
-各模块使用的依赖版本和许可见 [`object-reconstruction/LICENSE`](object-reconstruction/LICENSE)、[`gesture/docs/sources.md`](gesture/docs/sources.md) 和 [`web/vendor/`](web/vendor/)。
+## 许可
+
+[Apache License 2.0](LICENSE)，第三方组件的署名见 [NOTICE](NOTICE)。

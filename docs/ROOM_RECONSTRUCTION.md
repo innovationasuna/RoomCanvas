@@ -101,4 +101,4 @@ $PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<
 | 小物件重建 | `pipeline/realism_authoring/small_objects/` |
 | 可动部件识别 | `pipeline/realism_authoring/articulate/` |
 
-运行参数以本文为准；`room-reconstruction/` 下的 README、ARCHITECTURE 介绍底层流程的通用配置。相关工作见 [README 的引用与致谢](../README.md#引用与致谢)。
+运行参数以本文为准；`room-reconstruction/` 下的 README、ARCHITECTURE 介绍底层流程的通用配置。相关工作见 [README 的致谢](../README.md#致谢)。
