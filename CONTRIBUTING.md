@@ -26,6 +26,5 @@
 - **重建核心**：`room-reconstruction/` 和 `object-reconstruction/` 的重建核心文件尽量保持稳定；必要的修改遵循所在模块原有的代码风格，并同步更新对应模块的说明。
 - **不进仓库**：新的扫描数据、照片、运行结果、模型权重和 `.env`。现有的 `samples/`、`object-reconstruction/data/example/` 示例照片，以及手势模块随版本提供的识别模型和 WASM 资源保留，来源和规则见各模块 README。
 - **GPU 作业**：每个作业只使用一张空闲 GPU，通过共享的 GPU 锁排队；结果写到新目录，不覆盖已有结果。
-- **示例数据**：`samples/room3` 是真实住宅扫描。仓库公开前，须先从 git 历史中移除它。
 - **手势识别包**：修改 `gesture/src` 中被打包的代码后，按 [web/vendor/gesture](web/vendor/gesture/README.md) 的说明重新构建 `web/vendor/gesture/` 并一起提交。
 
