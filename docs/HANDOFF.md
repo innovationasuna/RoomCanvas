@@ -1,17 +1,24 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-28 晚（main 为 #49 `a310d09` 加本次交接；服务器文件夹同步到 `a310d09`；7862 于 2026-10-27 16:10 UTC 重启，跑的是 #42 之后的代码，进程 123888，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261028.log`）。新对话先读下面“从这里开始”。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-28 晚（main 为 #49 `a310d09` 加本次交接；服务器文件夹同步到 `a310d09`；7862 于 2026-10-27 16:10 UTC 重启，跑的是 #42 之后的代码，进程 123888，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261028.log`）。新对话先读下面“从这里开始”。2026-10-30：文档整理在分支 `docs/polish-docs`（未提交），见“现在的状态”第一条。
 
 ## 从这里开始（2026-10-28 交接）
 
 **现在的状态**
+- **2026-10-30 文档整理（分支 `docs/polish-docs`，本地未提交，等用户审完再开 PR）**：用户要求文档读起来像完整的项目、站在作者角度写，不刻意强调缺点和复用；上游项目统一放进根 README 的“引用与致谢”。
+  - 对外文档（根 README、CONTRIBUTING、`docs/ROOM_RECONSTRUCTION.md`、`docs/OBJECT_RECONSTRUCTION.md`、`web/README.md`、`gesture/` 与 `object-reconstruction/` 的 README 和 docs）去掉了日期、PR 号、“用户要求”、服务器路径等开发痕迹；按钮名统一为“添加物品 / 导入物品”。
+  - 用户同意把过程记录合成一份：`docs/DEV_HISTORY.md` 原样收录重构计划、光照调研（原 `web/README.md` 第 28–464 行）、手势的日志 / 计划 / 验收 / 双手更新 / Mac mini 测试、ViewForge 整合历史和原运行说明。原 `docs/REFACTOR_PLAN.md`、`gesture/LOG.md`、`gesture/docs/{plan,acceptance,gesture-updates,macmini-test}.md`、`object-reconstruction/docs/HISTORY_INTEGRATION.md` 已删（内容都在 DEV_HISTORY）。本文件保持独立；`gesture/AGENTS.md` 改为在 DEV_HISTORY 的手势开发日志里追加记录。新增通用的 `gesture/docs/remote-backend.md`。
+  - 用户决定手势模块也用 Apache-2.0：改了 `gesture/README.md`、`gesture/docs/sources.md`、`NOTICE`、`gesture/package.json`（合并前告知 AWHYhuh）。
+  - 用户同意最小改动 `room-reconstruction/` 的上游文档使其与代码一致：`ARCHITECTURE.md`（默认 provider 改为 codex、可选的 `simulate` 阶段、`publish` 在 `room_qc/` 下、补上 small_objects / articulate / live、物体精修在 Codex 下也能跑）、`README.md`（所有角色默认 Codex，删掉不存在的 `doc/support-first-authoring.md` 链接）、`deploy/local-gpu.md`（还需不设 `MODAL_PROFILE`）。这 3 个文件可单独拆成一个 PR。
+  - Codex 做了两轮只读审查，建议已核实并改入；相对链接和锚点检查全部通过。
+  - **2026-10-30 本机连不上 3090**：`ssh 3090x2` 连 `120.77.69.59:4131` 超时，卡在第一跳的 TCP 连接，与密钥无关；待用户换网络或找服务器管理员确认端口转发。
 - **2026-10-28**：#48 交接；#49 界面用词统一（用户要求）：网页首页、编辑器、手势识别页上用户看得到的“物体”“家具”都改成“物品”（按钮、提示、读屏标签、报错），`web/vendor/gesture/gesture-runtime.js` 按 `vite.embed.config.ts` 重新打包（改前重打一次与仓库逐字节一致，差异只有一句提示）。注释、变量名、技术文档不改，“物体重建”仍是文档里的说法；`gesture/` 旧的“起居室”演示页（`src/app`、`src/controls`、`src/ui/ui.ts`）场景本来就是家具，没改。服务器已用 `git bundle` 同步到 `a310d09`。
 - 开着的 PR：无（lyk 的 `feat/objects-trellis` 分支还在，见下面“物体重建换 TRELLIS.2”）。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `84a7dba`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提；它的分支 `integration/local-ui-20261020` 2026-10-27 按用户要求删了（在 #24 页面点“Restore branch”可恢复）。远端现在只留 `main` 和开着的 PR 分支。
 - **7862 已重启**（2026-10-27 16:10 UTC，进程 123888）：#42 的 `objects.py` 改动（名字上限 53、已有抠图不等 GPU、同名并发 400）和 `env.sh` 去掉 `MV_ROOT` 已生效。重启命令见“服务器”一节。
 - **物体重建换 TRELLIS.2**（lyk，分支 `feat/objects-trellis`，2026-10-27 23:22 推，28 个文件 +1317/−36，还没开 PR）：网页“添加物体”多一条单图路线，抠图后只用第一张照片交给房间重建那边已有的 TRELLIS.2，出带 PBR 贴图的模型；后端设 `VIEWFORGE_BACKEND=trellis` 才启用，不设与现在完全一样；TRELLIS 路线不能补拍（网页按后端设置隐藏按钮）；跑时额外拿房间重建的 GPU 锁。他的分支基于改写前的旧 main `ce39cd4`：直接开 PR 会显示 61 个文件，直接 `git merge origin/main` 有 5 个假冲突；要以 `ce39cd4` 为基准合并（`git merge-recursive ce39cd4 -- HEAD origin/main`）。临时副本里合过并测过（物体重建 9 组、网页 223 项通过），他的分支没动。给了用户两种走法：A 让 lyk 自己按上面合并再提 PR；B 我另开分支合好、签名、提 PR（合并前等 lyk 同意）。用户还没选（2026-10-28 说先不管）。用户问过 TRELLIS.2 能否多图：官方只支持单图；可选 Pixal3D 多视图（要相机参数）、移植 TRELLIS v1 的多图做法，或继续用现在的 MV-SAM3D。
 - 本机仓库 `.git/config` 原来有 `user.name = t`，2026-10-27 用户要求改成自己的，已删掉这条本地设置，作者用全局的 `innovationAusna <2474070799@qq.com>`。本机 `uv` 是 0.7.6，`room-reconstruction` 要求 ≥0.9.17：用 `uvx uv@0.9.17 run pytest -n auto`（在 `room-reconstruction/` 下会建 `.venv`，已在 `.gitignore`）。
 - 本机仓库 2026-10-27 从 `~/fable/RoomCanvas` 挪到 `~/research/RoomCanvas`（用户要求），7880、8800 已从新位置重启。
-- **代码审查与重构计划**（2026-10-27，用户要求）：见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。用户说“接着做 / 继续修 bug”，第 1 批 12 个 bug 都已修、各开 PR（上一条）；第 4 批里“统一的换材质模块”和第 3 批里“`?v=` 发布时统一盖版本号”顺带做了。第 2 批删死代码用户说“确定是死的就删”，已删（#47）；没删的见 `REFACTOR_PLAN.md`。第 2 批的 CI 补充项和第 3 批还没做。ZCode 找 bug 等用户在桌面版跑完。
+- **代码审查与重构计划**（2026-10-27，用户要求）：见 [开发记录 · 代码审查与重构计划](DEV_HISTORY.md#代码审查与重构计划2026-10-27)。用户说“接着做 / 继续修 bug”，第 1 批 12 个 bug 都已修、各开 PR（上一条）；第 4 批里“统一的换材质模块”和第 3 批里“`?v=` 发布时统一盖版本号”顺带做了。第 2 批删死代码用户说“确定是死的就删”，已删（#47）；没删的见开发记录中的重构计划。第 2 批的 CI 补充项和第 3 批还没做。ZCode 找 bug 等用户在桌面版跑完。
 - **展示完整重建过程：回放页样稿**（2026-10-28，用户要求，还没进仓库）：用 room3 10-16 那次完整重建（约 2 小时）的真实记录做成 90 秒回放。先做了四种样稿（参考 Devin 工作台、Manus、Lovable 对话 + 预览、Spline 编辑器侧栏），用户选 B（Manus）并要求改成贴合项目的版本 `b2-replay.html`：
   - 布局：顶栏同 RoomCanvas；左栏 35%、房间 65%（按比例，不定死宽度）；底部时间轴（阶段分段、版本绿点、评审黄点，点击/拖动跳转，←/→ 一步，空格暂停）。房间画面上不放任何浮层。
   - 左栏内容照原来的 B：用户一句请求 + agent 说的话（正文）+ 每步操作卡片（“终端 / 三维视图 / 图片查看器”），新的在底部；图片跟在对应那一步下面（高 112 像素，点开放大）；增量追加，不整段重绘（否则图片反复加载会闪）。
@@ -49,7 +56,7 @@
 - **服务器重启过**（2026-10-26 连不上，27 日恢复）：容器重启后 7862 后端没自动起来，已按“服务器”一节的命令重启（当时代码是 `9ae60cd`，日志 `ViewForge/logs/roomcanvas-api-20261026.log`），本机 7865 隧道已重开。重启前进行中的重建任务跟踪不到了。27 日服务器文件夹同步到 `152eb12`（只改了网页和文档，后端没重启）；服务器上 `git pull` 连 GitHub 卡住，改用 `git bundle`。
 
 - **可动部件这一步默认开启**（2026-10-25，用户要求）：`run_room.py` 完整重建时，建模阶段写出房间后自动跑 `--articulate`，结果在 `<运行目录>/articulate/room_preview/`（网页用这份），`--no-articulate` 关掉。没有改 LiteReality 的阶段：发布（publish）仍用建模阶段的房间，不带新切的部件。
-- **可动部件这一步（2026-10-25，#32，用户要求接进全流程、用方法 2、拿 office 验证）**：`run_room.py --articulate <场景> <新目录>`，代码在 `room-reconstruction/src/litereality_agent/pipeline/realism_authoring/articulate/`，说明见 [房间重建](ROOM_RECONSTRUCTION.md#可动部件astra-判断哪些东西能打开切开装上合页)。每件候选 Astra 看正视/侧视刻度图、四个斜角的透视图和照片，回答有没有能开的部件、在模型哪里、怎么动；Blender 切开挂到 `<物体>_Hinges` 下，后面空的补深色内腔、抽屉补屉子；Astra 再看四个斜角的合上/打开图，开错的去掉；留下的写 `Room.glb` 和 `room/Objects/Articulated/<物体>/sim/<物体>.urdf`，`room_objects.py` 直接读。
+- **可动部件这一步（2026-10-25，#32，用户要求接进全流程、用方法 2、拿 office 验证）**：`run_room.py --articulate <场景> <新目录>`，代码在 `room-reconstruction/src/litereality_agent/pipeline/realism_authoring/articulate/`，说明见 [房间重建](ROOM_RECONSTRUCTION.md#可动部件)。每件候选 Astra 看正视/侧视刻度图、四个斜角的透视图和照片，回答有没有能开的部件、在模型哪里、怎么动；Blender 切开挂到 `<物体>_Hinges` 下，后面空的补深色内腔、抽屉补屉子；Astra 再看四个斜角的合上/打开图，开错的去掉；留下的写 `Room.glb` 和 `room/Objects/Articulated/<物体>/sim/<物体>.urdf`，`room_objects.py` 直接读。
   - **office 结果**（服务器 `runs/office-articulate-20261025/`，本机 `~/Downloads/RoomCanvas-runs/office-articulate-20261025/` 有 `summary.md`、`overview.jpg`）：28 件候选，最终留下抽屉柜 `Pedestal0` 的两个抽屉（第三个抽屉 Astra 说照片里看不清，没切）；笔记本电脑的屏幕切了，但开合时屏幕碎成三角片，检查没通过、没留；椅子、桌子、显示器等都判断为不能开；瓶盖、喷雾罐盖按改后的提示不算。`room_objects.json` 读到 6 个关节（2 个新抽屉 + 原来的升降桌、门、两扇窗），`check_room` 18/18；本机编辑器“预览”里点抽屉能拉出来。整个验证（含几次返工重跑）共 41 次 Astra 调用。本机看效果：`samples/office-articulated/`（不进 git，`.git/info/exclude`），<http://127.0.0.1:7880/web/editor/?scene=../../samples/office-articulated>。
   - **验证中修掉的问题**：网格刻度的负号看不出来（改成 `Z -0.60`）；只有一个透视角度看不到抽屉面（改为四个斜角）；检查图只从背面看，Astra 把向前拉的抽屉看成向后（改为四个斜角）；笔记本的框只读到 −0.603，比模型顶 −0.6028 低 0.2 毫米，顶边留在原处（离外表面 1.5 厘米内的框边推到外面）；不该补内腔的盖子也补了（Astra 说明后面空不空）；内腔和抽屉面一样宽，从柜子侧面露出来（内缩 3 厘米）。
   - **服务器 codex 链接已修**（2026-10-25，用户同意）：`runtime/bin/codex` 原来链接到挪进 `archive/` 的 `scripts/codex_api.sh`，现在是一个包装脚本（内容同原来的 `codex_api.sh`，按自己的位置找仓库），旧链接改名 `codex.broken-link-20261025` 留着。`run_room.py` 的 Astra 调用恢复。
@@ -216,7 +223,7 @@
 
 P0 基线工具、P1 通用校准与可回退导入 PBR 实验、P2 两种 AO 的首轮对照及原生阴影检查已实现并验证。目标是通用场景、低交互开销，保留原有半球光与两盏平行光的类型和位置，无逐房间补丁。**烘焙 GI 不在范围内**，未引入路径追踪或高成本 GI。
 
-参数、测量及来源见 [光影调研](../web/README.md#光影调研)（原 `docs/LIGHTING_RESEARCH.md`，已并入网页说明），完整操作与验收命令见 [web/README](../web/README.md#通用光影增强)。本文其他各节有历史服务信息；本轮没有核对或修改远程运行状态。
+参数、测量及来源见 [光影调研](DEV_HISTORY.md#光影调研)（原 `docs/LIGHTING_RESEARCH.md`，现归档在开发记录），完整操作与验收命令见 [web/README](../web/README.md#光照)。本文其他各节有历史服务信息；本轮没有核对或修改远程运行状态。
 
 | 优先级 | 已实现 | 验证及边界 |
 | --- | --- | --- |

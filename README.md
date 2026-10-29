@@ -12,11 +12,11 @@
 
 </div>
 
-![RoomCanvas 编辑器：LiteReality 官方样例办公室，底部是仓库](docs/images/editor-office.jpg)
+![RoomCanvas 编辑器：示例办公室，底部是仓库](docs/images/editor-office.jpg)
 
 用 iPhone（LiDAR + RoomPlan）扫一遍房间，RoomCanvas 把它重建成带纹理、尺寸真实的三维模型，每件家具都是独立、可以挪动的物体。想买的新东西拍几张照片就能按真实大小加进来；用鼠标或摄像头手势摆放，碰撞和是否放稳实时检查，看放不放得下、好不好看。
 
-- **真实尺寸**：房间和家具来自扫描重建，新物体按一条实测边长标定，摆进去的就是真实大小。
+- **真实尺寸**：房间和家具来自扫描重建，新物品按一条实测边长标定，摆进去的就是真实大小。
 - **开箱即用**：网页编辑器是纯前端，没有构建步骤，有 Python 就能打开两个示例房间。
 - **双手操作**：浏览器里用摄像头识别手势，画面只在本机处理，不上传。
 - **一个仓库，从扫描到手机**：房间重建、物体重建、网页编辑器、手势、Android 漫游 App 都在这里。
@@ -28,7 +28,7 @@
 
 **🏠 房间重建**
 
-- LiteReality 从扫描重建房间结构和家具，Agent 用 GPT-6 Astra 审图、建模、摆放
+- 从扫描重建房间结构和家具，多个 Agent（GPT-6 Astra）分工审图、建模、摆放
 - 小物件逐件判断：舍弃、程序化建模，或用 TRELLIS 重建
 - 门、柜门、窗、升降桌带关节，能打开；其他东西由 Astra 看照片判断有没有能开的抽屉、门、盖子，自动切出来装上滑轨或合页
 
@@ -46,9 +46,9 @@
 </td></tr>
 <tr><td valign="top">
 
-**📷 拍照添加物体**
+**📷 拍照添加物品**
 
-- 仓库里“添加物体”：上传照片（1 张也行）→ 抠图确认 → 服务器重建
+- 仓库里“添加物品”：上传照片（1 张也行）→ 抠图确认 → 服务器重建
 - 结果旁的箭头指出建议补拍的方向，“补拍”加照片后在原结果上重建
 - 预览里看 X / Y / Z 坐标轴，填一条实测边长就按真实大小放进房间
 - 重建在 GPU 服务器上跑，关掉对话框、刷新页面都不影响
@@ -92,11 +92,11 @@
 </tr>
 <tr>
 <td><img src="docs/images/office-night.jpg" alt="夜间光照"><br><sub><b>夜间</b>：日光关掉，中央顶灯照亮房间</sub></td>
-<td><img src="docs/images/add-object.jpg" alt="添加物体"><br><sub><b>添加物体</b>：照片 → 抠图 → 重建 → 尺寸，四步放进房间</sub></td>
+<td><img src="docs/images/add-object.jpg" alt="添加物品"><br><sub><b>添加物品</b>：照片 → 抠图 → 重建 → 尺寸，四步放进房间</sub></td>
 </tr>
 </table>
 
-截图都用 LiteReality 官方样例办公室；另一个示例房间 `room3` 是私人卧室，不放在这里。
+截图均来自示例房间 `office`。
 
 ## 快速开始
 
@@ -108,17 +108,17 @@ cd RoomCanvas
 python3 web/scripts/serve.py
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。布局存在浏览器里，刷新不会丢。
+打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。房间原有物品的布局自动保存在浏览器里，刷新不会丢；照片重建的物品可以从“导入物品”重新添加。
 
 ### 2. 连接物体重建服务（可选）
 
-“添加物体”和“导入物体”要连到物体重建后端（跑在 GPU 服务器上）。`serve.py` 默认把这些请求转给本机 `127.0.0.1:7865`，用 SSH 隧道接过去：
+“添加物品”和“导入物品”需要连接物体重建服务（运行在 GPU 服务器上）。`serve.py` 默认把这些请求转给本机 `127.0.0.1:7865`，用 SSH 隧道接过去：
 
 ```bash
 ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH 主机>
 ```
 
-后端怎么部署见 [物体重建说明](docs/OBJECT_RECONSTRUCTION.md)。不连也能正常布置房间原有的家具。
+服务的部署见 [物体重建](docs/OBJECT_RECONSTRUCTION.md)。不连接时，房间原有家具的布置不受影响。
 
 ### 3. 手势
 
@@ -140,7 +140,7 @@ cd android-app
 
 ### 5. 重建自己的房间
 
-在 GPU 服务器上从手机扫描跑一遍 LiteReality + Astra，产出 `Room.glb`，再用 `web/scripts/room_objects.py` 生成物体清单。完整步骤见 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+在 GPU 服务器上重建手机扫描，得到 `Room.glb`，再用 `web/scripts/room_objects.py` 生成物品清单。完整步骤见 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
 ## 怎么用
 
@@ -196,7 +196,7 @@ cd android-app
 
 ```mermaid
 flowchart LR
-  scan["房间扫描<br/>LiDAR + RoomPlan"] --> room["房间重建<br/>LiteReality + Astra"]
+  scan["房间扫描<br/>LiDAR + RoomPlan"] --> room["房间重建<br/>多 Agent + Blender"]
   room --> glb["Room.glb<br/>room_objects.json"]
   photos["物体照片"] --> object["物体重建<br/>BiRefNet + DA3 + MV-SAM3D"]
   glb --> editor["网页编辑器<br/>Three.js"]
@@ -209,12 +209,12 @@ flowchart LR
 
 | 模块 | 做什么 | 技术 |
 |---|---|---|
-| [`room-reconstruction/`](room-reconstruction/) | 房间重建，加了 3090 运行脚本和小物件这一步 | [LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)、Codex（GPT-6 Astra）、Blender、TRELLIS.2 |
-| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，只提供 API | Starlette、BiRefNet、DA3、MV-SAM3D |
+| [`room-reconstruction/`](room-reconstruction/) | 房间重建：扫描 → 房间结构与家具 → 小物件重建 → 可动部件识别 | Codex（GPT-6 Astra）、Blender、TRELLIS.2 |
+| [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，以 API 形式提供 | Starlette、BiRefNet、DA3、MV-SAM3D |
 | [`web/`](web/) | 主页、布置编辑器、本机服务 `serve.py` | Three.js r180，无构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
-| [`samples/`](samples/) | 示例房间：`room3`（手机扫描的卧室）、`office`（LiteReality 官方样例） | |
+| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室） | |
 
 ## 开发与测试
 
@@ -222,7 +222,7 @@ flowchart LR
 
 ```bash
 node --test 'web/editor/tests/*.mjs'                         # 编辑器单测
-python3 -m unittest discover -s web/scripts                  # 本机服务、物体清单
+python3 -m unittest discover -s web/scripts                  # 本机服务、物品清单
 node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型检查碰撞、支撑、关节
 ```
 
@@ -230,12 +230,12 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 
 ## 路线图
 
-- [x] 扫描 → 真实尺寸的房间（LiteReality + Astra）
+- [x] 扫描 → 真实尺寸的房间
 - [x] 网页里布置家具：碰撞、支撑、撤销、自动保存
 - [x] 一键清空房间，家具收进仓库再按需摆回
 - [x] 门、柜门、窗能打开
 - [x] 自动判断哪些东西能打开，切出抽屉、盖子装上滑轨或合页
-- [x] 拍几张照片添加物体，按实测尺寸放进房间
+- [x] 拍几张照片添加物品，按实测尺寸放进房间
 - [x] 补拍：按建议方向补照片，在原结果上重建
 - [x] 摄像头双手手势
 - [x] 时段光照、顶灯和环境遮蔽
@@ -249,16 +249,17 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 
 | 文档 | 内容 |
 |---|---|
-| [网页说明](web/README.md) | 编辑器的全部操作、房间文件格式、光照参数和调研、测试、已知问题 |
-| [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建一个房间、小物件和可动部件这两步、接到网页，以及对 LiteReality-Agent 的改动 |
-| [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体后端的部署、接口和 SSH 隧道 |
+| [网页编辑器](web/README.md) | 编辑器的全部操作、房间文件格式、光照、代码结构、测试和已知限制 |
+| [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建房间、小物件和可动部件，并接入网页 |
+| [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体重建服务的部署、接口和本机连接 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
-| [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
-| [交接文档](docs/HANDOFF.md) | 当前进度、服务器目录和待办 |
+| [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程，以及开发记录 |
 
-## 隐私
+## 数据与隐私
 
-仓库是私有的。**`samples/room3` 是私人卧室**，`Room.glb` 和缩略图来自实拍照片，只给协作者用，不要转发；仓库要公开前必须先从历史里删掉它。原始扫描、照片、含相机轨迹的 `room_layout.json` 都不进仓库。手势识别只在本机浏览器里做，摄像头画面不上传。
+- `samples/room3` 是真实住宅的扫描，模型和缩略图来自实拍照片，仅供项目成员使用，请勿转发。
+- 原始扫描、照片、含相机轨迹的 `room_layout.json` 不进入仓库。
+- 手势识别只在本机浏览器中进行，摄像头画面不上传。
 
 ## 贡献者
 
@@ -271,13 +272,15 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 </tr>
 </table>
 
-## 致谢与许可
+## 引用与致谢
 
-RoomCanvas 以 [Apache License 2.0](LICENSE) 发布，署名见 [NOTICE](NOTICE)。它建立在这些项目之上，各自保留原有许可：
+RoomCanvas 以 [Apache License 2.0](LICENSE) 发布，第三方组件的署名和许可见 [NOTICE](NOTICE)。项目用到了以下工作，在研究中使用 RoomCanvas 时请一并引用：
 
-- [LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)：房间重建，研究使用请引用 [citation.bib](room-reconstruction/citation.bib)
-- ViewForge / MV-SAM3D 及其依赖：见 [`object-reconstruction/LICENSE`](object-reconstruction/LICENSE)
-- [TRELLIS.2](https://github.com/microsoft/TRELLIS.2)：小物件重建
-- [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe)（Apache-2.0）：手势识别，见 [`gesture/README.md`](gesture/README.md)、[`gesture/docs/sources.md`](gesture/docs/sources.md) 和 [`web/vendor/gesture/README.md`](web/vendor/gesture/README.md)
-- [Three.js](https://threejs.org/)（MIT）：网页渲染，在 `web/vendor/`；[N8AO](https://github.com/N8python/n8ao)（CC0）：可选的环境遮蔽，见 [`web/vendor/n8ao/README.md`](web/vendor/n8ao/README.md)
-- [SceneView](https://github.com/SceneView/sceneview-android)（Apache-2.0）和 [Filament](https://github.com/google/filament)：Android App 渲染
+- **房间重建流程**：[LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)（[arXiv:2610.01863](https://arxiv.org/abs/2610.01863)，BibTeX 见 [citation.bib](room-reconstruction/citation.bib)）；示例房间 `office` 来自其公开样例
+- **多视角物体重建**：[MV-SAM3D](https://arxiv.org/abs/2603.11633)、[SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects)、[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)
+- **抠图与补拍**：[BiRefNet](https://github.com/ZhengPeng7/BiRefNet)；补拍方向使用 NBV-Gym 中的 COVER 指标
+- **小物件生成**：[TRELLIS.2](https://github.com/microsoft/TRELLIS.2)
+- **手势识别**：[MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe)（Apache-2.0）
+- **渲染**：网页使用 [Three.js](https://threejs.org/)（MIT）和 [N8AO](https://github.com/N8python/n8ao)（CC0），Android App 使用 [SceneView](https://github.com/SceneView/sceneview-android)（Apache-2.0）和 [Filament](https://github.com/google/filament)
+
+各模块使用的依赖版本和许可见 [`object-reconstruction/LICENSE`](object-reconstruction/LICENSE)、[`gesture/docs/sources.md`](gesture/docs/sources.md) 和 [`web/vendor/`](web/vendor/)。

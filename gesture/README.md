@@ -1,12 +1,12 @@
-# 栖间 · 手势家具布置演示
+# 手势识别
 
-用普通摄像头在浏览器里布置家具：右手捏合控制物体，左手捏合环绕视角，两手可同时操作。项目基于 **TypeScript、Three.js、MediaPipe Hand Landmarker 和 Vite**，面向 Mac 本地演示，无需深度相机。
+RoomCanvas 的手势模块：用普通摄像头在浏览器里识别双手，右手捏合控制物品，左手捏合环绕视角，两手可同时操作。基于 **TypeScript、Three.js、MediaPipe Hand Landmarker 和 Vite**，不需要深度相机。默认在本机浏览器中识别；独立演示也支持用户主动开启的局域网远程识别。
 
-> 当前为功能原型。自动化检查已通过，真人定位准确率、Safari 兼容性及长期运行性能仍待验证。单目深度是相对估计，不是实际距离测量。
+本模块提供两部分：RoomCanvas 编辑器内置的识别运行时（打包到 `web/vendor/gesture/`），以及一个自带起居室场景的独立演示，用于开发和调参。
 
-[快速开始](#快速开始) · [手势操作](#手势操作) · [参数调整](#参数调整) · [文档](#文档) · [已知限制](#已知限制)
+[快速开始](#快速开始) · [手势操作](#手势操作) · [RoomCanvas 接入](#roomcanvas-接入) · [参数调整](#参数调整) · [文档](#文档)
 
-## 功能
+## 独立演示的功能
 
 - 自制约 6 × 5 米起居室，以及沙发、茶几和椅子 GLB 资产。
 - 家具贴地移动、15°吸附旋转、高度调整、房间边界约束与撤销。
@@ -21,7 +21,7 @@
 ### 环境
 
 - Node.js **22.12+** 与 npm（可使用 Node.js 24 LTS）。
-- 支持 WebGL2、摄像头和 Web Worker 的浏览器；当前主要验证环境为 Apple Silicon Mac + Chrome。
+- 支持 WebGL2、摄像头和 Web Worker 的浏览器；主要测试环境为 Apple Silicon Mac + Chrome。
 - 摄像头只在点击开启按钮并授权后使用；鼠标模式不需要摄像头。
 
 在拉取后的 RoomCanvas 仓库根目录进入 `gesture/`，再安装并启动：
@@ -33,7 +33,7 @@ npm run dev
 
 打开 **[http://localhost:8800](http://localhost:8800)**，先用鼠标熟悉场景，再点击“开启摄像头”。使用本机浏览器识别模式即可，不需要启动 Python 后端。终端按 `Ctrl+C` 停止服务。
 
-本机已有依赖时也可执行 `./scripts/run.sh dev`；脚本优先使用系统 Node，缺失时尝试已有 Codex runtime，不自动安装依赖。
+依赖安装后也可以执行 `./scripts/run.sh dev`，脚本不会自动安装依赖。
 
 ### 构建与检查
 
@@ -51,7 +51,7 @@ npm run preview
 
 ## 手势操作
 
-本节说明原独立演示 `index.html` 的规则；RoomCanvas 编辑器使用[双手布置规则](docs/roomcanvas-integration.md#操作)。
+本节是独立演示 `index.html` 的操作；RoomCanvas 编辑器使用[双手布置规则](docs/roomcanvas-integration.md#操作)。
 
 固定右手控制物体、左手控制视角，不交换角色。先选择操作模式，再捏合抓取。
 
@@ -122,47 +122,41 @@ src/
 ├── shared/        类型、配置与滤波
 └── styles/        页面布局
 public/            本地模型、WASM 和 GLB 资源
-backend/           可选 Mac mini Python 推理服务
+backend/           可选的局域网 Python 推理服务
 scripts/           资源准备、校验与本机启动
 tests/            合成关键点和模块协作测试
-docs/             设计、许可与验收记录
+docs/             架构、操作、接入与来源说明
 ```
 
-## 隐私与可选后端
+## 隐私与远程识别
 
 默认在浏览器 CPU Worker 中识别、WebGL2 渲染，不录制、不保存、不上传摄像头画面或关键点。
 
-可选 Mac mini 模式会把客户端摄像头帧发送到用户指定的局域网后端，由 Python MediaPipe 推理；浏览器继续处理手势和渲染。只有用户选择远程模式并点击发送画面按钮后才传输，不调用第三方云推理，各客户端布局独立。安装、HTTPS 与启动步骤见 [Mac mini 测试指南](docs/macmini-test.md)。
+独立演示另有可选的远程识别模式：把摄像头帧发送到用户指定的局域网后端（如一台 Mac mini），由 Python MediaPipe 推理，浏览器继续处理手势和渲染。只有选择远程模式并点击发送画面按钮后才传输，不调用第三方云服务，各客户端的布局互相独立。安装、HTTPS 证书与启动步骤见 [远程识别后端](docs/remote-backend.md)。
 
 依赖目录、构建产物、运行输出、虚拟环境、测试证书与私钥不纳入 Git。
 
-## 验证与已知限制
+## 使用提示
 
-2026-10-12 本机复查：**50 项前端测试、TypeScript 检查、生产构建和资源校验通过**。已检查 Chrome 合成输入下的手势状态、双手并行、松手防漂移和桌面 / 窄屏工具栏布局。合成检查不代表真人验收通过。
-
-- 单目掌尺度会受掌面方向、伸指姿态和遮挡影响，无法提供可靠的绝对深度。
-- 尚未实测自然 XYZ 定位准确率、长时间性能、实体多客户端和 Safari 完整兼容性。
-- 首帧冷推理可能被过期保护丢弃，开启后等待追踪稳定。
-- 家具无物理碰撞；不包含户型绘制、模型上传、自动布局和 RGB-D 接入。
-- 撤销恢复物体变换，不恢复相机或已完成目标记录；复位恢复布局和视角。
-- 构建存在主包大于 500KB 的体积提示，当前未做进一步拆包。
+- 深度由掌部在画面中的大小估计，手掌正对摄像头时最稳定。
+- 推荐使用 Chrome；开启摄像头后稍等片刻，追踪稳定后再操作。
+- 独立演示用于调参，碰撞和支撑检查在 RoomCanvas 编辑器中进行。
+- 撤销恢复物体变换，复位同时恢复布局和视角。
 
 ## 文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [工程计划](docs/plan.md) | 范围、实施阶段与验收目标 |
+| [RoomCanvas 接入](docs/roomcanvas-integration.md) | 编辑器内的双手操作、协议与构建 |
 | [模块架构](docs/architecture.md) | 职责、数据流与并行控制 |
-| [手势说明](docs/gestures.md) | 操作、状态转换和参数 |
-| [验收记录](docs/acceptance.md) | 已完成检查与待测真人指标 |
-| [Mac mini 指南](docs/macmini-test.md) | 可选局域网后端 |
+| [手势说明](docs/gestures.md) | 独立演示的操作、状态转换和参数 |
+| [远程识别后端](docs/remote-backend.md) | 可选的局域网推理服务 |
 | [来源与许可](docs/sources.md) | 依赖、模型与资产来源 |
-| [开发日志](LOG.md) | 决策及功能变更 |
+
+模块的开发计划、验收和变更日志归档在 [开发记录](../docs/DEV_HISTORY.md#手势模块开发日志2026-10-09-起)。
 
 ## 反馈与许可
 
 反馈问题时请注明设备、浏览器、识别模式、复现步骤与预期结果。若涉及摄像头，请优先描述手势与状态，无需上传个人画面。
 
-本工程尚未指定对外开源许可证；依赖和模型分别遵循其许可，详见 [来源与许可](docs/sources.md)。发布到 GitHub 不意味着自动授予本工程代码或自制资产的再分发许可。
-
-README 的组织参考 [Three.js](https://github.com/mrdoob/three.js/blob/dev/README.md) 的用途与用法说明，以及 [Vite](https://github.com/vitejs/vite/blob/main/README.md) 的功能和文档导航；内容按本工程实际能力编写。
+手势模块的代码和自制资产随 RoomCanvas 以 [Apache License 2.0](../LICENSE) 发布；依赖和模型分别遵循各自的许可，详见 [来源与许可](docs/sources.md)。
