@@ -80,7 +80,7 @@ python3 web/scripts/serve.py      # 在仓库根目录运行
 | `materials=pbr` | 打开时预选“导入物品随光照变化” |
 | `lightingLab=1` | 开启 `roomLightingLab` 调试接口：固定状态保存与恢复、材质检查、镜头回放和 GPU 计时 |
 
-控制台里的 `roomEditor.snapshot().lighting` 可查看当前环境、阴影参数和 AO 状态。光照的设计取舍、参数测量和备选方案调研见 [开发记录](../docs/DEV_HISTORY.md#网页光照实现说明与调研2026-10-19)。
+控制台里的 `roomEditor.snapshot().lighting` 可查看当前环境、阴影参数和 AO 状态。
 
 ## 开合部件
 

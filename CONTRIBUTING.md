@@ -29,7 +29,3 @@
 - **示例数据**：`samples/room3` 是真实住宅扫描。仓库公开前，须先从 git 历史中移除它。
 - **手势识别包**：修改 `gesture/src` 中被打包的代码后，按 [web/vendor/gesture](web/vendor/gesture/README.md) 的说明重新构建 `web/vendor/gesture/` 并一起提交。
 
-## 开发记录
-
-- [开发记录](docs/DEV_HISTORY.md)：代码审查与重构计划、光照调研、手势模块的计划和验收、ViewForge 整合历史等，保持记录当时的状态。
-- [交接](docs/HANDOFF.md)：当前进行中的工作、服务器目录和待办。
