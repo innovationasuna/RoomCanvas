@@ -100,27 +100,19 @@
 
 ## 快速开始
 
-### 1. 打开网页（只需要 Python 3）
+### 1. 启动
 
 ```bash
 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
-python3 web/scripts/serve.py
+python3 web/scripts/serve.py --ssh <SSH 主机> --remote <服务地址>:7862
 ```
+
+一条命令同时启动网页和到物体重建服务的 SSH 隧道（本机 `7865` → 服务器上的 `7862`），停止时隧道一起关闭。`--remote` 是服务器上物体重建服务的监听地址，默认 `127.0.0.1:7862`；服务的部署见 [物体重建](docs/OBJECT_RECONSTRUCTION.md)。
 
 打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。房间原有物品的布局自动保存在浏览器里，刷新不会丢；照片重建的物品可以从“导入物品”重新添加。
 
-### 2. 连接物体重建服务（可选）
-
-“添加物品”和“导入物品”需要连接物体重建服务（运行在 GPU 服务器上）。`serve.py` 默认把这些请求转给本机 `127.0.0.1:7865`，用 SSH 隧道接过去：
-
-```bash
-ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH 主机>
-```
-
-服务的部署见 [物体重建](docs/OBJECT_RECONSTRUCTION.md)。不连接时，房间原有家具的布置不受影响。
-
-### 3. 手势
+### 2. 手势
 
 在编辑器工具栏点 **手势**，允许摄像头即可，识别代码已经打包在 `web/vendor/gesture/`。要调试独立的识别页：
 
@@ -129,7 +121,7 @@ sh scripts/gesture.sh install   # 第一次，需要 Node.js 22.12+
 sh scripts/gesture.sh dev       # 打开 http://127.0.0.1:8800/roomcanvas.html
 ```
 
-### 4. Android App
+### 3. Android App
 
 ```bash
 cd android-app
@@ -138,7 +130,7 @@ cd android-app
 
 装到手机上，导入 `samples/office/Room.glb` 之类的房间模型即可。华为手机可用 AR Engine 的运动跟踪；其他手机提示一次后照常用方向键漫游。
 
-### 5. 重建自己的房间
+### 4. 重建自己的房间
 
 在 GPU 服务器上重建手机扫描，得到 `Room.glb`，再用 `web/scripts/room_objects.py` 生成物品清单。完整步骤见 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 

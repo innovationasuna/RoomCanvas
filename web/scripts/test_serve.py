@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from serve import forwarded  # noqa: E402
+from serve import forwarded, open_tunnel, tunnel_command  # noqa: E402
 
 
 class Forwarding(unittest.TestCase):
@@ -34,6 +34,36 @@ class Forwarding(unittest.TestCase):
                      '/viewforge/dimensions/..', '/web/editor/index.html']:
             self.assertIsNone(forwarded(path, 'POST'))
         self.assertIsNone(forwarded('/viewforge/objects/previews/x/%2E%2E%2Fsecret.png'))
+
+
+class Tunnel(unittest.TestCase):
+    def test_command_forwards_the_local_port_to_the_remote_service(self):
+        command = tunnel_command('gpu-box', '172.18.0.2:7862', 7865)
+        self.assertEqual(command[0], 'ssh')
+        self.assertIn('-N', command)
+        self.assertIn('ExitOnForwardFailure=yes', command)
+        self.assertEqual(command[command.index('-L') + 1], '127.0.0.1:7865:172.18.0.2:7862')
+        self.assertEqual(command[-1], 'gpu-box')
+
+    def test_remote_must_be_address_and_port(self):
+        for remote in ['172.18.0.2', '7862', 'a b:1', 'host:port']:
+            with self.assertRaises(ValueError):
+                tunnel_command('gpu-box', remote, 7865)
+
+    def test_a_tunnel_that_exits_stops_the_server_with_a_message(self):
+        with self.assertRaises(SystemExit) as stop:
+            open_tunnel([sys.executable, '-c', 'raise SystemExit(255)'], 1, wait=5)
+        self.assertIn('SSH tunnel failed (exit 255)', str(stop.exception.code))
+
+    def test_a_port_already_in_use_is_refused_before_starting_ssh(self):
+        import socket
+        with socket.socket() as busy:
+            busy.bind(('127.0.0.1', 0))
+            busy.listen()
+            port = busy.getsockname()[1]
+            with self.assertRaises(SystemExit) as stop:
+                open_tunnel([sys.executable, '-c', 'raise SystemExit("ssh must not start")'], port, wait=5)
+        self.assertIn(f'Port {port} is already in use', str(stop.exception.code))
 
 
 if __name__ == '__main__':
