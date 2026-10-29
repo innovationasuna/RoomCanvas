@@ -1,67 +1,40 @@
-# 3D generation
+# Object reconstruction routes
 
-Every static object in the room is built one of two ways, and the choice is made per object rather
-than per scene. Neither route is better; they fail at opposite things.
+The
+[complexity router](../../src/litereality_agent/pipeline/scene_init/reconstruct/classify/classify_complexity.py)
+selects a reconstruction route per object using scan evidence and a clean reference image.
 
-- **Procedural** — built in Blender from primitives (boxes, cylinders, revolved and extruded
-  profiles) plus PBR. Exact dimensions, clean topology, editable afterwards, and it can be
-  articulated. Hopeless at anything organic.
-- **TRELLIS** — neural image-to-3D from a single clean reference. Handles shapes no one wants to
-  describe with primitives. Gives back a mesh nobody can edit, at whatever dimensions it felt like.
+| Route | Suitable geometry | Output characteristics |
+|---|---|---|
+| Procedural Blender build | Regular furniture and appliances | Editable build code, dimensions, materials, optional articulation |
+| TRELLIS.2 | Irregular or detailed shapes | Textured mesh fitted into the room's measured placement |
 
-<p align="center">
-  <img src="../../assets/doc/route-procedural.png" width="100%"
-       alt="Sink_Storage0: scan frames, clean reference, and a procedural reconstruction with its doors open">
-  <img src="../../assets/doc/route-trellis.png" width="100%"
-       alt="Sofa0: scan frames, clean reference, and a TRELLIS image-to-3D mesh">
-</p>
+![Procedural object reconstruction](../../assets/doc/route-procedural.png)
+![Neural object reconstruction](../../assets/doc/route-trellis.png)
 
-Both routes start from the same two things — the frames of the object in the scan, and the clean
-reference image `object_init` distils out of them. Only the third panel differs: the sink is built
-from primitives and swings open; the sofa is a mesh nothing can take apart.
+## Procedural generation
 
-## The router decides
+[Object generation](../../src/litereality_agent/models/object_generation/README.md)
+combines category specifications, RoomPlan dimensions, and reference images.
+Agent sessions default to Codex / `gpt-6-astra`.
+Moving parts carry articulation extras and animation; static categories do not
+require joints. The rebuild recipe remains in `object.py`.
 
-`pipeline/scene_init/reconstruct/classify/classify_complexity.py` asks a VLM, per object, whether
-the geometry is simple and regular enough to build from primitives. The prior it starts from:
-chairs, sofas and organic shapes go to TRELLIS; regular furniture and appliances with box, slab or
-revolve geometry go procedural.
+## TRELLIS
 
-It writes `routing/<scan>/routing.json`, and each generator reads only its own half.
+[models/trellis/inference.py](../../src/litereality_agent/models/trellis/inference.py)
+runs TRELLIS.2 on object-only references. Its default preprocessing uses the
+near-black background as alpha instead of invoking the RMBG model.
+Runtime selection supports [Modal](../../deploy/modal/README.md) or
+[local GPU inference](../../deploy/local-gpu.md).
+The Modal TRELLIS deployment permits one container.
 
-## The procedural route
+## Checks and additional passes
 
-`models/object_generation/` — and the important idea here is that RoomPlan only ever detects a
-**fixed set of categories**. That is a small enough world to hand-author, so we do:
-`category_specs.py` holds a per-category spec covering geometry, materials, and exactly how each
-part moves.
+[mesh_qc](../../src/litereality_agent/pipeline/scene_init/reconstruct/mesh_qc/)
+checks generated assets before room assembly.
+[Room validation](../QC/collision_check.md) checks the assembled result.
 
-The generator injects three things into the agent prompt — the category spec, the object's real
-RoomPlan dimensions, and its clean reference image — so the asset both looks right and comes alive
-the right way. The dishwasher door drops to horizontal, the drawer pulls out along +Y, the cabinet
-door swings on its outer vertical edge.
-
-```
-routing.json (procedural) ─► category_specs[category] + bbox + reference ─► agent ─► <name>.glb
-```
-
-Each moving part carries glTF node extras — `articulation_type` (revolute or prismatic),
-`articulation_axis`, `limit_min`, `limit_max` — readable straight by a simulator. Alongside the GLB
-it writes `object.py`, a self-contained Blender rebuild, which is what makes a procedural object
-still editable after generation.
-
-## The TRELLIS route
-
-`models/trellis/inference.py` drives TRELLIS.2 (`microsoft/TRELLIS.2-4B`, auto-downloaded on first
-run) over the same clean object-only reference PNG that `object_init` produced. Because those
-references are already object-only on a near-black background, the gated RMBG-2.0 matting step is
-skipped by default.
-
-It needs a GPU. By default it runs hosted on Modal, which is also what lets several objects
-generate at once instead of queueing behind one card.
-
-## Both routes are checked before the object enters the room
-
-`pipeline/scene_init/reconstruct/mesh_qc` checks each generated asset on its own — the room-level
-checks in [`../QC/`](../QC) only see objects that already passed. A bad asset is cheaper to reject
-here than to diagnose later as a room that looks wrong.
+RoomCanvas also provides a small-object pass and an articulated-part pass on
+authored rooms. A neural mesh can therefore receive cut-out moving parts later;
+see the [project workflow](../../../docs/ROOM_RECONSTRUCTION.md).

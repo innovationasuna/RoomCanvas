@@ -1,80 +1,69 @@
-# Room ops
+# Room operations
 
-`room_ops` owns LiteReality's portable, editable room representation:
+`room_ops` owns the portable room definition, compilation, rendering, and export.
+Pipeline scheduling and agent/model execution belong outside this package.
 
-```text
-Room.py + scene.json + object definitions/assets
-```
-
-It provides the operations needed to create, inspect, render, validate, compile, and export that
-representation. Pipeline decisions and model/agent execution do not belong here.
-
-## Public API
+## API and commands
 
 ```python
 from litereality_agent.room_ops import compile_room, export_scene
 
-room = export_scene("office-elliott")
-glb = compile_room(room)
+room = export_scene("<scene>")
+if room is not None:
+    glb = compile_room(room)
 ```
 
-The equivalent module entry points are:
+The export expects prepared scan/reconstruction artifacts. From
+`room-reconstruction/`, the corresponding module entry points are:
 
 ```bash
-uv run python -m litereality_agent.room_ops.export.export_room --scan office-elliott
-uv run python -m litereality_agent.room_ops.compile.build_from_room --room /path/to/Room
+uv run python -m litereality_agent.room_ops.export.export_room --scan <scene>
+uv run python -m litereality_agent.room_ops.compile.build_from_room --room <room>
 ```
 
-## Package layout
+[api.py](api.py) exposes the Python functions.
+`compile_room` assembles and, by default, bakes the room; the direct
+`build_from_room` command performs assembly.
+Importing this package does not start Blender.
+
+## Editable format
 
 ```text
-room_ops/
-├── api.py                 stable Python API
-├── manifest.py            scene.json schema and package discovery
-├── paths.py               room-ops input/output path resolution
-├── surfaces.py            Room.py surface discovery
-├── procedural_materials.py
-├── viewer.py              self-contained Three.js HTML export
-├── export/                capture/reconstructed assets → editable Room.py,
-│                          and the authored room → MuJoCo (`mujoco_scene`, `mujoco_shake`)
-├── compile/               Room.py → Room.glb/Room.blend
-└── rendering/             render and reference-view utilities
-```
-
-## Format contract
-
-The editable room directory is the source of truth:
-
-```text
-Room/
-├── Room.py                semantic shell and object placement program
-├── Room.md                editing guide
-├── manifest.json          object-to-RoomPlan mapping
+room/
+├── Room.py
+├── Room.md
+├── manifest.json
 └── Objects/
-    ├── Procedural/<name>/  object.py, object.md, textures.json
-    │   └── sim/            the object's own physics: mass, inertia, friction,
-    │                       joints and convex colliders (+ URDF)
-    └── Static/<name>/      source GLB plus a uniform object.py wrapper
-        └── sim/            the same, for a generated mesh
+    ├── Procedural/<name>/
+    └── Static/<name>/
 ```
 
-The `sim/` sidecar is what makes a Room package a complete statement of the room including how it
-behaves. `export/mujoco_scene.py` reads it rather than re-deriving mass, friction, colliders and
-hinge pivots at export time — see [`doc/Sim-Ready-intergration/Mujoco.md`](../../../doc/Sim-Ready-intergration/Mujoco.md).
+`Room.py` defines the semantic shell and placements. `manifest.json` maps
+objects to RoomPlan detections. Procedural packages retain `object.py`,
+editing notes, and texture recipes; static packages retain a source GLB and
+a rebuild wrapper. Object packages may also carry `sim/` physics sidecars.
 
-Compilation produces regenerable output separately:
+The scene package's `scene.json` supplies capture and artifact paths; it is
+distinct from the room's object manifest.
 
-```text
-room_preview/
-├── Room.glb
-├── Room.blend
-├── room_layout.json
-└── Object/
-```
+## Compiled output
 
-`Room.py` embeds the room shell as readable geometry: wall endpoints, openings, floor/ceiling
-height, and object bounding boxes. Procedural objects retain editable Blender build code and texture
-recipes; static neural assets retain their source GLB.
+The default sibling `room_preview/` contains `Room.glb`, `Room.blend`,
+`room_layout.json`, `manifest.json`, and compiled objects under `Object/`.
+These outputs are rebuilt from the editable room.
 
-Blender compilation is invoked only by explicit compile/render operations. Importing
-`litereality_agent.room_ops` does not start Blender.
+## Modules
+
+| Module | Responsibility |
+|---|---|
+| [manifest.py](manifest.py) | Scene-package schema and discovery |
+| [paths.py](paths.py) | Input/output and Blender paths |
+| [surfaces.py](surfaces.py) | Surface discovery |
+| [compile](compile/) | Object and room compilation, texture baking |
+| [export](export/) | Room definition and MuJoCo export |
+| [rendering](rendering/) | Camera renders and object turntables |
+| [walk](walk/) | Serve a GLB in the browser viewer |
+
+See [MuJoCo export](../../../doc/Sim-Ready-intergration/Mujoco.md) for physics
+sidecars and [validation](../../../doc/QC/supporting_relationship.md) for
+support/articulation checks.

@@ -1,81 +1,68 @@
-# Object generation
+# Procedural object generation
 
-For objects the complexity router
-([`classify_complexity.py`](../../pipeline/scene_init/reconstruct/classify/classify_complexity.py))
-sends to the **procedural** path (simple/regular geometry — tables, storage,
-appliances, TVs, sinks), build them in Blender from primitives + PBR via the
-`image-to-articulated-glb` agent — and make them **articulate correctly**.
-
-The key idea: RoomPlan only detects a **fixed set of object categories**, so we
-hand-author a detailed spec per category — geometry, materials, and exactly how
-each part moves — in [`category_specs.py`](category_specs.py). The generator
-injects the matching spec + the object's **real RoomPlan dimensions** + its clean
-reference image into the agent prompt, so the asset both looks right and comes
-alive the right way (the dishwasher door drops to horizontal, the drawer pulls
-out along +Y, the cabinet door swings on its outer vertical edge).
-
-```
-routing.json (procedural) ─► category_specs[category] + bbox + reference ─► agent ─► <name>.glb (+ articulation)
-```
+[generate.py](generate.py) builds routed objects from category specifications,
+RoomPlan dimensions, and clean reference images.
+[category_specs.py](category_specs.py) defines geometry, materials, orientation,
+and motion for each supported category. The
+[complexity router](../../pipeline/scene_init/reconstruct/classify/classify_complexity.py)
+chooses procedural or TRELLIS reconstruction.
 
 ## Run
 
-Needs **Blender 4.x/5.x on PATH** and `claude_agent_sdk` (uses logged-in Claude
-Code creds if `ANTHROPIC_API_KEY` is unset). From the repo root:
+Use a configured Blender installation and signed-in Codex CLI.
+The pipeline defaults to Codex / `gpt-6-astra`; `--provider` or
+`LR_PROCEDURAL_PROVIDER` selects a provider explicitly.
+Claude remains available through the same launcher.
+
+From `room-reconstruction/`, after ingest and routing:
 
 ```bash
-export PATH="$LITEREALITY_BLENDER:$PATH"   # your Blender install dir
-
-# preview the composed prompts (free, no agent calls)
-uv run python -m litereality_agent.models.object_generation.generate --only storage --dry-run
-
-# the articulated categories (highest value — correct motion)
-uv run python -m litereality_agent.models.object_generation.generate --only storage dishwasher
-
-# everything on the procedural route
-uv run python -m litereality_agent.models.object_generation.generate
-
-# one scan
-uv run python -m litereality_agent.models.object_generation.generate --scan tea_room
+uv run python -m litereality_agent.models.object_generation.generate \
+  --work run/<scene>/scene_init/obj_stage/object_init --only storage --dry-run
+uv run python -m litereality_agent.models.object_generation.generate \
+  --work run/<scene>/scene_init/obj_stage/object_init --skip-existing
 ```
 
-Flags: `--scan`, `--only <categories>`, `--concurrency` (default 2),
-`--retries`, `--skip-existing`, `--max-budget-usd` (per attempt), `--model`.
+| Option | Default / meaning |
+|---|---|
+| `--work` | Object-init tree; otherwise derived from the pipeline environment |
+| `--out` | Output root; defaults to `reconstructed_objs` beside the work tree |
+| `--scan` | Limit scans |
+| `--only` | Limit categories |
+| `--openings` | Generate doors/windows from opening references |
+| `--concurrency` | 2 |
+| `--retries` | 1 |
+| `--max-turns` | 80 |
+| `--max-budget-usd` | Optional provider-dependent budget; unset by default |
+| `--provider` | `codex` or `claude` |
+| `--model` | Claude model override; Codex uses `LR_CODEX_MODEL` instead |
+| `--skip-existing` | Reuse complete outputs |
+| `--dry-run` | List jobs and print a composed prompt without generation |
+
+Provider capabilities differ; a cost budget is not enforced by Codex.
+See [agent providers](../../../../ARCHITECTURE.md#agent-providers).
 
 ## Outputs
 
-```
-procedural/glb/<scan>/<name>/
-    <name>.glb            primitive build + PBR + glTF articulation extras + open/close animation
-    object.py             self-contained Blender rebuild (blender -b --python object.py)
-    object.md             how to edit it (constants, joints, rebuild)
-    previews/             render-check (open/closed for movers, iso/front for static)
-    textures/
-procedural/glb/procedural_report.json   objects pass
-procedural/glb/openings_report.json     doors/windows pass (--openings)
-```
+Each `<out>/<name>/` contains the GLB, `object.py`, `object.md`, textures,
+and render-check previews. Moving parts carry `articulation_type`,
+`articulation_axis`, `limit_min`, and `limit_max` extras plus animation.
+Static objects have no required joints.
 
-Each moving part carries glTF node extras `articulation_type`
-(revolute|prismatic), `articulation_axis`, `limit_min`, `limit_max` — readable
-straight by a simulator.
+The output root receives `procedural_report.json` or `openings_report.json`.
+[sim](sim/) supplies physics compilation and checks; a joint animation alone
+does not establish simulation readiness.
 
-## Files
+## Bundled agent helpers
 
-```
-object_generation/
-  category_specs.py        ★ per-RoomPlan-category geometry + articulation specs (the domain knowledge)
-  generate.py              category-aware launcher (routing -> composed prompt -> agent -> sorted GLBs)
-  README.md
-```
+[articulated-glb-agent](articulated-glb-agent/) contains the runtime skill and
+Blender helper scripts used by `generate.py`.
+The separate [batch_glb.py](articulated-glb-agent/batch_glb.py) accepts arbitrary
+images and still uses Claude Agent SDK directly; it is not the default
+provider-aware reconstruction launcher.
 
-The agent engine + Blender helper scripts live in
-[`articulated-glb-agent`](articulated-glb-agent/) (the
-`image-to-articulated-glb` skill). `batch_glb.py` there is the generic
-(non-category) batch driver; this module adds the category intelligence.
-
-## Routing recap
-
-`object_init` makes clean references → `classify_complexity` routes each object
-(chairs/sofas/abstract → TRELLIS; regular box/appliance geometry → procedural,
-per the user policy) → **procedural ones come here**, TRELLIS ones go to
-[`models/trellis/`](../../models/trellis/).
+Its inputs are image paths/directories. `--out-base` selects an output root;
+otherwise it writes beside each image in `<name>_glb/`.
+It supports `--concurrency`, `--retries`, `--skip-existing`, and `--dry-run`,
+and writes `batch_glb_report.json`. Completion requires a nontrivial GLB,
+at least two PNG previews, `object.py`, and `object.md`.

@@ -1,48 +1,29 @@
 # Image selection
 
-Which capture frames should a tool look at? Every image tool needs an answer, and the one thing the
-agent must never do is guess a frame number. An ARKit sweep is hundreds of frames, most of them
-near-duplicates of their neighbours, many of them not seeing the thing being asked about at all.
+The [select_views tool](../../src/litereality_agent/agent/tools/select_views/tool.py)
+selects capture frames using geometry and visibility.
 
-`select_views` (`agent/tools/select_views/tool.py`) is the single answer. `render`, and anything
-that consumes frames after it, goes through it.
+![Room, wall, and object view selection](../../assets/doc/tool-select-view.png)
 
-<p align="center">
-  <img src="../../assets/doc/tool-select-view.png" width="100%"
-       alt="select_views: camera frusta on the floor plan for a whole room, one wall, and one object">
-</p>
+| Target | Selection method |
+|---|---|
+| `room` | Greedy wall-area coverage, with diverse wide views for top-up |
+| `Wall<N>` | Wall projection area and visibility from capture camera poses |
+| Object ID | Visibility scores in a render manifest; requires a prior room render |
 
-Three targets, three different questions — one per panel above:
+`Floor0` and `Ceiling0` use room coverage when no projected wall target exists.
+The result contains `frames` with frame indices and scores.
+Room/wall selection uses a frame-index separation of
+`max(3, len(per_frame) // 15)`; this is a diversity heuristic, not a measured
+camera-distance constraint.
 
-1. **`room`** — *the fewest frames that together see every wall.* A greedy weighted set-cover over
-   the walls: repeatedly take the frame that adds the most uncovered wall area. It stops when
-   coverage is complete and returns **fewer** frames than asked rather than padding the set with
-   near-duplicates. If more were explicitly asked for, it tops up with the widest remaining views.
-2. **`Wall<N>`** — *the frames where that wall projects largest and on-screen.* Pure wall-plane
-   projection against the ARKit camera pose, so no Blender render is needed to answer it.
-3. **`<Object>`** — *the frames where that object is clearest*, read from the render manifest's
-   per-object visibility. This one needs a prior `render('room')` pass, because object visibility is
-   a fact about the render, not about the scan.
+## Surface references
 
-`Floor0` and `Ceiling0` aren't planes in the overlay, so they fall back to room coverage.
+[surface_views.py](../../src/litereality_agent/agent/tools/shared/image_selection/surface_views.py)
+selects sharp frames covering walls, floors, and ceilings. It reports blur and
+coverage, and skips walls below its area/side thresholds.
+Sparse coverage or blurry evidence limits what can be inferred from the capture.
 
-Returns `{frames: [{frame, score}]}` — the score is why each frame was picked, so a render can
-report its own reasoning rather than presenting four frames as if they were obvious.
-
-## The diversity gap
-
-The scan sweeps at roughly one frame per second, so adjacent frames are nearly the same photograph.
-Selecting purely on score returns three shutter clicks of one viewpoint and calls it three views.
-
-Every selection therefore enforces a minimum frame-index separation — `max(3, n_frames // 15)` —
-between chosen frames. It is a cheap proxy for viewpoint diversity, and it is the difference
-between four views of a room and one view rendered four times.
-
-## Surfaces get their own selection
-
-Walls, floors and ceilings run through `agent/tools/shared/image_selection/surface_views.py`, which
-picks the minimal set of **sharp** frames covering the surface and reports two signals the prompt
-needs: a `blurry` flag when the best available view is still soft, and a coverage percentage saying
-how much of the surface the chosen frames actually show. A low number means the capture is thin
-there — worth knowing before trusting anything read off those images. Tiny walls are skipped
-outright; they aren't worth a pass.
+See [shared image selection](../../src/litereality_agent/agent/tools/shared/image_selection/README.md)
+for surface geometry and orthographic comparison, and
+[rendering](rendering_and_compare.md) for paired render/photo images.

@@ -1,21 +1,39 @@
 # Ingest
 
-Ingest turns a RoomPlan capture into the evidence reconstruction needs:
+Ingest turns a RoomPlan capture into reconstruction evidence:
 
 ```text
-capture → scene extraction → merged boxes → crops → DINO refinement → OpenAI references
+capture → scene extraction → merged boxes → layout → crops → detection → references
 ```
 
-The public boundary is `ingest.run(context, options)`. Generated data stays under the scan's
-`scene_init/obj_stage/object_init` tree so an interrupted run can reuse it.
+[ingest.run(context, options)](__init__.py) launches the scene-init flow.
+Artifacts live under `scene_init/obj_stage/object_init/`.
+Reuse requires summary/reference outputs and valid layout state, including the
+current box-merge policy.
 
-- `extract/` reads RoomPlan and RGB/depth capture data.
-- `crop/` and `detect/` produce/refine object views.
-- `references/` selects evidence and generates clean object/opening references.
-- `merge_boxes.py` combines RoomPlan boxes that represent one physical object.
+## Components
 
-GroundingDINO, DINOv2, and reference-image providers live under their named `models/` packages.
-Ingest coordinates those implementations but does not own their execution runtime.
+- [extract](extract/): RoomPlan, camera, RGB, and depth data.
+- [merge_boxes.py](merge_boxes.py): combine boxes representing one object.
+- [layout](../layout/README.md): repair and validate boxes before cropping.
+- [crop](crop/) and [detect](detect/): produce and refine object views.
+- [references](references/): select evidence and generate clean object/opening images.
 
-Old runs may contain provider-specific artifact names. `pipeline.scene_init.paths.ref_artifact`
-reads those as fallbacks; new code uses provider-neutral names.
+Model implementations and runtime selection belong to `models`.
+Reference-image generation uses the configured provider; OpenAI is the default,
+with Gemini available through `LR_IMAGE_PROVIDER`.
+
+## Preprocessing
+
+[preprocessing/scene_data.py](preprocessing/scene_data.py) and
+[preprocessing/object_images.py](preprocessing/object_images.py) adapt the
+preprocessing algorithms to project settings, including `LR_ENLARGED_CROP_OBJECTS`.
+
+| Module under [preprocessing/vendor/litereality](preprocessing/vendor/litereality/) | Role |
+|---|---|
+| `scene_preprocessing.py` | Parse scenes and prepare camera/crop data |
+| `object_image_extraction.py` | Project point clouds, rank views, and write crops |
+| `roomplan.py` | Read RoomPlan USD and RGBD data |
+| `scanner_capture.py` | Load capture frames and camera data |
+
+Keep workflow decisions and project configuration in the adapters and pipeline.
