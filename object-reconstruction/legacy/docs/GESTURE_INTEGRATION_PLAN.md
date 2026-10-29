@@ -1,6 +1,6 @@
 # ViewForge 手势接入：当前状态与后续计划
 
-更新：2026-10-17。左手数字选择与右手观察操作已实现；源码与完整历史已随 ViewForge 整合进 RoomCanvas，手势在根目录 `gesture/`，物体与场景端在 `object-reconstruction/`。操作说明见 [手势接入](GESTURE_INTEGRATION.md)，提交依据见 [历史整理](HISTORY_INTEGRATION.md)。
+更新：2026-10-17。左手数字选择与右手观察操作已实现；源码与完整历史已随 ViewForge 整合进 RoomCanvas，手势在根目录 `gesture/`，物体与场景端在 `object-reconstruction/`。操作说明见 [手势接入](GESTURE_INTEGRATION.md)，提交依据见 [历史整理](../../../docs/DEV_HISTORY.md#viewforge-与手势代码的历史整理2026-10-17)。
 
 ## 2026-10-17 路径迁移
 

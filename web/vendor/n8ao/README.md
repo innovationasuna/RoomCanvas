@@ -1,4 +1,4 @@
-# N8AO standalone experiment
+# N8AO
 
 Source: [N8python/n8ao](https://github.com/N8python/n8ao/tree/6481f6b39f6ec0301b43648492833cdb8bcd99ac), commit `6481f6b39f6ec0301b43648492833cdb8bcd99ac` (npm version `1.10.2`, peer Three.js `>=0.137`). Tested with the local Three.js r180 in this project.
 

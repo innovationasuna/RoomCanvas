@@ -19,5 +19,6 @@ commit a93d457, preserving its complete Git history, notices and licenses.
 See object-reconstruction/LICENSE and the bundled third-party notices.
 
 gesture/ contains the gesture-furniture-demo project and its original history
-(through 32082a3, followed by ViewForge's path integration). See gesture/README.md
-and gesture/docs/sources.md for the code, assets and dependency license terms.
+(through 32082a3, followed by ViewForge's path integration). Its code and original
+assets are licensed under the Apache License, Version 2.0, as part of RoomCanvas.
+Its dependencies and models keep their own licenses; see gesture/docs/sources.md.
