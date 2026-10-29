@@ -242,7 +242,6 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - [x] Android 第一人称漫游
 - [x] 网页第一人称漫游（键盘鼠标）
 - [ ] 给一个商品链接，找多视角图和尺寸重建
-- [ ] 网页上传扫描，服务器排队重建房间，并降低成本
 - [ ] 手机 App 直接扫描房间
 
 ## 文档
