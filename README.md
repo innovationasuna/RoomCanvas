@@ -252,17 +252,6 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - 原始扫描、照片、含相机轨迹的 `room_layout.json` 不进入仓库。
 - 手势识别只在本机浏览器中进行，摄像头画面不上传。
 
-## 贡献者
-
-<table>
-<tr>
-<td align="center"><a href="https://github.com/innovationasuna"><img src="https://github.com/innovationasuna.png" width="64" alt=""><br><sub>innovationasuna</sub></a></td>
-<td align="center"><a href="https://github.com/jbykkk"><img src="https://github.com/jbykkk.png" width="64" alt=""><br><sub>jbykkk</sub></a></td>
-<td align="center"><a href="https://github.com/AWHYhuh"><img src="https://github.com/AWHYhuh.png" width="64" alt=""><br><sub>AWHYhuh</sub></a></td>
-<td align="center"><a href="https://github.com/HausenWu"><img src="https://github.com/HausenWu.png" width="64" alt=""><br><sub>HausenWu</sub></a></td>
-</tr>
-</table>
-
 ## 致谢
 
 - LiteReality-Agent - https://github.com/LiteReality/LiteReality-Agent
