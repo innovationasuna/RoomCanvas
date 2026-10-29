@@ -4,7 +4,7 @@
 
 ## 内置手势
 
-在仓库根目录执行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/> 并选择房间，点击编辑器的“手势”按钮。摄像头默认关闭，视频和关键点只在本机浏览器 Worker 中处理，不录制、不上传。
+按 [README 快速开始](../../README.md#1-启动) 启动网页，打开 <http://127.0.0.1:7880/web/> 并选择房间，点击编辑器的“手势”按钮。摄像头默认关闭，视频和关键点只在本机浏览器 Worker 中处理，不录制、不上传。
 
 识别代码由 `src/embed/index.ts` 打包到 `web/vendor/gesture/`，复用 `src/integration/runtime.ts` 和手势状态机。`web/editor/gesture-camera.mjs` 将帧直接交给 `gesture-bridge.mjs` 的 `GestureInput`。鼠标和手势共用编辑器的操作入口、承托与碰撞逻辑。
 
