@@ -10,7 +10,7 @@ for(const [name,version] of Object.entries({...pkg.dependencies,...pkg.devDepend
  if(installed.version!==version||lock.packages[`node_modules/${name}`]?.version!==version)throw new Error(`依赖版本未固定 ${name}`);
  if(installed.license!==licenses[name]||!sources.includes(version))throw new Error(`许可/版本清单不匹配 ${name}`);
 }
-for(const doc of ['plan','architecture','gestures','sources','acceptance'])await readFile(`docs/${doc}.md`,'utf8');
+for(const doc of ['architecture','gestures','sources','roomcanvas-integration','remote-backend'])await readFile(`docs/${doc}.md`,'utf8');
 for(const r of manifest.resources) { const b=await readFile(r.path); if(createHash('sha256').update(b).digest('hex')!==r.sha256) throw new Error(`校验失败 ${r.path}`); }
 if(manifest.backend) {
  const backendLock=await readFile(manifest.backend.lockfile,'utf8');

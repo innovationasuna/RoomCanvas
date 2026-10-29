@@ -252,7 +252,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | [房间重建](docs/ROOM_RECONSTRUCTION.md) | 在 GPU 服务器上重建房间、小物件和可动部件，并接入网页 |
 | [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体重建服务的部署、接口和本机连接 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
-| [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程，以及开发记录 |
+| [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
 
 ## 数据与隐私
 
