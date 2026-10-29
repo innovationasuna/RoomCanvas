@@ -4,9 +4,9 @@ The alternative to [Modal](modal/README.md). TRELLIS and GroundingDINO run on yo
 of hosted, which needs Linux with an NVIDIA GPU of 24 GB or more.
 
 Steps 1, 2 and 4 of [Install](../README.md#install) are unchanged. The only difference is that you
-leave `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` empty — that is the switch.
-`models/registry.py` selects Modal whenever credentials are configured and falls back to these
-local runtimes only when they are not, so an empty pair is what makes the fallback reachable.
+leave `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` empty and `MODAL_PROFILE` unset — that is the switch.
+`models/registry.py` selects Modal whenever `settings.modal_configured()` is true (a token pair or a
+named profile) and falls back to these local runtimes only when it is not.
 
 ## TRELLIS.2
 

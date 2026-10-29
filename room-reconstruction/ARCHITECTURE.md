@@ -1,11 +1,14 @@
 # Architecture
 
-LiteReality is one resumable pipeline with two explicit phases and five public stages:
+LiteReality is one resumable pipeline with two explicit phases, five required stages, and an
+optional `simulate` export:
 
 ```text
-cli.py → PipelineRunner → scene_init                    → realism_authoring
-                          ingest → reconstruct → seed      author → publish
+cli.py → PipelineRunner → scene_init                    → realism_authoring  → (optional)
+                          ingest → reconstruct → seed      author → publish     simulate
 ```
+
+The stage list lives in `pipeline/stages.py`.
 
 Each stage exposes `run(context, options) -> StageResult`. `PipelineRunner` owns ordering,
 prerequisites, reuse, failure handling, and state in `run/<scene>/.litereality/pipeline.json`.
@@ -20,10 +23,14 @@ src/litereality_agent/
 │   ├── scene_init/      capture ingest, reconstruction, and deterministic seed room
 │   ├── realism_authoring/
 │   │   ├── author/      evidence and optional realism passes
+│   │   ├── small_objects/  per-object discard, keep, or TRELLIS rebuild after author
+│   │   ├── articulate/  openable parts cut from the authored room and hinged
+│   │   └── live/        browser view of an authoring run in progress
+│   ├── room_qc/         final checks and placement correction
 │   │   └── publish/     final compilation and viewer
-│   └── room_qc/         final checks and placement correction
+│   └── simulate/        optional MuJoCo export of the published room
 ├── agent/               agent runners, tools (each owning its source), traces, and narration
-│   └── providers/       which coding agent drives a session (`claude/` and `codex/`)
+│   └── providers/       which coding agent drives a session (`claude.py`, `codex.py`)
 ├── room_ops/            Room.py manifest, compilation, rendering, and export
 ├── models/              DINOv2, GroundingDINO, TRELLIS, and object generation
 └── runtimes/            hosted execution transports such as Modal
@@ -47,7 +54,7 @@ separate public pipeline stages. The agent session and its capability-tool frame
 The *harness* is the agent loop (file tools, capability tools, hooks, event stream); the *model*
 is the brain inside it. They are independent knobs. `agent/providers/` is the seam for the first:
 a `SessionSpec` goes in, a normalised event stream comes out, and `resolve(role)` picks the
-harness from `LR_<ROLE>_PROVIDER > LR_AGENT_PROVIDER > claude`.
+harness from `LR_<ROLE>_PROVIDER > LR_AGENT_PROVIDER > codex`.
 
 Harnesses are not feature-equivalent, so each declares a `supports` set and call sites branch on
 it rather than assuming. Claude Code hosts capability tools in-process, can steer a session's
@@ -57,9 +64,10 @@ as observable `Read` calls. Codex runs out-of-process: capability tools are brid
 cannot be withheld, and no cost is reported. `providers.describe()` prints those gaps into the
 stage header so a degraded run never looks like a normal one.
 
-Object refinement is the one pass that is Claude-only: its `render_object` tool is built per
-object around live session state, so there is no registry entry for the stdio bridge to rebuild.
-It fails with an explicit message rather than running without its only self-check tool.
+Object refinement builds its `render_object` tool per object around live session state, so it is
+not a registry tool. Claude Code hosts it in-process; under Codex the same tool is served per
+session over stdio MCP by `pipeline/realism_authoring/author/object_server.py`. Any other harness
+fails with an explicit message rather than running without its only self-check tool.
 
 ## Agent capability tools
 
