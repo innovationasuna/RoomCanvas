@@ -274,20 +274,18 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 
 ## 致谢
 
-感谢以下项目的作者开源他们的工作：
-
-- [LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)
-- [MV-SAM3D](https://github.com/devinli123/MV-SAM3D)
-- [SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects)
-- [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)
-- [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)
-- [NBV-Gym](https://github.com/chengine/nbv_gym)
-- [TRELLIS.2](https://github.com/microsoft/TRELLIS.2)
-- [MediaPipe](https://github.com/google-ai-edge/mediapipe)
-- [Three.js](https://github.com/mrdoob/three.js)
-- [N8AO](https://github.com/N8python/n8ao)
-- [SceneView](https://github.com/SceneView/sceneview-android)
-- [Filament](https://github.com/google/filament)
+- LiteReality-Agent - https://github.com/LiteReality/LiteReality-Agent
+- MV-SAM3D - https://github.com/devinli123/MV-SAM3D
+- SAM 3D Objects - https://github.com/facebookresearch/sam-3d-objects
+- Depth Anything 3 - https://github.com/ByteDance-Seed/Depth-Anything-3
+- BiRefNet - https://github.com/ZhengPeng7/BiRefNet
+- NBV-Gym - https://github.com/chengine/nbv_gym
+- TRELLIS.2 - https://github.com/microsoft/TRELLIS.2
+- MediaPipe - https://github.com/google-ai-edge/mediapipe
+- Three.js - https://github.com/mrdoob/three.js
+- N8AO - https://github.com/N8python/n8ao
+- SceneView - https://github.com/SceneView/sceneview-android
+- Filament - https://github.com/google/filament
 
 ## 许可
 
