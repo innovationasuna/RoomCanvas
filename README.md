@@ -102,15 +102,27 @@
 
 ### 1. 启动
 
+网页跑在本机，物体重建服务跑在 GPU 服务器上，两边各执行一次。
+
+**服务器上**：启动物体重建服务（首次部署先按 [物体重建](docs/OBJECT_RECONSTRUCTION.md) 装好环境和权重；服务器重启后再执行一次）。
+
+```bash
+cd RoomCanvas/object-reconstruction
+source configs/local.env && source scripts/env.sh
+nohup python scripts/web.py --host 127.0.0.1 --port 7862 > "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
+```
+
+**本机**：启动网页，同时打开到服务器的 SSH 隧道。
+
 ```bash
 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
-python3 web/scripts/serve.py --ssh <SSH 主机> --remote <服务地址>:7862
+python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-一条命令同时启动网页和到物体重建服务的 SSH 隧道（本机 `7865` → 服务器上的 `7862`），停止时隧道一起关闭。`--remote` 是服务器上物体重建服务的监听地址，默认 `127.0.0.1:7862`；服务的部署见 [物体重建](docs/OBJECT_RECONSTRUCTION.md)。
+打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。按 `Ctrl-C` 停止网页，隧道会一起关闭。服务监听的不是 `127.0.0.1`（例如在 Docker 容器里监听容器 IP）时，本机命令加上 `--remote <监听地址>:7862`。
 
-打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。房间原有物品的布局自动保存在浏览器里，刷新不会丢；照片重建的物品可以从“导入物品”重新添加。
+房间原有物品的布局自动保存在浏览器里，刷新不会丢；照片重建的物品可以从“导入物品”重新添加。
 
 ### 2. 手势
 

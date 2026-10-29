@@ -4,17 +4,26 @@
 
 ## 部署
 
-在 Linux GPU 服务器上按 [运行说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md) 安装环境和权重。按 `object-reconstruction/configs/local.env.example` 创建 `configs/local.env`，配置 `VIEWFORGE_ROOT`、GPU 和共享锁，从仓库根目录启动：
+服务跑在 Linux GPU 服务器上，网页跑在本机，通过 SSH 隧道连接。
+
+**服务器上**，首次部署：按 [运行说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md) 安装环境和权重，再从 `object-reconstruction/configs/local.env.example` 复制出 `configs/local.env`，填好 `VIEWFORGE_ROOT`、GPU 和共享锁，安装 API 依赖：
 
 ```bash
-cd object-reconstruction
-source configs/local.env
-source scripts/env.sh
-python -m pip install -r configs/api-requirements.txt   # 首次安装 API 依赖
-python scripts/web.py --host <监听地址> --port 7862
+cd RoomCanvas/object-reconstruction
+source configs/local.env && source scripts/env.sh
+python -m pip install -r configs/api-requirements.txt
 ```
 
-本机启动网页时用 `--ssh` 一并打开到服务的 SSH 隧道（见下一节）；`GET /health` 可检查服务状态。
+**服务器上**，启动服务（服务器重启后再执行一次）：
+
+```bash
+cd RoomCanvas/object-reconstruction
+source configs/local.env && source scripts/env.sh
+nohup python scripts/web.py --host 127.0.0.1 --port 7862 > "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
+curl -s http://127.0.0.1:7862/health   # 检查服务是否在运行
+```
+
+**本机**：见下文 [在编辑器中使用](#在编辑器中使用)。
 
 ### 数据目录
 
@@ -22,13 +31,13 @@ python scripts/web.py --host <监听地址> --port 7862
 
 ## 在编辑器中使用
 
-在本机仓库根目录运行：
+**本机**，在仓库根目录启动网页，同时打开到服务器的 SSH 隧道：
 
 ```bash
-python3 web/scripts/serve.py --ssh <SSH 主机> --remote <监听地址>:7862
+python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-它同时启动网页和隧道（本机 `127.0.0.1:7865` → 服务器上的 `<监听地址>:7862`），停止时一起关闭。打开 <http://127.0.0.1:7880/web/>。
+打开 <http://127.0.0.1:7880/web/>。隧道把本机 `127.0.0.1:7865` 接到服务器上的 `127.0.0.1:7862`，按 `Ctrl-C` 停止网页时一起关闭。服务监听的不是 `127.0.0.1`（例如在 Docker 容器里监听容器 IP）时，加上 `--remote <监听地址>:7862`。
 
 “添加物品”：上传 1–40 张照片 → 确认抠图 → 重建 → 输入一条实测边长 → 放进房间。“导入物品”读取已有结果和标定，按真实尺寸摆放；操作见 [网页编辑器](../web/README.md#物品导入与添加)。
 
