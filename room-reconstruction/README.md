@@ -71,10 +71,9 @@ Tested on **macOS** (Apple Silicon) and **Linux** (with a >=24 GB GPU).
 2. **Blender 5.x** (tested on 5.1). `BLENDER_PATH` points at the install *directory*, not the binary.
 3. **An image-generation API key** for reference images — typically under $1 per scene.
    `OPENAI_API_KEY` by default, or `GEMINI_API_KEY` with `LR_IMAGE_PROVIDER=gemini`.
-4. **Logged-in agent CLIs on your `PATH`.** `codex` with GPT-6 is the default for room
-   authoring, materials, object refinement and independent visual review. `claude` remains the
-   default for reconstruction reasoning and procedural asset initialization. Per-role overrides
-   are in `models.env`; see [support-first authoring](doc/support-first-authoring.md).
+4. **Logged-in agent CLIs on your `PATH`.** `codex` (GPT-6 Astra) is the default for every agent
+   role: room authoring, materials, object refinement, visual review and procedural assets.
+   `claude` is still supported per role; the overrides are in `models.env`.
 5. **Somewhere to run TRELLIS and GroundingDINO** — either a [Modal](https://modal.com) account
    (recommended; free tier, no local GPU, works on macOS) or a Linux box with a ≥24 GB NVIDIA GPU.
    See [Install](#install) — this is the one real choice in the setup.
