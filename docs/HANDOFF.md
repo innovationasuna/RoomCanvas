@@ -8,7 +8,7 @@
 - **2026-10-30 文档整理（分支 `docs/polish-docs`，本地未提交，等用户审完再开 PR）**：用户要求文档读起来像完整的项目、站在作者角度写，不刻意强调缺点和复用；上游项目统一放进根 README 的“引用与致谢”。
   - 对外文档（根 README、CONTRIBUTING、`docs/ROOM_RECONSTRUCTION.md`、`docs/OBJECT_RECONSTRUCTION.md`、`web/README.md`、`gesture/` 与 `object-reconstruction/` 的 README 和 docs）去掉了日期、PR 号、“用户要求”、服务器路径等开发痕迹；按钮名统一为“添加物品 / 导入物品”。
   - 用户同意把过程记录合成一份：`docs/DEV_HISTORY.md` 原样收录重构计划、光照调研（原 `web/README.md` 第 28–464 行）、手势的日志 / 计划 / 验收 / 双手更新 / Mac mini 测试、ViewForge 整合历史和原运行说明。原 `docs/REFACTOR_PLAN.md`、`gesture/LOG.md`、`gesture/docs/{plan,acceptance,gesture-updates,macmini-test}.md`、`object-reconstruction/docs/HISTORY_INTEGRATION.md` 已删（内容都在 DEV_HISTORY）。本文件保持独立；`gesture/AGENTS.md` 改为在 DEV_HISTORY 的手势开发日志里追加记录。新增通用的 `gesture/docs/remote-backend.md`。
-  - 用户决定手势模块也用 Apache-2.0：改了 `gesture/README.md`、`gesture/docs/sources.md`、`NOTICE`、`gesture/package.json`（合并前告知 AWHYhuh）。
+  - 用户决定手势模块也用 Apache-2.0：改了 `gesture/README.md`、`gesture/docs/sources.md`、`gesture/package.json`；根目录 `NOTICE` 按用户要求删除（上游都没有 NOTICE 文件，各模块的 LICENSE 保留）（合并前告知 AWHYhuh）。
   - 用户同意最小改动 `room-reconstruction/` 的上游文档使其与代码一致：`ARCHITECTURE.md`（默认 provider 改为 codex、可选的 `simulate` 阶段、`publish` 在 `room_qc/` 下、补上 small_objects / articulate / live、物体精修在 Codex 下也能跑）、`README.md`（所有角色默认 Codex，删掉不存在的 `doc/support-first-authoring.md` 链接）、`deploy/local-gpu.md`（还需不设 `MODAL_PROFILE`）。这 3 个文件可单独拆成一个 PR。
   - Codex 做了两轮只读审查，建议已核实并改入；相对链接和锚点检查全部通过。
   - **2026-10-30 本机连不上 3090**：`ssh 3090x2` 连 `120.77.69.59:4131` 超时，卡在第一跳的 TCP 连接，与密钥无关；待用户换网络或找服务器管理员确认端口转发。
