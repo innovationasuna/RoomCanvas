@@ -104,7 +104,7 @@ python3 web/scripts/serve.py      # 在仓库根目录运行
 | 点门、柜门、抽屉、窗 | 开合，与“预览”相同 |
 | `Esc` | 回到进入漫游前的模式 |
 
-漫游不锁定鼠标，避免浏览器弹出提示、`Esc` 需要按两次。身体按半径 0.25 米的圆柱计算：沿走动方向，在身体中间和左右两侧、离地 0.3 / 0.9 / 1.45 米三个高度各发一条射线，碰到墙和家具就停下并贴着滑过；门洞和窗洞外由地板范围挡住。起点在房间中央，被家具占据时向外寻找空地，并朝向最空旷的方向；离开后再进入会回到上次的位置。漫游时墙和高家具不变淡，天花板显示出来，手势和布置工具收起。实现见 `editor/walk.mjs`。
+漫游时碰到墙和家具会停下。
 
 ## 物品导入与添加
 
@@ -129,37 +129,15 @@ python3 web/scripts/serve.py      # 在仓库根目录运行
 
 ## 代码结构
 
-| 位置 | 内容 |
-|---|---|
-| `index.html`、`rooms.json` | 主页和它列出的房间 |
-| `theme.css`、`icon.svg` | 共用配色、字体和图标 |
-| `editor/scene-editor.js` | 主程序：加载房间、选择、视角、仓库、放置流程 |
-| `editor/room-catalog.mjs` | 读取 `room_objects.json`，生成可编辑清单和墙面归属 |
-| `editor/placement.mjs`、`drop-placement.mjs` | 落到支撑面、自动找座面、贴墙、换墙、掉落 |
-| `editor/placement-*.mjs`、`joystick-ui.mjs` | 预览后确认的放置流程、控制卡、摇杆 |
-| `editor/collision.mjs`、`collision-worker.mjs` | 逐三角面的连续碰撞；落点的完整检查在后台线程运行 |
-| `editor/material-layers.mjs` | 统一管理半透明、编辑中的墙、选中染色、拖动预览等材质覆盖 |
-| `editor/wall-visibility.mjs` | 近侧墙、墙角连接 |
-| `editor/layout.mjs` | 布局数据、撤销重做、导入导出 |
-| `editor/joints.mjs` | 开合部件：合页和滑轨的变换、开合动画、随部件移动的物品 |
-| `editor/walk.mjs` | 漫游：第一人称相机、键盘鼠标、射线碰撞、寻找起点 |
-| `editor/warehouse-drawer.mjs` | 仓库面板开合与键盘操作 |
-| `editor/lighting-profiles.mjs`、`environment-lighting.mjs`、`lighting-settings.mjs` | 光照档位、环境反射、阴影范围自动校准 |
-| `editor/time-lighting.mjs`、`indoor-lighting.mjs`、`color-grading.mjs`、`lighting-panel.mjs` | 时段光源、顶灯、调色和光照面板 |
-| `editor/static-lighting.mjs`、`settled-render.mjs`、`lighting-composite.mjs` | 静态 AO、停止操作后的补算、透明混合与最终颜色输出 |
-| `editor/render-metrics.mjs` | 渲染帧的 CPU / GPU 计时和绘制统计 |
-| `editor/gesture-bridge.mjs` | 手势输入（抓取、移动、抬高、旋转、确认、环绕、场景缩放）和独立手势页协议的接收端 |
-| `editor/gesture-camera.mjs` | 内置手势：摄像头卡片接入 `vendor/gesture/` 的识别运行时 |
-| `editor/object-import.mjs`、`object-dimensions.mjs`、`imported-objects.mjs` | 读取物品目录和尺寸、计算真实尺寸的放置矩阵、实测坐标轴、导入实例的删除 |
-| `editor/add-object.mjs`、`add-object-dialog.mjs` | “添加物品”的请求和分步对话框 |
-| `editor/import-materials.mjs` | 导入物品的受光材质与原显示回退 |
-| `editor/tests/` | 单元测试（Node 自带测试框架） |
-| `vendor/gesture/` | 从 `gesture/src/embed/` 构建的手势识别代码 |
-| `scripts/room_objects.py` | `room_layout.json` → `room_objects.json` |
-| `scripts/serve.py` | 本机网页服务，转发物品重建请求 |
-| `scripts/publish.py` | 把编辑器发布到某个房间目录旁边 |
-| `scripts/thumbnail.py` | 给 `rooms.json` 中的房间生成缩略图 |
-| `scripts/check_*.mjs` | 用真实模型检查碰撞、支撑、光照等，见下文 |
+| 功能 | 主要位置与内容 |
+| --- | --- |
+| 主页与样式 | `index.html`、`rooms.json`、`theme.css`、`icon.svg`：房间列表与共用外观 |
+| 场景与放置 | `editor/scene-editor.js`、`room-catalog.mjs`、`placement*.mjs`、`joystick-ui.mjs`：场景加载、选择与放置；`layout.mjs`、`warehouse-drawer.mjs` 管理布局和仓库，`joints.mjs`、`walk.mjs` 提供开合与漫游 |
+| 碰撞与支撑 | `editor/collision*.mjs`、`drop-placement.mjs`：碰撞检查、支撑面与掉落 |
+| 光照与显示 | `editor/*lighting*.mjs`、`color-grading.mjs`、`settled-render.mjs`、`render-metrics.mjs`：光源、阴影、AO、调色与计时；`material-layers.mjs`、`wall-visibility.mjs` 管理材质和近侧墙 |
+| 手势 | `editor/gesture-bridge.mjs`、`gesture-camera.mjs`、`vendor/gesture/`：摄像头识别、双手操作与独立手势页接入 |
+| 物品导入 | `editor/object-*.mjs`、`imported-objects.mjs`、`add-object*.mjs`、`import-materials.mjs`：上传重建、目录读取、尺寸标定与材质 |
+| 脚本与测试 | `scripts/`：网页服务、物品清单、发布、缩略图与模型检查；`editor/tests/`：Node 单元测试 |
 
 ## 测试
 

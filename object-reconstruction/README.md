@@ -23,15 +23,4 @@ RoomCanvas 的物体重建服务：用几张照片重建出带纹理的三维模
 
 早期的 Gradio 页面和 Babylon 查看器归档在 [`legacy/`](legacy/README.md)。
 
-## 引用
-
-多视角重建基于 MV-SAM3D，并使用了 [SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects) 和 [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)；抠图使用 [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)，补拍方向使用 NBV-Gym 中的 COVER 指标。许可见 [LICENSE](LICENSE)。
-
-```bibtex
-@article{li2026mv,
-  title={MV-SAM3D: Adaptive Multi-View Fusion for Layout-Aware 3D Generation},
-  author={Li, Baicheng and Wu, Dong and Li, Jun and Zhou, Shunkai and Zeng, Zecui and Li, Lusong and Zha, Hongbin},
-  journal={arXiv preprint arXiv:2603.11633},
-  year={2026}
-}
-```
+许可见 [LICENSE](LICENSE)。

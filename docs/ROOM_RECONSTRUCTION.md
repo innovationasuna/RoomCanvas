@@ -6,7 +6,23 @@
 
 在 Linux GPU 服务器上准备环境，设置 `ROOMCANVAS_HOME` 指向环境和数据根目录。该目录下的 `.env` 保存 API 密钥和图像生成设置；`runtime/` 存放 `litereality-env/`、`trellis-env/`、`blender/` 和 `cuda-12.4/`，`backends/` 存放 `TRELLIS.2/` 与 `weights/`。
 
-下文从仓库根目录执行，先将 `$PY` 设置为 `$ROOMCANVAS_HOME/runtime/litereality-env/bin/python`；脚本使用当前仓库中的代码。
+## 安装
+
+1. 准备 Linux、至少 24 GB 显存的 NVIDIA GPU、uv 和已登录的 Codex CLI。Python 范围及依赖以 [`pyproject.toml`](../room-reconstruction/pyproject.toml) 为准。在 `room-reconstruction/` 下按 [Install](../room-reconstruction/README.md#install) 安装主环境：
+
+   ```bash
+   uv sync --frozen --extra modal --group dev
+   ```
+
+2. 将生成的 `.venv` 链接到 `$ROOMCANVAS_HOME/runtime/litereality-env`；按 [本地 GPU 安装](../room-reconstruction/deploy/local-gpu.md) 安装 TRELLIS.2、CUDA 扩展和检测依赖。`backends/TRELLIS.2` 放在 `$ROOMCANVAS_HOME` 下；本页的运行脚本默认由 `runtime/trellis-env/bin/python` 同时执行生成和检测。
+3. 按 [`run_room.py`](../room-reconstruction/server/run_room.py) 配置运行目录：Blender 位于 `runtime/blender/blender-5.1.2-linux-x64/`，CUDA 库位于 `runtime/cuda-12.4/lib/`；检测权重放在 `backends/weights/grounding-dino-tiny/` 和 `dinov2-small/`。生成模型按 [`trellis_local.py`](../room-reconstruction/server/trellis_local.py) 放在 `backends/weights/` 下的 `trellis2/`、`dinov3/` 和 `sparse-decoder/`。
+4. 参考 [环境模板](../room-reconstruction/.env.example) 创建 `$ROOMCANVAS_HOME/.env`，填写 API 密钥和图像生成设置。本地 GPU 模式保持 Modal 令牌为空且不设置 `MODAL_PROFILE`。完成后回到仓库根目录，设置解释器并执行下一节的 `--check`：
+
+   ```bash
+   PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
+   ```
+
+下文从仓库根目录执行；脚本使用当前仓库中的代码。
 
 ## 运行
 
