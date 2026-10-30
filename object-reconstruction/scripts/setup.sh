@@ -37,8 +37,10 @@ fi
 if ! exists "$WEIGHTS/sam3d"; then
     need_value SAM3D_WEIGHTS_REPO 'Confirm the gated SAM 3D Objects Hugging Face model repo.'
     need_value SAM3D_WEIGHTS_SUBDIR 'Confirm the snapshot subdirectory containing pipeline.yaml (or .).'
-    if [[ -z "${HF_TOKEN:-}" ]]; then
-        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access. Token values are never printed.\n'
+    if [[ "$MODEL_SOURCE" == modelscope ]]; then
+        printf '  MODEL_SOURCE=modelscope: SAM 3D comes from ModelScope under the same repo ID; HF_TOKEN is not needed.\n'
+    elif [[ -z "${HF_TOKEN:-}" ]]; then
+        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access (or use MODEL_SOURCE=modelscope). Token values are never printed.\n'
         if (( ! DRY_RUN )); then fail 'HF_TOKEN is required for the missing gated SAM 3D Objects weights.'; fi
     else printf '  HF_TOKEN is present (value hidden); model access will be checked by the download.\n'; fi
 fi
@@ -114,22 +116,31 @@ fi
 step 'Download SAM 3D, DA3 and DINOv2 weights into the runner layout'
 setup_begin "$WEIGHTS/sam3d"
 if [[ "$SETUP_ACTION" == install ]]; then
-    # Link the requested subtree from the HF cache into our marked directory;
+    # Link the requested subtree from the download cache into our marked directory;
     # never alter a pre-existing directory or symlink. Preserve relative paths.
+    case "$SAM3D_WEIGHTS_SUBDIR" in /*|..|../*|*/..|*/../*) fail 'SAM3D_WEIGHTS_SUBDIR must stay inside the snapshot.' ;; esac
+    SAM3D_SNAPSHOT=
+    if [[ "$MODEL_SOURCE" == modelscope ]]; then
+        SAM3D_SNAPSHOT="$VIEWFORGE_ROOT/cache/modelscope/$SAM3D_WEIGHTS_REPO"
+        if [[ "$SAM3D_WEIGHTS_SUBDIR" == . ]]; then modelscope_download "$SAM3D_WEIGHTS_REPO" "$SAM3D_SNAPSHOT"
+        else modelscope_download "$SAM3D_WEIGHTS_REPO" "$SAM3D_SNAPSHOT" "$SAM3D_WEIGHTS_SUBDIR/*"; fi
+    fi
     run "$PY" -c 'from pathlib import Path; import sys
-from huggingface_hub import snapshot_download
-repo, subdir, dest, cache = sys.argv[1:]
+repo, subdir, dest, cache, snapshot = sys.argv[1:]
 p = Path(subdir)
-if p.is_absolute() or ".." in p.parts: raise SystemExit("SAM3D_WEIGHTS_SUBDIR must stay inside the snapshot")
-patterns = [str(p) + "/*"] if str(p) != "." else None
-root = Path(snapshot_download(repo_id=repo, cache_dir=cache, allow_patterns=patterns))
+if snapshot:
+    root = Path(snapshot)
+else:
+    from huggingface_hub import snapshot_download
+    patterns = [str(p) + "/*"] if str(p) != "." else None
+    root = Path(snapshot_download(repo_id=repo, cache_dir=cache, allow_patterns=patterns))
 source = root / p
 if not (source / "pipeline.yaml").is_file(): raise SystemExit("Confirmed SAM3D subtree has no pipeline.yaml")
 for child in source.iterdir():
     target = Path(dest) / child.name
     if target.exists() or target.is_symlink():
         if target.resolve() != child.resolve(): raise SystemExit("Existing SAM3D file differs; preserved: " + str(target))
-    else: target.symlink_to(child, target_is_directory=child.is_dir())' "$SAM3D_WEIGHTS_REPO" "$SAM3D_WEIGHTS_SUBDIR" "$WEIGHTS/sam3d" "$VIEWFORGE_ROOT/cache/huggingface/hub"
+    else: target.symlink_to(child, target_is_directory=child.is_dir())' "$SAM3D_WEIGHTS_REPO" "$SAM3D_WEIGHTS_SUBDIR" "$WEIGHTS/sam3d" "$VIEWFORGE_ROOT/cache/huggingface/hub" "$SAM3D_SNAPSHOT"
 fi
 if [[ "$SETUP_ACTION" != skip ]]; then
     verify_weights "$PY" sam3d "$WEIGHTS/sam3d"

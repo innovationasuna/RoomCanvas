@@ -27,6 +27,14 @@ setup_init() {
     esac
     # Never trace private configuration or token values.
     umask 077
+    # huggingface (default) or modelscope: unpinned model snapshots that ModelScope
+    # mirrors under the same repo ID. Pinned revisions always stay on Hugging Face.
+    MODEL_SOURCE="${MODEL_SOURCE:-huggingface}"
+    case "$MODEL_SOURCE" in
+        huggingface|modelscope) ;;
+        *) fail 'MODEL_SOURCE must be huggingface or modelscope.' ;;
+    esac
+    MODELSCOPE_SPEC="${MODELSCOPE_SPEC:-modelscope==1.40.2}"
 }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 step() { STEP=$((STEP + 1)); printf '\n[%s] %s\n' "$STEP" "$*"; }
@@ -197,6 +205,17 @@ else:
     os.replace(tmp, p)
 PY
 }
+# Same repo ID and file patterns on ModelScope; uvx keeps the client out of the
+# model environments. ModelScope checks each file's SHA256 after download.
+modelscope_download() {
+    local repo="$1" dest="$2"
+    shift 2
+    if (( $# )); then
+        run uvx --from "$MODELSCOPE_SPEC" modelscope download "$repo" --local-dir "$dest" --include "$@"
+    else
+        run uvx --from "$MODELSCOPE_SPEC" modelscope download "$repo" --local-dir "$dest"
+    fi
+}
 # kind selects the exact loader contract, not merely directory/config existence.
 verify_weights() {
     local python="$1" kind="$2" dest="$3"
@@ -283,7 +302,11 @@ snapshot() {
     setup_begin "$dest"
     [[ "$SETUP_ACTION" != skip ]] || return 0
     if [[ "$SETUP_ACTION" == install ]]; then
-        run "$python" -c 'import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], revision=sys.argv[3] or None, allow_patterns=sys.argv[4:] or None)' "$repo" "$dest" "$revision" "$@"
+        if [[ "$MODEL_SOURCE" == modelscope && -z "$revision" ]]; then
+            modelscope_download "$repo" "$dest" "$@"
+        else
+            run "$python" -c 'import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], revision=sys.argv[3] or None, allow_patterns=sys.argv[4:] or None)' "$repo" "$dest" "$revision" "$@"
+        fi
     fi
     if [[ "$kind" == files ]]; then verify_weights "$python" "$kind" "$dest" "$@"
     elif [[ "$repo" == IDEA-Research/grounding-dino-tiny ]]; then verify_weights "$python" "$kind" "$dest" tokenizer
