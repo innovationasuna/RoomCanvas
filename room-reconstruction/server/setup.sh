@@ -43,17 +43,26 @@ if (( DRY_RUN )); then
     run apt-get install -y --no-install-recommends "${system_packages[@]}"
 else
     command -v dpkg-query >/dev/null && command -v apt-get >/dev/null || fail 'This system dependency recipe requires Debian/Ubuntu apt; use the Ubuntu 22.04 base recorded in deploy/modal/trellis/Dockerfile.'
+    installed() { [[ $(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true) == 'install ok installed' ]]; }
     for package in "${system_packages[@]}"; do
-        if [[ $(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true) != 'install ok installed' ]]; then missing+=("$package"); fi
+        case "$package" in
+            # Command-line tools may also come from PATH (for example conda-forge).
+            ffmpeg|git|git-lfs) command -v "$package" >/dev/null && continue ;;
+            # Ubuntu 24.04+ renamed the library package for the 64-bit time_t ABI.
+            libglib2.0-0) installed libglib2.0-0t64 && continue ;;
+        esac
+        installed "$package" || missing+=("$package")
     done
     if (( ${#missing[@]} )); then
         if (( EUID == 0 )); then
             run apt-get update
             run apt-get install -y --no-install-recommends "${missing[@]}"
-        else
-            command -v sudo >/dev/null || fail 'Missing system packages; ask the administrator to install the Dockerfile apt dependencies or provide sudo.'
+        # sudo -l may prompt for a password; it fails without a terminal or rights.
+        elif command -v sudo >/dev/null && sudo -l apt-get >/dev/null 2>&1; then
             run sudo apt-get update
             run sudo apt-get install -y --no-install-recommends "${missing[@]}"
+        else
+            fail "Missing system packages: ${missing[*]}. Without sudo, ffmpeg/git-lfs can come from PATH (conda create -p <prefix> -c conda-forge ffmpeg git-lfs; export PATH=<prefix>/bin:\$PATH); libraries need an administrator."
         fi
     else skip 'system packages'; fi
 fi
