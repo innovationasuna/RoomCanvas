@@ -181,25 +181,38 @@ clone_pinned() {
 }
 # Direct downloads never expose a partially written final filename. Preserve
 # failed .part files for diagnosis; they are not mistaken for completed files.
+# An optional third argument is the expected SHA256 of the file.
 atomic_download() {
-    run python3 - "$1" "$2" <<'PY'
+    run python3 - "$1" "$2" "${3:-}" <<'PY'
 from pathlib import Path
-import os, shutil, sys, tempfile, urllib.request
-url, dest = sys.argv[1:]
+import hashlib, os, sys, tempfile, urllib.request
+url, dest, sha256 = sys.argv[1:]
 p = Path(dest)
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(8 * 1024 * 1024), b""): h.update(block)
+    return h.hexdigest()
 if p.exists():
     if not p.is_file() or not p.stat().st_size:
         raise SystemExit("Existing download is empty/invalid; preserved: " + dest)
-    print("Reusing existing download (verified by the caller):", dest)
+    if sha256 and digest(p) != sha256:
+        raise SystemExit("Existing download has a different SHA256; preserved: " + dest)
+    print("Reusing existing download:", dest)
 else:
     fd, tmp = tempfile.mkstemp(prefix=p.name + ".", suffix=".part", dir=p.parent)
+    h = hashlib.sha256()
     with os.fdopen(fd, "wb") as out, urllib.request.urlopen(url) as response:
-        shutil.copyfileobj(response, out)
+        for block in iter(lambda: response.read(8 * 1024 * 1024), b""):
+            out.write(block)
+            h.update(block)
         expected = response.headers.get("Content-Length")
         if expected is not None and out.tell() != int(expected):
             raise SystemExit("Incomplete download retained at " + tmp)
         if not out.tell():
             raise SystemExit("Empty download retained at " + tmp)
+        if sha256 and h.hexdigest() != sha256:
+            raise SystemExit("SHA256 mismatch; download retained at " + tmp)
         out.flush()
         os.fsync(out.fileno())
     os.replace(tmp, p)
