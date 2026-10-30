@@ -20,7 +20,7 @@
 
 ```bash
 # 无 local.env 时可先 export VIEWFORGE_ROOT='<外部运行目录的绝对路径>'
-export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'
+export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'   # 或 export MODEL_SOURCE=modelscope
 bash scripts/setup.sh --dry-run
 bash scripts/setup.sh
 ```
@@ -34,7 +34,7 @@ bash scripts/setup.sh
 | 重建环境 | `envs/mvsam3d/`；[`default.yml`](../environments/default.yml) 提供 Python 3.11 / CUDA 12.1，脚本安装 torch 2.5.1 + cu121、[`requirements.txt`](../requirements.txt) 与 `p3d/inference/dev` extras，含 API 依赖 |
 | Kaolin | [`requirements.inference.txt`](../requirements.inference.txt) 固定 0.17.0，安装时通过 `-f` 使用 torch 2.5.1 / cu121 wheel 页面 |
 | 外部源码 | `third_party/depth-anything-3/`、`dinov2/`、`utils3d/`；DA3 与 utils3d 按 [`upstream_versions.json`](../configs/upstream_versions.json) 固定版本，DINOv2 pin 在安装脚本中 |
-| 重建权重 | `weights/sam3d/` 校验 pipeline 引用的配置与 checkpoint；`weights/da3-nested-giant-large/` 校验配置和模型权重；`weights/dinov2/hub/checkpoints/` 校验可读取的 state dict |
+| 重建权重 | `weights/sam3d/` 校验 pipeline 引用的配置与 checkpoint（`MODEL_SOURCE=modelscope` 时 SAM 3D 与 DA3 从 ModelScope 下载）；`weights/da3-nested-giant-large/` 校验配置和模型权重；`weights/dinov2/hub/checkpoints/` 校验可读取的 state dict |
 | BiRefNet | `envs/birefnet/` 与 `weights/birefnet/` 分别安装、验证，沿用 [`setup_birefnet.sh`](../scripts/setup_birefnet.sh) 的依赖和固定版本配方 |
 
 每步开始前写 `.roomcanvas-setup-incomplete`，验证通过后改为 `.roomcanvas-setup-complete`。重跑同一入口即可恢复未完成步骤、跳过已完成步骤；无标记的已有目录只验证，失败时停止，不自动修补或覆盖。BiRefNet 环境和权重分别判断，一方已有不影响另一方安装。下载先写同目录临时文件，完成后才改名。

@@ -109,8 +109,8 @@
 先准备：
 
 - Linux x86_64 + NVIDIA GPU 和可用驱动，Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17。
-- Debian/Ubuntu 的 apt；缺少系统包时需要 sudo（或 root）。
-- 有 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌。
+- Debian/Ubuntu 的 apt；缺少系统包时需要 sudo（或 root）。没有 sudo 时，`ffmpeg`、`git-lfs` 可以用 Conda 装好并加入 PATH。
+- 有 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌；也可以改用 ModelScope，见下方说明。
 - 房间重建还需要已登录的 Codex CLI，并在 `.env` 填写 API 密钥。
 
 ```bash
@@ -121,6 +121,8 @@ sh scripts/setup_server.sh            # 可先加 --dry-run 只看步骤；已�
 ```
 
 脚本结束时会提示需要填写的 `.env` 和 `object-reconstruction/configs/local.env`，以及启动物体重建服务的命令。
+
+服务器在国内、访问 Hugging Face 慢或不通时，先 `export MODEL_SOURCE=modelscope`：SAM 3D、TRELLIS.2、DA3 等模型改从 ModelScope 下载（仓库名相同，不需要 HF 令牌）。GitHub、PyTorch 和少数只在 Hugging Face 上的模型仍要外网，需要时设置 `https_proxy`。
 
 **本机**：克隆仓库，一条命令启动网页并连上服务器。
 
