@@ -6,6 +6,7 @@ set -euo pipefail
 # Download sources, checked against each upstream; override any of them with an
 # environment variable of the same name.
 BLENDER_ARCHIVE_URL="${BLENDER_ARCHIVE_URL:-https://download.blender.org/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz}" # Official release path (same file on the official mirrors).
+BLENDER_ARCHIVE_SHA256=aaccb355f50183979b698bcce7467103a76261b5fa59f4972295842662a285fb # From the official blender-5.1.2.sha256; any mirror must match it.
 CUDA124_CONDA_SPEC="${CUDA124_CONDA_SPEC:-cuda-toolkit=12.4.1}" # conda-forge cuda-toolkit 12.4.1, matching the Dockerfile's nvidia/cuda:12.4.1 base.
 SPARSE_DECODER_REPO="${SPARSE_DECODER_REPO:-microsoft/TRELLIS-image-large}" # TRELLIS.2-4B pipeline.json: "microsoft/TRELLIS-image-large/ckpts/ss_dec_conv3d_16l8_fp16".
 # No immutable TRELLIS source pin is recorded: follow Dockerfile's main branch.
@@ -114,7 +115,7 @@ step 'Download and unpack Blender 5.1.2'
 BLENDER="$RUNTIME/blender/blender-5.1.2-linux-x64"
 setup_begin "$BLENDER"
 if [[ "$SETUP_ACTION" == install ]]; then
-    atomic_download "$BLENDER_ARCHIVE_URL" "$RUNTIME/blender/blender-5.1.2-linux-x64.tar.xz"
+    atomic_download "$BLENDER_ARCHIVE_URL" "$RUNTIME/blender/blender-5.1.2-linux-x64.tar.xz" "$BLENDER_ARCHIVE_SHA256"
     run tar -tJf "$RUNTIME/blender/blender-5.1.2-linux-x64.tar.xz"
     # Only script-owned incomplete installs may have partially extracted files.
     run tar -xJf "$RUNTIME/blender/blender-5.1.2-linux-x64.tar.xz" -C "$RUNTIME/blender"
