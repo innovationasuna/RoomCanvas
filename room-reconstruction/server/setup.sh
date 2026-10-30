@@ -38,10 +38,22 @@ step 'System build and graphics dependencies (TRELLIS Dockerfile)'
 # separately by uv; do not install the container-only python-is-python3 package.
 system_packages=(build-essential ffmpeg git git-lfs libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev)
 missing=()
+# The packages build the environments below. When every one of them already
+# exists (complete or pre-existing), only report what is missing: verify-only
+# environments never change the system.
+will_install() { [[ ! -f "$1/.roomcanvas-setup-complete" ]] && { ! exists "$1" || [[ -f "$1/.roomcanvas-setup-incomplete" ]]; }; }
+needs_build=0
+for target in "$RUNTIME/litereality-env" "$TRELLIS" "$RUNTIME/trellis-env"; do
+    if will_install "$target"; then needs_build=1; fi
+done
 if (( DRY_RUN )); then
-    printf '  Check dpkg status first; install only missing packages (sudo if not root).\n'
-    run apt-get update
-    run apt-get install -y --no-install-recommends "${system_packages[@]}"
+    if (( needs_build )); then
+        printf '  Check dpkg status first; install only missing packages (sudo if not root).\n'
+        run apt-get update
+        run apt-get install -y --no-install-recommends "${system_packages[@]}"
+    else
+        printf '  Environments already exist: check dpkg status and report missing packages only.\n'
+    fi
 else
     command -v dpkg-query >/dev/null && command -v apt-get >/dev/null || fail 'This system dependency recipe requires Debian/Ubuntu apt; use the Ubuntu 22.04 base recorded in deploy/modal/trellis/Dockerfile.'
     installed() { [[ $(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true) == 'install ok installed' ]]; }
@@ -54,7 +66,9 @@ else
         esac
         installed "$package" || missing+=("$package")
     done
-    if (( ${#missing[@]} )); then
+    if (( ${#missing[@]} && ! needs_build )); then
+        printf '  WARNING: missing system packages: %s. Existing environments are only verified; install these before rebuilding them (ffmpeg is used by optional video exports).\n' "${missing[*]}"
+    elif (( ${#missing[@]} )); then
         if (( EUID == 0 )); then
             run apt-get update
             run apt-get install -y --no-install-recommends "${missing[@]}"
