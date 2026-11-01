@@ -2,6 +2,70 @@
 
 把手机扫描（iPhone LiDAR + RoomPlan）重建成真实尺寸、带纹理的 `Room.glb`，再接到网页编辑器上。代码在 [`room-reconstruction/`](../room-reconstruction/)（LiteReality-Agent 官方代码，Agent 改用 Codex / GPT-6 Astra，改动见下文[对 LiteReality-Agent 改了什么](#对-litereality-agent-改了什么)）。在 3090 服务器上运行，目录和环境见 [交接文档](HANDOFF.md)。
 
+## 从网页重建房间
+
+房间选择页右上角的 **重建房间** 接受一个房间的完整扫描 ZIP（最大 2 GB，解压后最大 8 GB / 50,000 个文件）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
+
+### 启动服务
+
+先按下文和交接文档配置好服务器上的 LiteReality 运行环境、模型、Blender 以及 Agent 登录。**API 服务不会自动安装这些依赖。** 在完整 RoomCanvas 仓库根目录运行：
+
+```bash
+PY=/workspace/geyinuo/RoomCanvas/runtime/litereality-env/bin/python
+ROOMCANVAS_HOME=/workspace/geyinuo/RoomCanvas "$PY" web/scripts/room_service.py \
+  --data-dir /workspace/geyinuo/RoomCanvas/runs/web-room-jobs
+```
+
+默认只监听服务器 `127.0.0.1:7866`。默认运行器调用已有的 `room-reconstruction/server/run_room.py`，保留自动选卡、GPU 锁、服务器环境配置和可动部件生成流程。API 自身使用 Python 标准库，没有新增 pip 依赖。
+
+本机另开终端建立隧道（将 SSH 别名换成实际配置）：
+
+```bash
+ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 3090x2-docker
+```
+
+更新代码后，重启本机网页服务：
+
+```bash
+python3 web/scripts/serve.py
+# 如使用其他隧道地址：
+python3 web/scripts/serve.py --room-backend http://127.0.0.1:7866
+```
+
+访问 `http://127.0.0.1:7880/web/`，点击 **重建房间**。也可以直接打开 `http://127.0.0.1:7880/web/#reconstruct`。
+
+通用 uv 安装（例如按上游 README 配置的 macOS + Modal）可选择 `--runner cli --pipeline-dir /path/to/RoomCanvas/room-reconstruction`，此模式调用 `uv run --no-sync litereality run ... --through publish`，使用该环境已有的模型配置，不包含服务器专用可动部件后处理；部署方负责 GPU 资源协调。默认 `server` 模式沿用本项目已有的运行器。
+
+### 使用与结果
+
+- 填写房间名称，选择或拖入扫描 ZIP，点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
+- 上传百分比只表示文件传输进度。提交后显示实际流水线阶段，不估算重建完成百分比；同一 API 服务一次运行一个任务。
+- 提交成功后可关闭窗口或刷新网页，任务继续运行。任务记录保存在 `--data-dir`，失败可重试并复用已有阶段；同一次上传的重复提交不会创建重复任务。
+- 服务重启会恢复排队任务，并把未完成任务标记为需重试。上次进程仍运行时，任务文件锁阻止重复执行。超时默认 6 小时，可用 `--timeout <秒>` 修改。
+- 完成后自动运行 `room_objects.py`，校验 GLB 节点与布局，再发布 `Room.glb`、`room_objects.json` 和可选的 `thumbnail.jpg`。没有缩略图时显示“房间预览暂不可用”，不影响进入布置。
+- 新房间通过动态目录加入首页，不改写仓库中的 `web/rooms.json`。读取新房间仍需重建服务及隧道在线；后端离线不影响原有示例房间。
+- 原始扫描、运行输出及日志留在服务器的数据目录，不要放进 Git。失败详情看 `<任务号>/task.log`；默认运行器的阶段日志在 `<任务号>/run/attempt-*/`。网页不提供任意服务器路径或日志读取接口。
+
+### API 与验证
+
+本机 `serve.py` 只转发以下接口到房间服务，并对写请求检查 Origin；大文件使用临时文件分块转发。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /room-reconstruction/health` | API 连通性，不代表所有模型依赖已经可用 |
+| `POST /room-reconstruction/jobs` | 原始 ZIP 请求体；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
+| `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
+| `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
+| `GET /room-reconstruction/catalog` | 已完成房间列表 |
+| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、家具清单和缩略图 |
+
+离线测试不调用 GPU、模型或 Agent：
+
+```bash
+python3 -m unittest discover -s web/scripts
+node --test web/scripts/test_room_reconstruction.mjs
+```
+
 ## 运行
 
 ```bash

@@ -20,6 +20,8 @@ export function numberFeedback(state: NumberFeedback) {
 }
 
 export function thumbFeedback(state: ThumbFeedback) {
+  if (state.action === 'cancel' && state.phase === 'confirming') return `右手拇指向下 · 取消 ${Math.round(state.progress * 100)}%`;
+  if (state.action === 'cancel' && state.phase === 'sent') return '已发送取消请求 · 恢复原位置';
   switch (state.phase) {
     case 'missing': return '右手未识别 · 请将整只手放入画面';
     case 'uncertain': return '右手判断不稳定 · 请让整只手清楚入画';
@@ -29,7 +31,7 @@ export function thumbFeedback(state: ThumbFeedback) {
     case 'neutral': return '请先放下拇指，再重新竖起确认';
     case 'confirming': return `右手竖拇指 · 确认 ${Math.round(state.progress * 100)}%`;
     case 'sent': return '已发送放置确认 · 结果见房间提示';
-    default: return '右手竖拇指，四指收拢，保持约 0.5 秒';
+    default: return '右手拇指向上确认、向下取消，四指收拢，保持约 0.5 秒';
   }
 }
 

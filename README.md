@@ -12,7 +12,7 @@
 
 </div>
 
-![RoomCanvas 编辑器：LiteReality 官方样例办公室，底部是仓库](docs/images/editor-office.jpg)
+![RoomCanvas 新版编辑器：LiteReality 官方样例办公室](docs/images/editor-office-9942e734.jpg)
 
 用 iPhone（LiDAR + RoomPlan）扫一遍房间，RoomCanvas 把它重建成带纹理、尺寸真实的三维模型，每件家具都是独立、可以挪动的物体。想买的新东西拍几张照片就能按真实大小加进来；用鼠标或摄像头手势摆放，碰撞和是否放稳实时检查，看放不放得下、好不好看。
 
@@ -36,11 +36,12 @@
 
 **🪑 布置编辑器**
 
-- 选中家具：移动、旋转、升降、换墙、收进仓库再放回
+- 单击家具查看尺寸与位置；拖动已选家具，或用摇杆、转盘、升降拉杆调整，确认后放置
+- 左侧家具库支持搜索、实物缩略图和“房间中／已收纳”筛选；设置可切换简洁／完整工具
 - 逐三角面的碰撞和支撑检测，重网格的检查在后台线程
-- 一键清空 / 一键还原，撤销重做，布局自动保存，可导入导出 JSON
+- 收起全部家具 / 恢复原始布置，撤销重做；布局保存在当前浏览器，可继续上次布置或导入导出 JSON
 - 近侧墙和挡视线的高家具自动变半透明，也可以整个隐藏或保持实心
-- 漫游：第一人称在房间里走，拖动转头、WASD 走动、Q / E 升降视线，撞到墙和家具会停下
+- “体验”内走进房间：中键拖动转头、WASD 走动、Q / E 升降视线，撞到墙和家具会停下
 - 鼠标指到门、柜门、抽屉、窗上提示是什么、点一下会怎样，点一下就开合
 
 </td></tr>
@@ -48,7 +49,7 @@
 
 **📷 拍照添加物体**
 
-- 仓库里“添加物体”：上传照片（1 张也行）→ 抠图确认 → 服务器重建
+- 家具库里“添加家具”：上传照片（1 张也行）→ 抠图确认 → 服务器重建
 - 结果旁的箭头指出建议补拍的方向，“补拍”加照片后在原结果上重建
 - 预览里看 X / Y / Z 坐标轴，填一条实测边长就按真实大小放进房间
 - 重建在 GPU 服务器上跑，关掉对话框、刷新页面都不影响
@@ -60,7 +61,8 @@
 - 普通光照，以及早晨 / 中午 / 下午 / 夜间时段
 - 中央顶灯可开关、调照射角度，按房间记住
 - 环境光、阴影和静态环境遮蔽（AO），静止时才补算
-- 曝光、白平衡、对比度、饱和度调色（实验）
+- 完整工具模式提供曝光、白平衡、对比度、饱和度调色（实验）
+- 地面网格可开关：主格 1 米、细格 25 厘米，辅助判断比例
 
 </td></tr>
 <tr><td valign="top">
@@ -87,16 +89,16 @@
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/office-placement.jpg" alt="摆放家具"><br><sub><b>摆放</b>：选中办公椅，悬浮预览、摇杆移动、圆盘旋转，标出落点</sub></td>
-<td width="50%"><img src="docs/images/office-preview.jpg" alt="预览模式"><br><sub><b>预览</b>：点一下就打开窗户、升起升降桌，桌上的东西跟着动</sub></td>
+<td width="50%"><img src="docs/images/office-placement-9c254315.jpg" alt="摆放家具"><br><sub><b>摆放</b>：选中办公椅，查看尺寸与位置，用摇杆、转盘和升降拉杆调整</sub></td>
+<td width="50%"><img src="docs/images/office-preview-9a75c444.jpg" alt="体验模式"><br><sub><b>体验</b>：查看房间，可点击可动部件或“走进房间”漫游</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/office-night.jpg" alt="夜间光照"><br><sub><b>夜间</b>：日光关掉，中央顶灯照亮房间</sub></td>
-<td><img src="docs/images/add-object.jpg" alt="添加物体"><br><sub><b>添加物体</b>：照片 → 抠图 → 重建 → 尺寸，四步放进房间</sub></td>
+<td><img src="docs/images/office-night-98cf7a26.jpg" alt="夜间光照"><br><sub><b>夜间</b>：日光关掉，中央顶灯照亮房间</sub></td>
+<td><img src="docs/images/add-object-c5609fc2.jpg" alt="添加物体"><br><sub><b>添加家具</b>：选择照片 → 确认范围 → 生成模型 → 确认尺寸</sub></td>
 </tr>
 </table>
 
-截图都用 LiteReality 官方样例办公室；另一个示例房间 `room3` 是私人卧室，不放在这里。
+以上截图均来自当前版本编辑器，使用 LiteReality 官方样例办公室（1600 × 1000）。另一个示例房间 `room3` 是私人卧室，不放在这里。
 
 ## 快速开始
 
@@ -108,7 +110,7 @@ cd RoomCanvas
 python3 web/scripts/serve.py
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。布局存在浏览器里，刷新不会丢。
+打开 <http://127.0.0.1:7880/web/>，选一个示例房间：卧室 `room3` 或办公室 `office`。每次进入先显示原始布置；已确认的布局保存在当前浏览器，点击房间名 → **继续上次布置** 恢复。需要备份或换设备时，从同一菜单导出布局 JSON。
 
 ### 2. 连接物体重建服务（可选）
 
@@ -122,7 +124,7 @@ ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH 主机>
 
 ### 3. 手势
 
-在编辑器工具栏点 **手势**，允许摄像头即可，识别代码已经打包在 `web/vendor/gesture/`。要调试独立的识别页：
+在编辑器左侧点击 **手势** 打开面板，再点击 **开启手势与摄像头** 并允许摄像头。收起面板会保留识别，需在面板内点击 **关闭手势与摄像头** 才停止。识别代码已经打包在 `web/vendor/gesture/`。要调试独立的识别页：
 
 ```bash
 sh scripts/gesture.sh install   # 第一次，需要 Node.js 22.12+
@@ -140,7 +142,7 @@ cd android-app
 
 ### 5. 重建自己的房间
 
-在 GPU 服务器上从手机扫描跑一遍 LiteReality + Astra，产出 `Room.glb`，再用 `web/scripts/room_objects.py` 生成物体清单。完整步骤见 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+在“选择房间”页点击 **重建房间**，上传 LiteReality Scanner 的完整扫描 ZIP，提交后可以查看阶段、失败重试，完成的新房间会自动加入列表并能进入布置。需要先启动独立的房间重建服务（默认本机隧道端口 `7866`，与 ViewForge 的 `7865` 分开）；部署和连接见 [网页重建房间](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)。普通照片不能代替整屋扫描数据。原有命令行方式继续保留。
 
 ## 怎么用
 
@@ -148,23 +150,24 @@ cd android-app
 
 | 操作 | 作用 |
 |---|---|
-| 拖动空白处 / 滚轮 | 转动视角 / 缩放 |
-| 点家具或仓库卡片 | 选中，开始摆放：跟着鼠标走，单击锁定后用摇杆、圆盘、升高 / 降低微调 |
+| 中键拖动 / 右键拖动 / 滚轮 | 旋转镜头 / 平移 / 缩放；左键拖动空白处不转动镜头 |
+| 单击场景中的家具 | 查看尺寸、偏移和旋转角度，不改变位置 |
+| 拖动已选家具 / 拖动属性面板控件 | 开始调整；左上摇杆移动、左下转盘旋转、右侧拉杆升降，松手后等待确认 |
 | `R` | 摆放时旋转 |
 | 方向键、`PageUp` / `PageDown` | 选中的家具逐步挪动、升降 |
 | `Enter` / `Esc` | 放置并落下 / 取消 |
 | `Ctrl`/`⌘` + `Z`，加 `Shift` | 撤销，重做 |
-| `/` | 打开仓库并搜索家具 |
-| 右上角“预览” | 点门、柜门、抽屉、窗开合（鼠标指上去会提示）；回“布置”全部关上 |
-| 右上角“漫游” | 第一人称走动，按键见下表 |
-| “•••” → 近侧墙 | 实心 / 半透明 / 隐藏：靠镜头一侧的墙和挡视线的高家具怎么显示 |
+| `/` | 打开家具库并搜索家具 |
+| 顶部“体验” | 点门、柜门、抽屉、窗开合（鼠标指上去会提示）；回“布置”全部关上 |
+| “体验” → “走进房间” | 第一人称走动，按键见下表 |
+| “设置” → “完整”，再打开“环境” → 近侧墙 | 实心 / 半透明 / 隐藏：控制近侧墙和挡视线的高家具 |
 | 右下角“整体” / “俯视” | 切换视角 |
 
 漫游时：
 
 | 操作 | 作用 |
 |---|---|
-| 拖动画面 | 转头（上下左右） |
+| 中键拖动画面（触屏直接拖动） | 转头（上下左右） |
 | `W` `A` `S` `D` / 方向键，按住 `Shift` | 走动，快走 |
 | `Q` / `E` | 升高 / 降低视线（离地 0.5–2.2 米） |
 | 点门、柜门、抽屉、窗 | 开合 |
@@ -180,7 +183,7 @@ cd android-app
 | 右手 | 竖起大拇指约 0.5 秒 | 确认放置（放置按钮和 `Enter` 也可以） |
 | 双手 | 缩放模式下同时捏合，拉开 / 靠近 | 放大 / 缩小场景 |
 
-手指向按钮捏合就是点击。仓库默认收起，要先捏顶部的“仓库”按钮再拖卡片。手跟丢时操作冻结，回来后松手重新抓。完整说明见 [手势接入](gesture/docs/roomcanvas-integration.md)。
+手指向按钮捏合就是点击。家具库默认收起，要先捏左侧的家具库按钮再拖卡片。手势、家具库、环境和设置面板一次只展开一个，收起手势面板不停止识别。手跟丢时操作冻结，回来后松手重新抓。完整说明见 [手势接入](gesture/docs/roomcanvas-integration.md)。
 
 ### 网址参数
 
@@ -211,17 +214,18 @@ flowchart LR
 |---|---|---|
 | [`room-reconstruction/`](room-reconstruction/) | 房间重建，加了 3090 运行脚本和小物件这一步 | [LiteReality-Agent](https://github.com/LiteReality/LiteReality-Agent)、Codex（GPT-6 Astra）、Blender、TRELLIS.2 |
 | [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，只提供 API | Starlette、BiRefNet、DA3、MV-SAM3D |
-| [`web/`](web/) | 主页、布置编辑器、本机服务 `serve.py` | Three.js r180，无构建 |
+| [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
 | [`samples/`](samples/) | 示例房间：`room3`（手机扫描的卧室）、`office`（LiteReality 官方样例） | |
 
 ## 开发与测试
 
-网页不用装依赖（Node 24、Python 3）：
+以下网页基础检查使用 Node.js 24 和 Python 3，无需安装前端依赖：
 
 ```bash
 node --test 'web/editor/tests/*.mjs'                         # 编辑器单测
+node --test web/scripts/test_room_reconstruction.mjs        # 网页房间重建流程
 python3 -m unittest discover -s web/scripts                  # 本机服务、物体清单
 node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型检查碰撞、支撑、关节
 ```
@@ -242,7 +246,8 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 - [x] Android 第一人称漫游
 - [x] 网页第一人称漫游（键盘鼠标）
 - [ ] 给一个商品链接，找多视角图和尺寸重建
-- [ ] 网页上传扫描，服务器排队重建房间，并降低成本
+- [x] 网页上传扫描，服务器排队重建房间
+- [ ] 继续降低房间重建成本
 - [ ] 手机 App 直接扫描房间
 
 ## 文档

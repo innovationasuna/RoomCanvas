@@ -784,13 +784,29 @@ function isRightThumbsUp(hand, aspect = 4 / 3) {
 		17
 	].map((i) => p[i][1])) - palm * .12 && distance(p[4], p[8]) > palm * .5;
 }
+function isRightThumbsDown(hand, aspect = 4 / 3) {
+	return isRightThumbsUp({
+		...hand,
+		landmarks: hand.landmarks.map((p) => ({
+			...p,
+			y: 1 - p.y
+		}))
+	}, aspect);
+}
 var ThumbConfirmSelector = class {
+	direction;
 	feedback = {
 		phase: "missing",
 		progress: 0
 	};
+	constructor(direction = "up") {
+		this.direction = direction;
+	}
 	get state() {
-		return { ...this.feedback };
+		return {
+			...this.feedback,
+			...this.direction === "down" ? { action: "cancel" } : {}
+		};
 	}
 	since = null;
 	neutralSince = null;
@@ -822,7 +838,7 @@ var ThumbConfirmSelector = class {
 		if (this.lastSeen !== null && (time <= this.lastSeen || time - this.lastSeen >= THUMB_CONFIRM.lossMs) || this.wrist && Math.hypot(wrist.x - this.wrist.x, wrist.y - this.wrist.y) > CONFIG.identityRadius) this.reset();
 		this.wrist = wrist;
 		this.lastSeen = time;
-		const thumb = isRightThumbsUp(right, aspect);
+		const thumb = this.direction === "down" ? isRightThumbsDown(right, aspect) : isRightThumbsUp(right, aspect);
 		if (this.previewId !== previewId) {
 			this.since = null;
 			if (this.previewId && previewId && thumb) this.armed = false;
@@ -885,6 +901,7 @@ var GestureRuntime = class {
 	gestures = new GestureEngine();
 	numbers = new NumberModeSelector();
 	thumb = new ThumbConfirmSelector();
+	cancelThumb = new ThumbConfirmSelector("down");
 	observation = new ObservationRecognizer();
 	generation = 0;
 	running = false;
@@ -933,10 +950,15 @@ var GestureRuntime = class {
 				}
 				const target = this.callbacks.confirmationTarget();
 				const safeRight = !!gesture.operator && !gesture.interrupted && !gesture.ambiguous;
-				if (!safeRight) this.thumb.reset();
+				if (!safeRight) {
+					this.thumb.reset();
+					this.cancelThumb.reset();
+				}
 				const placementConfirmation = this.thumb.process(frame, aspect, target.previewId, target.allowed && safeRight && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing);
-				const rightConfirmation = this.thumb.state;
-				const modeSelection = this.numbers.process(frame, aspect, this.callbacks.canSwitch() && !rightHeld && (!leftHeld || selectingThree) && rightConfirmation.phase !== "confirming" && !placementConfirmation);
+				const placementCancellation = this.cancelThumb.process(frame, aspect, target.previewId, target.allowed && safeRight && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing);
+				const cancelling = this.cancelThumb.state;
+				const rightConfirmation = cancelling.phase === "confirming" || placementCancellation ? cancelling : this.thumb.state;
+				const modeSelection = this.numbers.process(frame, aspect, this.callbacks.canSwitch() && !rightHeld && (!leftHeld || selectingThree) && rightConfirmation.phase !== "confirming" && !placementConfirmation && !placementCancellation);
 				this.callbacks.frame({
 					...gesture,
 					observation,
@@ -944,6 +966,7 @@ var GestureRuntime = class {
 					leftDetection: this.numbers.state,
 					rightHeld,
 					placementConfirmation,
+					placementCancellation,
 					rightConfirmation
 				}, performance.timeOrigin + frame.timestamp, frame);
 			};
@@ -954,6 +977,7 @@ var GestureRuntime = class {
 			this.observation.reset();
 			this.numbers.reset(false);
 			this.thumb.reset(false);
+			this.cancelThumb.reset(false);
 			this.running = true;
 			this.stale = false;
 			this.lastResult = performance.now();
@@ -972,6 +996,7 @@ var GestureRuntime = class {
 		this.gestures.reset();
 		this.observation.reset();
 		this.thumb.reset();
+		this.cancelThumb.reset();
 		if (!preserveNumbers) this.numbers.reset();
 		this.callbacks.interrupted(cancelPending);
 	}
@@ -1090,6 +1115,8 @@ var EDGES = [
 	[19, 20]
 ];
 function thumbFeedback(state) {
+	if (state.action === "cancel" && state.phase === "confirming") return `右手拇指向下 · 取消 ${Math.round(state.progress * 100)}%`;
+	if (state.action === "cancel" && state.phase === "sent") return "已发送取消请求 · 恢复原位置";
 	switch (state.phase) {
 		case "missing": return "右手未识别 · 请将整只手放入画面";
 		case "uncertain": return "右手判断不稳定 · 请让整只手清楚入画";
@@ -1099,7 +1126,7 @@ function thumbFeedback(state) {
 		case "neutral": return "请先放下拇指，再重新竖起确认";
 		case "confirming": return `右手竖拇指 · 确认 ${Math.round(state.progress * 100)}%`;
 		case "sent": return "已发送放置确认 · 结果见房间提示";
-		default: return "右手竖拇指，四指收拢，保持约 0.5 秒";
+		default: return "右手拇指向上确认、向下取消，四指收拢，保持约 0.5 秒";
 	}
 }
 function drawHandFeedback(canvas, frame, gesture, source) {
