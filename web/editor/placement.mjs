@@ -454,7 +454,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     const width = Math.max(...points.map((p) => p[0])) - Math.min(...points.map((p) => p[0]));
     let reason = null;
     if (body.mountBottom + (pose.y || 0) < floorY - CONTACT || body.top + (pose.y || 0) > ceilingY + CONTACT) reason = '安装位置超出地面或天花板，请调整高度';
-    else if (width > wall.bounds[1][0] - wall.bounds[0][0] + EPS) reason = '该墙面宽度不足，无法完整容纳此物体';
+    else if (width > wall.bounds[1][0] - wall.bounds[0][0] + EPS) reason = '该墙面宽度不足，无法完整容纳此物品';
     else if (overlapsOpening) reason = '安装范围覆盖门窗，请选择实体墙面';
     else if (!result.full) reason = '安装范围超出墙边或覆盖开口，请选择完整的实体墙面';
     if (reason) return {state: 'blocked', label: '安装范围超出墙面', detail: reason, wall: wall.name, gap};
@@ -471,13 +471,13 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     // still be a real patch of the inner wall and must accommodate the whole mount.
     const pose = mountPose(body.back, body.origin, wall, point);
     const candidate = {...layout, [id]: pose}, status = wallState(id, candidate);
-    if (status.state !== 'stable' || status.wall !== wall.name) return {ok: false, message: status.detail || '该墙面无法容纳此物体'};
+    if (status.state !== 'stable' || status.wall !== wall.name) return {ok: false, message: status.detail || '该墙面无法容纳此物品'};
     layout[id] = pose;
     return {ok: true, wall: wall.name};
   }
 
   function assess(id, layout, ancestors = new Set()) {
-    if (ancestors.has(id)) return {state: 'blocked', label: '支撑关系循环', detail: '请将其中一件物体落到地面'};
+    if (ancestors.has(id)) return {state: 'blocked', label: '支撑关系循环', detail: '请将其中一件物品落到地面'};
     const body = bodies.get(id), pose = layout[id];
     if (body.wall) return wallState(id, layout);
     const bottom = body.bottom + (pose.y || 0);
@@ -537,7 +537,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
       const first = levels(id, next, bottom + SNAP)[0];
       if (first?.full && Math.abs(first.y - bottom) <= SNAP) return descend(id, next, bottom + SNAP);
     }
-    if (bottom < floorY - CONTACT && bottom <= prevBottom + EPS) return {ok: false, message: '物体不能穿过地面'};
+    if (bottom < floorY - CONTACT && bottom <= prevBottom + EPS) return {ok: false, message: '物品不能穿过地面'};
     return {ok: true};
   }
 
@@ -583,7 +583,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     visit(id);
     for (const child of seen) {
       const body = bodies.get(child);
-      if (body.top + (next[child].y || 0) > ceilingY + CONTACT && (next[child].y || 0) >= (before[child].y || 0) - EPS) return {ok: false, message: '上方承载的物体会碰到天花板'};
+      if (body.top + (next[child].y || 0) > ceilingY + CONTACT && (next[child].y || 0) >= (before[child].y || 0) - EPS) return {ok: false, message: '上方承载的物品会碰到天花板'};
     }
     return {ok: true, moved: [...seen]};
   }

@@ -1,16 +1,25 @@
 # 交接
 
-给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-27 晚（main `84a7dba`；服务器文件夹同步到 `84a7dba`；7862 是 2026-10-27 物体重建运行目录挪进 `runtime/object-reconstruction/` 后重起的后端，代码和 #31 起的一样，进程 72353，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261027.log`）。新对话先读下面“从这里开始”。
+给新对话接续工作用。项目介绍和用法见根目录 [README](../README.md)。更新：2026-10-28 晚（main 为 #49 `a310d09` 加本次交接；服务器文件夹同步到 `a310d09`；7862 于 2026-10-27 16:10 UTC 重启，跑的是 #42 之后的代码，进程 123888，日志 `runtime/object-reconstruction/logs/roomcanvas-api-20261028.log`）。新对话先读下面“从这里开始”。
 
-## 从这里开始（2026-10-27 交接）
+## 从这里开始（2026-10-28 交接）
 
 **现在的状态**
-- 开着的 PR：无。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `84a7dba`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提；它的分支 `integration/local-ui-20261020` 2026-10-27 按用户要求删了（在 #24 页面点“Restore branch”可恢复）。远端现在只留 `main` 和开着的 PR 分支。
-- **待用户通知 lyk 后重启 7862**：#42 改了 `object-reconstruction/scripts/objects.py`（名字上限 53、已有抠图不等 GPU、同名并发 400），正在跑的后端（进程 72353）还是旧的，重启后才生效；`run.py`（#3：拿到锁才查显存）是每次任务新起的子进程，同步后已生效。`env.sh` 去掉了 `MV_ROOT`，重启时一起生效。重启命令见“服务器”一节。
+- **2026-10-28**：#48 交接；#49 界面用词统一（用户要求）：网页首页、编辑器、手势识别页上用户看得到的“物体”“家具”都改成“物品”（按钮、提示、读屏标签、报错），`web/vendor/gesture/gesture-runtime.js` 按 `vite.embed.config.ts` 重新打包（改前重打一次与仓库逐字节一致，差异只有一句提示）。注释、变量名、技术文档不改，“物体重建”仍是文档里的说法；`gesture/` 旧的“起居室”演示页（`src/app`、`src/controls`、`src/ui/ui.ts`）场景本来就是家具，没改。服务器已用 `git bundle` 同步到 `a310d09`。
+- 开着的 PR：无（lyk 的 `feat/objects-trellis` 分支还在，见下面“物体重建换 TRELLIS.2”）。2026-10-27 合并了重构计划第 1 批 12 个 bug（#41 房间重建 #1、#2；#42 物体重建 #3、#4、#11、#12；#43 网页 #5、#9；#44 手势 #8、#10；#45 网页 #6、#7，统一的换材质模块 `web/editor/material-layers.mjs`）、#46 交接与 `REFACTOR_PLAN.md`、#47 第 2 批删死代码。服务器已用 `git bundle` 同步到 `84a7dba`，`.git/info/exclude` 加了 `/object-reconstruction/viewer/`（里面是被忽略的旧产物 `.test-build`，没删）。#24 已关，等 AWHYhuh 重提；它的分支 `integration/local-ui-20261020` 2026-10-27 按用户要求删了（在 #24 页面点“Restore branch”可恢复）。远端现在只留 `main` 和开着的 PR 分支。
+- **7862 已重启**（2026-10-27 16:10 UTC，进程 123888）：#42 的 `objects.py` 改动（名字上限 53、已有抠图不等 GPU、同名并发 400）和 `env.sh` 去掉 `MV_ROOT` 已生效。重启命令见“服务器”一节。
+- **物体重建换 TRELLIS.2**（lyk，分支 `feat/objects-trellis`，2026-10-27 23:22 推，28 个文件 +1317/−36，还没开 PR）：网页“添加物体”多一条单图路线，抠图后只用第一张照片交给房间重建那边已有的 TRELLIS.2，出带 PBR 贴图的模型；后端设 `VIEWFORGE_BACKEND=trellis` 才启用，不设与现在完全一样；TRELLIS 路线不能补拍（网页按后端设置隐藏按钮）；跑时额外拿房间重建的 GPU 锁。他的分支基于改写前的旧 main `ce39cd4`：直接开 PR 会显示 61 个文件，直接 `git merge origin/main` 有 5 个假冲突；要以 `ce39cd4` 为基准合并（`git merge-recursive ce39cd4 -- HEAD origin/main`）。临时副本里合过并测过（物体重建 9 组、网页 223 项通过），他的分支没动。给了用户两种走法：A 让 lyk 自己按上面合并再提 PR；B 我另开分支合好、签名、提 PR（合并前等 lyk 同意）。用户还没选（2026-10-28 说先不管）。用户问过 TRELLIS.2 能否多图：官方只支持单图；可选 Pixal3D 多视图（要相机参数）、移植 TRELLIS v1 的多图做法，或继续用现在的 MV-SAM3D。
 - 本机仓库 `.git/config` 原来有 `user.name = t`，2026-10-27 用户要求改成自己的，已删掉这条本地设置，作者用全局的 `innovationAusna <2474070799@qq.com>`。本机 `uv` 是 0.7.6，`room-reconstruction` 要求 ≥0.9.17：用 `uvx uv@0.9.17 run pytest -n auto`（在 `room-reconstruction/` 下会建 `.venv`，已在 `.gitignore`）。
 - 本机仓库 2026-10-27 从 `~/fable/RoomCanvas` 挪到 `~/research/RoomCanvas`（用户要求），7880、8800 已从新位置重启。
 - **代码审查与重构计划**（2026-10-27，用户要求）：见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。用户说“接着做 / 继续修 bug”，第 1 批 12 个 bug 都已修、各开 PR（上一条）；第 4 批里“统一的换材质模块”和第 3 批里“`?v=` 发布时统一盖版本号”顺带做了。第 2 批删死代码用户说“确定是死的就删”，已删（#47）；没删的见 `REFACTOR_PLAN.md`。第 2 批的 CI 补充项和第 3 批还没做。ZCode 找 bug 等用户在桌面版跑完。
-- **展示完整重建过程**（2026-10-27 讨论）：建议先做“回放”页（左 3D 随阶段长出房间、右 agent 操作流、底部时间轴），数据用 room3 的 `trace.jsonl`（203 条，各阶段起止）和 `authoring_trace.*.jsonl`（agent 每一步）加各阶段产物；实时（`run_room.py` 加 `--live` 透传）以后再做。等用户定是否先用 room3 出样稿。官方 live 页（`litereality_agent.pipeline.realism_authoring.live`，只覆盖 author 阶段）给用户看过：服务器 `runs/room3-polish-20261027/live_view.py`（进程 64607，端口 8770）还开着，本机 8770 隧道已断；不用了可停。
+- **展示完整重建过程：回放页样稿**（2026-10-28，用户要求，还没进仓库）：用 room3 10-16 那次完整重建（约 2 小时）的真实记录做成 90 秒回放。先做了四种样稿（参考 Devin 工作台、Manus、Lovable 对话 + 预览、Spline 编辑器侧栏），用户选 B（Manus）并要求改成贴合项目的版本 `b2-replay.html`：
+  - 布局：顶栏同 RoomCanvas；左栏 35%、房间 65%（按比例，不定死宽度）；底部时间轴（阶段分段、版本绿点、评审黄点，点击/拖动跳转，←/→ 一步，空格暂停）。房间画面上不放任何浮层。
+  - 左栏内容照原来的 B：用户一句请求 + agent 说的话（正文）+ 每步操作卡片（“终端 / 三维视图 / 图片查看器”），新的在底部；图片跟在对应那一步下面（高 112 像素，点开放大）；增量追加，不整段重绘（否则图片反复加载会闪）。
+  - 左下“任务进度”：第几步 / 共几步 + 一排小圆点 + 当前步骤名和一句白话说明。阶段按实际做的事分 16 步，名字和说明是通用说法（换个房间也成立；具体细节只在对话里），“物品”不说“家具”：读取扫描、识别房间布局、裁出物品照片、生成物品参考图、规划建模方式、建出物品模型、返工并检查物品、看照片选材质、搭出第一版、测量尺寸提取贴图、添加软装和小物件、修正穿插问题、调整光线颜色、收尾自查、评审检查、修改后复查。结尾一句从记录算（“评审查了 3 轮，最高 5.0 分，没达到发布标准”）。
+  - 三维：点云 → 墙和物品框线 → 组装好的物品逐件出现 → 建模后的房间分组出现；靠镜头的墙随角度渐变变淡（原先按角度突然切换，会闪）；贴图加各向异性过滤。镜头：播放时慢转，暂停停，拖过房间后按播放才恢复；新物品出现时转到它对面、到位后停 2 秒；布局阶段固定偏俯视；播完继续转。去掉了新物品的高亮框。
+  - 近似和限制：建模阶段当时只存了渲染对比图，三维里窗帘、床品、小物件按 agent 记录分批出现；建模前后两版房间是真实文件。阶段边界是对着这次运行手工切的：前 7 步流水线日志里有对应阶段，第 8–14 步在 agent 建模的 49 分钟里，日志没有分段，正式做时要让 agent 记“现在在做哪一步”或按操作类型推断。结尾房间用的是 10-16 的 `Room.glb`（40 MB），和仓库 `samples/room3`（10-27 更新，70 MB，10 件 TRELLIS 小物件）不是同一个，并进网页时要换。床面黑白斑驳是模型自身的法线贴图（编辑器里一样），要改得回建模阶段。
+  - 位置（**在本机临时目录，会被清掉**）：`/private/tmp/claude-501/-Users-geyinuo-research-RoomCanvas/52d5b89c-dd29-4bff-ba85-6630a08b0a00/scratchpad/replay-demo/`（`b2-replay.html`、`shared/`、`data/` 约 3 MB、`raw/` 约 103 MB 是从服务器拉的原始记录和图片；含家里照片，不进仓库、不上传）。本机服务 `python3 <scratchpad>/nocache_server.py <replay-demo> 7891`（不让浏览器缓存），<http://127.0.0.1:7891/b2-replay.html>。数据来源：服务器 `runs/room3-astra-20261016/pipeline/hausen_room3` 的 `trace.jsonl`、`authoring_trace.author.jsonl`、`_scratch/run_001/*` 对比图、验收 `visual_review`；房间 `~/Downloads/RoomCanvas-runs/room3-astra-20261016/{Room-seed,Room}.glb`。
+  - 下一步：用户确认后做进 RoomCanvas 网页（导出脚本从运行目录生成回放数据、页面并进 `web/`），走 PR。官方 live 页的服务器进程（`runs/room3-polish-20261027/live_view.py`，端口 8770）若还开着、不用可停。
 - 网页编辑器：2026-10-27 合并了“漫游”（#35，第一人称走动）和“近侧墙 实心 / 半透明 / 隐藏”（#36），见下文“最近”。
 - 房间重建：`run_room.py` 完整重建默认在建模之后跑“可动部件”（#32、#33），结果在 `<运行目录>/articulate/room_preview/`；服务器 `runtime/bin/codex` 已修，Astra 调用正常。
 - 物体重建：1 张照片就能重建，结果一步有补拍箭头和“补拍”（#31），服务器后端是这一版。

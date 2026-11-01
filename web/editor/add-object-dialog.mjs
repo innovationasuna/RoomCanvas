@@ -37,7 +37,7 @@ export function mountAddObject({onReady, toast}) {
   function show(step) {
     state.step = step;
     dialog.querySelector('[data-step="photos"]').textContent = state.parent ? '补充照片' : '选择照片';
-    $('#add-object-title').textContent = state.parent ? '补充家具照片' : '通过照片添加家具';
+    $('#add-object-title').textContent = state.parent ? '补充物品照片' : '通过照片添加物品';
     for (const panel of dialog.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== step;
     const order = ['photos', 'masks', 'build', 'size'];
     for (const item of dialog.querySelectorAll('[data-step]')) {
@@ -141,7 +141,7 @@ export function mountAddObject({onReady, toast}) {
   function describeMasks() {
     const kept = state.images.filter((name) => !state.excluded.has(name)).length;
     const earlier = state.kept?.size ? ` · 其中原来的 ${state.kept.size} 张保留（灰框）` : '';
-    $('#add-masks-note').textContent = `绿色是识别出的物体。点一张可以不用它 · 用 ${kept} 张${earlier}${kept < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}`;
+    $('#add-masks-note').textContent = `绿色是识别出的物品。点一张可以不用它 · 用 ${kept} 张${earlier}${kept < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}`;
     $('#add-build').disabled = kept < MIN_PHOTOS || (state.kept?.size && kept <= state.kept.size);
     $('#add-build').textContent = `开始重建（${kept} 张）`;
   }
@@ -176,7 +176,7 @@ export function mountAddObject({onReady, toast}) {
       state.run = job.run;
       remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
       cardState('重建好了，填尺寸');
-      if (!dialog.open) toast(`${state.object} 重建好了：点仓库里的“添加物体”填尺寸`);
+      if (!dialog.open) toast(`${state.object} 重建好了：点仓库里的“添加物品”填尺寸`);
       await openSize();
     } catch (error) {
       $('#add-build-error').hidden = $('#add-build-again').hidden = false;
