@@ -3,11 +3,11 @@ export function mountJoysticks(stage, actions) {
   const doc = stage.ownerDocument;
   const panel = doc.createElement('section');
   panel.className = 'rc-joysticks';
-  panel.setAttribute('aria-label', '移动、旋转和升降家具');
+  panel.setAttribute('aria-label', '移动、旋转和升降物品');
   panel.hidden = true;
   panel.innerHTML = `
     <div class="rc-joystick-control rc-move-control">
-      <button type="button" class="rc-move-stick" aria-label="移动摇杆，方向键移动家具">
+      <button type="button" class="rc-move-stick" aria-label="移动摇杆，方向键移动物品">
         <span class="rc-stick-axis rc-stick-axis-x" aria-hidden="true"></span>
         <span class="rc-stick-axis rc-stick-axis-y" aria-hidden="true"></span>
         <span class="rc-stick-knob" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16M4 12h16M9 7l3-3 3 3M9 17l3 3 3-3M7 9l-3 3 3 3M17 9l3 3-3 3"/></svg></span>
@@ -15,7 +15,7 @@ export function mountJoysticks(stage, actions) {
       <span class="rc-joystick-label rc-move-label">移动</span>
     </div>
     <div class="rc-joystick-control rc-rotate-control">
-      <button type="button" class="rc-rotate-dial" aria-label="旋转圆盘，左右方向键旋转家具">
+      <button type="button" class="rc-rotate-dial" aria-label="旋转圆盘，左右方向键旋转物品">
         <span class="rc-dial-pointer" aria-hidden="true"></span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 8M19 3v5h-5"/></svg>
       </button>
@@ -209,7 +209,7 @@ export function mountJoysticks(stage, actions) {
       const landingText = landing ? `落点：${landing}` : '确认后落下';
       if (landingHint.textContent !== landingText) landingHint.textContent = landingText;
       landingHint.title = landingHint.textContent;
-      lift.title = wall ? '壁挂家具使用左侧摇杆沿墙升降' : '上下拖动升降，松手即停；也可按住上下方向键';
+      lift.title = wall ? '壁挂物品使用左侧摇杆沿墙升降' : '上下拖动升降，松手即停；也可按住上下方向键';
       move.title = wall ? '拖动摇杆沿墙面左右、上下移动' : '拖动摇杆全向移动，使用右侧拉杆调整高度';
       positionPanel();
     },
