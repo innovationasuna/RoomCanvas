@@ -1,0 +1,119 @@
+* {box-sizing:border-box}
+body {margin:0;min-height:100dvh;display:flex;flex-direction:column;font-size:14px;line-height:1.6}
+[hidden] {display:none!important}
+a {color:inherit;text-decoration:none}
+button {font:inherit;cursor:pointer}
+:is(a,button):focus-visible {outline:2px solid var(--rc-green);outline-offset:4px}
+svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.icon-library {position:absolute;width:0;height:0;overflow:hidden}
+.skip-link {position:absolute;top:12px;left:24px;z-index:5;transform:translateY(-200%);padding:8px 14px;background:var(--rc-field);color:var(--rc-text)}
+.skip-link:focus {transform:none}
+.home-header {display:flex;align-items:center;gap:24px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--rc-line);background:var(--rc-bg)}
+.brand {display:flex;align-items:center;gap:9px;font-size:17px;font-weight:600;letter-spacing:-.6px;white-space:nowrap}
+.brand svg {width:27px;height:30px;color:var(--rc-green)}
+.header-context {padding-left:24px;border-left:1px solid var(--rc-line);font-size:13px;color:var(--rc-muted)}
+main {width:100%;max-width:1200px;margin:0 auto;padding:40px 32px 48px;flex:1}
+.page-heading {display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}
+h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px}
+.lead {margin:8px 0 0;color:var(--rc-muted);font-size:14px}
+.room-count {margin:0 0 2px;color:var(--rc-muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Two rooms share the full content width: (100% - 24px) / 2, with equal outer margins. */
+.rooms {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.room {display:flex;flex-direction:column;min-width:0;border:1px solid var(--rc-line);border-radius:6px;overflow:hidden;background:var(--rc-panel);transition:border-color 140ms,background-color 140ms}
+.room:hover {border-color:var(--rc-green);background:var(--rc-raised)}
+.room:active {background:var(--rc-field)}
+.room-preview {aspect-ratio:16/10;display:grid;place-items:center;overflow:hidden;background:var(--rc-canvas);color:var(--rc-field)}
+.room-preview img {display:block;width:100%;height:100%;object-fit:contain}
+.preview-missing {display:flex;flex-direction:column;align-items:center;gap:12px;font-size:13px}
+.preview-missing svg {width:44px;height:44px}
+.room-copy {display:flex;flex-direction:column;flex:1;padding:20px 22px}
+.room-title-row {display:flex;align-items:center;justify-content:space-between;gap:16px}
+.room-title-row h2 {font-size:20px;font-weight:500;line-height:1.4;margin:0}
+.room-facts {font-size:12px;white-space:nowrap;color:var(--rc-muted);font-variant-numeric:tabular-nums}
+.room-note {font-size:13px;line-height:1.8;margin:8px 0 18px;color:var(--rc-muted)}
+.room-open {display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:36px;margin-top:auto;font-size:13px;font-weight:500;color:var(--rc-green)}
+.room-open svg {transition:transform 140ms}
+.room:hover .room-open svg {transform:translateX(3px)}
+.room-state {padding:32px;background:var(--rc-panel);border:1px solid var(--rc-line);border-radius:6px}
+.room-state strong {display:block;font-size:16px;font-weight:500}
+.room-state p {margin:8px 0 0;color:var(--rc-muted)}
+.room-state button {margin-top:20px;min-height:40px;padding:8px 18px;background:var(--rc-field);border:1px solid var(--rc-control);border-radius:4px;color:var(--rc-text)}
+.room-state button:hover {background:var(--rc-raised)}
+.error {color:var(--rc-warn)}
+.home-footer {display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:36px;padding:8px 24px;border-top:1px solid var(--rc-line);color:var(--rc-muted);font-size:11px}
+@media (max-width:900px) {
+  main {padding:32px 24px 40px}
+  .rooms {gap:18px}
+  .room-copy {padding:16px 18px}
+  .room-title-row {align-items:flex-start;flex-direction:column;gap:4px}
+}
+@media (max-width:600px) {
+  .home-header {min-height:56px;padding:0 16px}
+  .header-context {display:none}
+  main {padding:28px 16px 32px}
+  h1 {font-size:24px}
+  .lead {font-size:13px;max-width:23em}
+  .page-heading {gap:12px;margin-bottom:22px;align-items:flex-start}
+  .room-count {margin-top:8px}
+  .rooms {grid-template-columns:minmax(0,1fr);gap:20px}
+  .room-title-row {align-items:center;flex-direction:row;gap:12px}
+  .room-title-row h2 {font-size:18px}
+  .room-open {min-height:40px}
+  .home-footer {padding:12px 16px;flex-wrap:wrap;gap:4px 16px}
+}
+@media (prefers-reduced-motion:reduce) {
+  .room,.room-open svg {transition:none}
+  .room:hover .room-open svg {transform:none}
+}
+
+/* Room reconstruction uses the existing charcoal surfaces and brass action colour. */
+.heading-actions {display:flex;align-items:center;gap:20px;flex:none}
+.home-button {display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 16px;border:1px solid var(--rc-control);border-radius:4px;background:var(--rc-field);color:var(--rc-text);font:inherit;cursor:pointer}
+.home-button:hover:not(:disabled) {background:var(--rc-raised);border-color:var(--rc-green)}
+.home-button.primary {background:var(--rc-green);color:var(--rc-bg);border-color:var(--rc-green);font-weight:600}
+.home-button.primary:hover:not(:disabled) {background:var(--rc-text);border-color:var(--rc-text)}
+.home-button:disabled {cursor:not-allowed;background:var(--rc-field);border-color:var(--rc-line);color:var(--rc-muted)}
+.reconstruction-jobs {margin-bottom:28px;padding:20px 24px;background:var(--rc-panel);border:1px solid var(--rc-line);border-radius:6px}
+.jobs-heading,.reconstruction-head {display:flex;align-items:center;justify-content:space-between;gap:16px}
+.jobs-heading h2 {margin:0;font-size:16px;font-weight:500}
+#jobs-message {color:var(--rc-muted);margin:8px 0}
+#jobs-message:empty {display:none}
+.reconstruction-job {display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-top:1px solid var(--rc-line)}
+.reconstruction-job:first-child {margin-top:16px}
+.reconstruction-job strong {font-weight:500;overflow-wrap:anywhere}
+.reconstruction-job p {margin:4px 0 0;color:var(--rc-muted);font-size:13px;overflow-wrap:anywhere}
+.reconstruction-job .home-button {flex:none}
+.reconstruction-job time {color:var(--rc-muted);font-size:12px;margin-left:12px;font-variant-numeric:tabular-nums}
+.reconstruction-dialog {width:min(560px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflow:auto;padding:28px;border:1px solid var(--rc-control);border-radius:6px;background:var(--rc-panel);color:var(--rc-text);box-shadow:0 16px 64px #0005}
+.reconstruction-dialog::backdrop {background:#0009}
+.reconstruction-head h2 {margin:0;font-size:22px;font-weight:500}
+.reconstruction-intro {margin:8px 0 24px;color:var(--rc-muted)}
+.service-status {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;background:var(--rc-bg);font-size:13px;margin-bottom:24px}
+.service-status .home-button {flex:none;padding:6px 10px;min-height:32px}
+#reconstruction-form > label {display:block;margin:20px 0 8px;font-weight:500}
+#reconstruction-name {width:100%;height:42px;padding:8px 12px;font:inherit;background:var(--rc-field);color:var(--rc-text);border:1px solid var(--rc-control);border-radius:4px}
+#reconstruction-name::placeholder {color:var(--rc-muted)}
+.scan-upload {padding:20px;background:var(--rc-bg);border:1px solid var(--rc-control);border-radius:4px}
+.scan-upload.dragging {outline:2px solid var(--rc-green)}
+.scan-upload input {max-width:100%;font:inherit;color:var(--rc-muted)}
+.scan-upload input::file-selector-button {padding:8px 12px;margin-right:12px;background:var(--rc-field);color:var(--rc-text);border:1px solid var(--rc-control);border-radius:4px;cursor:pointer;font:inherit}
+.scan-upload p {margin:12px 0 0;font-size:13px;overflow-wrap:anywhere}
+.scan-help,.scan-guide {font-size:13px;color:var(--rc-muted);line-height:1.8}
+.scan-guide summary {cursor:pointer;color:var(--rc-text)}
+.scan-guide ol {padding-left:20px}
+.reconstruction-actions {display:flex;justify-content:flex-end;margin-top:24px}
+#reconstruction-error {font-size:13px;overflow-wrap:anywhere}
+#scan-upload-progress {font-size:13px;margin-top:16px}
+#scan-progress {display:block;width:100%;height:8px;margin-top:8px;accent-color:var(--rc-green)}
+:is(input,summary):focus-visible {outline:2px solid var(--rc-green);outline-offset:4px}
+@media(max-width:600px) {
+  .page-heading {flex-direction:column;gap:20px}
+  .heading-actions {width:100%;justify-content:space-between}
+  .heading-actions .room-count {margin:0}
+  .home-button {min-height:44px}
+  .reconstruction-dialog {padding:20px;max-height:calc(100dvh - 24px)}
+  .reconstruction-jobs {padding:16px}
+  .reconstruction-job {gap:12px;flex-wrap:wrap}
+  .reconstruction-job time {display:block;margin:4px 0 0}
+  .reconstruction-actions .home-button {width:100%}
+}

@@ -56,6 +56,9 @@ const runtime = new GestureRuntime(video, {
       if (frame.placementConfirmation && target.allowed && frame.placementConfirmation === target.previewId) {
         send({type:'confirm',sampleTime,previewId:frame.placementConfirmation});
       }
+      if (frame.placementCancellation && target.allowed && frame.placementCancellation === target.previewId && sceneState?.capabilities?.includes('thumb-cancel-v1')) {
+        send({type:'cancel',sampleTime,previewId:frame.placementCancellation});
+      }
     }
     drawHandFeedback(skeleton,tracking,frame,video);
     status(`${frame.operator ? '右手已识别' : '右手未识别'} · 推理 ${tracking.inferenceMs.toFixed(0)} ms`);

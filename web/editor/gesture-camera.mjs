@@ -28,9 +28,14 @@ export function inputFrame(lib, frame) {
 // 骨架只在本页绘制；跨窗口协议只发送必要的控制信号。
 export function createGestureCamera({lib, video, canvas, input, port, ui, clock = performance}) {
   let runtime = null, on = false;
+  function feedback(frame, lifecycle = 'tracking') {
+    ui.feedback?.({frame, lifecycle, mode: port.mode?.() || 'move', active: !!input.active, dual: !!input.dual,
+      busy: port.busy(), target: port.confirmationTarget()});
+  }
   function clearFeedback() {
     canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     ui.confirm?.('右手确认检测未开启', 0);
+    feedback(null, on ? 'paused' : 'off');
   }
   // A mode switch starts from an open hand, as after the gesture page's mode message.
   function requestMode(next, fromHand = false) {
@@ -48,16 +53,18 @@ export function createGestureCamera({lib, video, canvas, input, port, ui, clock 
       input.input(inputFrame(lib, frame), clock.now());
       const target = port.confirmationTarget();
       if (frame.placementConfirmation && target.allowed && frame.placementConfirmation === target.previewId && !input.active && !input.dual) port.confirm();
+      if (frame.placementCancellation && target.allowed && frame.placementCancellation === target.previewId && !input.active && !input.dual) port.cancel?.();
       const right = frame.operator;
-      ui.right(!right ? '右手未识别' : right.pinching ? '右手捏合' : '右手已识别', !!right);
+      ui.right?.(!right ? '右手未识别' : right.pinching ? '右手捏合' : '右手已识别', !!right);
       const left = frame.leftDetection;
-      ui.left(leftHandText(left, {busy: port.busy(), rightHeld: frame.rightHeld}), left.progress, left.detected);
+      ui.left?.(leftHandText(left, {busy: port.busy(), rightHeld: frame.rightHeld}), left.progress, left.detected);
       if (canvas && tracking) lib.drawHandFeedback(canvas, tracking, frame, video);
       if (frame.rightConfirmation) ui.confirm?.(lib.thumbFeedback(frame.rightConfirmation), frame.rightConfirmation.progress);
+      feedback(frame);
     },
     // A lost hand ends the hand's operation; a preview it leaves stays for the mouse or the next pinch.
     interrupted(cancel) {clearFeedback(); if (cancel) input.reset(); else input.interrupt();},
-    error(message) {on = false; clearFeedback(); ui.status(message);},
+    error(message) {on = false; clearFeedback(); feedback(null, 'error'); ui.status(message);},
   };
   return {
     get on() {return on;},
@@ -66,9 +73,11 @@ export function createGestureCamera({lib, video, canvas, input, port, ui, clock 
       runtime ??= new lib.GestureRuntime(video, callbacks);
       on = true;
       ui.status('正在开启摄像头…');
+      feedback(null, 'starting');
       const started = await runtime.start();
       if (!started) {on = false; return false;}
       ui.status('');
+      feedback(null);
       return true;
     },
     stop() {on = false; runtime?.stop();},

@@ -16,6 +16,7 @@ export interface IntegrationFrame extends GestureFrame {
   leftDetection: NumberFeedback;
   rightHeld: boolean;
   placementConfirmation: string | null;
+  placementCancellation: string | null;
   rightConfirmation: ThumbFeedback;
 }
 
@@ -26,6 +27,7 @@ export class GestureRuntime {
   private gestures = new GestureEngine();
   private numbers = new NumberModeSelector();
   private thumb = new ThumbConfirmSelector();
+  private cancelThumb = new ThumbConfirmSelector('down');
   private observation = new ObservationRecognizer();
   private generation = 0;
   private running = false;
@@ -68,19 +70,22 @@ export class GestureRuntime {
         if (selectingThree) {gesture.helper = undefined; gesture.helperInterrupted = true;}
         const target = this.callbacks.confirmationTarget();
         const safeRight = !!gesture.operator && !gesture.interrupted && !gesture.ambiguous;
-        if (!safeRight) this.thumb.reset();
+        if (!safeRight) {this.thumb.reset(); this.cancelThumb.reset();}
         const placementConfirmation = this.thumb.process(frame, aspect, target.previewId,
           target.allowed && safeRight && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing);
-        const rightConfirmation = this.thumb.state;
+        const placementCancellation = this.cancelThumb.process(frame, aspect, target.previewId,
+          target.allowed && safeRight && !rightHeld && !gesture.operator?.pinching && !gesture.operator?.releasing);
+        const cancelling = this.cancelThumb.state;
+        const rightConfirmation = cancelling.phase === 'confirming' || placementCancellation ? cancelling : this.thumb.state;
         const modeSelection = this.numbers.process(frame,aspect,this.callbacks.canSwitch() && !rightHeld && (!leftHeld || selectingThree) &&
-          rightConfirmation.phase !== 'confirming' && !placementConfirmation);
+          rightConfirmation.phase !== 'confirming' && !placementConfirmation && !placementCancellation);
         this.callbacks.frame({ ...gesture, observation, modeSelection, leftDetection:this.numbers.state, rightHeld,
-          placementConfirmation, rightConfirmation }, performance.timeOrigin + frame.timestamp, frame);
+          placementConfirmation, placementCancellation, rightConfirmation }, performance.timeOrigin + frame.timestamp, frame);
       };
       await this.tracker.start();
       if (generation !== this.generation) return false;
       if (!await this.camera.start(device) || generation !== this.generation) return false;
-      this.gestures.reset(); this.observation.reset(); this.numbers.reset(false); this.thumb.reset(false); this.running = true; this.stale = false;
+      this.gestures.reset(); this.observation.reset(); this.numbers.reset(false); this.thumb.reset(false); this.cancelThumb.reset(false); this.running = true; this.stale = false;
       this.lastResult = performance.now(); this.lastInference = 0; this.lastVideoTime = -1;
       this.animation = requestAnimationFrame(this.loop);
       return true;
@@ -91,7 +96,7 @@ export class GestureRuntime {
       return false;
     }
   }
-  interrupt(cancelPending = false, preserveNumbers = false) { this.gestures.reset(); this.observation.reset(); this.thumb.reset(); if (!preserveNumbers) this.numbers.reset(); this.callbacks.interrupted(cancelPending); }
+  interrupt(cancelPending = false, preserveNumbers = false) { this.gestures.reset(); this.observation.reset(); this.thumb.reset(); this.cancelThumb.reset(); if (!preserveNumbers) this.numbers.reset(); this.callbacks.interrupted(cancelPending); }
   private loop = (now: number) => {
     if (!this.running) return;
     if (!document.hidden && now - this.lastInference >= CONFIG.inferenceInterval && this.video.currentTime !== this.lastVideoTime) {

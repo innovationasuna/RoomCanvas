@@ -1,0 +1,123 @@
+/* Presentation only: never animate the stage, viewport, camera or drag controls. */
+#rc-placement-demo {
+  --rc-motion-fast:140ms;
+  --rc-motion-panel:220ms;
+  --rc-motion-ease:cubic-bezier(.22,1,.36,1);
+}
+
+/* A stationary backing keeps the scene from flashing between two left panels. */
+#rc-placement-demo .rc-panel-surface {
+  position:absolute;inset:0 auto 0 0;width:var(--rc-side-panel-width);
+  background:var(--rc-panel);z-index:2;pointer-events:none;opacity:0;
+  transition:opacity var(--rc-motion-panel) var(--rc-motion-ease);
+}
+#rc-placement-demo[data-mode=edit]:has(#object-panel:not([hidden])) .rc-panel-surface,
+#rc-placement-demo:not([data-mode=walk]):has(#gesture-card:not([hidden])) .rc-panel-surface,
+#rc-placement-demo:has(#light-menu[open]) .rc-panel-surface,
+#rc-placement-demo:not([data-mode=walk]):has(#tools-menu[open]) .rc-panel-surface {opacity:1}
+
+#rc-placement-demo :is(#object-panel,.rc-gesture-card,.rc-controls) {
+  --rc-enter-offset:-12px 0;
+  opacity:1;translate:0 0;
+  transition:opacity var(--rc-motion-panel) var(--rc-motion-ease),
+    translate var(--rc-motion-panel) var(--rc-motion-ease),
+    display var(--rc-motion-panel) allow-discrete;
+}
+#rc-placement-demo .rc-controls {--rc-enter-offset:12px 0}
+#rc-placement-demo :is(#object-panel,.rc-gesture-card,.rc-controls)[hidden],
+#rc-placement-demo:not([data-mode=edit]) :is(#object-panel,.rc-controls) {
+  opacity:0;translate:var(--rc-enter-offset);pointer-events:none;
+}
+#rc-placement-demo[data-density=simple]:has(#object-panel:not([hidden])) .rc-controls {
+  opacity:0;translate:var(--rc-enter-offset);pointer-events:none;
+}
+/* Nested hidden containers remain painted during their parent's native exit transition. */
+#rc-placement-demo :is(#warehouse-content,#selection-controls) {
+  transition:display var(--rc-motion-panel) allow-discrete;
+}
+@starting-style {
+  #rc-placement-demo :is(#object-panel,.rc-gesture-card,.rc-controls) {
+    opacity:0;translate:var(--rc-enter-offset);
+  }
+}
+
+/* details keeps its native open/close and keyboard behavior, including rapid reversals. */
+#rc-placement-demo details.rc-menu::details-content {
+  transition:content-visibility var(--rc-motion-panel) allow-discrete;
+}
+#rc-placement-demo details.rc-menu > .rc-menu-panel {
+  --rc-enter-offset:0 -6px;
+  opacity:0;translate:var(--rc-enter-offset);pointer-events:none;
+  transition:opacity var(--rc-motion-panel) var(--rc-motion-ease),translate var(--rc-motion-panel) var(--rc-motion-ease);
+}
+#rc-placement-demo .rc-sidebar :is(#light-menu,#tools-menu) > .rc-menu-panel {--rc-enter-offset:-12px 0}
+#rc-placement-demo details.rc-menu[open] > .rc-menu-panel {opacity:1;translate:0 0;pointer-events:auto}
+@starting-style {
+  #rc-placement-demo details.rc-menu[open] > .rc-menu-panel {opacity:0;translate:var(--rc-enter-offset)}
+}
+@supports (interpolate-size:allow-keywords) {
+  #rc-placement-demo #lighting-menu::details-content {
+    interpolate-size:allow-keywords;block-size:0;overflow:hidden;
+    transition:block-size var(--rc-motion-panel) var(--rc-motion-ease),content-visibility var(--rc-motion-panel) allow-discrete;
+  }
+  #rc-placement-demo #lighting-menu[open]::details-content {block-size:auto}
+}
+
+#rc-placement-demo :is(.rc-guide,.rc-experience-actions,.rc-rail-main,.rc-pending-actions,.rc-environment-extra) {
+  opacity:1;translate:0 0;
+  transition:opacity var(--rc-motion-panel) var(--rc-motion-ease),translate var(--rc-motion-panel) var(--rc-motion-ease),display var(--rc-motion-panel) allow-discrete;
+}
+#rc-placement-demo .rc-guide {transition:left var(--rc-motion-panel) var(--rc-motion-ease),opacity var(--rc-motion-panel) var(--rc-motion-ease),translate var(--rc-motion-panel) var(--rc-motion-ease),display var(--rc-motion-panel) allow-discrete}
+#rc-placement-demo :is(.rc-guide,.rc-pending-actions)[hidden],
+#rc-placement-demo[data-mode=edit] .rc-experience-actions,
+#rc-placement-demo:not([data-mode=edit]) .rc-rail-main,
+#rc-placement-demo[data-density=simple] .rc-environment-extra {opacity:0;translate:0 5px;pointer-events:none}
+@starting-style {
+  #rc-placement-demo :is(.rc-guide,.rc-experience-actions,.rc-rail-main,.rc-pending-actions,.rc-environment-extra) {opacity:0;translate:0 5px}
+}
+
+/* The mode highlight travels with the choice; camera changes remain user-controlled. */
+#rc-placement-demo .rc-modes {position:relative;isolation:isolate}
+#rc-placement-demo .rc-modes::before {
+  content:'';position:absolute;left:3px;top:3px;bottom:3px;width:calc((100% - 8px)/2);
+  border-radius:3px;background:var(--rc-raised);pointer-events:none;
+  transition:translate var(--rc-motion-panel) var(--rc-motion-ease);
+}
+#rc-placement-demo:not([data-mode=edit]) .rc-modes::before {translate:calc(100% + 2px) 0}
+#rc-placement-demo .rc-modes .rc-mode,
+#rc-placement-demo .rc-modes .rc-mode[aria-pressed=true] {position:relative;background:transparent}
+
+#rc-placement-demo .rc-setting-switch::before {transition:left var(--rc-motion-fast) var(--rc-motion-ease),background-color var(--rc-motion-fast)}
+#rc-placement-demo :is(.object-row,.rc-time-choice span,.rc-library-tabs button,.rc-rail-button,.rc-gesture-modes button) {
+  transition:background-color var(--rc-motion-fast),border-color var(--rc-motion-fast),color var(--rc-motion-fast);
+}
+#rc-placement-demo .rc-sidebar .rc-rail-button svg {transition:scale var(--rc-motion-fast) var(--rc-motion-ease)}
+#rc-placement-demo .rc-sidebar .rc-rail-button:active:not(:disabled) svg {scale:.92}
+#rc-placement-demo .rc-sidebar .rc-rail-button::after {opacity:0;transition:opacity var(--rc-motion-fast),visibility var(--rc-motion-fast)}
+#rc-placement-demo .rc-sidebar .rc-rail-button:focus-visible::after {opacity:1}
+@media (hover:hover) {#rc-placement-demo .rc-sidebar .rc-rail-button:hover::after {opacity:1}}
+
+#rc-placement-demo dialog.rc-dialog {
+  opacity:0;translate:0 8px;scale:.99;
+  transition:opacity var(--rc-motion-panel) var(--rc-motion-ease),translate var(--rc-motion-panel) var(--rc-motion-ease),scale var(--rc-motion-panel) var(--rc-motion-ease),display var(--rc-motion-panel) allow-discrete,overlay var(--rc-motion-panel) allow-discrete;
+}
+#rc-placement-demo dialog.rc-dialog[open] {opacity:1;translate:0 0;scale:1}
+#rc-placement-demo dialog.rc-dialog:not([open]),#rc-placement-demo dialog.rc-dialog:not([open])::backdrop {pointer-events:none}
+#rc-placement-demo dialog.rc-dialog::backdrop {
+  opacity:0;transition:opacity var(--rc-motion-panel),display var(--rc-motion-panel) allow-discrete,overlay var(--rc-motion-panel) allow-discrete;
+}
+#rc-placement-demo dialog.rc-dialog[open]::backdrop {opacity:1}
+@starting-style {
+  #rc-placement-demo dialog.rc-dialog[open] {opacity:0;translate:0 8px;scale:.99}
+  #rc-placement-demo dialog.rc-dialog[open]::backdrop {opacity:0}
+}
+@media (max-width:1100px) {
+  #rc-placement-demo:has(#object-panel:not([hidden])) .rc-controls {opacity:0;translate:var(--rc-enter-offset);pointer-events:none}
+}
+@media (max-width:699px) {#rc-placement-demo .rc-controls {--rc-enter-offset:0 12px}}
+@media (prefers-reduced-motion:reduce) {
+  #rc-placement-demo *,#rc-placement-demo *::before,#rc-placement-demo *::after,
+  #rc-placement-demo details::details-content,#rc-placement-demo dialog::backdrop {
+    transition:none!important;animation:none!important;
+  }
+}

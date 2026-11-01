@@ -22,7 +22,7 @@ export function parseMessage(value) {
   if (d.protocol !== PROTOCOL || typeof d.session !== 'string' || !Number.isSafeInteger(d.sequence) || d.sequence < 1) return null;
   if (d.type === 'hello' || d.type === 'stop') return d;
   if (d.type === 'mode') return MODES.includes(d.mode) ? d : null;
-  if (d.type === 'confirm') return typeof d.previewId === 'string' && d.previewId.length > 0 && d.previewId.length <= 128 &&
+  if (d.type === 'confirm' || d.type === 'cancel') return typeof d.previewId === 'string' && d.previewId.length > 0 && d.previewId.length <= 128 &&
     typeof d.sampleTime === 'number' && Number.isFinite(d.sampleTime) ? d : null;
   if (d.type !== 'frame' || typeof d.sampleTime !== 'number' || !Number.isFinite(d.sampleTime) || !d.frame || typeof d.frame !== 'object') return null;
   const f = d.frame;
@@ -197,11 +197,13 @@ export function connectGestureBridge(port, {win = window, doc = document, clock 
     if (!connected) return;
     if (d.type === 'stop') {lastFrame = 0; port.input.reset(); port.stop?.();}
     if (d.type === 'mode' && !port.state().busy) {port.input.reset(); port.setMode(d.mode);}
-    if (d.type === 'confirm') {
+    if (d.type === 'confirm' || d.type === 'cancel') {
       const state = port.state(), age = clock.timeOrigin + clock.now() - d.sampleTime;
       // 确认只作用于同一个仍待放置的预览；拖动、缩放或过期请求不得排队补发。
       if (!doc.hidden && age >= -50 && age <= CONFIRM_MAX_AGE_MS && state.layoutReady && !state.busy &&
-          state.canConfirm === true && state.previewId === d.previewId && !port.input.active && !port.input.dual) port.confirm?.();
+          state.canConfirm === true && state.previewId === d.previewId && !port.input.active && !port.input.dual) {
+        if (d.type === 'cancel') port.cancel?.(); else port.confirm?.();
+      }
     }
     if (d.type === 'frame') {
       const age = clock.timeOrigin + clock.now() - d.sampleTime;
