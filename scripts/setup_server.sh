@@ -170,7 +170,10 @@ clone_pinned() {
         run git -C "$dest" submodule update --init --recursive
     fi
     for required in "$@"; do require_file "$dest/$required"; done
-    if (( ! DRY_RUN )); then
+    if (( ! DRY_RUN )) && [[ "$SETUP_ACTION" == verify && -d "$dest" && ! -e "$dest/.git" ]]; then
+        # A source snapshot copied without .git; git would read an enclosing repository instead.
+        printf '  WARNING: %s has no .git of its own; revision %s cannot be verified (preserved).\n' "$dest" "$revision"
+    elif (( ! DRY_RUN )); then
         git -C "$dest" rev-parse --verify HEAD >/dev/null || fail "Invalid pre-existing/source checkout: $dest"
         if [[ "$revision" != main && $(git -C "$dest" rev-parse HEAD) != "$revision" ]]; then
             fail "Source revision differs at $dest; preserved. Choose a new runtime root."
