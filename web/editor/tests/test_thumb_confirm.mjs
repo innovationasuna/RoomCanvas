@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {PlacementSession} from '../placement-session.mjs';
+import {initialLayout} from '../layout.mjs';
 import assert from 'node:assert/strict';
 import { connectGestureBridge, parseMessage, PROTOCOL, CONFIRM_MAX_AGE_MS } from '../gesture-bridge.mjs';
 
@@ -89,3 +91,23 @@ test('放置入口拒绝碰撞后仍保留预览，确认通过后的过期请�
   collision = false; b.send(); assert.equal(committed, 1);
   b.send(); assert.equal(committed, 1);
 });
+
+for (const warehouse of [false, true]) {
+  test(`拇指向下通过桥接取消预览并恢复${warehouse ? '仓库状态' : '原位置和高度'}`, () => {
+    const b = bridge(); b.send({type: 'hello'});
+    const before = initialLayout(['chair']); before.chair.visible = !warehouse;
+    const session = new PlacementSession(before, 'chair');
+    let layout = structuredClone(before);
+    layout.chair = {...layout.chair, x: 9, y: 2, yaw: 1, visible: true};
+    session.update(layout, false, '预览');
+    b.port.cancel = () => {layout = session.cancel(); b.calls.push('cancel'); b.state.previewId = null;};
+    b.send({type: 'cancel', previewId: 'old'});
+    b.send({type: 'cancel', sampleTime: 0});
+    b.input.active = true; b.send({type: 'cancel'}); b.input.active = false;
+    assert.equal(layout.chair.x, 9);
+    b.send({type: 'cancel'});
+    assert.deepEqual(layout, before);
+    b.send({type: 'cancel'});
+    assert.deepEqual(b.calls, ['reset', 'cancel']);
+  });
+}

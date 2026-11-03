@@ -4,6 +4,7 @@ import {indoorLighting} from './indoor-lighting.mjs';
 
 export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, onTime, onIndoor, onGrade}) {
   const select = timeRoot.querySelector('#lighting-time');
+  const timeChoices = [...timeRoot.querySelectorAll('[name="lighting-time-choice"]')];
   const angle = timeRoot.querySelector('#lamp-angle'), power = timeRoot.querySelector('#lamp-power');
   const ranges = [...root.querySelectorAll('[data-grade]')];
   for (const menu of [root, timeRoot]) {
@@ -18,19 +19,27 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
     : key === 'whiteBalance' ? value === 0 ? '中性' : `${value > 0 ? '偏暖' : '偏冷'} ${Math.round(Math.abs(value) * 100)}` : value.toFixed(2);
   function update() {
     select.value = time;
+    for (const choice of timeChoices) choice.checked = choice.value === time;
     angle.value = indoor.angle;
     timeRoot.querySelector('output[for="lamp-angle"]').textContent = `${indoor.angle}°`;
     power.textContent = indoor.power ? '关灯' : '开灯';
     power.setAttribute('aria-pressed', String(indoor.power));
-    power.setAttribute('aria-label', indoor.power ? '关闭室内灯' : '打开室内灯');
+    if (power.getAttribute('role') === 'switch') {
+      power.setAttribute('aria-checked', String(indoor.power));
+      power.removeAttribute('aria-pressed');
+    } else power.setAttribute('aria-label', indoor.power ? '关闭室内灯' : '打开室内灯');
     power.disabled = !canLight;
-    timeRoot.querySelector('#lamp-status').textContent = indoor.power ? '中央顶灯已开启' : '顶灯已关闭';
+    timeRoot.querySelector('#lamp-status').textContent = indoor.power ? '已开启' : '已关闭';
     for (const input of ranges) {
       const key = input.dataset.grade; input.value = values[key];
       root.querySelector(`output[for="${input.id}"]`).textContent = format(key, values[key]);
     }
   }
-  select.onchange = () => {time = timePreset(select.value); onTime(time);};
+  select.onchange = () => {time = timePreset(select.value); update(); onTime(time);};
+  for (const choice of timeChoices) choice.onchange = () => {
+    if (!choice.checked || select.disabled) return;
+    select.value = choice.value; select.onchange();
+  };
   angle.oninput = () => {
     indoor = indoorLighting({...indoor, angle: Number(angle.value)}); update(); onIndoor({...indoor});
   };
@@ -46,6 +55,7 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
     setGrade(value) {values = colorGrading(value); update();},
     availability({time: canTime, grading: canGrade}) {
       select.disabled = !canTime;
+      for (const choice of timeChoices) choice.disabled = !canTime;
       canLight = canTime;
       angle.disabled = power.disabled = !canLight;
       for (const input of ranges) input.disabled = !canGrade;

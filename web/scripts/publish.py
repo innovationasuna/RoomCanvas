@@ -53,6 +53,8 @@ def main():
     # Shared colours and icon, which the editor links as ../theme.css and ../icon.svg.
     for name in ['theme.css', 'icon.svg']:
         shutil.copy2(web / name, preview / name)
+    # The Form workspace loads its licensed fonts locally, including in offline previews.
+    shutil.copytree(web / 'assets', preview / 'assets', dirs_exist_ok=True)
     destination = preview / 'editor'
     destination.mkdir(exist_ok=True)
     tag = version(web)

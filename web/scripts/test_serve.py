@@ -38,21 +38,27 @@ class Forwarding(unittest.TestCase):
 
 class Tunnel(unittest.TestCase):
     def test_command_forwards_the_local_port_to_the_remote_service(self):
-        command = tunnel_command('gpu-box', '172.18.0.2:7862', 7865)
+        command = tunnel_command('gpu-box', [(7865, '172.18.0.2:7862')])
         self.assertEqual(command[0], 'ssh')
         self.assertIn('-N', command)
         self.assertIn('ExitOnForwardFailure=yes', command)
         self.assertEqual(command[command.index('-L') + 1], '127.0.0.1:7865:172.18.0.2:7862')
         self.assertEqual(command[-1], 'gpu-box')
 
+    def test_one_connection_forwards_objects_and_rooms(self):
+        command = tunnel_command('gpu-box', [(7865, '172.18.0.2:7862'), (7866, '127.0.0.1:7866')])
+        forwards = [command[i + 1] for i, part in enumerate(command) if part == '-L']
+        self.assertEqual(forwards, ['127.0.0.1:7865:172.18.0.2:7862', '127.0.0.1:7866:127.0.0.1:7866'])
+        self.assertEqual(command[-1], 'gpu-box')
+
     def test_remote_must_be_address_and_port(self):
         for remote in ['172.18.0.2', '7862', 'a b:1', 'host:port']:
             with self.assertRaises(ValueError):
-                tunnel_command('gpu-box', remote, 7865)
+                tunnel_command('gpu-box', [(7865, '127.0.0.1:7862'), (7866, remote)])
 
     def test_a_tunnel_that_exits_stops_the_server_with_a_message(self):
         with self.assertRaises(SystemExit) as stop:
-            open_tunnel([sys.executable, '-c', 'raise SystemExit(255)'], 1, wait=5)
+            open_tunnel([sys.executable, '-c', 'raise SystemExit(255)'], [1], wait=5)
         self.assertIn('SSH tunnel failed (exit 255)', str(stop.exception.code))
 
     def test_a_port_already_in_use_is_refused_before_starting_ssh(self):
@@ -62,7 +68,7 @@ class Tunnel(unittest.TestCase):
             busy.listen()
             port = busy.getsockname()[1]
             with self.assertRaises(SystemExit) as stop:
-                open_tunnel([sys.executable, '-c', 'raise SystemExit("ssh must not start")'], port, wait=5)
+                open_tunnel([sys.executable, '-c', 'raise SystemExit("ssh must not start")'], [1, port], wait=5)
         self.assertIn(f'Port {port} is already in use', str(stop.exception.code))
 
 
