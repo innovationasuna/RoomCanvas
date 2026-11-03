@@ -60,3 +60,20 @@ test('an empty job still builds a usable timeline', () => {
   assert.equal(tl.indexAt(10), -1);
   assert.equal(tl.realAt(10), 0);
 });
+
+test('while the agent works, the final model shows with only the parts named so far', () => {
+  const data = {stages, events, models: {seed: 's', final: 'f', round0: 'r'},
+    build: {base: 50, reveal: [{node: 'Curtain', minute: 50}, {node: 'Lamp', minute: 58}]}};
+  const tl = buildTimeline(data);
+  const at = (minute) => {let lo = 0, hi = DURATION; for (let i = 0; i < 50; i++) {const m = (lo + hi) / 2; if (tl.realAt(m) < minute) lo = m; else hi = m;} return hi;};
+  assert.equal(sceneAt(tl, at(45)).model, 'seed');
+  const early = sceneAt(tl, at(52));
+  assert.equal(early.model, 'final');
+  assert.deepEqual([...early.added], ['Curtain']);
+  assert.deepEqual([...sceneAt(tl, at(59)).added], ['Curtain', 'Lamp']);
+  const review = sceneAt(tl, tl.events.find((e) => e.model === 'round0').at);
+  assert.equal(review.model, 'round0');
+  assert.equal(review.added, null);
+  // without the final model (a live job) nothing changes until the next saved model
+  assert.equal(sceneAt(buildTimeline({...data, models: {seed: 's'}}), at(52)).model, 'seed');
+});

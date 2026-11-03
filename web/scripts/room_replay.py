@@ -259,6 +259,53 @@ def models(scene, until=None):
     return out
 
 
+def glb_tree(path):
+    """{node name: parent name or None} from a GLB's JSON chunk (no mesh data is read)."""
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(20)
+            length = struct.unpack('<I', head[12:16])[0]
+            gltf = json.loads(f.read(length))
+    except (OSError, ValueError, struct.error):
+        return {}
+    nodes = gltf.get('nodes', [])
+    parent = {}
+    for k, node in enumerate(nodes):
+        for child in node.get('children', []):
+            parent[child] = k
+    return {node.get('name'): (nodes[parent[k]].get('name') if k in parent else None)
+            for k, node in enumerate(nodes) if node.get('name')}
+
+
+def build_schedule(scene, until=None):
+    """When the modelling agent added each new part of the room.
+
+    No room model is saved while the agent works, so the replay shows the final model with the parts the
+    agent added appearing at the time its log first names them (the rest of the room switches to the
+    final look when the first of them appears). Parts never named appear when the agent's session ends."""
+    scene = Path(scene)
+    seed, final = scene / SEED, scene / FINAL
+    if not (_mtime(seed) and _mtime(final)) or (until and _mtime(final) > until):
+        return None
+    before, after = glb_tree(seed), glb_tree(final)
+    added = [n for n, p in after.items() if n not in before and (p is None or p in before)]
+    rows = []
+    for path in sorted((scene / TRACES).glob('authoring_trace.*.jsonl')):
+        if '.raw.' not in path.name:
+            rows += [r for r in read_jsonl(path) if isinstance(r.get('t'), (int, float)) and (not until or r['t'] <= until)]
+    if not rows or not added:
+        return None
+    rows.sort(key=lambda r: r['t'])
+    texts = [(r['t'], json.dumps(r, ensure_ascii=False)) for r in rows]
+    end = rows[-1]['t']
+
+    def first(name):
+        word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
+        return next((t for t, text in texts if word.search(text)), end)
+    reveal = sorted(({'node': n, 't': first(n)} for n in added), key=lambda r: r['t'])
+    return {'base': reveal[0]['t'], 'reveal': reveal}
+
+
 # ---------- the modelling agent's log ----------
 
 def agent_records(scene, until=None):
@@ -492,8 +539,12 @@ def timeline(job_dir, status='completed', until=None):
     for event in events:
         event['minute'] = round((event['t'] - start) / 60, 3)
         event.pop('issues', None)
+    build = build_schedule(scene, until) if start else None
+    if build:
+        build = {'base': round((build['base'] - start) / 60, 3),
+                 'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': STAGES, 'events': events, 'models': models(scene, until)}
+            'stages': STAGES, 'events': events, 'models': models(scene, until), 'build': build}
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
