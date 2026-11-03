@@ -45,6 +45,8 @@ class Publish(unittest.TestCase):
             # The hand tracker's model, which the editor reads from ../vendor/vision/.
             self.assertTrue((room / 'preview/vendor/vision/hand_landmarker.task').is_file())
             self.assertFalse((room / 'preview/vendor/vision').is_symlink())
+            self.assertTrue((room / 'preview/assets/fonts/manrope-latin-400-normal.woff2').is_file())
+            self.assertTrue((room / 'preview/assets/fonts/manrope-OFL.txt').is_file())
 
 
 if __name__ == '__main__':

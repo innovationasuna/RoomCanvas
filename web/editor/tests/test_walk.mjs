@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
-import {walkDirection, slide, spots, createBody, RADIUS} from '../walk.mjs';
+import {walkDirection, slide, spots, createBody, createWalk, RADIUS} from '../walk.mjs';
 
 const near = (a, b, eps = 1e-6) => a.every((v, i) => Math.abs(v - b[i]) < eps);
 
@@ -67,4 +67,46 @@ test('the walk starts beside the bed, never on it', () => {
   // Hidden things do not count.
   const ghost = createBody(THREE, {room: room(), floorY: 0, solid: (hit) => hit.point.y < .1 || Math.abs(hit.point.x) > 1.9 || Math.abs(hit.point.z) > 1.4});
   assert.equal(ghost.free([0, 0]), true);
+});
+
+test('walking reserves mouse left clicks for objects and middle drags for looking, while touch still works', t => {
+  const globals = ['document', 'window', 'cancelAnimationFrame'];
+  const original = globals.map(key => Object.getOwnPropertyDescriptor(globalThis, key));
+  const canvas = new EventTarget();
+  canvas.getBoundingClientRect = () => ({left: 0, top: 0, width: 800, height: 600});
+  canvas.setPointerCapture = () => {};
+  Object.assign(globalThis, {document: new EventTarget(), window: new EventTarget(), cancelAnimationFrame() {}});
+  let walk, clicks = 0;
+  t.after(() => {
+    walk?.exit();
+    globals.forEach((key, index) => {
+      if (original[index]) Object.defineProperty(globalThis, key, original[index]); else delete globalThis[key];
+    });
+  });
+  walk = createWalk(THREE, {canvas, room: room(), floorY: 0, bounds: {min: [-2, -1.5], max: [2, 1.5]},
+    solid: () => true, onChange() {}, onClick() {clicks++;}, onExit() {}});
+  walk.enter();
+  const pointer = (type, button, x = 100, y = 100, pointerType = 'mouse') => canvas.dispatchEvent(Object.assign(
+    new Event(type, {cancelable: true}), {button, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType}));
+  const initial = walk.snapshot();
+
+  pointer('pointerdown', 0); pointer('pointermove', 0, 180, 140); pointer('pointerup', 0, 180, 140);
+  assert.deepEqual(walk.snapshot(), initial, 'left dragging must never turn or move the camera');
+  assert.equal(clicks, 0, 'a left drag is not an object click');
+  pointer('pointerdown', 0); pointer('pointerup', 0);
+  assert.equal(clicks, 1, 'left clicking still operates objects');
+
+  pointer('pointerdown', 1); pointer('pointermove', 1, 180, 140); pointer('pointerup', 1, 180, 140);
+  const turned = walk.snapshot();
+  assert.notEqual(turned.yaw, initial.yaw);
+  assert.notEqual(turned.pitch, initial.pitch);
+  assert.deepEqual(turned.position, initial.position, 'middle dragging turns without translating');
+  pointer('pointerdown', 1); pointer('pointerup', 1);
+  assert.equal(clicks, 1, 'middle clicking never operates an object');
+
+  pointer('pointerdown', 1); window.dispatchEvent(new Event('blur')); pointer('pointermove', 1, 200, 180);
+  assert.deepEqual(walk.snapshot(), turned, 'losing focus ends the camera drag');
+  pointer('pointerdown', 0, 100, 100, 'touch'); pointer('pointermove', 0, 150, 100, 'touch'); pointer('pointerup', 0, 150, 100, 'touch');
+  assert.notEqual(walk.snapshot().yaw, turned.yaw, 'touch dragging remains available');
+  assert.equal(clicks, 1);
 });
