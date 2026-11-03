@@ -137,7 +137,7 @@ class Handler(SimpleHTTPRequestHandler):
             response = urllib.request.urlopen(request, timeout=timeout)
         except urllib.error.HTTPError as error:
             response = error  # ViewForge's own error message (JSON) goes to the page as it is.
-        except (urllib.error.URLError, TimeoutError) as error:
+        except OSError as error:  # refused, timed out, or reset by an SSH tunnel whose remote side is down
             if room:
                 return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
             return self.send_error(502, f'ViewForge not reachable at {self.viewforge} ({error})')

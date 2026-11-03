@@ -180,6 +180,30 @@ class APIIntegration(unittest.TestCase):
             self.request('/room-reconstruction/health')
         self.assertEqual(error.exception.code, 503)
 
+    def test_a_tunnel_with_nothing_behind_it_reports_offline(self):
+        # An SSH forward accepts the connection, then resets it when the remote service is down.
+        import socket
+        listener = socket.socket(); listener.bind(('127.0.0.1', 0)); listener.listen()
+        def reset():
+            while True:
+                try:
+                    connection, _ = listener.accept()
+                except OSError:
+                    return
+                connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b'\x01\x00\x00\x00\x00\x00\x00\x00')
+                connection.close()
+        threading.Thread(target=reset, daemon=True).start()
+        try:
+            port = listener.getsockname()[1]
+            self.proxy.RequestHandlerClass.room_backend = f'http://127.0.0.1:{port}'
+            self.proxy.RequestHandlerClass.viewforge = f'http://127.0.0.1:{port}'
+            for path, code in [('/room-reconstruction/health', 503), ('/viewforge/assets/catalog', 502)]:
+                with self.assertRaises(HTTPError) as error:
+                    self.request(path)
+                self.assertEqual(error.exception.code, code, path)
+        finally:
+            listener.close()
+
     def test_route_allowlist(self):
         for path in ['/room-reconstruction/assets/' + self.identifier + '/../../secret',
                      '/room-reconstruction/assets/' + self.identifier + '/%2e%2e', '/room-reconstruction/admin']:
