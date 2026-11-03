@@ -63,8 +63,16 @@ async function poll() {
 }
 
 // ---------- rebuild everything that depends on the event list ----------
+// Door / window ids in build order, so Wall0_Door_0 maps to the assembled room's Door0 and so on.
+let openings = {};
 function rebuild() {
   tl = buildTimeline(data);
+  openings = {Door: [], Window: []};
+  for (const e of tl.events) for (const id of e.show || []) {
+    const m = id.match(/_(Door|Window)_\d+$/);
+    if (m && !openings[m[1]].includes(id)) openings[m[1]].push(id);
+  }
+  Object.values(openings).forEach((list) => list.sort());
   lastIdx = -2; lastKey = '';
   $('log').innerHTML = `<div class="user">帮我把「${esc(data.name || '这个房间')}」的扫描重建成能在网页里编辑的 3D 房间。</div><div class="who"><i>R</i>RoomCanvas</div>`;
   shownTo = -1;
@@ -219,7 +227,7 @@ function render(t, p, force = false) {
     $('planDesc').textContent = failed ? '服务器上的重建没有完成，可以在任务列表里重试。' : result ? result.text : st?.desc || '';
     $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.passed ? '验收通过' : '没通过最后检查 · 没有发布'}</span>` : '';
   }
-  view.apply(sceneAt(tl, t), {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k])});
+  view.apply(sceneAt(tl, t), {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k]), openings});
   const idx = tl.indexAt(t);
   if (idx === lastIdx && !force) return;
   const prevIdx = lastIdx;

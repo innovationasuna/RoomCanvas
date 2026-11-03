@@ -63,6 +63,8 @@ export function sceneAt(tl, t) {
     pointsDim: layout ? t >= layout[0] : false,
     walls: layout ? clamp((t - layout[0]) / 2) : model ? 1 : 0,
     boxes: built.has('@boxes') || (layout ? t >= layout[1] - 0.5 : false),
+    // From the modelling stage on, the room shell shows and finished objects appear in place.
+    shell: by.plan ? t >= by.plan.replay[0] : !!model,
     built,
     model,
   };

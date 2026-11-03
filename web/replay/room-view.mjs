@@ -20,6 +20,19 @@ const SPIN = 0.058; // rad/s
 const FADE_SECONDS = 2;
 const WALLISH = /^(Wall\d|Door\d|Window\d)|Drape|Sheer|Curtain|Panorama|Bulkhead/i;
 const HIDDEN = /^Ceiling/i;
+const SHELL = /^(Floor|Wall)\d+$/;
+
+// Pipeline object ids -> nodes of the assembled room: Bed0 stays Bed0; the k-th door / window becomes Door<k> /
+// Window<k>; a chair cluster stands for every Chair node.
+function nodesFor(root, id) {
+  const top = root.children;
+  const direct = top.filter((o) => o.name === id);
+  if (direct.length) return direct;
+  if (/^ChairCluster/.test(id)) return top.filter((o) => /^Chair\d+$/.test(o.name));
+  const opening = id.match(/_(Door|Window)_\d+$/);
+  if (opening) return top.filter((o) => o.name === opening[1] + Math.max(root.userData.openings?.[opening[1]]?.indexOf(id) ?? 0, 0));
+  return [];
+}
 
 export class RoomView {
   // files(rel) -> URL of an allowlisted run file; scaffold = {points, layout} URLs or null.
@@ -122,13 +135,13 @@ export class RoomView {
       const group = new THREE.Group();
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(...b.size)), lineMat(this.palette.box, 0.95));
       // A finished object fills its box (the room model only arrives once all objects are done).
-      const fill = new THREE.Mesh(new THREE.BoxGeometry(...b.size), new THREE.MeshStandardMaterial({color: this.palette.built, transparent: true, opacity: 0.35, roughness: 0.8}));
+      const fill = new THREE.Mesh(new THREE.BoxGeometry(...b.size), new THREE.MeshBasicMaterial({color: this.palette.built, transparent: true, opacity: 0.12, depthWrite: false}));
       fill.visible = false;
       group.add(edges, fill);
       group.position.set(...b.center);
       group.rotation.y = b.yaw;
       group.visible = false;
-      group.userData = {edges, fill};
+      group.userData = {edges, fill, base: edges.material.color.clone()};
       this.boxes[b.id] = group;
       this.scene.add(group);
     }
@@ -218,11 +231,15 @@ export class RoomView {
     this.wanted = key;
     const entry = await this.model(key, url).catch(() => null);
     if (!entry || this.wanted !== key) return;
-    if (quiet || !this.current) {this.swap(key); return;}
-    this.incoming = key;
-    this.mix = 0;
-    entry.root.visible = true;
-    this.setFade(entry.root, 0);
+    if (quiet) this.swap(key);
+    else {
+      this.incoming = key;
+      this.mix = 0;
+      entry.root.visible = true;
+      this.setFade(entry.root, 0);
+    }
+    // The state was applied while the model was loading (e.g. after a seek while paused): apply it again now.
+    if (this.state) this.apply(this.state, {...this.lastOptions, quiet: true});
   }
 
   swap(key) {
@@ -232,23 +249,46 @@ export class RoomView {
     this.mix = 1;
   }
 
-  apply(state, {quiet = false, modelUrl} = {}) {
+  // partial: show the room as it is being built (shell + finished objects of the assembled room);
+  // full: show the reached model as it is.
+  apply(state, {quiet = false, modelUrl, openings} = {}) {
     this.state = state;
+    this.lastOptions = {modelUrl, openings};
+    const seedUrl = modelUrl?.('seed');
+    const key = state.model || (state.shell && seedUrl ? 'seed' : null);
+    const partial = !state.model && key === 'seed';
+    const inRoom = !!key && !!this.models[key]?.root && (this.current === key || this.incoming === key);
     if (this.points) {
       this.points.geometry.setDrawRange(0, Math.floor(this.pointCount * state.points));
       this.points.material.opacity = state.pointsDim ? 0.22 : 0.9;
-      this.points.visible = !state.model;
+      this.points.visible = !inRoom;
     }
     if (this.wallLines) {
-      this.wallLines.visible = state.walls > 0 && !state.model;
+      this.wallLines.visible = state.walls > 0 && !inRoom;
       this.wallLines.children.forEach((l) => (l.material.opacity = 0.6 * state.walls));
     }
+    const placed = this.revealed(partial, state.built, openings);
     for (const [id, group] of Object.entries(this.boxes)) {
-      group.visible = state.boxes && !state.model;
-      group.userData.fill.visible = state.built.has(id);
+      const done = state.built.has(id);
+      // Boxes stand for what is not in the room yet; a finished object without a room model gets a gold outline.
+      group.visible = state.boxes && !state.model && !(partial && inRoom && placed.has(id));
+      group.userData.fill.visible = done;
+      group.userData.edges.material.color.copy(done ? new THREE.Color(this.palette.built) : group.userData.base);
     }
-    if (state.model !== this.wanted && modelUrl) this.show(state.model, modelUrl(state.model), quiet);
-    else if (!state.model && this.current) {this.wanted = null; this.swap(null);}
+    if (key !== this.wanted && key && modelUrl) this.show(key, modelUrl(key), quiet);
+    else if (!key && this.current) {this.wanted = null; this.swap(null);}
+  }
+
+  // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown.
+  revealed(partial, built, openings) {
+    const root = this.models.seed?.root, shown = new Set();
+    if (!root) return shown;
+    if (openings) root.userData.openings = openings;
+    if (!partial) {root.children.forEach((o) => (o.visible = !HIDDEN.test(o.name))); return shown;}
+    const keep = new Set();
+    for (const id of built) for (const node of nodesFor(root, id)) {keep.add(node); shown.add(id);}
+    root.children.forEach((o) => (o.visible = !HIDDEN.test(o.name) && (SHELL.test(o.name) || keep.has(o))));
+    return shown;
   }
 
   boundsOf(key) {
