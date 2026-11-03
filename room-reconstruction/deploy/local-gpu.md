@@ -1,53 +1,69 @@
-# Running the models on your own GPU
+# Local GPU setup
 
-The alternative to [Modal](modal/README.md). TRELLIS and GroundingDINO run on your machine instead
-of hosted, which needs Linux with an NVIDIA GPU of 24 GB or more.
+Use a Linux NVIDIA GPU runtime for TRELLIS and detection. For RoomCanvas's
+configured single-machine runner, follow the
+[project guide](../../docs/ROOM_RECONSTRUCTION.md).
 
-Steps 1, 2 and 4 of [Install](../README.md#install) are unchanged. The only difference is that you
-leave `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` empty — that is the switch.
-`models/registry.py` selects Modal whenever credentials are configured and falls back to these
-local runtimes only when they are not, so an empty pair is what makes the fallback reachable.
+For a standalone module installation, install the main environment as described in
+[Install](../README.md#install), then configure separate model environments.
 
-## TRELLIS.2
+## TRELLIS
 
-It needs `torch 2.6+cu124` and compiles native CUDA extensions, so it gets its own environment
-rather than sharing the light app env:
-
-```bash
-git clone --recursive https://github.com/microsoft/TRELLIS.2.git backends/TRELLIS.2
-cd backends/TRELLIS.2
-./setup.sh --cumesh --o-voxel --flexgemm --nvdiffrast --nvdiffrec
-```
-
-`setup.sh` checks `nvidia-smi`, so the build itself wants a visible GPU.
-
-### Checkpoints
-
-`microsoft/TRELLIS.2-4B` (MIT, ungated) downloads itself on first use into `backends/weights/`, and
-needs no Hugging Face account.
-
-TRELLIS.2's DINOv3 image encoder *is* gated upstream. Put an ungated copy in
-`backends/weights/dinov3` and inference finds it there instead of reaching for the gated repo —
-`resolve_dinov3()` checks `$LITEREALITY_DINOV3` first, then that path.
-[`modal/trellis/README.md`](modal/trellis/README.md) names a digest-verified mirror and its
-revision.
-
-## GroundingDINO
-
-Its own environment too, since it pulls torch:
+The deployment recipe in [trellis/app.py](modal/trellis/app.py) records the CUDA
+extension build and dependencies used by the project. Install TRELLIS.2 and those
+extensions in a dedicated environment, with its package available to that interpreter.
+The native extension build requires a visible CUDA GPU. The recipe uses
+PyTorch 2.6.0 with CUDA 12.4. From `room-reconstruction/`, with the prepared
+model environment active, the source and extension setup steps are:
 
 ```bash
-uv sync --extra detect     # in a separate environment
+git clone --recursive https://github.com/microsoft/TRELLIS.2.git TRELLIS.2
+cd TRELLIS.2
+. ./setup.sh --cumesh --o-voxel --flexgemm --nvdiffrast --nvdiffrec
 ```
 
-## Wiring it up
+Use the [Dockerfile](modal/trellis/Dockerfile) and deployment recipe for the
+remaining system/Python dependencies; the extension command alone is not a
+complete environment installation.
 
-Point `.env` at both interpreters:
+Set `TRELLIS_PYTHON` to that environment's interpreter.
+The local worker can use `LITEREALITY_TRELLIS_LAUNCHER` to select a launcher;
+RoomCanvas supplies [server/trellis_local.py](../server/trellis_local.py).
+
+Model weights are downloaded on first use unless already cached. Set
+`LITEREALITY_DINOV3` to a local DINOv3 encoder snapshot; the resolver also checks
+`<LITEREALITY_WEIGHTS>/dinov3`, defaulting to `<LR_REPO_ROOT>/weights/dinov3`.
+The [runtime resolver](../src/litereality_agent/models/runtime_env.py) expects
+`TRELLIS.2` beneath the module root unless the package is otherwise importable. The
+[Modal TRELLIS recipe](modal/trellis/README.md#dinov3-encoder) records its pinned snapshot.
+
+## Detection and embeddings
+
+The `detect` extra installs torch, torchvision, and transformers.
+From `room-reconstruction/`, create an isolated detection environment:
+
+```bash
+UV_PROJECT_ENVIRONMENT=/path/to/detect-env uv sync --frozen --extra detect
+```
+
+Configure `.env` with the interpreter paths:
 
 ```dotenv
 TRELLIS_PYTHON=/path/to/trellis-env/bin/python
 GROUNDING_DINO_PYTHON=/path/to/detect-env/bin/python
+LR_DINO_BACKEND=local
 ```
 
-Then `uv run python sanity.py` — it loads each model and reports anything that would silently fall
-back to a weaker path.
+`LR_DINO_BACKEND=local` requires CUDA and overrides Modal for detection.
+TRELLIS chooses Modal whenever a token pair or `MODAL_PROFILE` is configured;
+leave those unset for local TRELLIS. Selection is implemented in
+[models/registry.py](../src/litereality_agent/models/registry.py).
+
+## Verify configuration
+
+```bash
+uv run python sanity.py
+```
+
+Basic checks do not prove model inference. `SANITY_DEEP=1` enables deeper
+model loading/inference checks; test the selected GPU environment before a full run.

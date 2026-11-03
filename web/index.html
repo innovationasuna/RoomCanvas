@@ -1,71 +1,60 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#eceee7"><title>RoomCanvas</title><link rel="icon" href="./icon.svg">
-<link rel="stylesheet" href="./theme.css">
-<style>
-  * {box-sizing: border-box;}
-  body {margin: 0; min-height: 100dvh; font-size: 15px; line-height: 1.6;}
-  header {display: flex; align-items: center; gap: 9px; height: 60px; padding: 0 22px; background: var(--rc-panel); border-bottom: 1px solid var(--rc-line); font-size: 17px; font-weight: 600; letter-spacing: -.5px;}
-  .logo {width: 31px; height: 31px; border-radius: 9px; display: grid; place-items: center; background: var(--rc-active); color: var(--rc-green);}
-  svg {width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;}
-  main {max-width: 1080px; margin: 0 auto; padding: 44px 22px 56px;}
-  h1 {font-size: 28px; font-weight: 600; letter-spacing: -.6px; margin: 0 0 6px;}
-  .lead {color: var(--rc-muted); margin: 0 0 30px;}
-  .rooms {display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px;}
-  a.room {display: flex; flex-direction: column; background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 16px; overflow: hidden; color: inherit; text-decoration: none; transition: border-color .16s, transform .16s, box-shadow .16s;}
-  a.room:hover, a.room:focus-visible {border-color: var(--rc-green); transform: translateY(-2px); box-shadow: 0 10px 30px #1736231a; outline: none;}
-  .thumb {aspect-ratio: 16 / 10; display: grid; place-items: center; background: var(--rc-bg); color: var(--rc-green); border-bottom: 1px solid var(--rc-line);}
-  .thumb img {width: 100%; height: 100%; object-fit: cover; display: block;}
-  .thumb svg {width: 56px; height: 56px; stroke-width: 1.2;}
-  .copy {display: grid; gap: 6px; padding: 16px 18px 18px; flex: 1;}
-  .copy strong {font-size: 18px; font-weight: 600; letter-spacing: -.3px;}
-  .facts {font-size: 12px; color: var(--rc-green); font-variant-numeric: tabular-nums;}
-  .note {font-size: 13px; color: var(--rc-muted); margin: 0;}
-  .open {margin-top: auto; padding-top: 8px; font-size: 13px; color: var(--rc-green);}
-  .error {color: var(--rc-warn);}
-  footer {max-width: 1080px; margin: 0 auto; padding: 0 22px 32px; font-size: 12px; color: var(--rc-muted);}
-  code {font-size: 12px; background: var(--rc-active); padding: 1px 5px; border-radius: 5px;}
-  @media (max-width: 520px) {main {padding: 28px 16px 40px;} header {padding: 0 16px;} footer {padding: 0 16px 24px;} .rooms {grid-template-columns: 1fr;}}
-  @media (prefers-reduced-motion: reduce) {a.room {transition: none;}}
-</style></head>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#252623">
+  <title>RoomCanvas · 选择房间</title>
+  <link rel="icon" href="./icon.svg">
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./home.css">
+</head>
 <body>
-<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol></svg>
-<header><span class="logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</header>
-<main>
-  <h1>选一个房间开始布置</h1>
-  <p class="lead">手机扫描重建的真实尺寸房间。挪家具、收进仓库、换位置，用鼠标，或打开编辑器里的“手势”用摄像头。</p>
-  <div class="rooms" id="rooms" aria-live="polite"></div>
-</main>
-<footer>本机运行：在仓库根目录 <code>python3 web/scripts/serve.py</code>，打开 <code>http://127.0.0.1:7880/web/</code>。房间列表在 <code>web/rooms.json</code>。</footer>
-<script type="module">
-// Rooms come from rooms.json; each card reads its room's room_objects.json (furniture groups) and
-// the size of Room.glb, so the numbers follow the files. thumbnail.jpg: web/scripts/thumbnail.py.
-const list = document.getElementById('rooms');
-const megabytes = (bytes) => bytes ? `模型约 ${Math.round(bytes / 1e6)} MB` : '';
-async function describe(room, base) {
-  const dir = new URL(room.dir.replace(/\/?$/, '/'), base);
-  const card = Object.assign(document.createElement('a'), {className: 'room', href: `editor/?room=${encodeURIComponent(room.id)}`});
-  const thumb = Object.assign(document.createElement('div'), {className: 'thumb'});
-  const image = Object.assign(document.createElement('img'), {src: new URL('thumbnail.jpg', dir).href, alt: '', loading: 'lazy'});
-  image.onerror = () => {thumb.innerHTML = '<svg aria-hidden="true"><use href="#icon-room"/></svg>';};
-  thumb.append(image);
-  const copy = Object.assign(document.createElement('div'), {className: 'copy'});
-  const facts = Object.assign(document.createElement('span'), {className: 'facts', textContent: '正在读取…'});
-  copy.append(Object.assign(document.createElement('strong'), {textContent: room.name}), facts,
-    Object.assign(document.createElement('p'), {className: 'note', textContent: room.note || ''}),
-    Object.assign(document.createElement('span'), {className: 'open', textContent: '进入布置 →'}));
-  card.append(thumb, copy);
-  list.append(card);
-  const [objects, model] = await Promise.all([
-    fetch(new URL('room_objects.json', dir), {cache: 'no-cache'}).then((r) => r.ok ? r.json() : null).catch(() => null),
-    fetch(new URL('Room.glb', dir), {method: 'HEAD', cache: 'no-cache'}).catch(() => null),
-  ]);
-  if (!objects) {facts.textContent = '读不到这个房间的文件'; facts.classList.add('error'); return;}
-  facts.textContent = [`${objects.groups.length} 件家具`, megabytes(Number(model?.headers.get('content-length')))].filter(Boolean).join(' · ');
-}
-const manifest = new URL('rooms.json', location.href);
-fetch(manifest, {cache: 'no-cache'}).then((r) => r.json()).then(({rooms}) => {
-  for (const room of rooms) void describe(room, manifest);
-}).catch(() => {list.innerHTML = '<p class="error">房间列表读取失败，请在仓库根目录运行 web/scripts/serve.py。</p>';});
-</script>
-</body></html>
+  <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
+    <symbol id="icon-enter" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+  </svg>
+  <a class="skip-link" href="#main">跳到房间列表</a>
+  <header class="home-header">
+    <a class="brand" href="./" aria-label="RoomCanvas 房间选择"><svg aria-hidden="true"><use href="#icon-room"/></svg><span>RoomCanvas</span></a>
+    <span class="header-context">空间布置工作台</span>
+  </header>
+  <main id="main">
+    <div class="page-heading">
+      <div><h1>选择房间</h1><p class="lead">从一个房间开始，试一试新的布置。</p></div>
+      <div class="heading-actions"><p id="room-count" class="room-count" hidden></p><button type="button" class="home-button primary" id="reconstruct-room">＋ 重建房间</button></div>
+    </div>
+    <section class="reconstruction-jobs" id="reconstruction-jobs" aria-labelledby="jobs-title" hidden>
+      <div class="jobs-heading"><h2 id="jobs-title">房间重建任务</h2><button type="button" class="home-button" id="refresh-jobs">刷新状态</button></div>
+      <p id="jobs-message" role="status"></p>
+      <div id="jobs-list"></div>
+    </section>
+    <section id="room-state" class="room-state" role="status">
+      <strong id="state-title">正在读取房间…</strong>
+      <p id="state-copy">即将显示可布置的空间。</p>
+      <button type="button" id="retry-rooms" hidden>重新加载</button>
+    </section>
+    <div class="rooms" id="rooms" aria-label="可布置的房间" aria-busy="true"></div>
+    <noscript><p>请启用 JavaScript 以查看房间并开始布置。</p></noscript>
+  </main>
+  <dialog id="reconstruction-dialog" class="reconstruction-dialog" aria-labelledby="reconstruction-title">
+    <div class="reconstruction-head"><h2 id="reconstruction-title">重建房间</h2><button type="button" class="home-button" id="close-reconstruction" aria-label="关闭重建窗口">关闭</button></div>
+    <p class="reconstruction-intro">把真实房间的扫描变成可以布置的三维空间。</p>
+    <div class="service-status"><span id="reconstruction-service" role="status">正在检查重建服务…</span><button type="button" class="home-button" id="check-reconstruction">重新检查</button></div>
+    <form id="reconstruction-form">
+      <label for="reconstruction-name">房间名称</label>
+      <input id="reconstruction-name" name="name" maxlength="80" placeholder="例如：我的客厅" required autocomplete="off">
+      <label for="reconstruction-file">房间扫描包</label>
+      <div class="scan-upload" id="scan-drop"><input id="reconstruction-file" type="file" accept=".zip,application/zip" required aria-describedby="scan-help scan-selected"><p id="scan-selected">选择或拖入扫描 ZIP</p></div>
+      <p class="scan-help" id="scan-help">LiteReality Scanner 导出的完整扫描包，ZIP 格式，最大 2 GB。需包含 room.usdz、图像、相机及深度数据；普通照片不适用于整屋重建。</p>
+      <details class="scan-guide"><summary>如何准备扫描包？</summary><ol><li>用 LiteReality Scanner 扫描整个房间，保留完整导出数据。</li><li>将单个房间的扫描文件夹压缩为 ZIP，不要只压缩 room.usdz。</li><li>上传后开始重建，完成的新房间会出现在此页。</li></ol></details>
+      <p class="scan-help">重建在服务器运行，可能需要较长时间。提交成功后可关闭窗口，返回此页查看进度。</p>
+      <div id="scan-upload-progress" hidden><label for="scan-progress" id="scan-progress-label">正在上传…</label><progress id="scan-progress" max="100" value="0"></progress></div>
+      <p id="reconstruction-error" class="error" role="alert" hidden></p>
+      <div class="reconstruction-actions"><button type="submit" class="home-button primary" id="submit-reconstruction" disabled>上传并开始重建</button></div>
+    </form>
+  </dialog>
+  <footer class="home-footer"><span>RoomCanvas&nbsp; · &nbsp;空间布置工作台</span><span>模型尺寸 1:1&nbsp; · &nbsp;单位：米</span></footer>
+  <script type="module" src="./home.mjs"></script>
+</body>
+</html>

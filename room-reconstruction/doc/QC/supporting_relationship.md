@@ -1,65 +1,59 @@
-# Supporting relationship
+# Support relationships
 
+Objects declare what holds them through `rests_on` or `attached_to` in the
+compiled `room_layout.json`. A `support_part` identifies a particular moving
+part of a supporter. Validation checks both the relationship graph and the
+exported geometry.
 
-So the two are a pair. Collision is about space that must be *empty*; support is about space that
-must be *touched*.
+## Entry points
 
-We have the following entities:
-
-1. **The floor.** The root of everything. It supports, and is supported by nothing.
-2. **Floor-standing furniture.** Tables, chairs, sofas, storage, beds. Supported by the floor.
-3. **Objects on top of other objects.** A lamp on a desk, a monitor on a table, a box on a shelf.
-   Supported by the top face of whatever they sit on.
-4. **Objects inside other objects.** A bowl in a cabinet, a book on a shelf inside a unit.
-   Supported by the shelf, not by the floor — even though the floor is what carries the load.
-5. **Wall and ceiling fixtures.** Whiteboards, radiators, sockets, pendant lights. *Anchored*, not
-   supported: gravity is carried by the mount, so they are exempt from everything below except
-   needing a mount that exists.
-
-Rules:
-
-- Every object has exactly one supporter, and the supporter is one of: the floor, the top face of
-  another object, or a wall/ceiling anchor.
-- Support follows the chain to the floor. No cycles, and no object supported by something that is
-  itself unsupported.
-- The contact gap is zero. Not a gap you can see, and not a penetration.
-
-# The deterministic function
-
-Same shape as the collision check: no model, reads only, one answer.
-
-```python
-check_support("…/room_preview/Room.glb")   ->  [findings]
-```
+From `room-reconstruction/`, validate the compiled room:
 
 ```bash
-python -m litereality_agent.pipeline.room_qc.support --glb <Room.glb>
-# exit 0 = pass, 1 = fail
+uv run python -m litereality_agent.pipeline.room_qc.validate --room run/<scene>/realism_authoring/room
 ```
 
-For each object it finds the supporter — the highest top face under the footprint, else the floor,
-else the wall anchor — and measures the gap to it. The gap decides everything:
+[validate.py](../../src/litereality_agent/pipeline/room_qc/validate.py) calls
+[support_audit.audit(preview, strict=True)](../../src/litereality_agent/pipeline/room_qc/support_audit.py)
+for finite-mesh contact and
+[export_support.check](../../src/litereality_agent/pipeline/room_qc/export_support.py)
+for exported nodes and moving-support relationships.
+Its `check_support(objs, floor_z)` helper provides bounding-box diagnostics;
+it does not take a GLB path.
 
-| finding | means | fixed by |
-|---|---|---|
-| `no_contact` / `embedded` | a supporter is there, the gap isn't zero | the snap |
-| `unsupported` | nothing under the footprint at all | the agent |
-| `orphan_anchor` | a wall fixture on no wall | the agent |
-| `support_cycle` | A on B on A | nobody — the layout is wrong, report it |
+To run only the support audit:
 
-`checks.py` today only measures against the **floor** (`FLOAT_TOL` 0.08 m, `SUNK_TOL` 0.05 m).
-Nothing asks what an object sits *on*, which is why `floating` is reported and not failed.
+```bash
+uv run python -m litereality_agent.pipeline.room_qc.support_audit \
+  --preview run/<scene>/realism_authoring/room_preview \
+  --out run/<scene>/realism_authoring/room_preview/support_audit.json --strict
+```
 
-# Two ways to fix
+The audit reads `Room.glb` and `room_layout.json`; the output's parent directory
+must exist. It returns 0 for pass and 2 for failed findings.
 
-**Snap.** The supporter exists, so translate in Z by the gap. XY never moves — that is the collision
-resolver's axis. A support chain moves root-first, so dropping a desk carries its monitor. Capped
-around 0.15 m: past that it is the wrong supporter, not a bad contact, and it escalates.
+## What is checked
 
-**Author the missing support.** `unsupported` is not a placement error — the thing that holds it was
-never reconstructed (a wall shelf, a plinth, a bracket). The agent gets the geometry already solved,
-`top_z` and the footprint to cover, plus the reference frames that see that spot. It only decides
-*what* the piece is, and writes it into `Room.py`. It never picks the height, or it would resolve a
-floating monitor by dropping it to the floor. If the frames show nothing there, say so.
+- One resolved support relationship per non-root object, without unknown
+  supporters or cycles. Floor-standing categories can infer the floor; strict
+  mode can infer an opening's wall from its source name. Conflicting explicit
+  relationships are rejected.
+- Finite mesh distance for attachments, with a 0.01 m threshold in strict mode.
+- Downward contact against upward-facing support triangles, with 0.005 m contact
+  and sink tolerances in strict mode. Contact coverage and disconnected components
+  are checked as well.
+- Exported supporter/child nodes must be unambiguous. Moving supports require a
+  valid `support_part` and preservation of the child's motion in the GLB.
 
-Then rebuild and run the gate again.
+Findings include `ambiguous_support`, `unknown_support`, `support_cycle`,
+`attachment_gap`, `no_downward_support_contact`, and
+`support_motion_not_preserved`. Failure to run the strict checks blocks validation.
+
+## Limits and repair
+
+This is a geometric check, not proof that a support is visually correct or can
+carry a physical load. Review capture evidence when a support is missing or
+implausible. Edit the room or relationship, rebuild, and rerun validation.
+There is no automatic support-height snapping entry point in this check.
+
+See [collision checks](collision_check.md) and [MuJoCo export](../Sim-Ready-intergration/Mujoco.md).

@@ -1,5 +1,5 @@
 // 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, Q and E
-// raise and lower the eye, dragging looks and Esc leaves. The mouse is never captured: a captured
+// raise and lower the eye, middle-button dragging looks and Esc leaves. The mouse is never locked: a locked
 // mouse brings the browser's own banner, and Esc would only give the mouse back. A click on a door,
 // cabinet door or drawer opens or closes it, as in 预览.
 // The body is a column of RADIUS. Rays across the floor at knee, waist and chest height, from its
@@ -155,25 +155,28 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
     if (!frame && (KEYS[event.code] || LIFT[event.code])) {last = performance.now(); frame = requestAnimationFrame(tick);}
   }
   const keyup = (event) => {held.delete(event.code);};
-  const blur = () => {held.clear();};
+  const blur = () => {held.clear(); drag = null;};
   const at = (event) => {
     const rect = canvas.getBoundingClientRect();
     return {x: (event.clientX - rect.left) / rect.width * 2 - 1, y: -(event.clientY - rect.top) / rect.height * 2 + 1};
   };
   function pointerdown(event) {
-    if (event.button !== 0 || !event.isPrimary) return;
+    if (![0, 1].includes(event.button) || !event.isPrimary || drag) return;
+    if (event.button === 1) event.preventDefault();
     canvas.setPointerCapture?.(event.pointerId);
-    drag = {x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
+    drag = {id: event.pointerId, button: event.button, look: event.button === 1 || event.pointerType === 'touch',
+      x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
   }
   function pointermove(event) {
     if (!drag) {if (event.pointerType === 'mouse') onHover(at(event), event); return;}
+    if (event.pointerId !== drag.id) return;
     if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 5) drag.moved = true;
-    if (drag.moved) look(event.clientX - drag.px, event.clientY - drag.py);
+    if (drag.moved && drag.look) look(event.clientX - drag.px, event.clientY - drag.py);
     drag.px = event.clientX; drag.py = event.clientY;
   }
   function pointerup(event) {
-    if (event.button !== 0 || !drag) return;
-    const click = !drag.moved; drag = null;
+    if (!drag || event.pointerId !== drag.id || event.button !== drag.button) return;
+    const click = drag.button === 0 && !drag.moved; drag = null;
     if (click) onClick(at(event));
   }
   const pointercancel = () => {drag = null;};
@@ -185,7 +188,7 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange
     camera,
     get active() {return active;},
     // Walking or just turned: the settled lighting waits.
-    moving: () => active && (frame !== 0 || drag?.moved || performance.now() - lookedAt < 200),
+    moving: () => active && (frame !== 0 || (drag?.look && drag.moved) || performance.now() - lookedAt < 200),
     enter() {
       if (active) return;
       active = true;
