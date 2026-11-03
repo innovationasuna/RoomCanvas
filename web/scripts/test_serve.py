@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from serve import forwarded, open_tunnel, tunnel_command  # noqa: E402
+from serve import forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
 
 
 class Forwarding(unittest.TestCase):
@@ -34,6 +34,20 @@ class Forwarding(unittest.TestCase):
                      '/viewforge/dimensions/..', '/web/editor/index.html']:
             self.assertIsNone(forwarded(path, 'POST'))
         self.assertIsNone(forwarded('/viewforge/objects/previews/x/%2E%2E%2Fsecret.png'))
+
+
+class RoomReplay(unittest.TestCase):
+    def test_only_a_jobs_replay_reads_go_to_the_room_service(self):
+        job = '0123456789abcdef0123456789abcdef'
+        for path in [f'/room-reconstruction/jobs/{job}/replay', f'/room-reconstruction/jobs/{job}/replay/scaffold/points.bin',
+                     f'/room-reconstruction/jobs/{job}/replay/scaffold/layout.json',
+                     f'/room-reconstruction/jobs/{job}/replay/files/scene_init/obj_stage/traces/img/a_1.jpg']:
+            self.assertEqual(room_forwarded(path), path)
+        for path in [f'/room-reconstruction/jobs/{job}/replay/files/../job.json', f'/room-reconstruction/jobs/{job}/replay/files/a%2e%2e/b',
+                     f'/room-reconstruction/jobs/{job}/replay/scaffold/secret', f'/room-reconstruction/jobs/{job}/replay/x',
+                     '/room-reconstruction/jobs/xyz/replay']:
+            self.assertIsNone(room_forwarded(path), path)
+        self.assertIsNone(room_forwarded(f'/room-reconstruction/jobs/{job}/replay', 'POST'))
 
 
 class Tunnel(unittest.TestCase):
