@@ -191,7 +191,8 @@ def pipeline_events(scene, until=None):
             add(r, 'plan', f'{"重做" if again else "做好"}{name(r["name"])}的模型', 'error' if r.get('is_error') else 'tool',
                 show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'chair_qc' and r.get('cluster'):
-            add(r, 'plan', f'检查{name(r["cluster"])}的形状' + ('，有需要留意的地方' if status == 'warn' else ''), 'result')
+            add(r, 'plan', f'做好{name(r["cluster"])}，检查形状' + ('，有需要留意的地方' if status == 'warn' else ''), 'result',
+                show=[r['cluster']], img=_object_image(scene, r['cluster']))
         elif kind in ('openings_physics', 'procedural_physics'):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
 

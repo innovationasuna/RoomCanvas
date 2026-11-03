@@ -39,6 +39,7 @@ def make_run(root):
         {'t': T0 + 60, 'kind': 'agent_step', 'name': 'Storage0', 'step': 'Storage0:attempt1'},
         {'t': T0 + 70, 'kind': 'agent_step', 'name': 'Storage0', 'step': 'Storage0:attempt2'},
         {'t': T0 + 80, 'kind': 'procedural_physics', 'objects': 2, 'passed': 2},
+        {'t': T0 + 85, 'kind': 'chair_qc', 'cluster': 'ChairCluster0', 'status': 'ok'},
         {'t': T0 + 99999, 'kind': 'materials_pass', 'status': 'start'},  # written later by other work
     ]
     write(scene / replay.TRACES / 'trace.jsonl', '\n'.join(json.dumps(r) for r in trace) + '\n')
@@ -93,6 +94,8 @@ class Events(unittest.TestCase):
         built = next(e for e in events if e['say'] == '做好柜子1的模型')
         self.assertEqual(built['show'], ['Storage0'])
         self.assertTrue(built['img'].endswith('preview_front.png'))
+        chair = next(e for e in events if e['say'].startswith('做好椅子'))
+        self.assertEqual(chair['show'], ['ChairCluster0'])
 
     def test_records_after_the_cutoff_are_ignored(self):
         events = replay.pipeline_events(self.scene, T0 + 65)
