@@ -107,12 +107,11 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", *p["build-system"
     run "$PY" -m pip install --no-build-isolation --editable "$THIRD/utils3d"
     run "$PY" -m pip check
 fi
-if [[ "$SETUP_ACTION" != skip ]]; then
-    require_file "$PY"
-    # Inference uses flash_attn only on A100/H100/H200 (sam3d_objects/pipeline/inference_pipeline.py), xformers elsewhere.
-    run env "PYTHONPATH=$CODE:$CODE/notebook:$THIRD/depth-anything-3/src" "$PY" -c 'import torch, pytorch3d, gsplat, kaolin, xformers, utils3d, starlette, uvicorn; from depth_anything_3.api import DepthAnything3; assert torch.__version__.split("+")[0] == "2.5.1"; assert torch.version.cuda == "12.1"; assert kaolin.__version__ == "0.17.0"; assert torch.cuda.is_available(); gpu = torch.cuda.get_device_name(0); any(g in gpu for g in ("A100", "H100", "H200")) and __import__("flash_attn")'
-    setup_finish "$ENV_DIR"
-fi
+# Recheck existing environments too: an old completion marker can predate baking.
+require_file "$PY"
+# Inference uses flash_attn only on A100/H100/H200 (sam3d_objects/pipeline/inference_pipeline.py), xformers elsewhere.
+run env "PYTHONPATH=$CODE:$CODE/notebook:$THIRD/depth-anything-3/src" "$PY" -c 'import torch, pytorch3d, gsplat, nvdiffrast.torch, xatlas, kaolin, xformers, utils3d, starlette, uvicorn; from depth_anything_3.api import DepthAnything3; assert torch.__version__.split("+")[0] == "2.5.1"; assert torch.version.cuda == "12.1"; assert kaolin.__version__ == "0.17.0"; assert torch.cuda.is_available(); gpu = torch.cuda.get_device_name(0); any(g in gpu for g in ("A100", "H100", "H200")) and __import__("flash_attn")'
+setup_finish "$ENV_DIR"
 
 step 'Download SAM 3D, DA3 and DINOv2 weights into the runner layout'
 setup_begin "$WEIGHTS/sam3d"

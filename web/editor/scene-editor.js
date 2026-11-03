@@ -948,7 +948,7 @@ function bindEvents() {
   for (const id of ['overview', 'top', 'focus']) $(`#${id}`).onclick = () => view(id);
   for (const input of nearWallInputs()) input.onchange = requestRender;
   $('#ceiling').onchange = () => {ceilingObjects.forEach((object) => {object.visible = $('#ceiling').checked;}); renderer.shadowMap.needsUpdate = true; requestRender();};
-  $('#import-lighting').checked = query.get('materials') === 'pbr';
+  $('#import-lighting').checked = query.get('materials') !== 'original';
   $('#import-lighting').onchange = () => {
     if (pending) {$('#import-lighting').checked = !$('#import-lighting').checked; showToast('请先确认或取消当前摆放，再切换受光模式'); return;}
     select(null);
@@ -1934,7 +1934,7 @@ async function chooseImport() {
   if ($('#import-run').value !== run) return;
   if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
   importAsset = {...asset, run};
-  $('#import-capture').disabled = asset.capabilities?.capture === false;
+  $('#import-capture').disabled = false;
   const saved = savedMeasurement(asset);
   if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
   else $('#import-meters').value = '';

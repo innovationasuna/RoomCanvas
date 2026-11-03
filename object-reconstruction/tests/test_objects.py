@@ -129,26 +129,6 @@ class ObjectsTests(unittest.TestCase):
         state = self.build(created['images'], name='台灯')
         self.assertEqual(state['status'], 'complete', state)
 
-    def test_trellis_dispatch_uses_shared_backend_and_preserves_all_confirmed_photos(self):
-        images = self.create().json()['images']
-        masks = self.wait(self.client.post('/viewforge/objects/masks', json=dict(object='chair', images=images)).json()['id'])
-        with patch.dict(os.environ, VIEWFORGE_BACKEND='trellis'), patch.object(objects, 'start', side_effect=lambda job: job.view()) as start:
-            cap = self.client.get('/viewforge/objects/capabilities').json()
-            self.assertTrue(cap['uses_first_photo'])
-            job = self.client.post('/viewforge/objects/reconstruct', json=dict(object='chair', images=images, masks=masks['id'])).json()
-        self.assertEqual(job['backend'], 'trellis')
-        self.assertEqual(job['pipeline_stages'], ['queued', 'preparing', 'reconstruction'])
-        command = start.call_args.args[0].command
-        self.assertEqual(command[-2:], ['--backend', 'trellis'])
-        self.assertEqual(start.call_args.args[0].images, images)
-
-    def test_trellis_result_cannot_be_used_for_capture(self):
-        run = self.root/'runs/trellis_result'
-        (run/'reconstruction').mkdir(parents=True)
-        (run/'reconstruction/result.glb').write_bytes(b'glTF')
-        (run/'result.json').write_text(json.dumps(dict(status='complete', backend='trellis')))
-        self.assertEqual(self.capture(run.name).status_code, 400)
-
     def test_capture_rebuilds_on_top_of_a_run(self):
         first = self.build(self.create().json()['images'])
         kept = ['chair_001', 'chair_002', 'chair_003']

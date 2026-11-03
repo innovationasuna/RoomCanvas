@@ -33,6 +33,7 @@ bash scripts/setup.sh
 | --- | --- |
 | 重建环境 | `envs/mvsam3d/`；[`default.yml`](../environments/default.yml) 提供 Python 3.11 / CUDA 12.1，脚本安装 torch 2.5.1 + cu121、[`requirements.txt`](../requirements.txt) 与 `p3d/inference/dev` extras，含 API 依赖 |
 | Kaolin | [`requirements.inference.txt`](../requirements.inference.txt) 固定 0.17.0，安装时通过 `-f` 使用 torch 2.5.1 / cu121 wheel 页面 |
+| 颜色烘焙 | 同一 MV 环境中安装固定版本的 nvdiffrast，以及 gsplat / xatlas；重跑安装入口也会检查已完成环境的推理与烘焙依赖 |
 | 外部源码 | `third_party/depth-anything-3/`、`dinov2/`、`utils3d/`；DA3 与 utils3d 按 [`upstream_versions.json`](../configs/upstream_versions.json) 固定版本，DINOv2 pin 在安装脚本中 |
 | 重建权重 | `weights/sam3d/` 校验 pipeline 引用的配置与 checkpoint（`MODEL_SOURCE=modelscope` 时 SAM 3D 与 DA3 从 ModelScope 下载）；`weights/da3-nested-giant-large/` 校验配置和模型权重；`weights/dinov2/hub/checkpoints/` 校验可读取的 state dict |
 | BiRefNet | `envs/birefnet/` 与 `weights/birefnet/` 分别安装、验证，沿用 [`setup_birefnet.sh`](../scripts/setup_birefnet.sh) 的依赖和固定版本配方 |
@@ -41,7 +42,23 @@ bash scripts/setup.sh
 
 局部失败直接重跑 `bash scripts/setup.sh`；只更新 API 依赖的命令见 [更新与重启](../../docs/OBJECT_RECONSTRUCTION.md#更新与重启)。完整环境的依赖或模型需要升级时，先核对脚本配方，在新的 `VIEWFORGE_ROOT` 安装，并同步修改 `local.env`；完成标记不会自动触发升级。不要直接调用旧的 BiRefNet 安装器覆盖已有目录。
 
-实测情况：2026-11-03 在 RTX 3090 服务器上对已有环境运行（经 `scripts/setup_server.sh all`），已有源码、两个 Conda 环境和权重按只检查全部通过；该机的外部源码是不含 `.git` 的快照，版本无法核对，脚本只给警告。`flash_attn` 只在 A100、H100、H200 上使用，其他显卡上检查 `xformers`。全新安装（Conda 环境、CUDA 编译、权重下载）尚未实测；安装脚本不运行 GPU 推理。
+`flash_attn` 只在 A100、H100、H200 上使用，其他显卡检查 `xformers`。完整安装脚本不运行模型推理；颜色烘焙的 CUDA 检查与正式重建应分别验证。
+
+## 颜色烘焙
+
+默认 `mesh_export.mode: baked_pbr`，纹理 2048、粗糙度 1、金属度 0。正式环境需要 `nvdiffrast`、`gsplat` 和 `xatlas`，不能依赖历史实验目录中的临时包。`requirements.inference.txt` 固定 nvdiffrast commit `253ac4fcea7de5f396371124af597e6cc957bfae`（0.4.0），通过现有 torch / CUDA 编译。
+
+已有 MV 环境缺少 nvdiffrast 时，在 `object-reconstruction/` 中补装这一项：
+
+```bash
+source configs/local.env
+source scripts/env.sh
+python -m pip install --no-build-isolation --no-deps \
+  'git+https://github.com/NVlabs/nvdiffrast.git@253ac4fcea7de5f396371124af597e6cc957bfae'
+python scripts/check_baking.py
+```
+
+检查会在所选 GPU 上执行实际 CUDA 光栅化、纹理采样与反向传播，并通过烘焙使用的 gsplat 路径渲染两张 Gaussian 观察。首次执行可能编译 CUDA 扩展。预期输出 `status=ok`；包能 import 或 API 健康检查通过不足以替代此检查。随后按下节运行一次完整重建，核对 `materials.json` 为 `complete`、GLB 包含颜色贴图、Gaussian 与 COVER 产物正常。
 
 ## 命令行重建
 
