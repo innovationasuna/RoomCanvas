@@ -26,25 +26,27 @@ const glb=Buffer.concat([header,json,chunk,binary]);
 const browser=await chromium.launch({headless:true,...(values.browser?{executablePath:values.browser}:{})});
 try{
   const page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1}),errors=[];
+  await page.addInitScript(()=>localStorage.setItem('roomcanvas:tools','full'));
   page.on('pageerror',e=>errors.push(String(e)));
   page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
   await page.route('**/viewforge/assets/catalog',r=>r.fulfill({json:{runs:[]}}));
   await page.route('**/viewforge/assets/lighting-probe/*.glb',r=>r.fulfill({body:glb,contentType:'model/gltf-binary'}));
   await page.goto(new URL('editor/?room=office&lightingLab=1',values.url).href,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.roomEditor?.snapshot().lighting.state==='settled',null,{timeout:120000});
+  assert.equal(await page.locator('#import-lighting').isChecked(),true,'导入物品应默认开启受光');
   await page.evaluate(()=>roomLightingLab.importObject('lighting-probe',{bounds:{min:[-.2,0,-.2],max:[.2,.4,.2]},transform:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],lengths:{X:.4,Y:.4,Z:.4}},1));
   await page.waitForFunction(()=>roomEditor.snapshot().pending?.valid,null,{timeout:30000});
   const pendingId=await page.evaluate(()=>roomEditor.snapshot().pending.id);
-  await page.locator('#tools-menu').evaluate(e=>{e.open=true;});await page.locator('#import-lighting').click();
-  assert.equal(await page.locator('#import-lighting').isChecked(),false,'摆放中切换应保留原模式');
+  await page.locator('#light-menu').evaluate(e=>{e.open=true;});await page.locator('#import-lighting').click();
+  assert.equal(await page.locator('#import-lighting').isChecked(),true,'摆放中切换应保留默认受光模式');
   assert.equal(await page.evaluate(()=>roomEditor.snapshot().pending.id),pendingId,'切换不能丢弃摆放草稿');
-  await page.locator('#tools-menu').evaluate(e=>{e.open=false;});
+  await page.locator('#light-menu').evaluate(e=>{e.open=false;});
   await page.click('#confirm-placement');await page.waitForFunction(()=>roomEditor.snapshot().pending===null,null,{timeout:30000});
   const id=await page.evaluate(()=>roomLightingLab.materials().imported[0].id);
   await page.evaluate(id=>roomLightingLab.focusObject(id),id);await page.waitForTimeout(500);
   const report={version:1,fixture:'unlit vertex colours, missing source normals',results:[],errors};
   for(const mode of ['original','pbr','original']){
-    await page.locator('#tools-menu').evaluate(e=>{e.open=true;});await page.locator('#import-lighting').setChecked(mode==='pbr');await page.locator('#tools-menu').evaluate(e=>{e.open=false;});await page.waitForTimeout(500);
+    await page.locator('#light-menu').evaluate(e=>{e.open=true;});await page.locator('#import-lighting').setChecked(mode==='pbr');await page.locator('#light-menu').evaluate(e=>{e.open=false;});await page.waitForTimeout(500);
     const sample=await page.evaluate(id=>roomLightingLab.lightResponseProbe(id),id);
     const averages=await page.evaluate(async sample=>{
       const mean=async url=>{const img=await createImageBitmap(await(await fetch(url)).blob()),canvas=document.createElement('canvas');canvas.width=16;canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(img,sample.center[0]-8,sample.center[1]-8,16,16,0,0,16,16);const pixels=ctx.getImageData(0,0,16,16).data;let sum=0;for(let i=0;i<pixels.length;i+=4)sum+=pixels[i]+pixels[i+1]+pixels[i+2];img.close();return sum/(16*16*3);};
