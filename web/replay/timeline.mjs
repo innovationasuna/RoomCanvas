@@ -30,7 +30,7 @@ export function buildTimeline(data, duration = DURATION) {
   const keys = [...stages.flatMap((s) => [[s.replay[0], s.real[0]], [s.replay[1], s.real[1]]]), ...events.map((e) => [e.at, e.minute])]
     .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   return {
-    duration, stages, events,
+    duration, stages, events, build: data.build || null, models: data.models || {},
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
     // Playback time -> real minutes, interpolated between stage edges and events.
@@ -56,7 +56,15 @@ export function sceneAt(tl, t) {
   const past = tl.events.filter((e) => e.at <= t);
   const built = new Set();
   past.forEach((e) => e.show?.forEach((x) => built.add(x)));
-  const model = past.findLast((e) => e.model)?.model || null;
+  let model = past.findLast((e) => e.model)?.model || null;
+  // While the modelling agent works no room model is saved: show the final model with the parts the agent
+  // added appearing when its log first names them (build schedule from the room service).
+  let added = null;
+  const real = tl.realAt(t);
+  if (tl.build && tl.models.final && (!model || model === 'seed') && real >= tl.build.base) {
+    model = 'final';
+    added = new Set(tl.build.reveal.filter((r) => r.minute <= real).map((r) => r.node));
+  }
   const scan = by.scan?.replay, layout = by.layout?.replay;
   return {
     points: scan ? clamp((t - scan[0]) / Math.max(scan[1] - scan[0] - 0.5, 0.5)) : past.length ? 1 : 0,
@@ -67,6 +75,7 @@ export function sceneAt(tl, t) {
     shell: by.plan ? t >= by.plan.replay[0] : !!model,
     built,
     model,
+    added,  // null: the model as it is; a set: only these agent-added parts of the final model show
   };
 }
 

@@ -10,6 +10,7 @@ const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).jo
 const KIND = {tool: '操作', image: '图片', result: '检查', error: '出错'};
 const POLL = 5000;
 
+let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
 const player = window.player = new Player(DURATION);
 let view = null;
@@ -227,7 +228,13 @@ function render(t, p, force = false) {
     $('planDesc').textContent = failed ? '服务器上的重建没有完成，可以在任务列表里重试。' : result ? result.text : st?.desc || '';
     $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.passed ? '验收通过' : '没通过最后检查 · 没有发布'}</span>` : '';
   }
-  view.apply(sceneAt(tl, t), {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k]), openings});
+  const scene = sceneAt(tl, t);
+  const addedAll = tl.build?.reveal.map((r) => r.node);
+  view.apply(scene, {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
+  // Turn to the parts the agent just added (while playing forward).
+  const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
+  lastAdded = scene.added;
+  if (p.playing && newly.length && view.aim(newly)) hold = 2000;
   const idx = tl.indexAt(t);
   if (idx === lastIdx && !force) return;
   const prevIdx = lastIdx;

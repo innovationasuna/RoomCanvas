@@ -137,6 +137,44 @@ class Events(unittest.TestCase):
         self.assertEqual(data['walls'][0]['b'], [3, -0])
 
 
+def glb(path, tree, t):
+    """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""
+    import struct
+    nodes, roots = [], []
+
+    def add(name, children):
+        k = len(nodes)
+        nodes.append({'name': name})
+        kids = [add(c, tree.get(c, [])) for c in children]
+        if kids:
+            nodes[k]['children'] = kids
+        return k
+    roots = [add(name, tree.get(name, [])) for name in tree['@roots']]
+    body = json.dumps({'scenes': [{'nodes': roots}], 'nodes': nodes}).encode()
+    body += b' ' * (-len(body) % 4)
+    data = struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(body)) + struct.pack('<II', len(body), 0x4E4F534A) + body
+    write(path, data, t)
+
+
+class BuildSchedule(unittest.TestCase):
+    def test_agent_added_parts_appear_when_first_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = make_run(Path(tmp) / 'run')
+            glb(scene / replay.SEED, {'@roots': ['Floor0', 'Bed0'], 'Bed0': []}, T0 + 100)
+            glb(scene / replay.FINAL, {'@roots': ['Floor0', 'Bed0', 'Curtain', 'Ceiling0'], 'Bed0': ['Sheet'], 'Curtain': ['Rod']},
+                T0 + 1150)
+            trace = scene / replay.TRACES / 'authoring_trace.author.jsonl'
+            with trace.open('a') as f:
+                f.write(json.dumps({'seq': 7, 't': T0 + 300, 'kind': 'tool', 'tool': 'Bash', 'hint': 'add Curtain and CurtainRail'}) + '\n')
+            schedule = replay.build_schedule(scene, T0 + 1300)
+            times = {r['node']: r['t'] for r in schedule['reveal']}
+            self.assertEqual(set(times), {'Curtain', 'Ceiling0', 'Sheet'})  # Rod comes with Curtain
+            self.assertEqual(times['Curtain'], T0 + 300)
+            self.assertEqual(times['Sheet'], T0 + 610)  # never named: when the session ends
+            self.assertEqual(schedule['base'], T0 + 300)
+            self.assertIsNone(replay.build_schedule(scene, T0 + 1100))  # final model not there yet
+
+
 class Condensing(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

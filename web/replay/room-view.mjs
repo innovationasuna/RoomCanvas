@@ -251,9 +251,9 @@ export class RoomView {
 
   // partial: show the room as it is being built (shell + finished objects of the assembled room);
   // full: show the reached model as it is.
-  apply(state, {quiet = false, modelUrl, openings} = {}) {
+  apply(state, {quiet = false, modelUrl, openings, addedAll} = {}) {
     this.state = state;
-    this.lastOptions = {modelUrl, openings};
+    this.lastOptions = {modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
     const key = state.model || (state.shell && seedUrl ? 'seed' : null);
     const partial = !state.model && key === 'seed';
@@ -268,6 +268,7 @@ export class RoomView {
       this.wallLines.children.forEach((l) => (l.material.opacity = 0.6 * state.walls));
     }
     const placed = this.revealed(partial, state.built, openings);
+    this.reveal(state.model === 'final' ? state.added : null, quiet);
     for (const [id, group] of Object.entries(this.boxes)) {
       const done = state.built.has(id);
       // Boxes stand for what is not in the room yet; a finished object without a room model gets a gold outline.
@@ -275,8 +276,38 @@ export class RoomView {
       group.userData.fill.visible = done;
       group.userData.edges.material.color.copy(done ? new THREE.Color(this.palette.built) : group.userData.base);
     }
+    // While the assembled room shows, fetch the final model in the background so the switch starts on time.
+    if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
     if (key !== this.wanted && key && modelUrl) this.show(key, modelUrl(key), quiet);
     else if (!key && this.current) {this.wanted = null; this.swap(null);}
+  }
+
+  // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
+  // while playing fades in; after a seek it is simply there.
+  reveal(added, quiet) {
+    const root = this.models.final?.root, all = this.lastOptions?.addedAll;
+    if (!root || !all) return;
+    for (const name of all) {
+      const node = root.getObjectByName(name);
+      if (!node) continue;
+      const show = !HIDDEN.test(name) && (!added || added.has(name));  // the ceiling stays hidden
+      if (show && !node.visible && !quiet && this.current === 'final') this.fadeIn(node);
+      node.visible = show;
+    }
+  }
+
+  fadeIn(node) {
+    const mats = [];
+    node.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!o.userData.ownMaterial) {o.material = [o.material].flat().length > 1 ? o.material.map((m) => m.clone()) : o.material.clone(); o.userData.ownMaterial = true;}
+      for (const m of [o.material].flat()) {
+        m.userData.restore ??= {opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite};
+        mats.push(m);
+      }
+    });
+    this.partFades = (this.partFades || []).filter((f) => f.node !== node);
+    this.partFades.push({node, mats, k: 0});
   }
 
   // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown.
@@ -294,7 +325,7 @@ export class RoomView {
   boundsOf(key) {
     const box = new THREE.Box3();
     const root = this.current && this.models[this.current]?.root;
-    const node = root?.getObjectByName(key);
+    const node = root?.getObjectByName(key) || this.models.final?.root?.getObjectByName(key);
     if (node) box.expandByObject(node);
     else if (this.boxes[key]) box.setFromObject(this.boxes[key]);
     return box;
@@ -324,13 +355,26 @@ export class RoomView {
 
   tick() {
     const now = performance.now();
-    const dt = Math.min((now - (this.lastTick ?? now)) / 1000, 0.05);
+    const elapsed = (now - (this.lastTick ?? now)) / 1000;
+    const dt = Math.min(elapsed, 0.05);      // camera motion: small steps even after a slow frame
+    const fdt = Math.min(elapsed, 0.25);     // fades follow real time, so they finish on time at low frame rates
     this.lastTick = now;
-    if (this.incoming && dt > 0) {
-      this.mix = Math.min(this.mix + dt / FADE_SECONDS, 1);
+    if (this.incoming && fdt > 0) {
+      this.mix = Math.min(this.mix + fdt / FADE_SECONDS, 1);
       this.setFade(this.models[this.incoming].root, this.mix);
       if (this.mix >= 1) this.swap(this.incoming);
     }
+    for (const f of this.partFades || []) {
+      f.k = Math.min(f.k + fdt / 0.9, 1);
+      for (const m of f.mats) {
+        const r = m.userData.restore;
+        m.transparent = f.k < 1 || r.transparent;
+        m.opacity = r.opacity * f.k;
+        m.depthWrite = f.k < 1 ? false : r.depthWrite;
+        m.needsUpdate = true;
+      }
+    }
+    if (this.partFades?.some((f) => f.k >= 1)) this.partFades = this.partFades.filter((f) => f.k < 1);
     this.controls.autoRotate = false;
     if (!this.userHeld && dt > 0) {
       const tgt = this.controls.target, v = this.vel, a = this.aimTo;
