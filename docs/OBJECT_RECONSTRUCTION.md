@@ -1,67 +1,132 @@
-# 物体重建（ViewForge）
+# 物体重建
 
-更新：2026-10-20。RoomCanvas 是唯一正式界面，负责照片重建流程、模型与坐标轴预览、实测尺寸输入、房间摆放和手势。`object-reconstruction/` 提供无界面的物体重建 API，保留 BiRefNet、DA3 / MV-SAM3D、COVER 及尺寸计算。
+`object-reconstruction/` 把照片重建成带纹理的三维模型，并按一条实测边长标定到真实尺寸。它是无界面的 Starlette / Uvicorn API 服务，由网页编辑器物品库里的“添加物品”和“从已生成的模型添加”调用。
 
-## 使用入口
+## 部署
 
-在仓库根目录运行 `python3 web/scripts/serve.py`，打开 <http://127.0.0.1:7880/web/>，选择房间。
+服务跑在 Linux GPU 服务器上，网页跑在本机，通过 SSH 隧道连接。两台机器各有一份源码；服务器命令使用 Bash。以下 `<…>` 都要替换为自己的值，路径占位符使用绝对路径。
 
-- 仓库 → **添加物体**：上传 1–40 张照片 → 抠图确认 → 重建 → 输入一条实测边长 → 放进房间。结果那一步显示补拍建议（橙色箭头），可以“补拍”：加照片，在原结果基础上重建。
-- **导入物体**里选中已有结果，也可以“补拍”。
-- **导入物体**：读取已有重建和标定，按真实尺寸摆放。导入物体暂不随布局保存。
-- 编辑器的**手势**开关直接开启本机识别，不需要物体重建服务；只有添加、导入物体需要连接 ViewForge。
-- 原 ViewForge 的 Gradio 页面、Babylon 查看器、房间布局和手势接入页已弃用，代码与原有构建资源保留在 [`legacy/`](../object-reconstruction/legacy/README.md)。正式服务不挂载这些界面，7865 隧道只访问 API；`GET /health` 可检查服务。
+### 首次部署
 
-## 启动物体后端
+准备 Linux x86_64 + NVIDIA 驱动和 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17，以及已获 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌；改用 ModelScope 时（`export MODEL_SOURCE=modelscope`）不需要令牌。两套环境一起安装时还需要 Debian/Ubuntu apt 和 sudo（或 root）。
 
-按 `object-reconstruction/configs/local.env.example` 配置被 Git 忽略的 `local.env`，填运行目录、授权 GPU 和共享 GPU 锁，然后执行：
+**服务器上**，在仓库根目录执行；已有仓库省略克隆：
 
 ```bash
-cd object-reconstruction
-source configs/local.env
-source scripts/env.sh
-python -m pip install -r configs/api-requirements.txt  # 首次安装纯 API 依赖
-python scripts/web.py --host <后端监听地址> --port 7862
+git clone https://github.com/innovationasuna/RoomCanvas.git
+cd RoomCanvas
+export VIEWFORGE_ROOT='<环境、权重与数据根目录的绝对路径>'
+export HF_TOKEN='<Hugging Face 令牌>'   # 或 export MODEL_SOURCE=modelscope
+sh scripts/setup_server.sh objects --dry-run
+sh scripts/setup_server.sh objects
 ```
 
-本机经 SSH 隧道访问：
+入口也可直接使用 [`bash object-reconstruction/scripts/setup.sh`](../object-reconstruction/scripts/setup.sh)。脚本创建重建环境、外部源码、模型权重和独立 BiRefNet 环境，包含 API 依赖；具体配方与续跑行为见 [安装说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#安装)。
+
+脚本只在缺失时生成 `object-reconstruction/configs/local.env`。已有配置中的 `VIEWFORGE_ROOT` 优先；若与终端显式设置的值冲突，会停止并给出重跑命令。编辑配置中的 `CUDA_VISIBLE_DEVICES`（一张获准使用的 GPU）、`VIEWFORGE_GPU_LOCK`（共享该卡的应用使用同一路径）、`TORCH_CUDA_ARCH_LIST` 和 `TZ`，见 [服务器配置](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#服务器配置)。安装前需指定编译架构或可见 GPU 时，在终端显式 export；安装脚本只读取配置中的根目录。
+
+### 启动与检查
+
+**服务器上**，在 `RoomCanvas/object-reconstruction/` 执行（首次安装完成后，或服务器重启后）：
 
 ```bash
-ssh -N -L 127.0.0.1:7865:<后端监听地址>:7862 <SSH主机别名>
+source configs/local.env && source scripts/env.sh
+mkdir -p "$VIEWFORGE_ROOT/logs"
+nohup python scripts/web.py --host 127.0.0.1 --port 7862 >> "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
+curl --fail --show-error http://127.0.0.1:7862/health
 ```
 
-`serve.py --viewforge <地址>` 可修改后端地址。两个重建模块继续使用各自的 Python 环境。环境、权重、照片和历史结果保留在 `VIEWFORGE_ROOT` 指向的外部目录，不进 Git；不再需要旧房间资产或 `VIEWFORGE_ROOMS_ROOT`。
+等服务启动后再执行 `curl`，预期返回 `{"service":"roomcanvas-objects","status":"ok"}`；失败时查看 `$VIEWFORGE_ROOT/logs/web.log`。安装脚本会创建 `logs/`；启动命令中的 `mkdir -p` 也兼容已有环境。`/health` 只确认 API 在线，不代表 GPU 推理或权重已验证。
+
+`--host` 是服务绑定的本地地址，必须使服务能从 SSH 登录的主机一侧访问。本机 `serve.py --remote` 则填写 **从 SSH 主机能连接到的服务地址和端口**：
+
+| 服务所在位置 | 服务 `--host` | 本机 `--remote` |
+| --- | --- | --- |
+| 与 SSH 登录在同一台主机、同一网络命名空间 | `127.0.0.1` | 默认 `127.0.0.1:7862`，可省略 |
+| 绑定服务器的指定网卡 | `<监听地址>` | `<监听地址>:7862` |
+| 容器中监听并已将 7862 端口映射到 SSH 主机的回环地址 | `0.0.0.0`（容器内） | `127.0.0.1:7862`（宿主机映射端口） |
+
+容器 IP 若能从 SSH 主机直接访问，也可作为 `--remote` 的地址；否则先配置端口映射。`0.0.0.0` 是绑定所有网卡的地址，不用作 `--remote` 目标。更换监听地址后，健康检查也要使用可连接的地址。
+
+### 更新与重启
+
+等当前重建任务结束后再更新；API 的任务进度在内存中，重启后不会恢复，已保存的结果仍可导入。
+
+**服务器上**，在 `RoomCanvas/object-reconstruction/` 查找旧进程；核对 PID、命令和启动目录确实属于本服务：
+
+```bash
+pgrep -af 'python.*scripts/web.py'
+ps -p '<旧服务 PID>' -o pid,args
+readlink '/proc/<旧服务 PID>/cwd'
+kill '<旧服务 PID>'
+ps -p '<旧服务 PID>' -o pid,args  # 等到不再列出该进程
+```
+
+**服务器上**，在 `RoomCanvas/object-reconstruction/`，确认旧服务退出后更新并重新启动：
+
+```bash
+git pull --ff-only
+source configs/local.env && source scripts/env.sh
+python -m pip install -r configs/api-requirements.txt
+mkdir -p "$VIEWFORGE_ROOT/logs"
+nohup python scripts/web.py --host 127.0.0.1 --port 7862 >> "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
+curl --fail --show-error http://127.0.0.1:7862/health
+```
+
+沿用之前的监听地址。上面的 pip 命令仅刷新 API 依赖；重建依赖或权重要求有变时，先按 [安装说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#安装) 核对配方，在新运行目录安装。只重启、不更新时，省略 `git pull` 和依赖安装。
+
+### 数据目录
+
+`VIEWFORGE_ROOT` 下，`data/inputs/` 保存照片与蒙版，`runs/` 保存结果，`weights/`、`envs/`、`third_party/` 存放权重、环境和依赖，`logs/web.log` 保存 API 日志。源码更新不需要重新复制或删除这些数据。
+
+## 在编辑器中使用
+
+本机需要 Git、Python 3 和 SSH 客户端；网页服务仅用 Python 标准库，无需安装 GPU 或 Python 包。先在 `~/.ssh/config` 配置服务器别名，或直接使用 `user@host`。
+
+**本机**，任意目录先验证 SSH 登录，登录后执行 `exit` 回到本机，再继续下文：
+
+```bash
+ssh '<SSH 主机>'
+```
+
+**本机**，从准备存放源码的目录开始；已有本机仓库时直接进入 `RoomCanvas/`，省略克隆：
+
+```bash
+git clone https://github.com/innovationasuna/RoomCanvas.git
+cd RoomCanvas
+python3 web/scripts/serve.py --ssh '<SSH 主机>'
+```
+
+打开 <http://127.0.0.1:7880/web/>。隧道把本机 `127.0.0.1:7865` 接到 SSH 主机一侧的 `127.0.0.1:7862`，按 `Ctrl-C` 停止网页时一起关闭。
+
+**本机**，在 `RoomCanvas/` 根目录，目标不是默认地址时用以下命令替代启动命令（不要同时启动两份）：
+
+```bash
+python3 web/scripts/serve.py --ssh '<SSH 主机>' --remote '<监听地址>:7862'
+```
+
+后续在本机已有仓库中运行同一启动命令即可；更新本机源码时先停止网页，再执行 `git pull --ff-only`。只用示例房间和编辑器可省略 `--ssh` 及其参数，无需服务器；“添加物品”和“从已生成的模型添加”都依赖物体服务。
+
+“添加物品”：上传 1–40 张照片 → 确认抠图 → 重建 → 输入一条实测边长 → 放进房间。“从已生成的模型添加”读取已有结果和标定，按真实尺寸摆放；操作见 [网页编辑器](../web/README.md#添加与导入物品)。
+
+### 补拍
+
+按结果页的橙色箭头补拍并上传照片，即可在原结果基础上重新重建。详见 [COVER 补拍引导](../object-reconstruction/docs/COVER.md)。
 
 ## 接口
 
-入口仍为 `scripts/web.py`，现通过 Starlette / Uvicorn 直接启动，不导入 Gradio、归档 UI 或旧查看器。已有监听地址、SSH 隧道、数据目录和 GPU 锁继续使用。
-
 | 接口 | 用途 |
 | --- | --- |
-| `POST /viewforge/objects/create` | 命名并上传 1–40 张 JPEG/PNG，保存原图和转正副本 |
-| `POST /viewforge/objects/capture` | 补拍：表单 `run`（已完成的结果）+ 新照片，存进该结果的物体（记下父结果），返回原照片 `kept` 和全部 `images` |
+| `POST /viewforge/objects/create` | 命名并上传 1–40 张 JPEG / PNG |
+| `POST /viewforge/objects/capture` | 提交已有结果 `run` 和补拍照片 |
 | `POST /viewforge/objects/masks` | BiRefNet 抠图，返回任务号 |
-| `POST /viewforge/objects/reconstruct` | 校验照片、蒙版与预览一致，再运行 DA3 + MV-SAM3D + COVER；带 `parent` 时检查原照片都在，按 `run.py --parent-run` 在原结果基础上重建 |
-| `GET /viewforge/objects/jobs/<任务号>` | 查询排队、阶段、完成结果或错误 |
+| `POST /viewforge/objects/reconstruct` | DA3 + MV-SAM3D 重建并生成 COVER 补拍建议；`parent` 指定原结果 |
+| `GET /viewforge/objects/jobs/<任务号>` | 查询进度与结果 |
 | `GET /viewforge/objects/previews/<批次>/<照片>.png` | 蒙版预览 |
-| `GET /viewforge/assets/catalog` | 已重建物体目录（`runs`） |
-| `GET /viewforge/assets/<结果>` | 完整模型尺寸基准、显示变换和已保存标定 |
-| `GET /viewforge/assets/<结果>/result.glb`、`preview.glb` | 完整模型、可选轻量模型 |
-| `GET /viewforge/assets/<结果>/result.ply`、`preview.json` | 原始 Gaussian 与补拍元数据（保留结果能力） |
+| `GET /viewforge/assets/catalog` | 已重建物体目录 |
+| `GET /viewforge/assets/<结果>` | 尺寸基准与已保存的标定 |
+| `GET /viewforge/assets/<结果>/result.glb`、`preview.glb` | 完整模型、轻量模型 |
+| `GET /viewforge/assets/<结果>/result.ply`、`preview.json` | Gaussian、补拍建议 |
 | `GET /viewforge/dimensions/<结果>` | 读取标定 |
-| `POST /viewforge/dimensions/<结果>` | 保存或清除单轴实测标定，支持 mm/cm/m |
+| `POST /viewforge/dimensions/<结果>` | 保存或清除实测标定，支持 mm / cm / m |
 | `GET /viewforge/dimensions/<结果>/model.glb` | 导出米制模型 |
-
-物体接口实现分别在 `objects.py`、`assets.py`、`dimensions.py`。旧 `/viewforge/layouts/catalog` 和 `/viewforge/layouts/assets/<结果>[/result.glb|preview.glb]` 仅兼容物体读取；旧房间读取、布局页、validate、save 和布局快照读取接口已移除。前端优先读取新资产接口；旧后端或本机代理返回 404 时，兼容旧物体读取路径，目录、尺寸和模型使用同一套地址。仓库的“添加物体”始终显示，连接失败会提示重试。
-
-标定从完整原始模型计算，不修改原模型。用户标定坐标 X / Y / Z 分别对应内部 +X / -Z / +Y；RoomCanvas 应用显示变换、底部居中及米制缩放。已有标定、重建结果和照片均可继续使用。历史补拍 manifest 的旧界面 URL 在 API 返回时适配为受限资产 URL，不改写历史文件；不会暴露任意服务器文件路径。
-
-GPU 仍使用 `VIEWFORGE_GPU_LOCK` 排队，一次使用配置的一张卡。任务记录在服务内存里，服务重启后任务号失效；落盘结果仍可从物体目录读取。COVER 和补拍续建算法、历史数据继续保留。RoomCanvas 的补拍走 `capture` + `reconstruct`（带 `parent`）：新照片按上传顺序命名为 `capture_<时间>_001…`，原照片的抠图直接复用，只给新照片跑 BiRefNet；命令行仍可用 `scripts/run.py --parent-run <结果>` 及 `scripts/import_photos.py`。
-
-## 手势与场景
-
-识别在 `gesture/`，内置入口在 `web/editor/gesture-camera.mjs`。可选的独立识别页为 `gesture/roomcanvas.html`（Vite 8800），默认嵌入 7880 的 RoomCanvas 编辑器，协议为 `roomcanvas-gesture-v1`；不依赖 ViewForge 后端。用法见 [RoomCanvas 手势接入](../gesture/docs/roomcanvas-integration.md)。
-
-## 来源和迁移
-
-源码来源为 ViewForge `a93d457` 和手势工程 `32082a3`，最终经 PR #5 squash 合入 RoomCanvas。来源、许可证与历史记录保留，见 [历史说明](../object-reconstruction/docs/HISTORY_INTEGRATION.md)。2026-10-18 的部署验证记录属于旧布局版本；2026-10-20 起以本文职责和接口为准。升级需安装 API 依赖、同步正式后端源码并重启物体服务；不再需要构建或发布旧查看器。此次代码提交与推送不包含服务器部署。
