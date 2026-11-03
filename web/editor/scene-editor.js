@@ -948,7 +948,7 @@ function bindEvents() {
   for (const id of ['overview', 'top', 'focus']) $(`#${id}`).onclick = () => view(id);
   for (const input of nearWallInputs()) input.onchange = requestRender;
   $('#ceiling').onchange = () => {ceilingObjects.forEach((object) => {object.visible = $('#ceiling').checked;}); renderer.shadowMap.needsUpdate = true; requestRender();};
-  $('#import-lighting').checked = query.get('materials') === 'pbr';
+  $('#import-lighting').checked = query.get('materials') !== 'original';
   $('#import-lighting').onchange = () => {
     if (pending) {$('#import-lighting').checked = !$('#import-lighting').checked; showToast('请先确认或取消当前摆放，再切换受光模式'); return;}
     select(null);
@@ -1901,7 +1901,7 @@ async function openImports() {
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
     warehouse.setOpen(false);
     const {axis, value} = asset.calibration;
-    await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
+    await importRun(run, asset.base, metricScale(asset.base, axis, value), asset.capabilities).catch((error) => {
       console.error(error); showToast(`导入失败：${error.message || error}`);
     });
   }});
@@ -1965,10 +1965,10 @@ async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
   $('#import-object').disabled = true;
-  try {await importRun(run, base, scale);} finally {$('#import-object').disabled = false;}
+  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = false;}
   $('#import-menu').open = false;
 }
-async function importRun(run, base, scale) {
+async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
@@ -1982,7 +1982,8 @@ async function importRun(run, base, scale) {
     mesh.userData.collision = false; mesh.raycast = () => {};
     mesh.castShadow = true;
   });
-  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original',
+    preservePBR: capabilities?.material_mode === 'pbr'});
   light.scene.name = light.scene.userData.name = contact;
   light.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;

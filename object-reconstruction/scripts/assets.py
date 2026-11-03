@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from dimensions import read_dimensions, result_directory
+from mvsam_pbr import material_capabilities
 
 
 class AssetsMiddleware:
@@ -70,6 +71,9 @@ class AssetsMiddleware:
                     response = FileResponse(file, media_type='model/gltf-binary' if parts[1].endswith('.glb') else 'application/octet-stream')
                 else:
                     data = await run_in_threadpool(read_dimensions, run)
+                    info = material_capabilities(run)
+                    if info:
+                        data['capabilities'] = info
                     manifest = run/'cover/preview.json'
                     if manifest.is_file():
                         data['manifest_url'] = f'/viewforge/assets/{quote(run.name, safe="")}/preview.json'

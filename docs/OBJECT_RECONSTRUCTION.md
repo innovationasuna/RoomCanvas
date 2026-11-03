@@ -2,6 +2,14 @@
 
 `object-reconstruction/` 把照片重建成带纹理的三维模型，并按一条实测边长标定到真实尺寸。它是无界面的 Starlette / Uvicorn API 服务，由网页编辑器物品库里的“添加物品”和“从已生成的模型添加”调用。
 
+## 重建与材质
+
+单独物品采用 **MV-SAM3D + 颜色烘焙 + 场景受光**。默认 `mesh_export.mode: baked_pbr`，将 Gaussian 外观烘焙到 2048² UV 颜色贴图；保留原几何、Gaussian 和 COVER 补拍流程。粗糙度固定为 1、金属度为 0，不预测分区材质属性，也不自动去除照片中的明暗。
+
+编辑器的尺寸预览和场景导入均保留烘焙贴图并响应灯光；旧版顶点色模型仍可切换受光。单独物体的 TRELLIS、多图 TRELLIS 和分区材质实验已移除。完整流程见 [重建流水线](OBJECT_RECONSTRUCTION_PIPELINE.md)。
+
+烘焙需要正式 MV 环境中的 `nvdiffrast`、`gsplat` 与 `xatlas`；安装入口已固定依赖。已有环境的补装和 CUDA 检查见 [颜色烘焙](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#颜色烘焙)。仅 `/health` 成功不能证明烘焙可用。
+
 ## 部署
 
 服务跑在 Linux GPU 服务器上，网页跑在本机，通过 SSH 隧道连接。两台机器各有一份源码；服务器命令使用 Bash。以下 `<…>` 都要替换为自己的值，路径占位符使用绝对路径。

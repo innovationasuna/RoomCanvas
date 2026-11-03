@@ -97,6 +97,18 @@ class AssetsTests(unittest.TestCase):
             self.assertIn(self.client.get('/viewforge/assets/' + path).status_code, [400, 404])
         self.assertFalse((self.root/'data/layouts').exists())
 
+    def test_baked_mvsam_materials_are_preserved_without_losing_capture(self):
+        run = self.model('baked')
+        receipt = run/'reconstruction/materials.json'
+        receipt.write_text(json.dumps(dict(status='complete', method='native_gaussian_colour_baking')))
+        info = self.client.get('/viewforge/assets/baked').json()['capabilities']
+        self.assertEqual(info['backend'], 'mvsam3d')
+        self.assertEqual(info['material_mode'], 'pbr')
+        self.assertTrue(info['capture'] and info['gaussian'])
+        self.assertFalse(info['predicted_material_maps'])
+        receipt.write_text(json.dumps(dict(status='failed', method='native_gaussian_colour_baking')))
+        self.assertNotIn('capabilities', self.client.get('/viewforge/assets/baked').json())
+
 
 if __name__ == '__main__':
     unittest.main()

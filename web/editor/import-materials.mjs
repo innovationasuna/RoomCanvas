@@ -2,7 +2,7 @@ import {setOwnMaterial, setOwnShadows} from './material-layers.mjs';
 
 // Keep the existing vertex-colour display and an independent, reversible lit version.
 // Only the visible reconstruction is registered here; collision proxies are untouched.
-export function createImportMaterials(THREE, root, {mode = 'original'} = {}) {
+export function createImportMaterials(THREE, root, {mode = 'original', preservePBR = false} = {}) {
   const entries = [], resources = new Set();
   root.traverse(mesh => {
     if (!mesh.isMesh || mesh.userData.contactOnly) return;
@@ -29,16 +29,19 @@ export function createImportMaterials(THREE, root, {mode = 'original'} = {}) {
     if (!['original', 'pbr'].includes(next)) throw new Error('未知导入材质模式');
     mode = next;
     for (const entry of entries) {
-      const materials = mode === 'pbr' ? entry.lit : entry.original;
+      // Native textured PBR assets keep their material even when the legacy vertex-colour
+      // lighting experiment is off. That toggle still controls legacy SAM3D imports.
+      const lit = mode === 'pbr' || preservePBR;
+      const materials = lit ? entry.lit : entry.original;
       // The mesh's own look: a selection tint or a see-through layer stays on top of it.
       setOwnMaterial(entry.mesh, entry.array ? materials : materials[0]);
-      setOwnShadows(entry.mesh, {receiveShadow: mode === 'pbr'});
+      setOwnShadows(entry.mesh, {receiveShadow: lit});
     }
   }
   setMode(mode);
   return {
     setMode,
-    snapshot() {return {mode, meshes: entries.length, normalsAdded: entries.filter(e => e.normalAdded).length,
+    snapshot() {return {mode: preservePBR ? 'pbr' : mode, meshes: entries.length, normalsAdded: entries.filter(e => e.normalAdded).length,
       vertexColorMeshes: entries.filter(e => e.mesh.geometry.attributes.color).length,
       litTypes: [...new Set(entries.flatMap(e => e.lit.map(m => m.type)))],
       sourcePBR: entries.filter(e => e.source.every(m => m.isMeshStandardMaterial)).length};},
