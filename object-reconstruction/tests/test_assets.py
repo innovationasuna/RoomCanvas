@@ -97,6 +97,36 @@ class AssetsTests(unittest.TestCase):
             self.assertIn(self.client.get('/viewforge/assets/' + path).status_code, [400, 404])
         self.assertFalse((self.root/'data/layouts').exists())
 
+    def test_trellis_capabilities_do_not_advertise_gaussian_or_capture(self):
+        for backend in ('trellis', 'trellis_multi'):
+            with self.subTest(backend=backend):
+                name = backend + '_chair'
+                run = self.model(name)
+                (run/'result.json').write_text(json.dumps(dict(backend=backend, status='complete')))
+                asset = self.client.get('/viewforge/assets/' + name).json()
+                self.assertEqual(asset['capabilities']['backend'], backend)
+                if backend == 'trellis_multi':
+                    self.assertTrue(asset['capabilities']['retired'])
+                    self.assertEqual(asset['capabilities']['max_photos'], 4)
+                    self.assertTrue(asset['capabilities']['uses_all_photos'])
+                self.assertEqual(asset['capabilities']['material_mode'], 'pbr')
+                self.assertFalse(asset['capabilities']['capture'])
+                self.assertFalse(asset['capabilities']['gaussian'])
+                self.assertEqual(self.client.get('/viewforge/assets/' + name + '/result.glb').status_code, 200)
+                self.assertEqual(self.client.get('/viewforge/assets/' + name + '/result.ply').status_code, 404)
+
+    def test_baked_mvsam_materials_are_preserved_without_losing_capture(self):
+        run = self.model('baked')
+        receipt = run/'reconstruction/materials.json'
+        receipt.write_text(json.dumps(dict(status='complete', method='native_gaussian_colour_baking')))
+        info = self.client.get('/viewforge/assets/baked').json()['capabilities']
+        self.assertEqual(info['backend'], 'mvsam3d')
+        self.assertEqual(info['material_mode'], 'pbr')
+        self.assertTrue(info['capture'] and info['gaussian'])
+        self.assertFalse(info['predicted_material_maps'])
+        receipt.write_text(json.dumps(dict(status='failed', method='native_gaussian_colour_baking')))
+        self.assertNotIn('capabilities', self.client.get('/viewforge/assets/baked').json())
+
 
 if __name__ == '__main__':
     unittest.main()

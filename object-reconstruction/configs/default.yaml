@@ -14,5 +14,15 @@ mv:
   stage2_entropy_alpha: 30.0
   stage2_attention_layer: 6
   stage2_attention_step: 0
+mesh_export:
+  mode: vertex_color # Opt in to native colour baking with baked_pbr.
+  texture_size: 2048
+  roughness: 1.0
+  metallic: 0.0
+  texture_padding: nearest # Only fill uncovered UV gaps; keep observed texels.
+trellis:
+  pipeline_type: 1024_cascade
+  texture_size: 2048
+  decimation: 50000
 runtime:
   min_free_gib: 22

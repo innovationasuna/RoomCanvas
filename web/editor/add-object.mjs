@@ -17,6 +17,14 @@ export const STAGES = [
   ['queued', '排队等 GPU'], ['preparing', '准备输入'], ['da3', '估计深度与相机'],
   ['reconstruction', '重建三维模型'], ['cover', '计算补拍建议'],
 ];
+export function reconstructionStages(job) {
+  return Array.isArray(job?.pipeline_stages) ? STAGES.filter(([id]) => job.pipeline_stages.includes(id)) : STAGES;
+}
+export function reconstructionPhotoLimits(capabilities, parent = false) {
+  return parent ? {min: MIN_PHOTOS, max: MAX_PHOTOS} : {
+    min: capabilities?.min_photos ?? MIN_PHOTOS, max: capabilities?.max_photos ?? MAX_PHOTOS,
+  };
+}
 export function stageLabel(job) {
   if (job.status === 'queued') return STAGES[0][1];
   if (job.kind === 'masks') return '正在抠图';
@@ -93,3 +101,4 @@ export function coverSuggestion(manifest, model = 'glb_preview') {
   return {transform, position, target, up, fovDegrees: rec.fov_y * 180 / Math.PI};
 }
 export const readManifest = (url, fetcher = fetch) => fetcher(url, {cache: 'no-store'}).then(reply);
+export const readCapabilities = (fetcher = fetch) => fetcher(API + 'capabilities', {cache: 'no-store'}).then(reply);

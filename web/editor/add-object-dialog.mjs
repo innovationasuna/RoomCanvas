@@ -6,10 +6,13 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject, captureObject,
-  startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest} from './add-object.mjs';
+import {MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject, captureObject,
+  startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest,
+  reconstructionStages, reconstructionPhotoLimits, readCapabilities} from './add-object.mjs';
 import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs';
 import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs';
+import {createImportMaterials} from './import-materials.mjs';
+import {createEnvironmentLighting} from './environment-lighting.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const KEY = 'roomcanvas:add-object';
@@ -33,6 +36,7 @@ export function mountAddObject({onReady, toast}) {
   const dialog = $('#add-object-dialog'), card = $('#add-object');
   // step: photos → masks → build → size. files: [{file, url}] before upload.
   let state = {step: 'photos', files: []}, viewer = null;
+  let backendCapabilities = null;
 
   function show(step) {
     state.step = step;
@@ -59,11 +63,16 @@ export function mountAddObject({onReady, toast}) {
       return cell;
     }));
     const count = state.files.length, name = state.parent ? state.object : objectName($('#add-name').value);
+    const note = $('#add-drop small');
+    note.textContent = backendCapabilities?.uses_first_photo && !state.parent
+      ? '单图重建实验：使用抠图确认后保留的第一张照片，其余照片暂不参与生成'
+      : '1 张也能重建；绕物体从不同角度多拍几张、物体完整入镜，效果更好';
     $('#add-name-field').hidden = !!state.parent;
     $('#add-capture-intro').hidden = $('#add-capture-cancel').hidden = !state.parent;
     if (state.parent) $('#add-capture-intro').textContent = `给「${state.object || state.parent}」补拍：原来的照片都保留，再加几张新角度（照着尺寸那一步的橙色箭头拍）。`;
-    $('#add-photos-note').textContent = count ? `${count} 张${count > MAX_PHOTOS ? `，最多 ${MAX_PHOTOS} 张` : ''}` : '';
-    $('#add-upload').disabled = !name || count < MIN_PHOTOS || count > MAX_PHOTOS;
+    const {min, max} = reconstructionPhotoLimits(backendCapabilities, !!state.parent);
+    $('#add-photos-note').textContent = count ? `${count} 张${count > max ? `，最多 ${max} 张` : count < min ? `，至少 ${min} 张` : ''}` : '';
+    $('#add-upload').disabled = !name || count < min || count > max;
   }
   async function addFiles(list) {
     let refused = 0;
@@ -141,8 +150,10 @@ export function mountAddObject({onReady, toast}) {
   function describeMasks() {
     const kept = state.images.filter((name) => !state.excluded.has(name)).length;
     const earlier = state.kept?.size ? ` · 其中原来的 ${state.kept.size} 张保留（灰框）` : '';
-    $('#add-masks-note').textContent = `绿色是识别出的物品。点一张可以不用它 · 用 ${kept} 张${earlier}${kept < MIN_PHOTOS ? `，至少 ${MIN_PHOTOS} 张` : ''}`;
-    $('#add-build').disabled = kept < MIN_PHOTOS || (state.kept?.size && kept <= state.kept.size);
+    const single = backendCapabilities?.uses_first_photo && !state.parent ? ' · 本次仅使用保留的第一张' : '';
+    const {min, max} = reconstructionPhotoLimits(backendCapabilities, !!state.parent);
+    $('#add-masks-note').textContent = `绿色是识别出的物品。点一张可以不用它 · 用 ${kept} 张${earlier}${single}${kept < min ? `，至少 ${min} 张` : kept > max ? `，最多 ${max} 张` : ''}`;
+    $('#add-build').disabled = kept < min || kept > max || (state.kept?.size && kept <= state.kept.size);
     $('#add-build').textContent = `开始重建（${kept} 张）`;
   }
   $('#add-retry-masks').onclick = () => void runMasks();
@@ -168,8 +179,10 @@ export function mountAddObject({onReady, toast}) {
     list.replaceChildren(...STAGES.map(([id, label]) => Object.assign(document.createElement('li'), {textContent: label, id: `add-stage-${id}`})));
     try {
       const job = await follow(state.build, (update) => {
-        const at = update.status === 'queued' ? 0 : Math.max(1, STAGES.findIndex(([id]) => id === update.stage));
-        STAGES.forEach(([id], index) => {$(`#add-stage-${id}`).dataset.state = index < at ? 'done' : index === at ? 'current' : '';});
+        const stages = reconstructionStages(update);
+        const at = update.status === 'queued' ? 0 : Math.max(1, stages.findIndex(([id]) => id === update.stage));
+        STAGES.forEach(([id]) => {$(`#add-stage-${id}`).hidden = !stages.some(([stage]) => stage === id);});
+        stages.forEach(([id], index) => {$(`#add-stage-${id}`).dataset.state = index < at ? 'done' : index === at ? 'current' : '';});
         $('#add-build-note').textContent = `${stageLabel(update)} · 已用时 ${duration(update.elapsed_seconds)}`;
         cardState(`${stageLabel(update)} · ${duration(update.elapsed_seconds)}`);
       });
@@ -192,10 +205,11 @@ export function mountAddObject({onReady, toast}) {
     $('#add-place').disabled = true;
     $('#add-size-note').textContent = '正在读取模型…';
     state.asset = await readAsset(state.run);
+    $('#add-capture').hidden = state.asset.capabilities?.capture === false;
     const saved = savedMeasurement(state.asset);
     if (saved) {$('#add-axis').value = saved.axis; $('#add-meters').value = String(+saved.meters.toFixed(3));}
     describeSize();
-    await openViewer(state.run, state.asset.base, state.asset.manifest_url);
+    await openViewer(state.run, state.asset.base, state.asset.manifest_url, state.asset.capabilities);
   }
   function measured() {
     return metricScale(state.asset.base, $('#add-axis').value, Number($('#add-meters').value));
@@ -216,6 +230,7 @@ export function mountAddObject({onReady, toast}) {
     $('#add-place').disabled = true;
     try {
       const asset = await saveMeasurement(state.run, $('#add-axis').value, Number($('#add-meters').value));
+      asset.capabilities = state.asset.capabilities;
       dialog.close();
       remember(null);
       const run = state.run;
@@ -227,10 +242,11 @@ export function mountAddObject({onReady, toast}) {
     }
   };
 
-  async function openViewer(run, base, manifestURL) {
+  async function openViewer(run, base, manifestURL, capabilities) {
     closeViewer();
     $('#add-cover-view').hidden = true;
     $('#add-cover-note').textContent = manifestURL ? '正在读取补拍建议…' : '这个结果没有补拍建议，也可以直接补拍。';
+    if (capabilities?.cover === false) $('#add-cover-note').textContent = '此结果暂不提供补拍建议；可填写实测尺寸后放入房间。';
     const host = $('#add-view'), width = host.clientWidth || 480, height = host.clientHeight || 260;
     const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -278,7 +294,12 @@ export function mountAddObject({onReady, toast}) {
     // Unit-sized, standing on y = 0, as the editor places it; the box shows the measured extent.
     const shape = new THREE.Group();
     shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, 1 / Math.max(...Object.values(base.lengths)))));
-    gltf.scene.traverse((mesh) => {
+    if (capabilities?.material_mode === 'pbr') {
+      viewer.materials = createImportMaterials(THREE, gltf.scene, {preservePBR: true});
+      viewer.environment = createEnvironmentLighting(renderer, scene, {intensity: .6});
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1));
+      const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(2, 3, 4); scene.add(light);
+    } else gltf.scene.traverse((mesh) => {
       if (mesh.isMesh) mesh.material = new THREE.MeshBasicMaterial({vertexColors: !!mesh.geometry.attributes.color, side: THREE.DoubleSide});
     });
     shape.add(gltf.scene);
@@ -292,7 +313,7 @@ export function mountAddObject({onReady, toast}) {
     controls.target.copy(middle);
     controls.update();
     viewer.selectAxis($('#add-axis').value);
-    if (manifestURL) showSuggestion(renderer, manifestURL, model, shape, box, draw).catch((error) => {
+    if (manifestURL && capabilities?.cover !== false) showSuggestion(renderer, manifestURL, model, shape, box, draw).catch((error) => {
       console.error(error); $('#add-cover-note').textContent = '补拍建议没能显示，也可以直接补拍。';
     });
   }
@@ -337,7 +358,9 @@ export function mountAddObject({onReady, toast}) {
   }
   function closeViewer() {
     if (!viewer) return;
-    viewer.resize.disconnect(); viewer.controls.dispose(); disposeObjectTree(viewer.scene);
+    viewer.resize.disconnect(); viewer.controls.dispose();
+    viewer.materials?.dispose(); viewer.environment?.dispose();
+    disposeObjectTree(viewer.scene);
     viewer.renderer.dispose(); viewer.renderer.domElement.remove(); viewer.labels.remove();
     viewer = null;
   }
@@ -374,6 +397,7 @@ export function mountAddObject({onReady, toast}) {
   $('#add-build-again').onclick = reset;
 
   card.onclick = () => {
+    readCapabilities().then(value => {backendCapabilities = value; if (state.step === 'photos') renderPhotos();}).catch(() => {});
     if (state.step === 'size' && state.run && !viewer) void openSize();
     dialog.showModal();
   };

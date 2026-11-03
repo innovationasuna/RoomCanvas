@@ -27,6 +27,7 @@ from PIL import Image
 from run import CODE, component, input_manifest, match_masks, selected_images
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection
+from reconstruction_backends import backend_name, capabilities, pipeline_stages, run_backend, validate_selection
 
 MIN_PHOTOS, MAX_PHOTOS = 1, 40
 # Photo and run ids are built from the name and must stay valid names (80 characters):
@@ -89,6 +90,8 @@ def parent_photos(root, run_id):
     """The object of a finished run and its photos, which a rebuild on top of it has to keep."""
     try:
         run_id = component(run_id)
+        if not capabilities(run_backend(root/'runs'/run_id))['capture']:
+            raise ValueError('此结果不支持补拍')
         name, kept = parent_selection(root, run_id)
         input_manifest(root, name, kept)
     except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
@@ -113,6 +116,7 @@ class Job:
         self.status, self.error, self.result, self.parent = 'queued', None, None, None
         self.started = time.monotonic()
         self.attempt, self.signatures = None, {}
+        self.backend = None
 
     def view(self):
         data = dict(id=self.id, kind=self.kind, object=self.object, images=self.images,
@@ -121,6 +125,8 @@ class Job:
         if self.parent:
             data['parent'] = self.parent
         if self.kind == 'reconstruct':
+            if self.backend:
+                data.update(backend=self.backend, pipeline_stages=pipeline_stages(self.backend))
             run = self.run_dir()
             state = {}
             if run:
@@ -224,15 +230,21 @@ def start_reconstruction(root, payload):
     if any(masks.signatures[row['name']] != sig for row, sig in zip(rows, file_signatures(rows))):
         raise ValueError('照片或抠图已变化，请重新抠图')
     parent = payload.get('parent')
+    backend = backend_name()
     if parent:
         parent, parent_name, kept = parent_photos(root, str(parent))
         if parent_name != name or not set(kept) <= set(images):
             raise ValueError('补拍要保留原来的照片')
+        backend = run_backend(root/'runs'/parent)
+    validate_selection(backend, images, parent)
     attempt = datetime.now().strftime('web_%H%M%S_%f')
     command = [sys.executable, str(CODE/'scripts/run.py'), '--object', name, '--attempt', attempt,
                '--images', *images, '--wait-gpu', *(['--parent-run', parent] if parent else [])]
+    if backend != 'mvsam3d' or backend != backend_name():
+        command += ['--backend', backend]
     job = Job('reconstruct', root, name, images, command)
     job.attempt, job.parent = attempt, parent or None
+    job.backend = backend
     return start(job)
 
 
@@ -255,7 +267,9 @@ class ObjectsMiddleware:
                 origin = request.headers.get('origin')
                 if origin and urlsplit(origin).netloc != request.headers.get('host'):
                     raise ValueError('请在当前页面操作')
-            if request.method == 'POST' and route in ('create', 'capture'):
+            if request.method == 'GET' and route == 'capabilities':
+                response = JSONResponse(capabilities(backend_name()))
+            elif request.method == 'POST' and route in ('create', 'capture'):
                 if int(request.headers.get('content-length') or 0) > MAX_UPLOAD:
                     raise ValueError('照片总量过大')
                 form = await request.form(max_files=MAX_PHOTOS + 1, max_fields=4, max_part_size=1024)

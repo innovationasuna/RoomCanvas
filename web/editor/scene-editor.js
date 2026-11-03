@@ -1901,7 +1901,7 @@ async function openImports() {
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
     warehouse.setOpen(false);
     const {axis, value} = asset.calibration;
-    await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
+    await importRun(run, asset.base, metricScale(asset.base, axis, value), asset.capabilities).catch((error) => {
       console.error(error); showToast(`导入失败：${error.message || error}`);
     });
   }});
@@ -1934,7 +1934,7 @@ async function chooseImport() {
   if ($('#import-run').value !== run) return;
   if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
   importAsset = {...asset, run};
-  $('#import-capture').disabled = false;
+  $('#import-capture').disabled = asset.capabilities?.capture === false;
   const saved = savedMeasurement(asset);
   if (saved) {$('#import-axis').value = saved.axis; $('#import-meters').value = String(+saved.meters.toFixed(3));}
   else $('#import-meters').value = '';
@@ -1965,10 +1965,10 @@ async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
   $('#import-object').disabled = true;
-  try {await importRun(run, base, scale);} finally {$('#import-object').disabled = false;}
+  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = false;}
   $('#import-menu').open = false;
 }
-async function importRun(run, base, scale) {
+async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
@@ -1982,7 +1982,8 @@ async function importRun(run, base, scale) {
     mesh.userData.collision = false; mesh.raycast = () => {};
     mesh.castShadow = true;
   });
-  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original',
+    preservePBR: capabilities?.material_mode === 'pbr'});
   light.scene.name = light.scene.userData.name = contact;
   light.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;

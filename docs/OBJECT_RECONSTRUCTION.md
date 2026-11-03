@@ -2,6 +2,14 @@
 
 `object-reconstruction/` 把照片重建成带纹理的三维模型，并按一条实测边长标定到真实尺寸。它是无界面的 Starlette / Uvicorn API 服务，由网页编辑器物品库里的“添加物品”和“从已生成的模型添加”调用。
 
+## 本分支的重建与材质选项
+
+单独物品重建已决定采用 **MV-SAM3D + 颜色烘焙 + 场景受光**。烘焙通过 `mesh_export.mode: baked_pbr` 显式开启；当前配置默认仍为 `vertex_color`，尚未切换正式服务。烘焙输出颜色贴图，粗糙度为 1、金属度为 0，不预测各部位的粗糙度／金属度／法线贴图。流程和部署限制见 [重建流水线](OBJECT_RECONSTRUCTION_PIPELINE.md) 与 [MV 烘焙实验](OBJECT_MVSAM_PBR_EXPERIMENT.md)。
+
+可选的 `trellis` 后端复用场景侧 TRELLIS.2，使用确认后的首张图片生成带 PBR 材质的 GLB。`trellis_multi` 仅保留历史结果读取，已停止接受新重建任务；TRELLIS 不支持 MV-SAM3D 的 Gaussian 和补拍流程。后端能力见 `GET /viewforge/objects/capabilities`，实验见 [单图对比](OBJECT_SINGLE_IMAGE_COMPARISON.md)。
+
+2026-11-03 已尝试在固定 MV-SAM3D 几何上估计分区材质：两件样本均未得到明显的分区属性改善，因此尚未接入正式流程；完整结论和本地图像位置见 [项目交接](../PROJECT_HANDOFF.md)。
+
 ## 部署
 
 服务跑在 Linux GPU 服务器上，网页跑在本机，通过 SSH 隧道连接。两台机器各有一份源码；服务器命令使用 Bash。以下 `<…>` 都要替换为自己的值，路径占位符使用绝对路径。
