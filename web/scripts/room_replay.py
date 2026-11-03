@@ -231,7 +231,10 @@ def review_events(scene, until=None):
         score = review.get('score')
         passed = review.get('pass')
         say = f'第 {k + 1} 轮验收' + (f' {score:.1f} 分' if isinstance(score, (int, float)) else '') + ('，通过' if passed else '，没通过')
-        issues = [i.get('description', '') for i in review.get('issues', []) if isinstance(i, dict)]
+        # Rounds name the text differently (description / defect); plain strings occur too.
+        issues = [(i.get('description') or i.get('defect') or i.get('issue') or i.get('text') or '') if isinstance(i, dict) else str(i)
+                  for i in review.get('issues', [])]
+        issues = [i.strip() for i in issues if str(i).strip()]
         event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(k, 2)], 'kind': 'review',
                  'say': say, 'score': score, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
         if (folder / 'Room.glb').is_file():
@@ -439,6 +442,7 @@ class Summary:
         return items
 
     def review(self, key, issues, run):
+        issues = [i for i in issues if i and i.strip()]
         if key in self.data['reviews'] or not issues:
             return False
         self.data['reviews'][key] = run(REVIEW_PROMPT.format(issues='\n'.join(issues))).strip().splitlines()[0][:80]

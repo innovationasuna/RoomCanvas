@@ -62,8 +62,9 @@ def make_run(root):
     write(scene / replay.SEED, t=T0 + 100)
     for k, score in enumerate([4.0, 7.5]):
         folder = scene / f'realism_authoring/acceptance/attempt-x/round_0{k}'
-        write(folder / 'visual_review.json', json.dumps({'pass': k == 1, 'score': score,
-              'issues': [{'description': 'The bed is too bright.'}]}), t=T0 + 1000 + k * 100)
+        issue = {'description': 'The bed is too bright.'} if k == 0 else {'defect': 'The curtains are too stiff.'}
+        write(folder / 'visual_review.json', json.dumps({'pass': k == 1, 'score': score, 'issues': [issue, {'description': ' '}]}),
+              t=T0 + 1000 + k * 100)
         write(folder / 'compare/pairs/pair_00000.png')
         write(folder / 'Room.glb', t=T0 + 990 + k * 100)
     write(scene / replay.FINAL, t=T0 + 1150)
@@ -103,6 +104,7 @@ class Events(unittest.TestCase):
         self.assertEqual([e['stage'] for e in reviews], ['review', 'review2'])
         self.assertEqual(reviews[0]['say'], '第 1 轮验收 4.0 分，没通过')
         self.assertTrue(reviews[1]['passed'])
+        self.assertEqual([e['issues'] for e in reviews], [['The bed is too bright.'], ['The curtains are too stiff.']])
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
 
     def test_only_allowlisted_files_are_served(self):
