@@ -41,7 +41,7 @@ bash scripts/setup.sh
 
 局部失败直接重跑 `bash scripts/setup.sh`；只更新 API 依赖的命令见 [更新与重启](../../docs/OBJECT_RECONSTRUCTION.md#更新与重启)。完整环境的依赖或模型需要升级时，先核对脚本配方，在新的 `VIEWFORGE_ROOT` 安装，并同步修改 `local.env`；完成标记不会自动触发升级。不要直接调用旧的 BiRefNet 安装器覆盖已有目录。
 
-本次安装入口只在 macOS 做静态检查与 `--dry-run`；Linux 安装、CUDA 编译及 GPU 推理尚未实测。
+实测情况：2026-11-03 在 RTX 3090 服务器上对已有环境运行（经 `scripts/setup_server.sh all`），已有源码、两个 Conda 环境和权重按只检查全部通过；该机的外部源码是不含 `.git` 的快照，版本无法核对，脚本只给警告。`flash_attn` 只在 A100、H100、H200 上使用，其他显卡上检查 `xformers`。全新安装（Conda 环境、CUDA 编译、权重下载）尚未实测；安装脚本不运行 GPU 推理。
 
 ## 命令行重建
 
