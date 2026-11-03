@@ -81,7 +81,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 | `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
 | `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
 | `GET /room-reconstruction/catalog` | 已完成房间列表 |
-| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、家具清单和缩略图 |
+| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、物品清单和缩略图 |
 
 离线测试不调用 GPU、模型或 Agent：
 
@@ -135,7 +135,7 @@ mkdir -p samples/my-room/room
 scp -r '<SSH 主机>:<服务器结果目录>/room/Objects' samples/my-room/room/
 ```
 
-保持复制后的目录层级，脚本会自动找到 `room_preview/` 旁的 `../room/Objects/`；若另存到其他位置，生成命令加 `--joints '<本机 Objects 目录>'`。上述 `scp -r` 会跟随目录中的符号链接复制实际文件；换用其他复制工具时，也要避免留下指向服务器路径的链接。没有关节文件仍能生成家具清单，但不会生成对应的开合数据。
+保持复制后的目录层级，脚本会自动找到 `room_preview/` 旁的 `../room/Objects/`；若另存到其他位置，生成命令加 `--joints '<本机 Objects 目录>'`。上述 `scp -r` 会跟随目录中的符号链接复制实际文件；换用其他复制工具时，也要避免留下指向服务器路径的链接。没有关节文件仍能生成物品清单，但不会生成对应的开合数据。
 
 **本机**，在 `RoomCanvas/` 根目录生成清单，只需 Python 标准库：
 

@@ -93,7 +93,7 @@ test('放置入口拒绝碰撞后仍保留预览，确认通过后的过期请�
 });
 
 for (const warehouse of [false, true]) {
-  test(`拇指向下通过桥接取消预览并恢复${warehouse ? '仓库状态' : '原位置和高度'}`, () => {
+  test(`拇指向下通过桥接取消预览并恢复${warehouse ? '物品库状态' : '原位置和高度'}`, () => {
     const b = bridge(); b.send({type: 'hello'});
     const before = initialLayout(['chair']); before.chair.visible = !warehouse;
     const session = new PlacementSession(before, 'chair');

@@ -39,7 +39,7 @@ test('an in-flight confirmation reports submission, not successful placement', (
 
 test('active adjustments and two-hand scaling take priority over confirmation hints', () => {
   const payload = {frame: frame(), active: true, mode: 'height', target: {allowed: true}};
-  assert.equal(gestureFeedback(payload).title, '正在抬高家具');
+  assert.equal(gestureFeedback(payload).title, '正在抬高物品');
   assert.equal(gestureFeedback(payload).confirmProgress, null);
   assert.equal(gestureFeedback({...payload, dual: true}).title, '正在缩放场景');
 });

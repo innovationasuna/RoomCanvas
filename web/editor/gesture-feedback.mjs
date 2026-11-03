@@ -41,9 +41,9 @@ export function gestureFeedback({frame, mode = 'move', active = false, dual = fa
 
   const next = (title, detail, state = 'waiting') => Object.assign(result, {title, detail, state});
   if (dual) return next('正在缩放场景', '双手拉开或靠近，松手结束缩放。', 'active');
-  if (active) return next(`正在${{move: '移动家具', height: '抬高家具', rotate: '旋转家具', scale: '缩放场景', view: '观察场景'}[mode] || '调整家具'}`, ['scale', 'view'].includes(mode) ? '松开右手结束镜头操作。' : '松开右手保留预览，满意后竖拇指确认。', 'active');
+  if (active) return next(`正在${{move: '移动物品', height: '抬高物品', rotate: '旋转物品', scale: '缩放场景', view: '观察场景'}[mode] || '调整物品'}`, ['scale', 'view'].includes(mode) ? '松开右手结束镜头操作。' : '松开右手保留预览，满意后竖拇指确认。', 'active');
   if (uncertain(right.phase)) return next('调整右手的位置', right.phase === 'ambiguous' ? '分开双手，让右手清楚入镜。' : '让右手保持稳定，避免遮挡手指。', 'attention');
-  if (!rightSeen) return leftSeen ? next('请伸出右手', '右手捏合家具进行操作，松手保留预览。') : result;
+  if (!rightSeen) return leftSeen ? next('请伸出右手', '右手捏合物品进行操作，松手保留预览。') : result;
   if (right.phase === 'sent') return next(right.action === 'cancel' ? '取消请求已发送' : '确认请求已发送', '操作结果请看场景中的提示。', 'submitted');
   if (target.allowed) {
     if (right.phase === 'neutral') return next('先放下拇指，再重新竖起', '四指收拢，保持约半秒即可提交放置。');
@@ -52,8 +52,8 @@ export function gestureFeedback({frame, mode = 'move', active = false, dual = fa
   }
   if (busy || target.previewId) return next('等待当前操作结束', '松开双手，完成放置检查后再确认。');
   if (result.candidate) return next('保持左手，等待动作切换', '进度完成后，再用右手操作。', 'active');
-  if (frame?.operator?.pinching) return next('已识别捏合手势', '先松开，对准家具后再次捏合。', 'active');
-  return next('捏合家具开始调整', '松手保留预览，满意后竖拇指确认。', 'ready');
+  if (frame?.operator?.pinching) return next('已识别捏合手势', '先松开，对准物品后再次捏合。', 'active');
+  return next('捏合物品开始调整', '松手保留预览，满意后竖拇指确认。', 'ready');
 }
 
 export function mountGestureFeedback(root) {
