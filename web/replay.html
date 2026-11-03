@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#252623">
+<title>重建过程 · RoomCanvas</title>
+<link rel="icon" href="./icon.svg">
+<link rel="stylesheet" href="./theme.css">
+<script type="importmap">{"imports":{"three":"./vendor/build/three.module.js","three/addons/":"./vendor/examples/jsm/"}}</script>
+<style>
+  :root {--rc-amber: #eea294; --rc-fill: #8d7b58;}
+  * {box-sizing: border-box;}
+  html, body {margin: 0; height: 100%;}
+  body {display: grid; grid-template-rows: 64px minmax(0, 1fr) 74px; height: 100vh; overflow: hidden; font-size: 14px; line-height: 1.5;}
+  button {font: inherit; color: var(--rc-text); cursor: pointer; border: 1px solid var(--rc-line); background: var(--rc-raised); border-radius: 8px; padding: 4px 10px;}
+  button:hover {border-color: var(--rc-control);}
+  svg {width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;}
+  /* Header: same height, padding, icon and type as the room list (web/home.css .home-header). */
+  header {display: flex; align-items: center; gap: 24px; padding: 0 24px; background: var(--rc-bg); border-bottom: 1px solid var(--rc-line); min-width: 0;}
+  header .brand {display: flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 600; letter-spacing: -.6px; white-space: nowrap; color: inherit; text-decoration: none;}
+  header .brand svg {width: 27px; height: 30px; color: var(--rc-green); stroke-width: 1.5;}
+  header .context {padding-left: 24px; border-left: 1px solid var(--rc-line); font-size: 13px; color: var(--rc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;}
+  header .context b {color: var(--rc-text); font-weight: 600; margin-right: 8px;}
+  header .live {display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rc-green);}
+  header .live::before {content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--rc-green); animation: pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse {50% {opacity: .3;}}
+  [hidden] {display: none !important;}
+  header .result {margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 13px;}
+  header .back {font-size: 13px; color: var(--rc-muted); text-decoration: none; white-space: nowrap;}
+  .tag {display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 99px;}
+  .tag.warn {background: #3d2f2a; color: var(--rc-warn);}
+  .tag.ok {background: var(--rc-active); color: var(--rc-green);}
+  main {display: grid; grid-template-columns: clamp(250px, 22vw, 330px) minmax(0, 1fr); min-height: 0;}
+  .side {display: grid; grid-template-rows: minmax(0, 1fr) auto; background: var(--rc-panel); border-right: 1px solid var(--rc-line); min-height: 0; min-width: 0; overflow: hidden;}
+  .log {overflow-y: auto; overflow-x: hidden; padding: 16px 18px 24px; min-width: 0;}
+  .user {margin-left: 48px; background: var(--rc-raised); border-radius: 8px 8px 3px 8px; padding: 10px 14px; margin-bottom: 18px;}
+  .who {display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px;}
+  .who i {width: 22px; height: 22px; border-radius: 5px; background: var(--rc-green); color: var(--rc-bg); display: grid; place-items: center; font-style: normal; font-size: 12px;}
+  .say {margin: 0 0 10px; cursor: pointer; overflow-wrap: anywhere;}
+  .say.ms {font-weight: 600;}
+  .say.rv {border-left: 3px solid var(--rc-amber); padding-left: 10px;}
+  .say.now {color: var(--rc-green);}
+  .chip {display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--rc-field); color: var(--rc-text); font-size: 13px; border: 1px solid var(--rc-line); cursor: pointer; overflow-wrap: anywhere;}
+  .chip .app {font-size: 11px; color: var(--rc-muted); background: var(--rc-raised); border: 1px solid var(--rc-line); border-radius: 5px; padding: 0 6px; white-space: nowrap;}
+  .chip.err {background: #3a2b27; border-color: #6b4a42;}
+  .chip:hover {border-color: var(--rc-control);}
+  .chip.now {border-color: #75674b; background: var(--rc-active);}
+  .stage-h {font-size: 12px; color: var(--rc-muted); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px;}
+  .stage-h::after {content: ''; flex: 1; border-top: 1px solid var(--rc-line);}
+  .pending {font-size: 13px; color: var(--rc-muted);}
+  .shot {display: flex; gap: 4px; height: 112px; margin: -2px 0 10px; cursor: zoom-in;}
+  .shot img {height: 100%; width: auto; max-width: 100%; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-field);}
+  .plan {border-top: 1px solid var(--rc-line); padding: 12px 18px 14px;}
+  .plan .top {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--rc-muted);}
+  .plan .top > span:first-child {white-space: nowrap;}
+  .plan .dots {margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; min-width: 0;}
+  .plan .dots i {width: 6px; height: 6px; border-radius: 50%; background: var(--rc-control); cursor: pointer;}
+  .plan .dots i.done {background: var(--rc-green);}
+  .plan .dots i.now {background: var(--rc-panel); box-shadow: inset 0 0 0 2px var(--rc-green);}
+  .plan .dots i.fail {background: var(--rc-panel); box-shadow: inset 0 0 0 2px var(--rc-warn);}
+  .plan .name {font-size: 15px; font-weight: 600; margin: 4px 0 2px;}
+  .plan .name.fail {color: var(--rc-warn);}
+  .plan .desc {font-size: 12.5px; color: var(--rc-muted);}
+  .stagewrap {position: relative; min-width: 0; min-height: 0;}
+  .view {position: absolute; inset: 0; background: #c4c9ba; overflow: hidden;}
+  .view > canvas {width: 100%; height: 100%;}
+  .loading {position: absolute; inset: 0; display: grid; place-items: center; color: #47513f; font-size: 13px; z-index: 1;}
+  .loading.error {color: #8a3d33;}
+  .notice {position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--rc-bg); color: var(--rc-warn); border: 1px solid var(--rc-line);}
+  #latest {position: absolute; right: 16px; bottom: 16px; background: var(--rc-bg); color: var(--rc-green); border-color: #75674b;}
+  .lightbox {position: fixed; inset: 0; background: #1b1c19ee; display: none; place-items: center; padding: 28px; cursor: zoom-out; z-index: 5;}
+  .lightbox.on {display: grid;}
+  .lightbox img {max-height: calc(100vh - 230px); max-width: 100%; border-radius: 6px;}
+  .lightbox .cap {color: var(--rc-text); margin-top: 10px; text-align: center; font-size: 14px;}
+  footer {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 0 20px; background: var(--rc-bg); border-top: 1px solid var(--rc-line);}
+  .btns {display: flex; gap: 6px;}
+  .btns button {width: 36px; height: 32px; padding: 0; display: grid; place-items: center;}
+  .btns svg {pointer-events: none;}
+  .btns #play {background: var(--rc-green); border-color: var(--rc-green); color: var(--rc-bg);}
+  .track {position: relative; height: 40px; cursor: pointer; touch-action: none;}
+  .track .seg {position: absolute; top: 9px; height: 8px; border-radius: 3px; background: var(--rc-line);}
+  .track .seg .fill {position: absolute; inset: 0; right: auto; border-radius: 3px; background: var(--rc-fill);}
+  .track .lab {position: absolute; top: 22px; font-size: 11.5px; color: var(--rc-muted); white-space: nowrap;}
+  .track .lab.now {color: var(--rc-green); font-weight: 600; z-index: 1; background: var(--rc-bg); padding-right: 6px;}
+  .track .lab.end {transform: translateX(-100%); padding: 0 0 0 6px;}
+  .track .lab.tight {visibility: hidden;}
+  .track .lab.now.tight {visibility: visible;}
+  .track .lab.covered {visibility: hidden;}
+  .track .head {position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--rc-green); border: 2px solid var(--rc-bg); box-shadow: 0 0 0 1px var(--rc-green); pointer-events: none;}
+  .track .mk {position: absolute; top: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; pointer-events: none;}
+  .track .mk.v {background: var(--rc-text);}
+  .track .mk.r {background: var(--rc-amber);}
+  .clock {font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;}
+  .clock span {color: var(--rc-muted);}
+  @media (max-width: 600px) {
+    body {grid-template-rows: 56px minmax(0, 1fr) 74px;}
+    header {padding: 0 16px;}
+    header .context {display: none;}
+    main {grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 40%;}
+    .side {order: 2; border-right: 0; border-top: 1px solid var(--rc-line);}
+  }
+</style>
+</head>
+<body>
+<svg style="position:absolute;width:0;height:0" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8L7 4Z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4h3v16H7zM14 4h3v16h-3z" fill="currentColor"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7V5Z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7V5Z"/></symbol>
+</svg>
+<header>
+  <a class="brand" href="./" aria-label="RoomCanvas 房间选择"><svg aria-hidden="true"><use href="#i-brand"/></svg><span>RoomCanvas</span></a>
+  <span class="context" id="context">重建过程</span>
+  <span class="live" id="live" hidden>重建中</span>
+  <span class="result" id="result"></span>
+  <a class="back" href="./">← 房间与重建任务</a>
+</header>
+<main>
+  <aside class="side">
+    <div class="log" id="log"></div>
+    <div class="plan"><div class="top"><span id="planN"></span><span class="dots" id="dots"></span></div><div class="name" id="planName"></div><div class="desc" id="planDesc"></div></div>
+  </aside>
+  <section class="stagewrap">
+    <div class="view" id="view"><div class="loading" id="loading">正在读取重建过程…</div></div>
+    <div class="notice" id="liveError" hidden>暂时连不上房间重建服务，稍后自动重试</div>
+    <button type="button" id="latest" hidden>回到最新</button>
+  </section>
+  <div class="lightbox" id="lb"></div>
+</main>
+<footer>
+  <div class="btns"><button id="prev" title="上一步（←）"><svg><use href="#i-prev"/></svg></button><button id="play" title="播放 / 暂停（空格）"><svg><use href="#i-play"/></svg></button><button id="next" title="下一步（→）"><svg><use href="#i-next"/></svg></button></div>
+  <div class="track" id="track"></div>
+  <div class="clock"><b id="clock">0:00:00</b> <span id="total">/ 0:00:00</span></div>
+</footer>
+<script type="module" src="./replay/replay.mjs"></script>
+</body>
+</html>

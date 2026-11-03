@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs; do node --check "$f"; done
+      - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs web/replay/*.mjs web/*.mjs; do node --check "$f"; done
       - run: node --test 'web/editor/tests/*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
       - name: Check the sample rooms with their real models (CPU)
