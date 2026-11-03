@@ -1,4 +1,4 @@
-"""Run an object backend with external inputs and a fresh output directory."""
+"""Run native DA3 and MV-SAM3D with external inputs and a fresh output directory."""
 import argparse
 import csv
 from datetime import datetime
@@ -10,11 +10,9 @@ import re
 import subprocess
 import sys
 import time
-from contextlib import ExitStack
 
 import yaml
 from PIL import Image
-from reconstruction_backends import BACKENDS, backend_name, capabilities, validate_selection
 
 CODE = Path(__file__).resolve().parents[1]
 
@@ -100,25 +98,10 @@ def input_manifest(root, name, selected=None):
     return match_masks(selected_images(root, name, selected))
 
 
-def visible_gpu():
+def check_gpu(min_free_gib):
     visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if not visible or ',' in visible or visible == '-1':
         raise ValueError('Set CUDA_VISIBLE_DEVICES to exactly one authorized GPU')
-    return visible
-
-
-def gpu_uuid():
-    """Resolve the lock name without requiring free memory while a room job is running."""
-    output = subprocess.check_output(['nvidia-smi', f'--id={visible_gpu()}',
-        '--query-gpu=uuid', '--format=csv,noheader,nounits'], text=True)
-    rows = output.strip().splitlines()
-    if len(rows) != 1 or not rows[0].strip():
-        raise RuntimeError('Expected exactly one GPU UUID')
-    return rows[0].strip()
-
-
-def check_gpu(min_free_gib):
-    visible = visible_gpu()
     output = subprocess.check_output(['nvidia-smi', f'--id={visible}',
         '--query-gpu=uuid,memory.free', '--format=csv,noheader,nounits'], text=True)
     rows = list(csv.reader(output.splitlines()))
@@ -128,8 +111,6 @@ def check_gpu(min_free_gib):
 
 
 def stage_commands(root, run, cfg, inputs):
-    if backend_name(cfg.get('backend', 'mvsam3d')) == 'trellis':
-        return [('reconstruction', [sys.executable, str(CODE/'scripts/run_trellis.py'), '--run-dir', str(run)])]
     return [
         ('da3', [sys.executable, str(CODE/'scripts/run_da3.py'),
                  '--image_dir', str(Path(inputs['input_dir'])/'images'),
@@ -140,7 +121,7 @@ def stage_commands(root, run, cfg, inputs):
     ]
 
 
-def execute(run, commands, result, backend='mvsam3d'):
+def execute(run, commands, result):
     result.update(status='running', stages={})
     try:
         for stage, command in commands:
@@ -152,7 +133,7 @@ def execute(run, commands, result, backend='mvsam3d'):
             result['stages'][stage] = completed.returncode
             if completed.returncode:
                 raise RuntimeError(f'{stage} failed; see logs/{stage}.log')
-        for name in (('result.glb',) if backend == 'trellis' else ('result.glb', 'result.ply')):
+        for name in ('result.glb', 'result.ply'):
             if not (run/'reconstruction'/name).is_file() or not (run/'reconstruction'/name).stat().st_size:
                 raise RuntimeError(f'Missing reconstruction artifact: {name}')
         result.update(status='complete', mesh='reconstruction/result.glb')
@@ -227,47 +208,31 @@ def main():
     parser.add_argument('--parent-run')
     parser.add_argument('--images', nargs='+', help='Image stems to reconstruct; default: all')
     parser.add_argument('--wait-gpu', action='store_true', help='Wait for the GPU lock instead of failing')
-    parser.add_argument('--backend', choices=BACKENDS, default=backend_name())
     args = parser.parse_args()
     root = Path(os.environ['VIEWFORGE_ROOT']).resolve()
     name, attempt = component(args.object), component(args.attempt)
     cfg = yaml.safe_load(args.config.read_text())
-    cfg['backend'] = args.backend
     inputs = input_manifest(root, name, args.images)
-    validate_selection(args.backend, inputs['images'], args.parent_run)
-    if args.backend == 'trellis':
-        from run_trellis import runtime_paths
-        home, _, _ = runtime_paths()
-    else:
-        for path in (root/'weights'/cfg['da3']['model'], root/'weights/sam3d/pipeline.yaml',
-                     root/'third_party/dinov2/hubconf.py'):
-            if not path.exists():
-                raise FileNotFoundError(path)
+    for path in (root/'weights'/cfg['da3']['model'], root/'weights/sam3d/pipeline.yaml',
+                 root/'third_party/dinov2/hubconf.py'):
+        if not path.exists():
+            raise FileNotFoundError(path)
     if args.check:
         gpu = check_gpu(cfg['runtime']['min_free_gib'])
         print(json.dumps(dict(status='preflight_passed', images=len(inputs['images']), gpu=gpu)))
         return
     lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with ExitStack() as stack:
-        lock = stack.enter_context(lock_path.open('a'))
+    with lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
-        if args.backend == 'trellis':
-            # Coordinate with room reconstruction, which holds this per-GPU lock.
-            gpu = gpu_uuid()
-            room_lock_path = home/'runtime/locks'/f'gpu-{gpu}.lock'
-            room_lock_path.parent.mkdir(parents=True, exist_ok=True)
-            room_lock = stack.enter_context(room_lock_path.open('a'))
-            fcntl.flock(room_lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
         # Free memory means something only once the lock is ours: before that, the job holding
-        # either lock is using the memory; --wait-gpu must wait for both before checking it.
+        # it is using the memory, and --wait-gpu should wait for it rather than fail.
         gpu = check_gpu(cfg['runtime']['min_free_gib'])
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
         started = time.monotonic()
-        result = dict(status='preparing', current_stage='preparing', gpu=gpu, backend=args.backend,
-                      capabilities=capabilities(args.backend),
+        result = dict(status='preparing', current_stage='preparing', gpu=gpu,
                       timing=dict(started_at=datetime.now().astimezone().isoformat()))
         write_json(run/'result.json', result)
         try:
@@ -277,11 +242,8 @@ def main():
             result.update(code_revision=subprocess.check_output(['git', '-C', str(CODE),
                 'rev-parse', 'HEAD'], text=True).strip(),
                 upstream_versions=json.loads((CODE/'configs/upstream_versions.json').read_text()))
-            execute(run, stage_commands(root, run, cfg, inputs), result, args.backend)
-            if args.backend == 'mvsam3d':
-                execute_cover(run, result)
-            else:
-                result['cover_status'] = 'unsupported'
+            execute(run, stage_commands(root, run, cfg, inputs), result)
+            execute_cover(run, result)
         except BaseException as exc:
             if result.get('status') != 'failed':
                 result.update(status='failed', error=str(exc))

@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 node_modules/
+gesture/docs/DEV_HISTORY.md
 
 # 系统文件
 .DS_Store
