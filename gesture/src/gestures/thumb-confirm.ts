@@ -6,6 +6,7 @@ export const THUMB_CONFIRM = { holdMs: 500, neutralMs: 150, lossMs: 200 } as con
 export interface ThumbFeedback {
   phase: 'missing' | 'uncertain' | 'ambiguous' | 'waiting' | 'blocked' | 'neutral' | 'pose' | 'confirming' | 'sent';
   progress: number;
+  action?: 'cancel';
 }
 const length = (v: number[]) => Math.hypot(...v);
 const subtract = (a: number[], b: number[]) => a.map((v, i) => v - b[i]);
@@ -34,10 +35,16 @@ export function isRightThumbsUp(hand: Hand, aspect = 4 / 3) {
     distance(p[4], p[8]) > palm * .5;
 }
 
+// 朝下手型沿画面纵轴翻转后复用同一几何约束，左右手身份不变。
+export function isRightThumbsDown(hand: Hand, aspect = 4 / 3) {
+  return isRightThumbsUp({...hand, landmarks: hand.landmarks.map(p => ({...p, y: 1 - p.y}))}, aspect);
+}
+
 // 一次连续手型只发一次确认，并绑定当前预览；失踪、换手或换预览后不可续用计时。
 export class ThumbConfirmSelector {
   private feedback: ThumbFeedback = { phase: 'missing', progress: 0 };
-  get state(): ThumbFeedback { return { ...this.feedback }; }
+  constructor(private direction: 'up' | 'down' = 'up') {}
+  get state(): ThumbFeedback { return { ...this.feedback, ...(this.direction === 'down' ? {action: 'cancel' as const} : {}) }; }
   private since: number | null = null;
   private neutralSince: number | null = null;
   private lastSeen: number | null = null;
@@ -63,7 +70,7 @@ export class ThumbConfirmSelector {
     if ((this.lastSeen !== null && (time <= this.lastSeen || time - this.lastSeen >= THUMB_CONFIRM.lossMs)) ||
         (this.wrist && Math.hypot(wrist.x - this.wrist.x, wrist.y - this.wrist.y) > CONFIG.identityRadius)) this.reset();
     this.wrist = wrist; this.lastSeen = time;
-    const thumb = isRightThumbsUp(right, aspect);
+    const thumb = this.direction === 'down' ? isRightThumbsDown(right, aspect) : isRightThumbsUp(right, aspect);
     if (this.previewId !== previewId) {
       this.since = null;
       if (this.previewId && previewId && thumb) this.armed = false;

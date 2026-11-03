@@ -160,3 +160,43 @@ describe('确认计时与当前预览', () => {
     expect(thumbFeedback({ phase: 'waiting', progress: 0 })).toContain('预览');
   });
 });
+
+describe('右手拇指向下取消', () => {
+  const down = () => {
+    const h = thumbsUp();
+    h.landmarks = h.landmarks.map(p => ({...p, y: 1 - p.y}));
+    return h;
+  };
+  const send = (s: ThumbConfirmSelector, t: number, hands = [down()], id: string | null = 'chair-1', allowed = true) =>
+    s.process(frame(t, hands), 4 / 3, id, allowed);
+  it('向下稳定半秒只取消一次，向上不触发取消', () => {
+    const s = new ThumbConfirmSelector('down');
+    for (let t = 0; t < 500; t += 100) expect(send(s, t)).toBeNull();
+    expect(s.state.action).toBe('cancel');
+    expect(thumbFeedback(s.state)).toContain('取消');
+    expect(send(s, 500)).toBe('chair-1');
+    for (let t = 600; t <= 1500; t += 100) expect(send(s, t)).toBeNull();
+    const up = new ThumbConfirmSelector('down');
+    for (let t = 0; t <= 1000; t += 100) expect(send(up, t, [thumbsUp()])).toBeNull();
+    const confirm = new ThumbConfirmSelector();
+    for (let t = 0; t <= 1000; t += 100) expect(send(confirm, t)).toBeNull();
+  });
+  it('左手、张掌、低置信度、拖动和无预览不取消', () => {
+    for (const hands of [[{...down(), side: 'Left' as const}], [hand()], [{...down(), score: .1}]]) {
+      const s = new ThumbConfirmSelector('down');
+      for (let t = 0; t <= 1000; t += 100) expect(send(s, t, hands)).toBeNull();
+    }
+    for (const id of [null, 'chair-1']) {
+      const s = new ThumbConfirmSelector('down');
+      for (let t = 0; t <= 1000; t += 100) expect(send(s, t, [down()], id, false)).toBeNull();
+    }
+  });
+  it('丢手或更换预览中断计时，不能取消新的预览', () => {
+    for (const lost of [true, false]) {
+      const s = new ThumbConfirmSelector('down');
+      for (let t = 0; t <= 400; t += 100) send(s, t);
+      expect(send(s, 450, lost ? [] : [down()], lost ? 'chair-1' : 'chair-2')).toBeNull();
+      for (let t = 500; t <= 1200; t += 100) expect(send(s, t, [down()], 'chair-2')).toBeNull();
+    }
+  });
+});

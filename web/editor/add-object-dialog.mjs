@@ -36,8 +36,8 @@ export function mountAddObject({onReady, toast}) {
 
   function show(step) {
     state.step = step;
-    dialog.querySelector('[data-step="photos"]').textContent = state.parent ? '补拍' : '照片';
-    $('#add-object-title').textContent = state.parent ? '补拍' : '添加物品';
+    dialog.querySelector('[data-step="photos"]').textContent = state.parent ? '补充照片' : '选择照片';
+    $('#add-object-title').textContent = state.parent ? '补充物品照片' : '通过照片添加物品';
     for (const panel of dialog.querySelectorAll('[data-panel]')) panel.hidden = panel.dataset.panel !== step;
     const order = ['photos', 'masks', 'build', 'size'];
     for (const item of dialog.querySelectorAll('[data-step]')) {
