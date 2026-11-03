@@ -18,7 +18,7 @@ export const categoryLabel = (category) => LABELS[category] || category;
 const SEATS = new Set(['chair', 'stool', 'bench']);
 
 export function roomConfig(doc) {
-  if (doc?.format !== FORMAT || doc.version !== 1) throw new Error('物体清单 room_objects.json 格式不兼容');
+  if (doc?.format !== FORMAT || doc.version !== 1) throw new Error('物品清单 room_objects.json 格式不兼容');
   const objects = new Map(doc.objects.map((object) => [object.id, object]));
   const node = (id) => objects.get(id).node;
   const footprint = ({id}) => {
@@ -78,7 +78,7 @@ export function flattenObjects(room, nodes) {
     if (object !== room && groupOf.has(name) && !found.has(name)) found.set(name, object);
   });
   const missing = nodes.filter(({node}) => !found.has(node)).map(({node}) => node);
-  if (missing.length) throw new Error(`房间版本不匹配，缺少物体 ${missing.join('、')}`);
+  if (missing.length) throw new Error(`房间版本不匹配，缺少物品 ${missing.join('、')}`);
   room.updateMatrixWorld(true);
   const lift = [...found].filter(([name, object]) => {
     for (let parent = object.parent; parent && parent !== room; parent = parent.parent) {
@@ -99,7 +99,7 @@ export function topMembers(room, names) {
     if (wanted.has(name) && !found.has(name)) found.set(name, object);
   });
   const missing = names.filter((name) => !found.has(name));
-  if (missing.length) throw new Error(`房间版本不匹配，缺少物体 ${missing.join('、')}`);
+  if (missing.length) throw new Error(`房间版本不匹配，缺少物品 ${missing.join('、')}`);
   return [...found.values()].filter((object) => {
     for (let parent = object.parent; parent; parent = parent.parent) if (wanted.has(parent.userData?.name || parent.name)) return false;
     return true;

@@ -1,5 +1,5 @@
 // The toolbar opens this overlay; a closed warehouse reserves no canvas space.
-export function mountWarehouseDrawer({panel, content, toggle, close}) {
+export function mountWarehouseDrawer({panel, content, toggle, close, onOpenChange}) {
   let open = false;
   function setOpen(next) {
     open = !!next;
@@ -8,6 +8,7 @@ export function mountWarehouseDrawer({panel, content, toggle, close}) {
     panel.hidden = !open;
     content.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
+    onOpenChange?.(open);
   }
   toggle.addEventListener('click', () => setOpen(!open));
   close.addEventListener('click', () => setOpen(false));

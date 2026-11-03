@@ -33,7 +33,7 @@ from gpu import GpuLock, list_gpus, select_gpu
 
 CHECKOUT = Path(__file__).resolve().parents[2]  # this RoomCanvas checkout
 RECON = CHECKOUT / "room-reconstruction"  # the LiteReality-based module inside it
-HOME = Path(os.environ.get("ROOMCANVAS_HOME", "/workspace/geyinuo/RoomCanvas"))
+HOME = Path(os.environ.get("ROOMCANVAS_HOME", CHECKOUT))
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD", re.I)  # never printed or recorded
 
 

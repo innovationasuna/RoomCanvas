@@ -1,8 +1,10 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#eceee7"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
+<meta name="theme-color" content="#252623"><link rel="icon" href="../icon.svg"><title>RoomCanvas</title>
 <link rel="stylesheet" href="../theme.css">
 <link rel="stylesheet" href="./editor.css">
+<link rel="stylesheet" href="./form-workspace.css">
+<link rel="stylesheet" href="./workspace-motion.css">
 <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/examples/jsm/"}}</script>
 </head><body><svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-room" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.6 8-4.6M12 12v9M8 5.3l8 4.6v5.3"/></symbol>
@@ -20,6 +22,7 @@
     <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
     <symbol id="icon-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/></symbol>
     <symbol id="icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9.5 3-.6 2.3-1.5.9-2.3-.6-2.5 4.3 1.7 1.7v1.8l-1.7 1.7 2.5 4.3 2.3-.6 1.5.9.6 2.3h5l.6-2.3 1.5-.9 2.3.6 2.5-4.3-1.7-1.7v-1.8l1.7-1.7-2.5-4.3-2.3.6-1.5-.9L14.5 3Z"/><circle cx="12" cy="12.5" r="3"/></symbol>
     <symbol id="icon-undo" viewBox="0 0 24 24"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 6 6v3"/></symbol>
     <symbol id="icon-redo" viewBox="0 0 24 24"><path d="m15 5 5 5-5 5m5-5h-9a6 6 0 0 0 0 12" transform="translate(0 -2)"/></symbol>
     <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
@@ -41,23 +44,23 @@
 <header class="rc-top">
  <a class="rc-brand" id="home-link" href="../" title="全部房间"><span class="rc-logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</a>
  <div class="rc-project"><strong>房间</strong></div>
- <div class="rc-modes" aria-label="工作模式"><button class="rc-mode" data-mode="edit" aria-pressed="true">布置</button><button class="rc-mode" data-mode="preview" aria-pressed="false">预览</button><button class="rc-mode" data-mode="walk" aria-pressed="false" title="第一人称在房间里走动：WASD 走，拖动转头，Esc 退出">漫游</button></div>
+ <div class="rc-modes" aria-label="工作模式"><button class="rc-mode" data-mode="edit" aria-pressed="true">布置</button><button class="rc-mode" data-mode="preview" aria-pressed="false">预览</button><button class="rc-mode" data-mode="walk" aria-pressed="false" title="第一人称在房间里走动：WASD 走，中键拖动转头，Esc 退出">漫游</button></div>
 </header>
 <main class="rc-stage">
- <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择家具后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
+ <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择物品后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
  <nav class="rc-tools" aria-label="布置工具">
   <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3/4 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
   <button class="rc-tool" id="undo" disabled aria-label="撤销"><svg aria-hidden="true"><use href="#icon-undo"/></svg>撤销</button>
-  <button class="rc-tool" id="clear-room" title="将房间中的家具全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
-  <button class="rc-tool" id="reset-layout" title="恢复原始家具、位置和朝向，可撤销">↻ 一键还原</button>
-  <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
+  <button class="rc-tool" id="clear-room" title="将房间中的物品全部收回物品库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
+  <button class="rc-tool" id="reset-layout" title="恢复原始物品、位置和朝向，可撤销">↻ 一键还原</button>
+  <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>物品库</button>
   <details class="rc-menu" id="import-menu" hidden>
-   <summary class="rc-tool" title="把用照片重建的物体按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物体</summary>
+   <summary class="rc-tool" title="把用照片重建的物品按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物品</summary>
    <div class="rc-menu-panel rc-import">
-    <label>已重建的物体<select id="import-run"></select></label>
+    <label>已重建的物品<select id="import-run"></select></label>
     <div class="rc-import-size"><label>实测边<select id="import-axis"><option>X</option><option>Y</option><option>Z</option></select></label><label>长度（米）<input id="import-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
     <p id="import-note" class="rc-scale-note"></p>
-    <div class="rc-import-actions"><button class="rc-action" id="import-capture" type="button" disabled title="给这个物体补几张照片，在它的基础上重建">补拍</button><button class="rc-action rc-confirm" id="import-object" type="button" disabled>导入并摆放</button></div>
+    <div class="rc-import-actions"><button class="rc-action" id="import-capture" type="button" disabled title="给这个物品补几张照片，在它的基础上重建">补拍</button><button class="rc-action rc-confirm" id="import-object" type="button" disabled>导入并摆放</button></div>
    </div>
   </details>
   <details class="rc-menu" id="light-menu">
@@ -86,31 +89,31 @@
   <details class="rc-menu" id="tools-menu">
    <summary class="rc-tool" aria-label="更多工具" title="更多工具">•••</summary>
    <div class="rc-menu-panel">
-    <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中家具" data-view="focus">聚焦家具</button></div>
+    <div class="rc-menu-options"><button class="rc-tool" id="focus" aria-label="聚焦选中物品" data-view="focus">聚焦物品</button></div>
     <div class="rc-footer-tools"><span class="rc-near-walls" role="radiogroup" aria-label="近侧墙">近侧墙<label><input type="radio" name="near-walls" value="solid">实心</label><label><input type="radio" name="near-walls" value="faint" checked>半透明</label><label><input type="radio" name="near-walls" value="hidden">隐藏</label></span><label><input id="ceiling" type="checkbox">天花板</label>
- <label><input id="import-lighting" type="checkbox">导入物体随光照变化（实验）</label>
+ <label><input id="import-lighting" type="checkbox">导入物品随光照变化（实验）</label>
  <button class="rc-tool" id="import-layout">导入布局</button><button class="rc-tool" id="export-layout" data-gesture-ignore title="请使用鼠标或键盘导出布局">导出布局</button><button class="rc-tool" id="resume-layout" disabled>继续上次布置</button>
  <a href="../?model=authored" target="_blank" rel="noopener">原始重建 ↗</a><input id="layout-file" type="file" accept=".json,application/json" hidden></div>
     <p class="rc-scale-note">单位：米</p>
    </div>
   </details>
  </nav>
- <aside class="rc-controls" aria-label="家具摆放控制" hidden>
-  <p id="selected-name" class="rc-object-title">挑一件家具，试着摆放</p>
-  <p id="selected-category" class="rc-object-size">从房间或下方仓库开始</p>
+ <aside class="rc-controls" aria-label="物品摆放控制" hidden>
+  <p id="selected-name" class="rc-object-title">挑一件物品，试着摆放</p>
+  <p id="selected-category" class="rc-object-size">从房间或下方物品库开始</p>
   <div class="rc-state"><span class="rc-state-dot"></span><span id="session-status" aria-live="polite">选择 → 虚影预览 → 确认放置</span></div>
-  <p id="empty-selection" class="rc-idle-tip">单击已有家具可调整位置。拖动空白处环绕观察，滚轮缩放。</p>
+  <p id="empty-selection" class="rc-idle-tip">单击已有物品可调整位置。按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。</p>
   <div id="selection-controls" hidden>
    <div class="rc-pending-actions">
     <button class="rc-action" hidden id="session-rotate-left">↶ 左转 15°</button><button class="rc-action" hidden id="session-rotate-right">↷ 右转 15°</button>
     <button class="rc-action rc-action-wide rc-confirm" id="confirm-placement">确认放置</button>
     <button class="rc-action rc-action-wide rc-cancel" id="cancel-placement">取消</button>
-    <button class="rc-action rc-action-wide rc-store" id="store-object" title="从房间移除，并收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>收回仓库</button>
+    <button class="rc-action rc-action-wide rc-store" id="store-object" title="从房间移除，并收回物品库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>收回物品库</button>
    </div>
           <section id="wall-section" class="wall-section" aria-label="墙面安装" hidden>
             <div class="wall-section-heading"><div><h3>安装墙面</h3><p id="wall-current">当前墙面</p></div><button id="change-wall" class="button button-secondary" type="button" aria-expanded="false">换一面墙</button></div>
             <div id="wall-picker-controls" hidden>
-              <p class="wall-picker-note">在场景中点选目标墙的位置，也可以先从列表选择墙面。物体会自动转向并贴墙。</p>
+              <p class="wall-picker-note">在场景中点选目标墙的位置，也可以先从列表选择墙面。物品会自动转向并贴墙。</p>
               <label class="wall-target-field" for="wall-target">目标墙面<select id="wall-target"><option value="">在场景中点选</option></select></label>
               <p id="wall-preview-status" class="wall-preview-status" role="status">请选择目标墙面</p>
               <button id="apply-wall" class="button button-primary wall-apply" type="button" disabled>锁定后微调</button>
@@ -119,7 +122,7 @@
    <!-- Retain legacy control IDs for existing keyboard and scene bindings. -->
    <div id="legacy-selection-controls" hidden><p class="rc-coordinate" id="candidate-coordinate"></p><button class="rc-action rc-action-wide" id="lock-preview">锁定预览</button><fieldset id="selection-fieldset" disabled>
           <section class="move-section"><div class="control-heading"><h3>移动位置</h3><span class="control-shortcut">↑ ↓ ← →</span></div><p id="direction-note" class="control-note">按当前视角移动 · 可调整高度</p>
-            <div class="direction-pad" aria-label="沿地面移动选中物体">
+            <div class="direction-pad" aria-label="沿地面移动选中物品">
               <button data-move="forward" class="move-button move-forward" type="button" aria-label="向前移动"><svg aria-hidden="true"><use href="#icon-arrow-up"/></svg><span>前</span></button>
               <button data-move="left" class="move-button move-left" type="button" aria-label="向左移动"><svg aria-hidden="true"><use href="#icon-arrow-left"/></svg><span>左</span></button>
               <div class="pad-center" aria-hidden="true"><svg><use href="#icon-move"/></svg></div>
@@ -128,41 +131,50 @@
             </div>
             <label class="step-field" for="step"><span>每次移动</span><span class="step-input"><select id="step"><option value="0.01">0.01</option><option value="0.05">0.05</option><option value="0.1" selected>0.10</option><option value="0.25">0.25</option></select><span>米</span></span></label>
           </section>
-          <section class="placement-section" aria-label="物体放置状态">
+          <section class="placement-section" aria-label="物品放置状态">
             <div class="control-heading"><h3>接触与支撑</h3><span id="placement-state" class="placement-state" data-state="draft" role="status">检查放置面</span></div>
-            <p id="placement-detail" class="placement-detail">选择物体后检查其支撑面。</p>
+            <p id="placement-detail" class="placement-detail">选择物品后检查其支撑面。</p>
             <button id="settle-object" class="settle-button" type="button"><svg aria-hidden="true"><use href="#icon-arrow-down"/></svg><span>落到支撑面</span></button>
-            <p class="placement-hint">靠近支撑面自动贴合，碰到物体时停止</p>
+            <p class="placement-hint">靠近支撑面自动贴合，碰到物品时停止</p>
           </section>
           <section class="rotate-section"><div class="control-heading"><h3>调整朝向</h3><span class="control-note">每次 15°</span></div><div class="rotation-buttons"><button type="button" id="rotate-left"><svg aria-hidden="true"><use href="#icon-rotate-left"/></svg>左转</button><button type="button" id="rotate-right"><svg aria-hidden="true"><use href="#icon-rotate-right"/></svg>右转</button></div></section>
           <details class="advanced-controls"><summary>高度与位置详情</summary>
             <div class="height-heading"><span>高度偏移</span><output id="offset-y">0.00</output></div>
-            <div class="height-buttons" aria-label="调整选中物体的高度">
+            <div class="height-buttons" aria-label="调整选中物品的高度">
               <button id="depth-forward" data-move="up" class="move-button height-button" type="button" aria-label="向上移动"><svg aria-hidden="true"><use href="#icon-arrow-up"/></svg><span>上升</span></button>
               <button id="depth-back" data-move="down" class="move-button height-button" type="button" aria-label="向下移动"><svg aria-hidden="true"><use href="#icon-arrow-down"/></svg><span>下降</span></button>
             </div>
-          <section class="transform-section"><div class="control-heading"><h3>相对初始位置</h3><button class="text-button" id="reset-object" type="button" title="还原此物体的初始位置与朝向"><svg aria-hidden="true"><use href="#icon-reset"/></svg>还原</button></div><div class="readouts"><div><span>水平 X</span><output id="offset-x">0.00</output></div><div><span>水平 Z</span><output id="offset-z">0.00</output></div><div><span>旋转</span><output id="rotation">0°</output></div></div></section>
+          <section class="transform-section"><div class="control-heading"><h3>相对初始位置</h3><button class="text-button" id="reset-object" type="button" title="还原此物品的初始位置与朝向"><svg aria-hidden="true"><use href="#icon-reset"/></svg>还原</button></div><div class="readouts"><div><span>水平 X</span><output id="offset-x">0.00</output></div><div><span>水平 Z</span><output id="offset-z">0.00</output></div><div><span>旋转</span><output id="rotation">0°</output></div></div></section>
           </details>
         </fieldset></div>
   </div>
   <span id="selected-count" hidden>0</span>
  </aside>
  <aside class="rc-gesture-card" id="gesture-card" aria-label="手势" hidden>
-  <div class="rc-gesture-preview"><video id="gesture-video" autoplay muted playsinline></video><canvas id="gesture-skeleton" width="640" height="480" aria-hidden="true"></canvas></div>
-  <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3 / 4）">
-   <button type="button" data-gesture-mode="move" aria-pressed="true"><b>1</b>移动</button><button type="button" data-gesture-mode="height" aria-pressed="false"><b>2</b>抬高</button><button type="button" data-gesture-mode="scale" aria-pressed="false"><b>3</b>缩放</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>4</b>旋转</button>
+  <div class="rc-gesture-preview"><video id="gesture-video" autoplay muted playsinline></video><canvas id="gesture-skeleton" width="640" height="480" aria-hidden="true"></canvas><span class="rc-gesture-video-caption">镜像预览</span></div>
+  <div class="rc-hand-states" aria-label="双手识别状态">
+   <div id="gesture-left-tracking" data-state="missing"><span>左手 · 切换动作</span><strong id="gesture-left-state">未入镜</strong></div>
+   <div id="gesture-right-tracking" data-state="missing"><span>右手 · 操作物品</span><strong id="gesture-right">未入镜</strong></div>
   </div>
-  <p class="rc-gesture-hand" id="gesture-right" data-seen="false">右手未识别</p>
-  <p class="rc-gesture-hand" id="gesture-left" data-seen="false">左手比 1 / 2 / 3 / 4 切换模式</p>
-  <progress id="gesture-progress" max="1" value="0" aria-label="左手模式确认进度"></progress>
-  <p class="rc-gesture-hand" id="gesture-confirm" role="status">右手竖拇指确认放置</p>
-  <progress id="gesture-confirm-progress" max="1" value="0" aria-label="右手放置确认进度"></progress>
+  <section class="rc-gesture-mode-section" aria-labelledby="gesture-mode-heading">
+   <div class="rc-gesture-section-heading"><h2 id="gesture-mode-heading">左手选择动作</h2></div>
+   <div class="rc-gesture-modes" role="group" aria-label="手势模式（左手比 1 / 2 / 3 / 4）">
+    <button type="button" data-gesture-mode="move" aria-pressed="true"><b>1</b>移动</button><button type="button" data-gesture-mode="height" aria-pressed="false"><b>2</b>抬高</button><button type="button" data-gesture-mode="scale" aria-pressed="false"><b>3</b>缩放</button><button type="button" data-gesture-mode="rotate" aria-pressed="false"><b>4</b>旋转</button>
+   </div>
+   <p id="gesture-left" class="rc-gesture-instruction">左手比 1 / 2 / 3 / 4，保持片刻切换动作。</p>
+   <div class="rc-gesture-meter" id="gesture-mode-meter" hidden><div><span>动作切换</span><output id="gesture-mode-percent" for="gesture-progress">0%</output></div><progress id="gesture-progress" max="1" value="0" aria-label="左手模式确认进度"></progress></div>
+  </section>
+  <section class="rc-gesture-next" id="gesture-next" data-state="waiting" aria-labelledby="gesture-next-title">
+   <span class="rc-gesture-next-label">接下来</span><h2 id="gesture-next-title" aria-live="polite" aria-atomic="true">等待摄像头开启</h2>
+   <p id="gesture-confirm">开启后，请将双手完整放入画面。</p>
+   <div class="rc-gesture-meter" id="gesture-confirm-meter" hidden><div><span>保持竖拇指</span><output id="gesture-confirm-percent" for="gesture-confirm-progress">0%</output></div><progress id="gesture-confirm-progress" max="1" value="0" aria-label="右手放置确认进度"></progress></div>
+  </section>
   <p class="rc-gesture-status" id="gesture-status" role="status" hidden></p>
  </aside>
  <div id="drop-label" class="rc-drop-label" hidden></div>
  <div id="selection-label" class="selection-label" hidden></div>
  <div id="open-hint" class="rc-open-hint" role="status" hidden></div>
- <div class="rc-help"><span id="interaction-help">拖动空白处转动视角 · 滚轮缩放</span></div>
+ <div class="rc-help"><span id="interaction-help">中键拖动旋转 · 右键拖动平移 · 滚轮缩放</span></div>
  <nav class="rc-view-tools" aria-label="场景与视角">
   <button class="rc-tool" id="overview" aria-label="恢复整体视角" data-view="overview">整体</button>
   <button class="rc-tool" id="top" aria-label="俯视房间" data-view="top">俯视</button>
@@ -171,21 +183,21 @@
  <div id="toast" class="rc-toast" role="status" hidden></div>
 </main>
 <div class="rc-warehouse-dock">
-<section class="rc-shelf" id="object-panel" aria-label="仓库" hidden>
+<section class="rc-shelf" id="object-panel" aria-label="物品库" hidden>
  <div id="warehouse-content" hidden>
- <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件家具</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索家具" aria-label="搜索场景物体"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
- <div class="rc-catalog" id="object-list" aria-label="可编辑物体"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物体</strong><small id="add-object-state">几张照片重建</small></span></button></div>
+ <div class="rc-shelf-head"><span class="rc-shelf-title">物品库</span><span class="rc-counter" id="object-count">17 件物品</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索物品" aria-label="搜索场景物品"></label><button class="rc-tool" id="close-list" aria-label="收起物品库面板">×</button></div>
+ <div class="rc-catalog" id="object-list" aria-label="可编辑物品"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物品</strong><small id="add-object-state">几张照片重建</small></span></button></div>
  </div>
 </section>
 </div>
 <dialog class="rc-dialog" id="add-object-dialog" aria-labelledby="add-object-title">
- <form method="dialog" class="rc-dialog-head"><h2 id="add-object-title">添加物体</h2>
-  <ol class="rc-steps"><li data-step="photos">照片</li><li data-step="masks">抠图</li><li data-step="build">重建</li><li data-step="size">尺寸</li></ol>
+ <form method="dialog" class="rc-dialog-head"><h2 id="add-object-title">添加物品</h2>
+  <ol class="rc-steps"><li data-step="photos">选择照片</li><li data-step="masks">确认范围</li><li data-step="build">生成模型</li><li data-step="size">确认尺寸</li></ol>
   <button class="rc-tool" value="close" aria-label="关闭（重建在服务器上继续）">×</button></form>
  <section data-panel="photos">
   <p class="rc-dialog-note" id="add-capture-intro" hidden></p>
   <label class="rc-field" id="add-name-field">名称<input id="add-name" maxlength="53" placeholder="例如：我的椅子" autocomplete="off"></label>
-  <label class="rc-drop" id="add-drop"><input id="add-files" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic" multiple hidden><strong>拖入照片，或点这里选择</strong><small>1 张也能重建；绕物体从不同角度多拍几张、物体完整入镜，效果更好</small></label>
+  <label class="rc-drop" id="add-drop"><input id="add-files" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic" multiple hidden><strong>拖入照片，或点这里选择</strong><small>1 张也能重建；绕物品从不同角度多拍几张、物品完整入镜，效果更好</small></label>
   <div class="rc-photo-grid" id="add-photos"></div>
   <p class="rc-dialog-note" id="add-photos-note" aria-live="polite"></p>
   <div class="rc-dialog-actions"><button type="button" class="rc-action" id="add-capture-cancel" hidden>不补拍了</button><button type="button" class="rc-action rc-confirm" id="add-upload" disabled>上传并抠图</button></div>
@@ -204,8 +216,8 @@
  </section>
  <section data-panel="size" hidden>
   <div class="rc-add-view" id="add-view"></div>
-  <p class="rc-dialog-note">点击彩色轴标签选择实测边；蓝色 Z 轴表示高度。</p>
-  <div class="rc-import-size"><label>实测边<select id="add-axis"><option value="X">X（宽）</option><option value="Y">Y（深）</option><option value="Z" selected>Z（高）</option></select></label><label>长度（米）<input id="add-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
+  <p class="rc-dialog-note">选择你实际测量的一边，填写长度。模型会按真实尺寸放入房间。</p>
+  <div class="rc-import-size"><label>测量哪一边<select id="add-axis"><option value="X">宽度（X）</option><option value="Y">深度（Y）</option><option value="Z" selected>高度（Z）</option></select></label><label>实测长度（米）<input id="add-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
   <p class="rc-dialog-note" id="add-size-note" aria-live="polite"></p>
   <p class="rc-dialog-note" id="add-cover-note" aria-live="polite"></p>
   <div class="rc-dialog-actions"><button type="button" class="rc-action" id="add-cover-view" hidden>看推荐角度</button><button type="button" class="rc-action" id="add-capture">补拍</button><button type="button" class="rc-action rc-confirm" id="add-place" disabled>放进房间</button></div>
