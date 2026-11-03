@@ -109,7 +109,8 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", *p["build-system"
 fi
 if [[ "$SETUP_ACTION" != skip ]]; then
     require_file "$PY"
-    run env "PYTHONPATH=$CODE:$CODE/notebook:$THIRD/depth-anything-3/src" "$PY" -c 'import torch, pytorch3d, gsplat, kaolin, flash_attn, utils3d, starlette, uvicorn; from depth_anything_3.api import DepthAnything3; assert torch.__version__.split("+")[0] == "2.5.1"; assert torch.version.cuda == "12.1"; assert kaolin.__version__ == "0.17.0"; assert torch.cuda.is_available()'
+    # Inference uses flash_attn only on A100/H100/H200 (sam3d_objects/pipeline/inference_pipeline.py), xformers elsewhere.
+    run env "PYTHONPATH=$CODE:$CODE/notebook:$THIRD/depth-anything-3/src" "$PY" -c 'import torch, pytorch3d, gsplat, kaolin, xformers, utils3d, starlette, uvicorn; from depth_anything_3.api import DepthAnything3; assert torch.__version__.split("+")[0] == "2.5.1"; assert torch.version.cuda == "12.1"; assert kaolin.__version__ == "0.17.0"; assert torch.cuda.is_available(); gpu = torch.cuda.get_device_name(0); any(g in gpu for g in ("A100", "H100", "H200")) and __import__("flash_attn")'
     setup_finish "$ENV_DIR"
 fi
 
