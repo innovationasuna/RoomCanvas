@@ -1,75 +1,63 @@
-# Modal setup
+# Modal deployment
 
-Modal hosts the GPU-backed model functions while the pipeline stays on the calling machine. The
-apps remain deployed between calls, but their containers scale to zero when idle.
+Modal runs GPU inference while the reconstruction pipeline stays on the calling
+machine. Run these commands from `room-reconstruction/`.
 
-Modal is rented compute, not a model API: a Modal token gives you GPUs, not models, so nothing is
-callable until you deploy these apps into your own workspace.
-
-## One-time setup
-
-Join the intended Modal workspace, or use your own — nothing is pinned to a particular one, and no
-workspace is hardcoded in source.
-
-Install the client with `uv sync --extra modal`, then put your token pair from
-[modal.com/settings/tokens](https://modal.com/settings/tokens) into `.env`:
-
-```dotenv
-MODAL_TOKEN_ID=ak-...
-MODAL_TOKEN_SECRET=as-...
-```
-
-Both halves are required — Modal sends them as separate request headers, and the pipeline treats
-half a pair as unconfigured rather than failing at the first model call.
-
-**No Hugging Face account or token is required for either app.** DINO's weights are public.
-TRELLIS.2-4B is MIT and ungated, and TRELLIS.2's gated DINOv3 image encoder is baked into the image
-from a digest-verified ungated mirror — see [`trellis/README.md`](trellis/README.md).
-
-## Deploy
+## Setup and deployment
 
 ```bash
-uv run litereality setup
+uv sync --frozen --extra modal
 ```
 
-That is the whole step, and it runs unattended. It checks the client is installed, quotes the build
-time, and runs both deploys below with the `.env` tokens injected into each subprocess — no browser
-login, no profile to manage, and nothing to confirm.
+Configure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in `.env`, or use
+`MODAL_PROFILE` for a named profile. Both token fields are required.
+For manual deployment, export the credentials into the shell first; the Modal
+command does not load this project's `.env`.
 
-Useful flags: `--skip-deploy` authenticates and records the profile only, `--env <name>` targets a
-non-default Modal environment, and `--profile <name>` forces a specific `~/.modal.toml` profile
-instead of the tokens.
-
-### Deploying by hand
-
-The two commands `setup` wraps, if you would rather run them yourself:
+Deploy both model functions together:
 
 ```bash
-uv run modal deploy --env main deploy/modal/dino/app.py
-uv run modal deploy --env main deploy/modal/trellis/app.py
+uv run modal deploy --env main deploy/modal/app.py
 ```
 
-These need credentials in the environment first — either the same `MODAL_TOKEN_ID` /
-`MODAL_TOKEN_SECRET` pair exported, or a profile:
+[app.py](app.py) includes DINO and TRELLIS in the same `litereality` app.
+The child wrappers use separate app names, `litereality-dino` and
+`litereality-trellis`, while the runtime defaults target `litereality`.
+
+The CLI also provides `uv run litereality setup`, with `--profile`, `--env`,
+and `--skip-deploy`. However,
+[runtimes/setup.py](../../src/litereality_agent/runtimes/setup.py) currently
+deploys the child wrappers separately, so its deployments do not match those
+default app names. Use the combined command above for deployment.
+For profile authentication without deployment:
 
 ```bash
-uv run modal setup
-uv run modal profile activate <profile>
-export MODAL_PROFILE=<profile>
+uv run litereality setup --skip-deploy
 ```
 
-A profile works everywhere the token pair does; set `MODAL_PROFILE=<profile>` in `.env` instead of
-the tokens. The app names, function names, and environment already default, so that one line is
-enough. `models/registry.py` selects Modal whenever either form of credential is configured.
+Without token credentials, setup may open a browser for authentication and records
+the selected profile in `.env`. With a token pair, it uses that pair directly.
 
-### What deploying gets you
+## Runtime selection
 
-The first deployment builds the images; the first *invocation* downloads model weights into
-persistent Modal Volumes, so both are slow once and fast afterwards. DINO runs on an L4. TRELLIS
-runs on one H100 with zero application retries and a ten-second idle scale-down window. A deployed
-app with zero active containers does not consume GPU compute, though its stored image and Volume
-data remain.
+[models/registry.py](../../src/litereality_agent/models/registry.py) selects Modal
+when a token pair or profile is configured. Default app/function settings are in
+[settings.py](../../src/litereality_agent/settings.py).
+For local inference, see [local GPU setup](../local-gpu.md).
 
+## DINO
 
-See [`dino/README.md`](dino/README.md) and [`trellis/README.md`](trellis/README.md) for model-specific
-details.
+[dino/app.py](dino/app.py) serves GroundingDINO detection and DINOv2 embeddings.
+Its deployment image uses precompiled wheels; inference uses an L4, at most four
+containers, and a 60-second idle scale-down window.
+Weights are cached in the `litereality-dino-models` Volume.
+
+## TRELLIS
+
+[trellis/app.py](trellis/app.py) wraps the canonical TRELLIS inference code.
+It uses an H100, one container, zero application retries, and a ten-second idle
+scale-down window. Model weights persist in the `litereality-trellis-models` Volume.
+See [TRELLIS dependencies and weights](trellis/README.md).
+
+A deployment builds the images; model invocation may download weights.
+Idle containers scale down, while stored images and Volumes remain.

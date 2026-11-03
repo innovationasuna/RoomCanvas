@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
-python3 web/scripts/serve.py                      # http://127.0.0.1:7880/web/
+python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + tunnels to the object and room services
+python3 web/scripts/serve.py                                         # page only, tunnel opened elsewhere
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
 
 The editor reads ViewForge's objects at /viewforge/assets/catalog and /viewforge/assets/<run>/...,
-and "添加物体" uploads photos and follows the reconstruction at /viewforge/objects/... and saves the
-measured size at /viewforge/dimensions/<run>; those requests go to the ViewForge server (normally the
-SSH tunnel to the 3090). Nothing else is forwarded, POSTs only from this page, and the server only
-listens on this computer.
+and "添加物品" uploads photos and follows the reconstruction at /viewforge/objects/... and saves the
+measured size at /viewforge/dimensions/<run>; those requests go to the ViewForge server. "重建房间" uploads
+a scan and follows the job at /room-reconstruction/..., which goes to the room reconstruction API. With --ssh,
+this script opens one SSH connection forwarding both (local ports taken from --viewforge and --room-backend)
+and closes it on exit.
+Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
 import json
 import re
 import shutil
+import signal
+import socket
+import subprocess
+import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from functools import partial
@@ -129,7 +137,7 @@ class Handler(SimpleHTTPRequestHandler):
             response = urllib.request.urlopen(request, timeout=timeout)
         except urllib.error.HTTPError as error:
             response = error  # ViewForge's own error message (JSON) goes to the page as it is.
-        except (urllib.error.URLError, TimeoutError) as error:
+        except OSError as error:  # refused, timed out, or reset by an SSH tunnel whose remote side is down
             if room:
                 return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
             return self.send_error(502, f'ViewForge not reachable at {self.viewforge} ({error})')
@@ -142,6 +150,43 @@ class Handler(SimpleHTTPRequestHandler):
             shutil.copyfileobj(response, self.wfile)
 
 
+def tunnel_command(host, forwards):
+    """The ssh command that forwards each 127.0.0.1:<local_port> to <remote> as seen from <host>."""
+    command = ['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
+    for local_port, remote in forwards:
+        if not re.fullmatch(r'[\w.-]+:\d+', remote):
+            raise ValueError(f'remote must be <address>:<port>, got {remote!r}')
+        command += ['-L', f'127.0.0.1:{local_port}:{remote}']
+    return command + [host]
+
+
+def open_tunnel(command, ports, wait=30):
+    """Start ssh and return it once every local port accepts connections; exit with a message if ssh stops."""
+    for port in ports:
+        try:
+            socket.create_connection(('127.0.0.1', port), timeout=1).close()
+        except OSError:
+            continue
+        # something already answers there, e.g. a tunnel opened by hand: it would look like ours
+        sys.exit(f'Port {port} is already in use (a tunnel already open?). Close it, or run without --ssh.')
+    process = subprocess.Popen(command)
+    waiting = list(ports)
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            sys.exit(f'SSH tunnel failed (exit {process.returncode}). Is a port in {ports} already in use, '
+                     f'or the host unreachable? Command: {" ".join(command)}')
+        try:
+            socket.create_connection(('127.0.0.1', waiting[0]), timeout=1).close()
+            waiting.pop(0)
+            if not waiting:
+                return process
+        except OSError:
+            time.sleep(0.3)
+    process.terminate()
+    sys.exit(f'SSH tunnel did not open ports {waiting} within {wait} s')
+
+
 class Server(ThreadingHTTPServer):
     # ES-module imports arrive in bursts; Python 3.12's five-entry default can reset local connections.
     request_queue_size = 64
@@ -152,12 +197,40 @@ def main():
     parser.add_argument('--port', type=int, default=7880)
     parser.add_argument('--viewforge', default=Handler.viewforge, help='ViewForge server (default: the SSH tunnel)')
     parser.add_argument('--room-backend', default=Handler.room_backend, help='Room reconstruction API (default: http://127.0.0.1:7866)')
+    parser.add_argument('--ssh', metavar='HOST', help='open the SSH tunnels to the object and room services on HOST')
+    parser.add_argument('--remote', default='127.0.0.1:7862',
+                        help='object service address as seen from HOST (default: 127.0.0.1:7862)')
+    parser.add_argument('--room-remote', default='127.0.0.1:7866',
+                        help='room reconstruction API address as seen from HOST (default: 127.0.0.1:7866)')
     args = parser.parse_args()
     Handler.viewforge = args.viewforge.rstrip('/')
     Handler.room_backend = args.room_backend.rstrip('/')
+    tunnel = None
+    if args.ssh:
+        forwards = [(urlsplit(Handler.viewforge).port or 80, args.remote),
+                    (urlsplit(Handler.room_backend).port or 80, args.room_remote)]
+        try:
+            command = tunnel_command(args.ssh, forwards)
+        except ValueError as error:
+            parser.error(str(error))
+        tunnel = open_tunnel(command, [port for port, _ in forwards])
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
-    print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}')
-    server.serve_forever()
+    print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
+          + (f' (tunnel via {args.ssh} to {args.remote})' if tunnel else '')
+          + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.room_remote})' if tunnel else ''))
+    def stop(signum, frame):
+        raise KeyboardInterrupt
+    for signum in (signal.SIGTERM, signal.SIGHUP):  # closing the terminal or `kill` also closes the tunnel
+        signal.signal(signum, stop)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        if tunnel:
+            tunnel.terminate()
+            tunnel.wait(timeout=5)
 
 
 if __name__ == '__main__':

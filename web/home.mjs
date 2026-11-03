@@ -35,7 +35,7 @@ async function describe(room) {
     if (!response.ok) throw new Error('Room metadata unavailable');
     const objects = await response.json();
     if (!Array.isArray(objects.groups)) throw new Error('Invalid furniture list');
-    facts.textContent = `${objects.groups.length} 件家具`;
+    facts.textContent = `${objects.groups.length} 件物品`;
   } catch {
     facts.textContent = '房间信息暂不可用';
     facts.classList.add('error');

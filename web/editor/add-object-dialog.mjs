@@ -176,7 +176,7 @@ export function mountAddObject({onReady, toast}) {
       state.run = job.run;
       remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
       cardState('重建好了，填尺寸');
-      if (!dialog.open) toast(`${state.object} 重建好了：点仓库里的“添加物品”填尺寸`);
+      if (!dialog.open) toast(`${state.object} 重建好了：点物品库里的“添加物品”填尺寸`);
       await openSize();
     } catch (error) {
       $('#add-build-error').hidden = $('#add-build-again').hidden = false;

@@ -51,9 +51,9 @@
  <nav class="rc-tools" aria-label="布置工具">
   <button class="rc-tool" id="gesture-toggle" aria-pressed="false" title="用摄像头识别双手：左手比 1/2/3/4 切换模式，右手捏合操作"><svg aria-hidden="true"><use href="#icon-hand"/></svg>手势</button>
   <button class="rc-tool" id="undo" disabled aria-label="撤销"><svg aria-hidden="true"><use href="#icon-undo"/></svg>撤销</button>
-  <button class="rc-tool" id="clear-room" title="将房间中的物品全部收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
+  <button class="rc-tool" id="clear-room" title="将房间中的物品全部收回物品库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>一键清空</button>
   <button class="rc-tool" id="reset-layout" title="恢复原始物品、位置和朝向，可撤销">↻ 一键还原</button>
-  <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>仓库</button>
+  <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>物品库</button>
   <details class="rc-menu" id="import-menu" hidden>
    <summary class="rc-tool" title="把用照片重建的物品按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物品</summary>
    <div class="rc-menu-panel rc-import">
@@ -100,7 +100,7 @@
  </nav>
  <aside class="rc-controls" aria-label="物品摆放控制" hidden>
   <p id="selected-name" class="rc-object-title">挑一件物品，试着摆放</p>
-  <p id="selected-category" class="rc-object-size">从房间或下方仓库开始</p>
+  <p id="selected-category" class="rc-object-size">从房间或下方物品库开始</p>
   <div class="rc-state"><span class="rc-state-dot"></span><span id="session-status" aria-live="polite">选择 → 虚影预览 → 确认放置</span></div>
   <p id="empty-selection" class="rc-idle-tip">单击已有物品可调整位置。按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。</p>
   <div id="selection-controls" hidden>
@@ -108,7 +108,7 @@
     <button class="rc-action" hidden id="session-rotate-left">↶ 左转 15°</button><button class="rc-action" hidden id="session-rotate-right">↷ 右转 15°</button>
     <button class="rc-action rc-action-wide rc-confirm" id="confirm-placement">确认放置</button>
     <button class="rc-action rc-action-wide rc-cancel" id="cancel-placement">取消</button>
-    <button class="rc-action rc-action-wide rc-store" id="store-object" title="从房间移除，并收回仓库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>收回仓库</button>
+    <button class="rc-action rc-action-wide rc-store" id="store-object" title="从房间移除，并收回物品库，可撤销"><svg aria-hidden="true"><use href="#icon-cabinet"/></svg>收回物品库</button>
    </div>
           <section id="wall-section" class="wall-section" aria-label="墙面安装" hidden>
             <div class="wall-section-heading"><div><h3>安装墙面</h3><p id="wall-current">当前墙面</p></div><button id="change-wall" class="button button-secondary" type="button" aria-expanded="false">换一面墙</button></div>
@@ -154,7 +154,7 @@
   <div class="rc-gesture-preview"><video id="gesture-video" autoplay muted playsinline></video><canvas id="gesture-skeleton" width="640" height="480" aria-hidden="true"></canvas><span class="rc-gesture-video-caption">镜像预览</span></div>
   <div class="rc-hand-states" aria-label="双手识别状态">
    <div id="gesture-left-tracking" data-state="missing"><span>左手 · 切换动作</span><strong id="gesture-left-state">未入镜</strong></div>
-   <div id="gesture-right-tracking" data-state="missing"><span>右手 · 操作家具</span><strong id="gesture-right">未入镜</strong></div>
+   <div id="gesture-right-tracking" data-state="missing"><span>右手 · 操作物品</span><strong id="gesture-right">未入镜</strong></div>
   </div>
   <section class="rc-gesture-mode-section" aria-labelledby="gesture-mode-heading">
    <div class="rc-gesture-section-heading"><h2 id="gesture-mode-heading">左手选择动作</h2></div>
@@ -183,9 +183,9 @@
  <div id="toast" class="rc-toast" role="status" hidden></div>
 </main>
 <div class="rc-warehouse-dock">
-<section class="rc-shelf" id="object-panel" aria-label="仓库" hidden>
+<section class="rc-shelf" id="object-panel" aria-label="物品库" hidden>
  <div id="warehouse-content" hidden>
- <div class="rc-shelf-head"><span class="rc-shelf-title">仓库</span><span class="rc-counter" id="object-count">17 件物品</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索物品" aria-label="搜索场景物品"></label><button class="rc-tool" id="close-list" aria-label="收起仓库面板">×</button></div>
+ <div class="rc-shelf-head"><span class="rc-shelf-title">物品库</span><span class="rc-counter" id="object-count">17 件物品</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索物品" aria-label="搜索场景物品"></label><button class="rc-tool" id="close-list" aria-label="收起物品库面板">×</button></div>
  <div class="rc-catalog" id="object-list" aria-label="可编辑物品"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物品</strong><small id="add-object-state">几张照片重建</small></span></button></div>
  </div>
 </section>
