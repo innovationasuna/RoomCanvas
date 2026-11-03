@@ -88,7 +88,7 @@ try {
     await settled(page);
     const setTime = async time => {
       if (!await page.locator('#light-menu').evaluate(element => element.open)) await page.click('#light');
-      await page.selectOption('#lighting-time', time);
+      await page.locator(`[name="lighting-time-choice"][value="${time}"]`).check();
       await settled(page);
     };
     const setAngle = async angle => {
@@ -219,7 +219,7 @@ try {
     await page.screenshot({path: join(output, `${room}-mobile-panel.png`)});
     await page.click('#light');
     assert.equal(await page.locator('#lighting-menu').evaluate(element => element.open), false);
-    const select = await page.locator('#lighting-time').boundingBox();
+    const select = await page.locator('.rc-time-choices').boundingBox();
     assert.ok(select.x >= 0 && select.x + select.width <= 390 && select.y >= 0 && select.y + select.height <= 844);
     const power = await page.locator('#lamp-power').boundingBox();
     assert.ok(power.x >= 0 && power.x + power.width <= 390 && power.y >= 0 && power.y + power.height <= 844);

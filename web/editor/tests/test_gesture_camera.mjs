@@ -22,7 +22,7 @@ function rig({canSwitch = true, starts = true} = {}) {
   const input = {active: false, dual: false, input: (frame) => calls.push(['input', frame.kind]), reset: () => calls.push(['reset']), interrupt: () => calls.push(['interrupt'])};
   const port = {mode: () => mode, setMode: (next) => {mode = next; calls.push(['mode', next]);}, canSwitch: () => canSwitch, busy: () => false,
     confirmationTarget: () => target, confirm: () => calls.push(['confirm'])};
-  const ui = {right: (text) => {shown.right = text;}, left: (text, progress) => {shown.left = text; shown.progress = progress;}, status: (text) => {shown.status = text;}};
+  const ui = {right: (text) => {shown.right = text;}, left: (text, progress) => {shown.left = text; shown.progress = progress;}, status: (text) => {shown.status = text;}, feedback: payload => {shown.feedback = payload;}};
   const camera = createGestureCamera({lib, video: {}, input, port, ui, clock: {now: () => 0}});
   return {lib, calls, shown, camera, target, input, get mode() {return mode;}};
 }
@@ -82,6 +82,21 @@ test('turning the camera off ends the hand operation but not the preview', async
   assert.deepEqual(r.calls, [['reset']], 'reset, not the editor\'s cancel');
 });
 
+test('panel feedback follows live frames and clears on interrupted tracking and shutdown', async () => {
+  const r = rig(); await r.camera.start();
+  r.input.active = true;
+  const sample = frame({operator: {pinching: true}});
+  r.lib.runtime.callbacks.frame(sample);
+  assert.equal(r.shown.feedback.frame, sample);
+  assert.equal(r.shown.feedback.active, true);
+  assert.equal(r.shown.feedback.target, r.target);
+  r.lib.runtime.callbacks.interrupted(false);
+  assert.equal(r.shown.feedback.lifecycle, 'paused');
+  assert.equal(r.shown.feedback.frame, null);
+  r.camera.stop();
+  assert.equal(r.shown.feedback.lifecycle, 'off');
+});
+
 test('竖拇指只确认当前允许放置的预览，抓取或双手缩放时不确认', async () => {
   const r = rig(); await r.camera.start(); r.calls.length = 0;
   assert.deepEqual(r.lib.runtime.callbacks.confirmationTarget(), r.target);
@@ -115,4 +130,23 @@ test('内置摄像头将原始帧留给本页骨架绘制，中断与关闭清�
   camera.stop();
   assert.equal(cleared.length, 2);
   assert.equal(camera.on, false);
+});
+
+test('拇指向下仅取消匹配且可操作的预览，拖动和缩放期间忽略', async () => {
+  const r = rig(); await r.camera.start();
+  // 使用单独入口验证取消不会触发确认。
+  let cancels = 0;
+  const lib = fakeLib();
+  const camera = createGestureCamera({lib, video: {}, input: r.input,
+    port: {mode: () => 'move', busy: () => false, confirmationTarget: () => r.target, cancel: () => cancels++, confirm: () => assert.fail('不能确认')},
+    ui: {status() {}}});
+  await camera.start();
+  const send = id => lib.runtime.callbacks.frame(frame({placementCancellation: id}));
+  send('old-preview');
+  r.target.allowed = false; send('current-preview');
+  r.target.allowed = true; r.input.active = true; send('current-preview');
+  r.input.active = false; r.input.dual = true; send('current-preview');
+  assert.equal(cancels, 0);
+  r.input.dual = false; send('current-preview');
+  assert.equal(cancels, 1);
 });
