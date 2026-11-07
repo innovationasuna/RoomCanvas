@@ -15,6 +15,7 @@ import re
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -56,7 +57,8 @@ def find_scene(job_dir):
     """The scene directory of a job (server runner: run/pipeline/<scene>, uv runner: output/<scene>)."""
     job_dir = Path(job_dir)
     for base in (job_dir / 'run' / 'pipeline', job_dir / 'output'):
-        scenes = [p for p in base.glob('*') if (p / 'scene_init').is_dir()] if base.is_dir() else []
+        # The pipeline can leave a stray empty pipeline/pipeline/scene_init/scene_stage/...; a scene has the object stage.
+        scenes = [p for p in base.glob('*') if (p / 'scene_init' / 'obj_stage').is_dir()] if base.is_dir() else []
         if len(scenes) == 1:
             return scenes[0]
     return None
@@ -381,6 +383,7 @@ PROMPT = """你在给“房间重建过程回放”网页写左栏说明，读�
 下面是建模 agent 一段工作的原始记录（JSON，seq 递增，minute 是距本次重建开始的分钟数）。
 请把它们合并概括成 {lo}–{hi} 条中文短句，按时间顺序，每条不超过 30 个汉字，说清楚这一步在做什么、得到了什么。
 不要出现命令、文件名、路径、代码、英文术语；没有证据说已经修好的，不要写成已经修好；评分照实写。
+这些都是 agent 自己的检查：写“自查”“检查”，不要写“验收”或“验收通过”（验收专指之后独立的验收轮次，结果另行显示）。
 每条给出它概括的 seq 范围（from/to，覆盖全部记录、相互不重叠、按顺序），kind 取 think（想法）、tool（操作）、result（结果或检查）、error（出错）之一。
 stage 取 {stages} 之一：assemble=搭建完整房间（读资料、看照片、搭初稿、补陈设），adjust=核查并调整（查穿插和外观差异、校准位置、调细节），check=自查并再修改（自评打分、按自评继续改、收尾送验）。stage 不能比前一条靠前，第一条不能早于 {current}。
 如果某条对应的记录里有 img，可以在 image_seq 填那条记录的 seq，否则填 null。
@@ -549,8 +552,17 @@ def timeline(job_dir, status='completed', until=None):
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
 
+_SCAFFOLD_LOCK = threading.Lock()
+
+
 def scaffold(job_dir):
     """Point cloud (float32 x,y,z in the room model's frame) and layout boxes, cached under replay/."""
+    # The page asks for both files at once; build the cache only once.
+    with _SCAFFOLD_LOCK:
+        return _scaffold(job_dir)
+
+
+def _scaffold(job_dir):
     scene = find_scene(job_dir)
     cache = Path(job_dir) / 'replay'
     if not scene:
@@ -593,7 +605,7 @@ def register(data_dir, run, name, until=None):
     """Add a finished run (its directory holds pipeline/<scene>) as a replay-only job; nothing is copied."""
     import uuid
     run = Path(run).resolve()
-    scenes = [p for p in (run / 'pipeline').glob('*') if (p / 'scene_init').is_dir()]
+    scenes = [p for p in (run / 'pipeline').glob('*') if (p / 'scene_init' / 'obj_stage').is_dir()]
     if len(scenes) != 1:
         raise SystemExit(f'expected one scene under {run}/pipeline')
     scene = scenes[0]

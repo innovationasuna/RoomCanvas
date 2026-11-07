@@ -78,7 +78,8 @@ export class RoomView {
     this.boxes = {};
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
-    this.ready = scaffold ? this.loadScaffold(scaffold).catch(() => {}) : Promise.resolve();
+    this.scaffoldUrls = scaffold;
+    this.ensureScaffold();
     const loop = () => {requestAnimationFrame(loop); this.tick();};
     loop();
   }
@@ -102,8 +103,19 @@ export class RoomView {
     this.defaultPolar = new THREE.Spherical().setFromVector3(offset).phi;
   }
 
+  // Load the point cloud and layout once they exist; a live job may not have them yet, so callers retry.
+  ensureScaffold() {
+    if (!this.scaffoldUrls || this.scaffoldReady || this.scaffoldLoading) return;
+    this.scaffoldLoading = this.loadScaffold(this.scaffoldUrls).catch(() => {}).finally(() => (this.scaffoldLoading = null));
+  }
+
   async loadScaffold({points, layout}) {
-    const [buf, plan] = await Promise.all([fetch(points).then((r) => r.arrayBuffer()), fetch(layout).then((r) => r.json())]);
+    const get = async (url) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      return r;
+    };
+    const [buf, plan] = await Promise.all([get(points).then((r) => r.arrayBuffer()), get(layout).then((r) => r.json())]);
     const room = new THREE.Box3();
     plan.walls.forEach((w) => room.expandByPoint(new THREE.Vector3(w.a[0], plan.floor, w.a[1])).expandByPoint(new THREE.Vector3(w.b[0], plan.floor + w.h, w.b[1])));
     if (!room.isEmpty()) this.frame(room);
@@ -134,14 +146,11 @@ export class RoomView {
     for (const b of plan.boxes) {
       const group = new THREE.Group();
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(...b.size)), lineMat(this.palette.box, 0.95));
-      // A finished object fills its box (the room model only arrives once all objects are done).
-      const fill = new THREE.Mesh(new THREE.BoxGeometry(...b.size), new THREE.MeshBasicMaterial({color: this.palette.built, transparent: true, opacity: 0.12, depthWrite: false}));
-      fill.visible = false;
-      group.add(edges, fill);
+      group.add(edges);
       group.position.set(...b.center);
       group.rotation.y = b.yaw;
       group.visible = false;
-      group.userData = {edges, fill, base: edges.material.color.clone()};
+      group.userData = {edges, base: edges.material.color.clone()};
       this.boxes[b.id] = group;
       this.scene.add(group);
     }
@@ -273,9 +282,10 @@ export class RoomView {
       const done = state.built.has(id);
       // Boxes stand for what is not in the room yet; a finished object without a room model gets a gold outline.
       group.visible = state.boxes && !state.model && !(partial && inRoom && placed.has(id));
-      group.userData.fill.visible = done;
       group.userData.edges.material.color.copy(done ? new THREE.Color(this.palette.built) : group.userData.base);
     }
+    // Fetch the first room model from the start (it is tens of MB), so the modelling stage never waits on it.
+    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
     // While the assembled room shows, fetch the final model in the background so the switch starts on time.
     if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
     if (key !== this.wanted && key && modelUrl) this.show(key, modelUrl(key), quiet);

@@ -47,6 +47,7 @@ async function start() {
 }
 
 async function poll() {
+  view.ensureScaffold();
   try {
     const next = await fetchData();
     if (next.events.length !== data.events.length || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
@@ -221,7 +222,8 @@ function render(t, p, force = false) {
     [...$('dots').children].forEach((el, k) => {
       el.className = done ? (result && !result.passed && k === si ? 'fail' : k <= si ? 'done' : '') : k < si ? 'done' : k === si ? 'now' : '';
     });
-    const failed = data.status === 'failed' && done;
+    // A job that stopped after an acceptance review ends with that verdict, not as a crash.
+    const failed = data.status === 'failed' && done && !result;
     $('planN').textContent = data.live ? `进行中 · 第 ${si + 1} 步 / 共 ${data.stages.length} 步` : done ? '重建结束' : `第 ${si + 1} 步 / 共 ${data.stages.length} 步`;
     $('planName').textContent = failed ? '重建中途出错' : result ? (result.passed ? '验收通过' : '没有通过最后检查') : st?.name || '等待开始';
     $('planName').classList.toggle('fail', failed || (result && !result.passed));
