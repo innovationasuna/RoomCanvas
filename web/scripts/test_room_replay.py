@@ -136,6 +136,21 @@ class Events(unittest.TestCase):
         self.assertAlmostEqual(data['boxes'][0]['yaw'], 3.14159265 / 2, places=5)
         self.assertEqual(data['walls'][0]['b'], [3, -0])
 
+    def test_a_stray_empty_scene_folder_is_ignored(self):
+        job = self.root / 'job3'
+        (job / 'run' / 'pipeline' / 'pipeline' / 'scene_init' / 'scene_stage' / 'room_init').mkdir(parents=True)
+        (job / 'run' / 'pipeline' / 'demo').symlink_to(self.root / 'run' / 'pipeline' / 'demo')
+        self.assertEqual(replay.find_scene(job).name, 'demo')
+
+    def test_scaffold_requested_twice_at_once_is_built_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        job = self.root / 'job2'
+        (job / 'run').mkdir(parents=True)
+        (job / 'run' / 'pipeline').symlink_to(self.root / 'run' / 'pipeline')
+        with ThreadPoolExecutor(8) as pool:
+            results = list(pool.map(lambda _: replay.scaffold(job), range(8)))
+        self.assertTrue(all(r and r[0].stat().st_size == 2 * 12 for r in results))
+
 
 def glb(path, tree, t):
     """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""
