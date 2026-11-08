@@ -1,6 +1,7 @@
 import {shadowSettings} from './lighting-settings.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
 import {hasLayer, ownMaterial, ownShadows, setOwnMaterial} from './material-layers.mjs';
+import {createPhysicalLighting} from './physical-lighting.mjs';
 
 // Relative to the principal window, not geographic north or clock time.
 export const TIME_PRESETS = Object.freeze({
@@ -8,6 +9,8 @@ export const TIME_PRESETS = Object.freeze({
   morning: Object.freeze({label: '早晨', azimuth: -.7, elevation: .42, key: 3.1, fill: 0, window: .65, indoor: .07, exterior: .65, hemisphere: .14, environment: .08, color: 0xffe1b5, sky: 0xdce9ff, background: '#e7eae5'}),
   noon: Object.freeze({label: '中午', azimuth: 0, elevation: 1.05, key: 4.2, fill: 0, window: .95, indoor: .07, exterior: .95, hemisphere: .18, environment: .10, color: 0xfff4e1, sky: 0xe6efff, background: '#e9ede5'}),
   afternoon: Object.freeze({label: '下午', azimuth: .7, elevation: .32, key: 2.9, fill: 0, window: .48, indoor: .07, exterior: .5, hemisphere: .10, environment: .06, color: 0xffc895, sky: 0xdce7ff, background: '#eae5dd'}),
+  // Same recipe as the Android walkthrough; see physical-lighting.mjs. Window photos at face value.
+  physical: Object.freeze({label: '物理光照', indoor: 0, exterior: 1, background: '#e9ede5'}),
   night: Object.freeze({label: '夜间', key: 0, fill: 0, window: 0, indoor: 1, exterior: .025, hemisphere: .07, environment: .018, color: 0xffdcb4, sky: 0xb7c9e9, background: '#252b34'}),
 });
 export const timePreset = value => Object.hasOwn(TIME_PRESETS, value) ? value : 'noon';
@@ -37,6 +40,8 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   const lampPosition = new THREE.Vector3(center.x, Math.min(bounds.max.y, ceilingY) - Math.min(.2, height * .06), center.z);
   let selected = 'balanced', spot = null, marker = null, windowLight = null, warm = false;
   let lamps = indoorLighting(indoor);
+  const physical = createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure: renderer.toneMappingExposure ?? profile.exposure ?? 1,
+    walls, ceilingY, own: ownMaterial, setOwn: setOwnMaterial});
   const glassCasters = new Map();
   // Captured window glass/exterior photos can contain authored daylight emission.
   // Give these meshes owned materials, so night can dim it without touching shared assets
@@ -97,7 +102,9 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   }
   function updateIndoor() {
     const level = TIME_PRESETS[selected].indoor;
-    const ceilingOn = lamps.power;
+    // In 物理光照 the power switch drives the lamps under each ceiling instead.
+    const ceilingOn = lamps.power && selected !== 'physical';
+    physical.setPower(lamps.power);
     if (ceilingOn) ceilingLight();
     if (spot) {
       spot.angle = THREE.MathUtils.degToRad(lamps.angle / 2);
@@ -115,7 +122,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   function setIndoor(value) {
     lamps = indoorLighting(value); updateIndoor();
     // Daytime window/sun shadows are unaffected by the unshadowed indoor fill.
-    if (selected === 'night') renderer.shadowMap.needsUpdate = true;
+    if (['night', 'physical'].includes(selected)) renderer.shadowMap.needsUpdate = true;
   }
   function syncOccluders() {
     const physical = selected !== 'balanced';
@@ -143,26 +150,35 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   }
   function apply(value, {warm: warmValue = false} = {}) {
     selected = timePreset(value); warm = warmValue;
-    const preset = TIME_PRESETS[selected], base = selected === 'balanced';
-    if (!base && selected !== 'night') skylight();
-    sun.visible = selected !== 'night'; fill.visible = base; sun.castShadow = selected !== 'night';
+    const preset = TIME_PRESETS[selected], base = selected === 'balanced', physicalMode = selected === 'physical';
+    if (physicalMode) physical.activate(); else physical.deactivate();
+    if (!base && selected !== 'night' && !physicalMode) skylight();
+    const daylight = selected !== 'night' && !(physicalMode && physical.usesModelLights);
+    sun.visible = sun.castShadow = daylight; fill.visible = base;
     updateIndoor();
     if (windowLight) {
-      windowLight.visible = windowLight.castShadow = !base && selected !== 'night';
+      windowLight.visible = windowLight.castShadow = !base && selected !== 'night' && !physicalMode;
       windowLight.intensity = windowLight.position.distanceToSquared(windowLight.target.position) * (preset.window || 0);
       windowLight.color.set(preset.sky || 0xffffff);
     }
-    hemisphere.intensity = base ? profile.hemisphere : preset.hemisphere;
-    hemisphere.color.set(base ? 0xffffff : preset.sky); hemisphere.groundColor.set(0x87919d);
-    sun.intensity = base ? profile.key : preset.key; fill.intensity = base ? profile.fill : preset.fill;
-    sun.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.color);
-    fill.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.sky);
-    scene.environmentIntensity = environment ? base ? profile.environment : preset.environment : 0;
+    hemisphere.visible = !physicalMode;
+    hemisphere.intensity = base ? profile.hemisphere : preset.hemisphere ?? 0;
+    hemisphere.color.set(base ? 0xffffff : preset.sky ?? 0xffffff); hemisphere.groundColor.set(0x87919d);
+    sun.intensity = base ? profile.key : physicalMode ? physical.sun.intensity : preset.key; fill.intensity = base ? profile.fill : preset.fill ?? 0;
+    if (physicalMode) sun.color.setRGB(...physical.sun.color, THREE.LinearSRGBColorSpace);
+    else sun.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.color);
+    fill.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.sky ?? 0xffffff);
+    scene.environmentIntensity = environment ? base ? profile.environment : physicalMode ? physical.environmentIntensity : preset.environment : 0;
     scene.background.set(base ? original.background : preset.background);
     if (base) {
       sun.position.copy(original.position); sun.target.position.copy(original.target);
       Object.assign(sun.shadow.camera, original.shadow); sun.shadow.bias = original.bias; sun.shadow.normalBias = original.normalBias;
       sun.shadow.camera.updateProjectionMatrix();
+    } else if (physicalMode) {
+      // A fixed sun (elevation 40°, rotation 35°), as on the phone, not tied to the window.
+      const target = new THREE.Vector3(center.x, floorY + height * .4, center.z);
+      sun.target.position.copy(target);
+      sun.position.copy(target).addScaledVector(new THREE.Vector3(...physical.sun.direction), -Math.max(12, diagonal * 2)); fitSun();
     } else if (selected !== 'night') {
       const direction = outward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), preset.azimuth);
       direction.multiplyScalar(Math.cos(preset.elevation)); direction.y = Math.sin(preset.elevation);
@@ -174,7 +190,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   return {
     apply, syncOccluders, setIndoor,
     previewLights: () => previewLights.map(light => light.clone()),
-    snapshot: () => ({preset: selected, window: windows[0]?.name || null, directionBasis: windows.length ? 'principal-window' : 'room-axes',
+    snapshot: () => ({preset: selected, physical: physical.snapshot(), window: windows[0]?.name || null, directionBasis: windows.length ? 'principal-window' : 'room-axes',
       indoor: {...lamps}, environmentIntensity: scene.environmentIntensity, exteriorEmissionScale: TIME_PRESETS[selected].exterior ?? 1,
       shadowLight: selected === 'night' ? spot?.visible ? 'SpotLight' : null : 'DirectionalLight',
       windowLight: windowLight ? {position: windowLight.position.toArray(), intensity: windowLight.intensity, visible: windowLight.visible, castShadow: windowLight.castShadow, mapSize: windowLight.shadow.mapSize.toArray()} : null,
@@ -183,6 +199,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
         shadowFov: spot.shadow.camera.fov, shadowBias: spot.shadow.bias, normalBias: spot.shadow.normalBias,
         intensity: spot.intensity, level: TIME_PRESETS[selected].indoor || 0, decay: spot.decay, visible: spot.visible} : null}),
     dispose() {
+      physical.dispose();
       for (const {mesh, source, copies} of exterior) {
         setOwnMaterial(mesh, source);
         copies.forEach(material => material.dispose());
