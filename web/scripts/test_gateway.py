@@ -73,6 +73,28 @@ class Routing(unittest.TestCase):
         self.assertIn('房间重建服务', data['error'])
 
 
+class Preview(Routing):
+    """Without a GPU the gateway refuses object reconstruction but still serves and saves everything else."""
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        Gateway.preview = True
+
+    @classmethod
+    def tearDownClass(cls):
+        Gateway.preview = False
+        super().tearDownClass()
+
+    def test_object_reconstruction_is_refused_with_a_reason(self):
+        status, body = self.call('POST', '/viewforge/objects/create', b'{}', {'Content-Type': 'application/json'})
+        self.assertEqual(status, 503)
+        self.assertIn('GPU', body['error'])
+
+    def test_reads_and_size_edits_still_pass(self):
+        self.assertEqual(self.call('GET', '/viewforge/assets/catalog')[1]['service'], 'objects')
+        self.assertEqual(self.call('POST', '/viewforge/dimensions/run1', b'{}')[1]['service'], 'objects')
+
+
 class Address(unittest.TestCase):
     def test_address_is_host_and_port(self):
         self.assertEqual(split_address('172.18.0.2:7862'), ('172.18.0.2', 7862))

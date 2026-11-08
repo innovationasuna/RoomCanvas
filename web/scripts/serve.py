@@ -91,7 +91,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.room_json(200, data)
         room_target = room_forwarded(self.path)
         if room_target:
-            return self.relay(urllib.request.Request(self.room_backend + room_target), 10, room=True)
+            # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
+            return self.relay(urllib.request.Request(self.room_backend + room_target), 60, room=True)
         target = forwarded(self.path)
         if target is None:
             return super().do_GET()
