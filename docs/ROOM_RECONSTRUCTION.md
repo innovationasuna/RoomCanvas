@@ -54,7 +54,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。
 
-**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，会同时转发 `7866`；服务不在 SSH 主机的 `127.0.0.1:7866` 时加 `--room-remote '<地址>:<端口>'`。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
+**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，默认经服务器上的网关（`python3 web/scripts/gateway.py`，监听 `127.0.0.1:7870`，房间服务在 `127.0.0.1:7866`，用 `--rooms` 改）转发；不用网关时给 `--remote` 或 `--room-remote '<地址>:<端口>'`，会回到分开的两条隧道（本机 `7865`、`7866`）。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
 
 打开 <http://127.0.0.1:7880/web/>，点击 **重建房间**，或直接打开 <http://127.0.0.1:7880/web/#reconstruct>。
 
