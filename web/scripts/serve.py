@@ -2,6 +2,7 @@
 """Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
 python3 web/scripts/serve.py --ssh <host>                           # page + one tunnel to gateway.py (127.0.0.1:7870 on <host>)
+python3 web/scripts/serve.py --ssh <host> --cpa                     # also lend <host> this computer's CLIProxyAPI (127.0.0.1:8317)
 python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + separate tunnels to the object and room services
 python3 web/scripts/serve.py                                         # page only, tunnel opened elsewhere
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
@@ -10,8 +11,9 @@ The editor reads ViewForge's objects at /viewforge/assets/catalog and /viewforge
 and "添加物品" uploads photos and follows the reconstruction at /viewforge/objects/... and saves the
 measured size at /viewforge/dimensions/<run>; those requests go to the ViewForge server. "重建房间" uploads
 a scan and follows the job at /room-reconstruction/..., which goes to the room reconstruction API. With --ssh,
-this script opens one SSH connection forwarding both (local ports taken from --viewforge and --room-backend)
-and closes it on exit.
+this script opens one SSH connection forwarding both (local ports taken from --viewforge and --room-backend),
+reopens it whenever it drops, and closes it on exit. --cpa also forwards 127.0.0.1:8317 on <host> back to this
+computer, so the server's Codex can use the CLIProxyAPI (the user's own subscription) running here.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
@@ -23,6 +25,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -91,7 +94,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.room_json(200, data)
         room_target = room_forwarded(self.path)
         if room_target:
-            return self.relay(urllib.request.Request(self.room_backend + room_target), 10, room=True)
+            # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
+            return self.relay(urllib.request.Request(self.room_backend + room_target), 60, room=True)
         target = forwarded(self.path)
         if target is None:
             return super().do_GET()
@@ -156,8 +160,9 @@ class Handler(SimpleHTTPRequestHandler):
             shutil.copyfileobj(response, self.wfile)
 
 
-def tunnel_command(host, forwards):
-    """The ssh command that forwards each 127.0.0.1:<local_port> to <remote> as seen from <host>."""
+def tunnel_command(host, forwards, reverse=()):
+    """The ssh command that forwards each 127.0.0.1:<local_port> to <remote> as seen from <host>, and each
+    port in `reverse` on <host>'s 127.0.0.1 back to the same port on this computer."""
     # ControlPath=none: with ControlMaster in ~/.ssh/config a second ssh hands the forwards to the master and
     # exits, leaving the ports open after this script stops.
     command = ['ssh', '-N', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
@@ -165,6 +170,8 @@ def tunnel_command(host, forwards):
         if not re.fullmatch(r'[\w.-]+:\d+', remote):
             raise ValueError(f'remote must be <address>:<port>, got {remote!r}')
         command += ['-L', f'127.0.0.1:{local_port}:{remote}']
+    for port in reverse:
+        command += ['-R', f'127.0.0.1:{port}:127.0.0.1:{port}']
     return command + [host]
 
 
@@ -195,6 +202,35 @@ def open_tunnel(command, ports, wait=30):
     sys.exit(f'SSH tunnel did not open ports {waiting} within {wait} s')
 
 
+class Tunnel:
+    """The open ssh process, started again whenever it exits: cloud gateways (AutoDL) drop long connections."""
+
+    def __init__(self, command, process, check=2.0):
+        self.command, self.process, self.check = command, process, check
+        self.stopped = threading.Event()
+        threading.Thread(target=self.watch, daemon=True).start()
+
+    def watch(self):
+        failures = 0
+        while not self.stopped.wait(self.check):
+            if self.process.poll() is None:
+                failures = 0
+                continue
+            failures += 1
+            print(f'SSH tunnel closed (exit {self.process.returncode}); reconnecting…', flush=True)
+            if self.stopped.wait(min(3 * failures, 30)):
+                return
+            self.process = subprocess.Popen(self.command)
+
+    def close(self):
+        self.stopped.set()
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+
+
 class Server(ThreadingHTTPServer):
     # ES-module imports arrive in bursts; Python 3.12's five-entry default can reset local connections.
     request_queue_size = 64
@@ -211,7 +247,11 @@ def main():
     parser.add_argument('--gateway', metavar='ADDRESS:PORT',
                         help='gateway.py address as seen from HOST, one tunnel for both services '
                              '(default with --ssh: 127.0.0.1:7870, unless --remote or --room-remote is given)')
+    parser.add_argument('--cpa', nargs='?', const=8317, type=int, metavar='PORT',
+                        help="with --ssh: forward this port on the server back to this computer's CLIProxyAPI (default 8317)")
     args = parser.parse_args()
+    if args.cpa and not args.ssh:
+        parser.error('--cpa needs --ssh')
     if args.gateway and not args.ssh:
         parser.error('--gateway needs --ssh')
     if args.gateway and (args.remote or args.room_remote):
@@ -230,14 +270,15 @@ def main():
         if not args.gateway:
             forwards.append((urlsplit(Handler.room_backend).port or 80, args.room_remote))
         try:
-            command = tunnel_command(args.ssh, forwards)
+            command = tunnel_command(args.ssh, forwards, [args.cpa] if args.cpa else [])
         except ValueError as error:
             parser.error(str(error))
-        tunnel = open_tunnel(command, [port for port, _ in forwards])
+        tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
-          + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else ''))
+          + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')
+          + (f'  ·  CPA: {args.ssh} 127.0.0.1:{args.cpa} -> this computer' if args.cpa else ''))
     def stop(signum, frame):
         raise KeyboardInterrupt
     for signum in (signal.SIGTERM, signal.SIGHUP):  # closing the terminal or `kill` also closes the tunnel
@@ -249,8 +290,7 @@ def main():
     finally:
         server.server_close()
         if tunnel:
-            tunnel.terminate()
-            tunnel.wait(timeout=5)
+            tunnel.close()
 
 
 if __name__ == '__main__':

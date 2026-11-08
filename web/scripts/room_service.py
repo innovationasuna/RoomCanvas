@@ -34,6 +34,7 @@ MAX_EXPANDED = 8 * 1024**3
 STAGES = ['ingest', 'reconstruct', 'seed', 'author', 'publish']
 ASSETS = {'Room.glb', 'room_objects.json', 'thumbnail.jpg'}
 ID = r'[0-9a-f]{32}'
+PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
 
 
 def extract_scan(archive, destination):
@@ -275,6 +276,7 @@ class Jobs:
 
 class Handler(BaseHTTPRequestHandler):
     jobs = None
+    preview = False  # no GPU: browse only
 
     def respond(self, status, data):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -292,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
             self.jobs.load_new()
         with self.jobs.lock:
             if path == PREFIX + '/health':
-                return self.respond(200, {'ok': True, 'max_upload': MAX_UPLOAD})
+                return self.respond(200, {'ok': True, 'max_upload': MAX_UPLOAD, 'preview': self.preview})
             if path == PREFIX + '/jobs':
                 records = sorted(self.jobs.records.values(), key=lambda r: r['created'], reverse=True)
                 return self.respond(200, {'jobs': [self.jobs.public(r) for r in records]})
@@ -346,6 +348,8 @@ class Handler(BaseHTTPRequestHandler):
         if origin and urlsplit(origin).netloc != self.headers.get('Host'):
             return self.respond(403, {'error': '不允许跨站提交'})
         path = urlsplit(self.path).path
+        if self.preview:
+            return self.respond(503, {'error': PREVIEW})
         match = re.fullmatch(PREFIX + rf'/jobs/({ID})/retry', path)
         if match:
             try:
@@ -394,6 +398,7 @@ def main():
     parser.add_argument('--runner', choices=('server', 'cli'), default='server', help='server: existing GPU launcher; cli: generic uv installation')
     parser.add_argument('--python', default=sys.executable, help='Python for the existing server/run_room.py launcher')
     parser.add_argument('--timeout', type=int, default=21600)
+    parser.add_argument('--preview', action='store_true', help='no GPU: serve rooms, assets and replays, refuse new reconstructions')
     parser.add_argument('--no-replay-summary', action='store_true', help='do not condense agent logs with codex (rule wording only)')
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
@@ -402,7 +407,9 @@ def main():
     fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     Handler.jobs = Jobs(args.data_dir, args.pipeline_dir, args.uv, args.timeout, args.runner, args.python)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-    threading.Thread(target=Handler.jobs.worker, daemon=True).start()
+    Handler.preview = args.preview
+    if not args.preview:
+        threading.Thread(target=Handler.jobs.worker, daemon=True).start()
     if not args.no_replay_summary:
         threading.Thread(target=Handler.jobs.replay_worker, daemon=True).start()
     print(f'Room reconstruction API: http://127.0.0.1:{args.port}', flush=True)

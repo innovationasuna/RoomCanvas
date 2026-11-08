@@ -15,6 +15,9 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOM_PREFIX = '/room-reconstruction/'
+# Writes that need the GPU; saving a measured size (/dimensions/...) does not.
+GPU_WRITES = re.compile(r'^/viewforge/objects/')
+PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
 HOP_BY_HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers',
               'transfer-encoding', 'upgrade', 'host'}
 CHUNK = 1024 * 1024
@@ -30,6 +33,7 @@ def split_address(text):
 class Gateway(BaseHTTPRequestHandler):
     objects = ('127.0.0.1', 7862)
     rooms = ('127.0.0.1', 7866)
+    preview = False
 
     def backend(self):
         return self.rooms if self.path.startswith(ROOM_PREFIX) else self.objects
@@ -43,6 +47,8 @@ class Gateway(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def relay(self):
+        if self.preview and self.command == 'POST' and GPU_WRITES.match(self.path):
+            return self.fail(503, PREVIEW)
         host, port = self.backend()
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
         length = int(self.headers.get('Content-Length') or 0)
@@ -91,13 +97,15 @@ def main():
     parser.add_argument('--port', type=int, default=7870)
     parser.add_argument('--objects', default='127.0.0.1:7862', help='object service <host>:<port>')
     parser.add_argument('--rooms', default='127.0.0.1:7866', help='room service <host>:<port>')
+    parser.add_argument('--preview', action='store_true', help='no GPU: refuse object reconstruction (the room service refuses its own)')
     args = parser.parse_args()
+    Gateway.preview = args.preview
     try:
         Gateway.objects, Gateway.rooms = split_address(args.objects), split_address(args.rooms)
     except ValueError as error:
         parser.error(str(error))
     server = Server((args.host, args.port), Gateway)
-    print(f'gateway {args.host}:{args.port} -> objects {args.objects}, rooms {args.rooms}', flush=True)
+    print(f'gateway {args.host}:{args.port} -> objects {args.objects}, rooms {args.rooms}' + (' (preview, no GPU)' if args.preview else ''), flush=True)
     server.serve_forever()
 
 
