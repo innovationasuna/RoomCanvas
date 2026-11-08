@@ -9,15 +9,14 @@ import com.huawei.hiar.ARFrame
 import com.huawei.hiar.ARSession
 import com.huawei.hiar.ARTrackable
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-/** AR 相机位姿快照：GL 线程发布，主线程消费 */
-class ArPoseSnapshot(
-    /** 相机在世界坐标系中的位姿矩阵（列主序 4x4，OpenGL 约定） */
-    val viewToWorld: FloatArray,
-    val isTracking: Boolean
+data class ArDisplayGeometry(
+    val rotation: Int,
+    val width: Int,
+    val height: Int
 )
 
 /**
@@ -31,12 +30,11 @@ class ArPoseSnapshot(
  * 仍保留一个 GLSurfaceView，是因为 AR Engine 的 update() 必须在有 EGL 上下文的线程调用。
  */
 class ArPoseRenderer(
-    private val displayRotationProvider: () -> Int
+    private val displayGeometryProvider: () -> ArDisplayGeometry
 ) : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "ArPoseRenderer"
-        private val NOT_TRACKING = ArPoseSnapshot(FloatArray(16), false)
     }
 
     /** 主线程设置；必须先于 GLSurfaceView.onResume() */
@@ -48,13 +46,20 @@ class ArPoseRenderer(
     var displayGeometryDirty: Boolean = true
 
     /** 最新位姿；跟踪丢失时保留最后一帧有效位姿并把 isTracking 置 false */
-    val poseSnapshot = AtomicReference(NOT_TRACKING)
+    @PublishedApi
+    internal val poseStore = ArPoseSnapshotStore()
+
+    internal inline fun <T> withPoseSnapshot(block: (ArPoseSnapshot) -> T): T =
+        poseStore.read(block)
 
     /** AR 实际发布有效位姿的次数（GL 线程递增），用于真机确认位姿回调频率 */
     val poseCounter = AtomicInteger(0)
 
     /** onDrawFrame 调用次数（GL 线程递增），与 poseCounter 对比可看出 update() 是否卡住 */
     val frameCounter = AtomicInteger(0)
+
+    val sessionUpdateCount = AtomicInteger(0)
+    val sessionUpdateNanos = AtomicLong(0L)
 
     /** 上一次发布的跟踪状态，仅 GL 线程访问，用于只在状态变化时打日志 */
     private var lastTrackingState = true
@@ -67,6 +72,7 @@ class ArPoseRenderer(
     private var oesTextureId = 0
     private var surfaceWidth = 0
     private var surfaceHeight = 0
+    private var surfaceDepthBits = -1
 
     /** 最后一次 TRACKING 的相机位姿，仅 GL 线程访问 */
     private val lastTrackingPose = FloatArray(16)
@@ -98,6 +104,9 @@ class ArPoseRenderer(
             GLES20.GL_NEAREST.toFloat()
         )
         GLES20.glClearColor(0f, 0f, 0f, 1f)
+        val depthBits = IntArray(1)
+        GLES20.glGetIntegerv(GLES20.GL_DEPTH_BITS, depthBits, 0)
+        surfaceDepthBits = depthBits[0]
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -116,15 +125,28 @@ class ArPoseRenderer(
         }
         try {
             if (displayGeometryDirty && surfaceWidth > 0 && surfaceHeight > 0) {
-                currentSession.setDisplayGeometry(
-                    displayRotationProvider(),
-                    surfaceWidth,
-                    surfaceHeight
-                )
-                displayGeometryDirty = false
+                val geometry = displayGeometryProvider()
+                if (geometry.width > 0 && geometry.height > 0) {
+                    currentSession.setDisplayGeometry(
+                        geometry.rotation,
+                        geometry.width,
+                        geometry.height
+                    )
+                    displayGeometryDirty = false
+                    Log.i(
+                        TAG,
+                        "displayGeometry rotation=${geometry.rotation} " +
+                            "display=${geometry.width}x${geometry.height} " +
+                            "pumpSurface=${surfaceWidth}x$surfaceHeight depthBits=$surfaceDepthBits"
+                    )
+                }
             }
             currentSession.setCameraTextureName(oesTextureId)
-            val frame: ARFrame = currentSession.update() ?: return
+            val updateStartedAt = System.nanoTime()
+            val frame: ARFrame? = currentSession.update()
+            sessionUpdateNanos.addAndGet(System.nanoTime() - updateStartedAt)
+            sessionUpdateCount.incrementAndGet()
+            if (frame == null) return
             publishPose(frame.camera, frame.timestampNs)
         } catch (t: Throwable) {
             Log.e(TAG, "AR 位姿帧处理异常", t)
@@ -135,12 +157,14 @@ class ArPoseRenderer(
     private fun publishPose(camera: com.huawei.hiar.ARCamera, frameTimestampNs: Long) {
         if (camera.trackingState == ARTrackable.TrackingState.TRACKING) {
             logPoseComparison(camera, frameTimestampNs)
-            val matrix = FloatArray(16)
             // 必须用 display-oriented pose：raw pose 在 sensor 坐标系中，
             // 横屏时与屏幕坐标系相差 0° 或 180°，会把转头/平移方向弄反。
-            camera.displayOrientedPose.toMatrix(matrix, 0)
-            System.arraycopy(matrix, 0, lastTrackingPose, 0, 16)
-            poseSnapshot.set(ArPoseSnapshot(matrix, true))
+            poseStore.update { snapshot ->
+                camera.displayOrientedPose.toMatrix(snapshot.viewToWorld, 0)
+                System.arraycopy(snapshot.viewToWorld, 0, lastTrackingPose, 0, 16)
+                snapshot.isTracking = true
+                snapshot.timestampNs = frameTimestampNs
+            }
             val count = poseCounter.incrementAndGet()
             // 只在状态变化时打日志：EMUI 会去重相同内容，状态切换本身是关键证据
             if (!lastTrackingState) {
@@ -148,7 +172,11 @@ class ArPoseRenderer(
                 Log.i(TAG, "tracking=true (resume) poseFrames=$count")
             }
         } else {
-            poseSnapshot.set(ArPoseSnapshot(lastTrackingPose.copyOf(), false))
+            poseStore.update { snapshot ->
+                System.arraycopy(lastTrackingPose, 0, snapshot.viewToWorld, 0, 16)
+                snapshot.isTracking = false
+                snapshot.timestampNs = 0L
+            }
             if (lastTrackingState) {
                 lastTrackingState = false
                 Log.i(TAG, "tracking=false (lost) poseFrames=${poseCounter.get()}")
@@ -181,14 +209,17 @@ class ArPoseRenderer(
     }
 
     private fun clearSurface() {
-        GLES20.glClearColor(0f, 0f, 0f, 1f)
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
     }
 
     /** 主线程在 GLSurfaceView 暂停后调用，清除残留位姿 */
     fun reset() {
-        poseSnapshot.set(NOT_TRACKING)
         lastTrackingPose.fill(0f)
+        poseStore.update { snapshot ->
+            snapshot.viewToWorld.fill(0f)
+            snapshot.isTracking = false
+            snapshot.timestampNs = 0L
+        }
         // 下次恢复时再打一条 "tracking=true (resume)"
         lastTrackingState = false
     }

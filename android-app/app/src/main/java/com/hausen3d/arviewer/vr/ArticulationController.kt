@@ -233,13 +233,24 @@ class ArticulationController(
         if (matches.isEmpty()) return false
 
         val open = !matches.first().open
-        matches.forEach {
-            it.open = open
-            it.target = if (open) 1f else 0f
-            it.moving = true
-        }
+        matches.forEach { setOpen(it, open) }
         onToggled?.invoke(matches.first().label, open)
         return true
+    }
+
+    internal fun toggleAnimationForDebug(index: Int): Boolean {
+        if (released) return false
+        val entry = entries.getOrNull(index) ?: return false
+        val open = !entry.open
+        setOpen(entry, open)
+        onToggled?.invoke(entry.label, open)
+        return true
+    }
+
+    private fun setOpen(entry: Entry, open: Boolean) {
+        entry.open = open
+        entry.target = if (open) 1f else 0f
+        entry.moving = true
     }
 
     /** 必须在销毁 FilamentAsset 之前调用；之后不再触碰任何 Filament 对象。 */

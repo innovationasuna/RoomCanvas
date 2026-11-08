@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "roomId": "example_room_2",
+  "sourceModel": "../测试模型/Example_Room_2.glb",
+  "expectedSha256": "812c8efe501630f3e2a0e5e72560178099f2c88658e38b83843e80ea778ced9a",
+  "sourceProvenance": {
+    "deviceSerial": "MDX0220B11015404",
+    "deviceModel": "ELS-AN00",
+    "displayName": "Example_Room_2.glb",
+    "originalDevicePath": "/sdcard/Download/Example_Room_2.glb",
+    "importedDevicePath": "/data/user/0/com.hausen3d.arviewer/files/models/current/Example_Room_2-1793532446298.glb",
+    "verifiedOn": "2026-11-01",
+    "note": "Original Download file and the app's private imported copy have identical size and SHA-256. This is not the older .tmp_room_model.glb A0 sample."
+  },
+  "environment": {
+    "hdr": "../AndroidApp/app/src/main/assets/environments/studio_small_09_2k.hdr",
+    "intensity": 0.25,
+    "expectedSha256": "ad995fe96d922bd20ad25f98c862006325e095431176646500d717ada1ed3f61"
+  },
+  "lighting": {
+    "sunIntensityLux": 2500.0,
+    "sunTemperatureKelvin": 6500.0,
+    "sunElevationDegrees": 40.0,
+    "sunRotationDegrees": 35.0,
+    "sunAngularRadiusDegrees": 1.5,
+    "filamentPhotometricUnitToCycles": 1.0,
+    "photopicLumensPerWatt": 683.0,
+    "filamentLedEfficiency": 0.1171,
+    "ceilingWatts": 60.0,
+    "ceilingTemperatureKelvin": 4700.0,
+    "ceilingDropMeters": 0.05,
+    "ceilingBulbRadiusMeters": 0.05,
+    "windowWatts": 20.0,
+    "windowTemperatureKelvin": 6500.0,
+    "windowInsetMeters": 0.08,
+    "windowBulbRadiusMeters": 0.2,
+    "windowInnerDegrees": 45.0,
+    "windowOuterDegrees": 85.0,
+    "windowDownwardSlope": 0.35,
+    "falloffDiagonalMultiplier": 1.5,
+    "maxLocalLights": 4
+  },
+  "classification": {
+    "animatedNodePolicy": "Exclude every animated target and all descendants.",
+    "transparentMaterialPolicy": "Exclude meshes using transmission or non-opaque alpha materials.",
+    "excludedNodePatterns": [
+      "^WindowDaylightBackdrop",
+      "^Window_Exterior(?:[._]|$)"
+    ],
+    "exclusionReason": "Animated descendants retain dynamic lighting/shadows. Transparent/transmissive materials and the emissive exterior backdrop stay outside the static lightmap prototype."
+  },
+  "uv": {
+    "layerName": "UV2_Lightmap",
+    "angleLimitDegrees": 66.0,
+    "islandMargin": 0.0,
+    "packMargin": 0.0005,
+    "rotate": true,
+    "scaleToBounds": true,
+    "expectedExistingArea": 0.5306387330855316,
+    "expectedExistingChannelCounts": {"TEXCOORD_1": 1181, "TEXCOORD_2": 21}
+  },
+  "bake": {
+    "engine": "CYCLES",
+    "device": "GPU",
+    "atlasSize": 4096,
+    "samples": 256,
+    "previewSamples": 64,
+    "adaptiveThreshold": 0.01,
+    "useDenoising": true,
+    "maxBounces": 6,
+    "diffuseBounces": 4,
+    "glossyBounces": 4,
+    "transmissionBounces": 6,
+    "transparentMaxBounces": 8,
+    "marginPixels": 8,
+    "marginType": "EXTEND",
+    "aoDistanceMeters": 0.35,
+    "colorSpace": "Linear scene-referred; direct/indirect saved as EXR, AO saved as PNG without tone mapping",
+    "directPassFilter": ["DIRECT"],
+    "indirectPassFilter": ["INDIRECT"]
+  },
+  "camera": {
+    "verticalFovDegrees": 80.0,
+    "nearMeters": 0.05,
+    "farMeters": 100.0,
+    "eyeHeightMeters": 1.6,
+    "resolution": [2486, 1200],
+    "views": [
+      {"id": "01-entry", "yawOffsetDegrees": 0.0, "pitchDegrees": 0.0},
+      {"id": "02-reverse", "yawOffsetDegrees": 180.0, "pitchDegrees": 0.0},
+      {"id": "03-left", "yawOffsetDegrees": 90.0, "offlineYawOffsetDegrees": 92.3, "pitchDegrees": 0.0},
+      {"id": "04-right", "yawOffsetDegrees": -90.0, "offlineYawOffsetDegrees": -94.1, "pitchDegrees": 0.0}
+    ]
+  },
+  "review": {
+    "previousBaked": "iterations/256-sample-inward-normals/example_room_2.baked.glb",
+    "sourceNormalTolerance": 0.001
+  },
+  "render": {
+    "viewTransform": "AgX",
+    "look": "AgX - Medium High Contrast",
+    "exposure": 0.0,
+    "previewDisplay": "SceneView 2.3.4 FilmicToneMapper with the physical camera exposure, applied only to preview PNGs from scene-linear EXR; deprecated View.setToneMapping(ACES) is a no-op",
+    "previewToneMapper": "FILMIC",
+    "filamentToneMapperSource": "https://raw.githubusercontent.com/google/filament/v1.68.2/filament/src/ToneMapper.cpp",
+    "filamentViewToneMappingSource": "https://raw.githubusercontent.com/google/filament/v1.68.2/android/filament-android/src/main/java/com/google/android/filament/View.java",
+    "sceneViewColorGradingSource": "https://raw.githubusercontent.com/SceneView/sceneview-android/v2.3.4/sceneview/src/main/java/io/github/sceneview/SceneView.kt",
+    "aperture": 0.7,
+    "shutterSpeedSeconds": 0.008,
+    "sensitivityIso": 100.0,
+    "note": "Lightmap masters remain scene-linear and contain no ACES/FXAA/specular/reflection pass. The analytic Filmic preview does not claim exact LUT/dither/FXAA reproduction. IBL orientation and prefiltering and special transmissive materials remain separately verified, not assumed equivalent."
+  }
+}
