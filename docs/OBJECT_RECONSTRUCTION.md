@@ -16,7 +16,7 @@
 
 ### 首次部署
 
-准备 Linux x86_64 + NVIDIA 驱动和 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17，以及模型来源：推荐 `export MODEL_SOURCE=modelscope`，SAM 3D 从 ModelScope 下载，不需要 Hugging Face 令牌；改用 Hugging Face 时需要已获 `facebook/sam-3d-objects` 访问权限的令牌。两套环境一起安装时还需要 Debian/Ubuntu apt 和 sudo（或 root）。
+准备 Linux x86_64 + NVIDIA 驱动和 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17，以及模型来源：默认 `MODEL_SOURCE=modelscope`，SAM 3D 从 ModelScope 下载，不需要 Hugging Face 令牌；改用 Hugging Face（`MODEL_SOURCE=huggingface`）时需要已获 `facebook/sam-3d-objects` 访问权限的令牌。两套环境一起安装时还需要 Debian/Ubuntu apt 和 sudo（或 root）。
 
 **服务器上**，在仓库根目录执行；已有仓库省略克隆：
 
@@ -24,7 +24,7 @@
 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
 export VIEWFORGE_ROOT='<环境、权重与数据根目录的绝对路径>'
-export MODEL_SOURCE=modelscope           # 或 export HF_TOKEN='<Hugging Face 令牌>'
+# 默认从 ModelScope 下载，无需令牌；改用 Hugging Face：export MODEL_SOURCE=huggingface HF_TOKEN='<Hugging Face 令牌>'
 sh scripts/setup_server.sh objects --dry-run
 sh scripts/setup_server.sh objects
 ```

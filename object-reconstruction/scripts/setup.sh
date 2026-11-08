@@ -40,7 +40,7 @@ if ! exists "$WEIGHTS/sam3d"; then
     if [[ "$MODEL_SOURCE" == modelscope ]]; then
         printf '  MODEL_SOURCE=modelscope: SAM 3D comes from ModelScope under the same repo ID; HF_TOKEN is not needed.\n'
     elif [[ -z "${HF_TOKEN:-}" ]]; then
-        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access (or use MODEL_SOURCE=modelscope). Token values are never printed.\n'
+        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access (or leave MODEL_SOURCE at its default, modelscope). Token values are never printed.\n'
         if (( ! DRY_RUN )); then fail 'HF_TOKEN is required for the missing gated SAM 3D Objects weights.'; fi
     else printf '  HF_TOKEN is present (value hidden); model access will be checked by the download.\n'; fi
 fi
