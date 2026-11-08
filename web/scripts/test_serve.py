@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from serve import forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
+from serve import Tunnel as SSHTunnel, forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
 
 
 class Forwarding(unittest.TestCase):
@@ -65,6 +65,27 @@ class Tunnel(unittest.TestCase):
         forwards = [command[i + 1] for i, part in enumerate(command) if part == '-L']
         self.assertEqual(forwards, ['127.0.0.1:7865:172.18.0.2:7862', '127.0.0.1:7866:127.0.0.1:7866'])
         self.assertEqual(command[-1], 'gpu-box')
+
+    def test_cpa_is_forwarded_back_from_the_server(self):
+        command = tunnel_command('autodl', [(7865, '127.0.0.1:7870')], [8317])
+        self.assertEqual(command[command.index('-R') + 1], '127.0.0.1:8317:127.0.0.1:8317')
+        self.assertEqual(command[-1], 'autodl')
+        self.assertNotIn('-R', tunnel_command('autodl', [(7865, '127.0.0.1:7870')]))
+
+    def test_a_dropped_tunnel_is_started_again(self):
+        import subprocess
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as folder:
+            starts = Path(folder) / 'starts'
+            # each "ssh" records a start and exits at once, like a connection the gateway drops
+            command = [sys.executable, '-c', f'open({str(starts)!r}, "a").write("x")']
+            tunnel = SSHTunnel(command, subprocess.Popen(command), check=0.1)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and len(starts.read_text() if starts.exists() else '') < 2:
+                time.sleep(0.1)
+            tunnel.close()
+            self.assertGreaterEqual(len(starts.read_text()), 2)
 
     def test_remote_must_be_address_and_port(self):
         for remote in ['172.18.0.2', '7862', 'a b:1', 'host:port']:
