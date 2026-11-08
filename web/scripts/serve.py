@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
-python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + tunnels to the object and room services
-python3 web/scripts/serve.py --ssh <host> --gateway <address>:7870  # the same through gateway.py: one tunnel
+python3 web/scripts/serve.py --ssh <host>                           # page + one tunnel to gateway.py (127.0.0.1:7870 on <host>)
+python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + separate tunnels to the object and room services
 python3 web/scripts/serve.py                                         # page only, tunnel opened elsewhere
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
 
@@ -204,15 +204,20 @@ def main():
     parser.add_argument('--viewforge', default=Handler.viewforge, help='ViewForge server (default: the SSH tunnel)')
     parser.add_argument('--room-backend', default=Handler.room_backend, help='Room reconstruction API (default: http://127.0.0.1:7866)')
     parser.add_argument('--ssh', metavar='HOST', help='open the SSH tunnels to the object and room services on HOST')
-    parser.add_argument('--remote', default='127.0.0.1:7862',
-                        help='object service address as seen from HOST (default: 127.0.0.1:7862)')
-    parser.add_argument('--room-remote', default='127.0.0.1:7866',
-                        help='room reconstruction API address as seen from HOST (default: 127.0.0.1:7866)')
+    parser.add_argument('--remote', help='object service address as seen from HOST: separate tunnels, no gateway (default: 127.0.0.1:7862)')
+    parser.add_argument('--room-remote', help='room reconstruction API address as seen from HOST (default: 127.0.0.1:7866)')
     parser.add_argument('--gateway', metavar='ADDRESS:PORT',
-                        help='gateway.py address as seen from HOST: one tunnel for both services (replaces --remote and --room-remote)')
+                        help='gateway.py address as seen from HOST, one tunnel for both services '
+                             '(default with --ssh: 127.0.0.1:7870, unless --remote or --room-remote is given)')
     args = parser.parse_args()
     if args.gateway and not args.ssh:
         parser.error('--gateway needs --ssh')
+    if args.gateway and (args.remote or args.room_remote):
+        parser.error('--gateway replaces --remote and --room-remote')
+    if args.ssh and not (args.remote or args.room_remote):
+        args.gateway = args.gateway or '127.0.0.1:7870'
+    args.remote = args.remote or '127.0.0.1:7862'
+    args.room_remote = args.room_remote or '127.0.0.1:7866'
     Handler.viewforge = args.viewforge.rstrip('/')
     Handler.room_backend = args.room_backend.rstrip('/')
     tunnel = None

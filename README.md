@@ -134,7 +134,7 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。`--ssh` 用一条 SSH 连接同时转发物体重建服务（本机 `7865`）和房间重建服务（本机 `7866`），按 `Ctrl-C` 停止时一起关闭。物体重建服务监听的不是服务器的 `127.0.0.1:7862` 时，加 `--remote <监听地址>:7862`；房间重建服务地址不同时，加 `--room-remote <地址>:<端口>`；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
 **服务器启动命令速查**：安装完成后，服务器上需要启动房间、物体两个服务和一个网关，下面用共享 3090 容器（SSH 主机 `3090x2-docker`，仓库在 `/workspace/geyinuo/RoomCanvas`）的实际值举例；换服务器时替换路径和监听地址。
 
@@ -158,16 +158,16 @@ cd $H && nohup python3 web/scripts/gateway.py --objects 172.18.0.2:7862 >> $D/ga
 本机只需要一个隧道：
 
 ```bash
-python3 web/scripts/serve.py --ssh 3090x2-docker --gateway 127.0.0.1:7870
+python3 web/scripts/serve.py --ssh 3090x2-docker
 ```
 
-不用网关时仍可用原来的两个端口：`serve.py --ssh 3090x2-docker --remote 172.18.0.2:7862`（房间服务在 `127.0.0.1:7866` 时不必加 `--room-remote`）。
+不用网关时（给 `--remote` 或 `--room-remote` 就会回到两个隧道）：`serve.py --ssh 3090x2-docker --remote 172.18.0.2:7862`（房间服务在 `127.0.0.1:7866` 时不必加 `--room-remote`）。
 
 | 通用写法 | 3090 实际值 |
 | --- | --- |
 | `<SSH 主机>` | `3090x2-docker` |
 | 物体服务 `--host` / 网关 `--objects` | `172.18.0.2`（容器地址，重建容器后用 `hostname -I` 核对）/ `172.18.0.2:7862` |
-| 本机 `--gateway` | `127.0.0.1:7870`（网关在 SSH 主机上的地址） |
+| 本机 `--gateway` | 默认 `127.0.0.1:7870`，不用写 |
 | 房间服务 | 默认 `127.0.0.1:7866`，网关 `--rooms` 默认即此值 |
 
 三个进程都起来后，用 `python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:7870/health').read())"` 确认物体服务在线（服务器容器里不一定有 `curl`），房间服务查 `/room-reconstruction/health`；3090 上有其他人的任务时，重启物体服务前先确认没有进行中的任务。
