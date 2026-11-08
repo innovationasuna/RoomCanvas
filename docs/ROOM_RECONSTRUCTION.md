@@ -70,6 +70,24 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 - 新房间通过动态目录加入首页，不改写仓库中的 `web/rooms.json`。读取新房间仍需重建服务及隧道在线；后端离线不影响原有示例房间。
 - 原始扫描、运行输出及日志留在服务器的数据目录，不要放进 Git。失败详情看 `<任务号>/task.log`；默认运行器的阶段日志在 `<任务号>/run/attempt-*/`。网页不提供任意服务器路径或日志读取接口。
 
+### 查看重建过程
+
+首页“房间重建任务”里，正在重建的任务有 **实时查看**，结束的任务有 **查看过程**，都打开 `web/replay.html?job=<任务号>`：
+
+- 左栏按 10 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云和物品框，物品做好一件框就填上一件，之后依次换成初版房间、每轮验收的房间和最终房间（新模型约 2 秒淡入）。底部时间轴可拖动、单步，时钟显示真实用时。
+- 重建中每 5 秒取一次新记录并停在最新处；往回拖可以看之前的步骤，点 **回到最新** 继续跟随。结束后从头自动播放，整个过程压缩到 90 秒。
+- 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的验收结果。流水线阶段用固定的中文说明；建模 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。概括出来之前先显示按时间合并的简要说明。
+- 概括使用 `$ROOMCANVAS_HOME/runtime/bin/codex`（没有时用 PATH 里的 `codex`）。模型和思考程度可用环境变量 `LR_REPLAY_MODEL`、`LR_REPLAY_EFFORT` 修改，`LR_REPLAY_CODEX` 指定其他命令；启动服务时加 `--no-replay-summary` 则不调用模型，只用简要说明。调用失败写入 `<任务号>/replay-error.log`，5 分钟后重试。
+
+以前用命令行跑完的运行也可以登记进来回看，不复制运行目录：
+
+```bash
+"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_replay.py \
+  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs" --run '<运行目录，内含 pipeline/<场景>>' --name '<名称>'
+```
+
+登记的任务只用于回看，不进入房间列表；默认忽略最后一轮验收两分钟之后写入的记录，`--until <Unix 时间>` 可指定截止时间。服务运行中登记也会被识别，无需重启。
+
 ### API 与验证
 
 本机 `serve.py` 只转发以下接口到房间服务，并对写请求检查 Origin；大文件使用临时文件分块转发。
@@ -82,6 +100,9 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 | `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
 | `GET /room-reconstruction/catalog` | 已完成房间列表 |
 | `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、物品清单和缩略图 |
+| `GET /room-reconstruction/jobs/<任务号>/replay` | 重建过程：阶段、事件和已生成的房间模型 |
+| `GET /room-reconstruction/jobs/<任务号>/replay/scaffold/(points.bin\|layout.json)` | 扫描点云和物品框 |
+| `GET /room-reconstruction/jobs/<任务号>/replay/files/<相对路径>` | 运行目录里白名单内的模型和图片（物品图、各版房间模型、对比图），其余路径一律 404 |
 
 离线测试不调用 GPU、模型或 Agent：
 
