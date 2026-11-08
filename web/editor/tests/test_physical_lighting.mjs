@@ -90,3 +90,45 @@ test('物理光照 preset replaces the other rigs with pre-exposed physical ligh
   assert.equal(sun.intensity, 4.2); assert.equal(scene.environmentIntensity, .1);
   rig.dispose(); assert.ok(physical.every(light => light.parent === null));
 });
+
+test('sky light on the outside of the room survives see-through clones and gives back changed materials', async () => {
+  const {exteriorShell} = await import('../physical-lighting.mjs');
+  const {setSeeThrough} = await import('../wall-visibility.mjs');
+  const {ownMaterial, setOwnMaterial} = await import('../material-layers.mjs');
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(4, 3, .1), new THREE.MeshStandardMaterial());
+  const lamp = new THREE.Mesh(new THREE.BoxGeometry(.2, .2, .2), new THREE.MeshBasicMaterial());
+  const sofa = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshPhysicalMaterial());
+  const original = wall.material;
+  const shell = exteriorShell(THREE, {meshes: [{mesh: wall, inward: {n: [0, 0, 1], d: -2}}, {mesh: lamp, inward: null}, {mesh: sofa, inward: null}],
+    ceilingHeight: 2.5, own: ownMaterial, setOwn: setOwnMaterial});
+  assert.equal(shell.meshes, 2);
+  assert.match(THREE.ShaderChunk.lights_fragment_end, /ROOM_EXTERIOR/);
+  shell.set(true);
+  assert.notEqual(wall.material, original); assert.ok(wall.material.isMeshStandardMaterial);
+  assert.deepEqual(wall.material.userData.roomExterior.inward, [0, 0, 1]); assert.equal(wall.material.defines.ROOM_EXTERIOR, '');
+  assert.equal(sofa.material.defines.PHYSICAL, ''); assert.deepEqual(sofa.material.userData.roomExterior.inward, [0, 0, 0]);
+  setSeeThrough(wall, true);
+  assert.ok(wall.material.transparent); assert.equal(wall.material.defines.ROOM_EXTERIOR, ''); assert.deepEqual(wall.material.userData.roomExterior.inward, [0, 0, 1]);
+  const shader = {uniforms: {}}; wall.material.onBeforeCompile(shader);
+  assert.deepEqual(shader.uniforms.roomInward.value, [0, 0, 1]); assert.equal(shader.uniforms.roomWallD.value, -2); assert.equal(shader.uniforms.roomCeilingY.value, 2.5);
+  setSeeThrough(wall, false);
+  const lit = new THREE.MeshStandardMaterial(); setOwnMaterial(sofa, lit);
+  shell.set(false);
+  assert.equal(wall.material, original); assert.equal(sofa.material, lit);
+  shell.set(true); assert.equal(sofa.material.defines.ROOM_EXTERIOR, ''); assert.notEqual(sofa.material, lit);
+  shell.dispose(); assert.equal(sofa.material, lit);
+});
+
+test('things on a wall take its direction; furniture standing off the wall does not', async () => {
+  const {wallInward} = await import('../physical-lighting.mjs');
+  const room = new THREE.Group();
+  const add = (name, size, position) => {const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size)); mesh.name = name; mesh.position.set(...position); room.add(mesh); return mesh;};
+  // Wall0's inner face is the plane z = -2 facing +z.
+  const wall = add('Wall0', [4, 3, .1], [0, 1.5, -2.05]), door = add('Door0', [.9, 2, .06], [1, 1, -2.02]);
+  const skirting = add('Skirting', [4, .1, .02], [0, .05, -1.99]), sofa = add('Sofa', [2, .8, .9], [0, .4, -1.5]);
+  const far = add('Picture', [.5, .5, .02], [9, 1.5, -1.99]);
+  room.updateMatrixWorld(true);
+  const inward = wallInward(THREE, {room, walls: [{name: 'Wall0', n: [0, 0, 1], d: -2, tangent: [-1, 0, 0], bounds: [[-2, 0], [2, 3]]}]});
+  assert.deepEqual([wall, door, skirting].map(mesh => inward.get(mesh)), [{n: [0, 0, 1], d: -2}, {n: [0, 0, 1], d: null}, {n: [0, 0, 1], d: null}]);
+  assert.equal(inward.has(sofa), false); assert.equal(inward.has(far), false);
+});

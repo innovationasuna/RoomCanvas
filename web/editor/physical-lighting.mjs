@@ -20,6 +20,8 @@ export const PHYSICAL = Object.freeze({
   maxLocalLights: 4, localShadowMap: 1024,
   // LightManager.EFFICIENCY_LED: 11.71 % of 683 lm/W.
   lumensPerWatt: .1171 * 683,
+  // Outside of the walls (see exteriorShell): a soft, even daylight, in output units.
+  exteriorLight: .6,
 });
 
 // Filament Exposure::exposure(aperture, shutter, ISO) = 1 / (1.2 * 2^EV100).
@@ -115,8 +117,128 @@ export function roomLightParts(THREE, {room, config}) {
   return {parts: parts.filter(part => part.kind !== 'shell'), shell};
 }
 
+// The phone only walks inside the room. The editor's overview also looks at the room from
+// above and outside: the sun blows the walls' outer faces out to white, and whatever faces up
+// above the lamps (wall tops, curtain boxes, a wardrobe's top) gets no light at all and goes
+// black. Those surfaces, hidden by the ceiling when walking, get an even sky light instead:
+// a wall's outer face, any up-facing surface above the lamps, and anything above the ceiling.
+// Everything seen from inside keeps the physical lighting.
+const EXTERIOR_UNIFORMS = `
+#ifdef ROOM_EXTERIOR
+uniform vec3 roomInward;
+uniform float roomWallD;
+uniform float roomCeilingY;
+uniform float roomLampY;
+uniform float roomExteriorLight;
+#endif`;
+const EXTERIOR_CHUNK = `
+#ifdef ROOM_EXTERIOR
+{
+  vec3 exteriorNormal = inverseTransformDirection( geometryNormal, viewMatrix );
+  vec3 exteriorPosition = ( inverse( viewMatrix ) * vec4( geometryPosition, 1.0 ) ).xyz;
+  // Inside a wall's thickness (end caps, door and window reveals) nothing faces the room.
+  bool inWall = dot( exteriorPosition, roomInward ) < roomWallD - 0.005 && dot( exteriorNormal, roomInward ) < 0.5;
+  if ( inWall || dot( exteriorNormal, roomInward ) < -0.5 || exteriorPosition.y > roomCeilingY + 0.01
+    || ( exteriorNormal.y > 0.5 && exteriorPosition.y > roomLampY ) ) {
+    reflectedLight.directDiffuse = vec3( 0.0 );
+    reflectedLight.directSpecular = vec3( 0.0 );
+    reflectedLight.indirectSpecular = vec3( 0.0 );
+    // Tops a little brighter than the sides, as under an overcast sky.
+    reflectedLight.indirectDiffuse = material.diffuseColor * roomExteriorLight * ( 0.88 + 0.12 * max( exteriorNormal.y, 0.0 ) );
+  }
+}
+#endif`;
+function installChunks(THREE) {
+  const chunk = THREE.ShaderChunk;
+  if (!chunk.lights_pars_begin.includes('ROOM_EXTERIOR')) chunk.lights_pars_begin += EXTERIOR_UNIFORMS;
+  if (!chunk.lights_fragment_end.includes('ROOM_EXTERIOR')) chunk.lights_fragment_end += EXTERIOR_CHUNK;
+}
+// The wall direction is a per-material uniform, so every material of one kind shares a program.
+// MeshStandardMaterial.copy() resets `defines`; these subclasses carry the define (and, through
+// userData, the uniforms) over to the clones that see-through and selection layers make.
+const exteriorClasses = new Map();
+function exteriorClass(Base) {
+  if (!exteriorClasses.has(Base)) exteriorClasses.set(Base, class extends Base {
+    copy(source) {super.copy(source); this.defines = {...source.defines}; return this;}
+    onBeforeCompile(shader) {
+      const {inward, wallD, ceiling, lamp, light} = this.userData.roomExterior;
+      Object.assign(shader.uniforms, {roomInward: {value: inward}, roomWallD: {value: wallD}, roomCeilingY: {value: ceiling},
+        roomLampY: {value: lamp}, roomExteriorLight: {value: light}});
+    }
+  });
+  return exteriorClasses.get(Base);
+}
+const lit = material => material?.isMaterial && !material.isMeshBasicMaterial && !material.isShaderMaterial && material.lights !== false;
+
+// Which wall a mesh belongs to: the wall's own meshes, and anything whose box reaches the wall's
+// inner face from at most `depth` inside the room along that wall (doors, frames, skirting,
+// trunking, sockets). Its outer faces only show from outside.
+export function wallInward(THREE, {room, walls, depth = .35}) {
+  const byName = new Map(walls.map(face => [face.name, face]));
+  const inward = new Map(), box = new THREE.Box3(), corner = new THREE.Vector3();
+  room.traverse(object => {
+    const face = byName.get(object.userData?.name || object.name);
+    if (face) object.traverse(mesh => {if (mesh.isMesh) inward.set(mesh, {n: face.n, d: Number.isFinite(face.d) ? face.d : null});});
+  });
+  room.traverse(mesh => {
+    if (!mesh.isMesh || inward.has(mesh)) return;
+    box.setFromObject(mesh);
+    if (box.isEmpty()) return;
+    let best = null;
+    for (const face of walls) {
+      if (!Number.isFinite(face.d) || !face.tangent || !face.bounds) continue;
+      let low = Infinity, high = -Infinity, left = Infinity, right = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+        const along = face.n[0] * corner.x + face.n[2] * corner.z - face.d, across = face.tangent[0] * corner.x + face.tangent[2] * corner.z;
+        low = Math.min(low, along); high = Math.max(high, along); left = Math.min(left, across); right = Math.max(right, across);
+      }
+      const overlaps = right > face.bounds[0][0] - .05 && left < face.bounds[1][0] + .05;
+      if (low < .03 && high < depth && high > -.5 && overlaps && (!best || Math.abs(low) < best.gap)) best = {face, gap: Math.abs(low)};
+    }
+    if (best) inward.set(mesh, {n: best.face.n, d: null});
+  });
+  return inward;
+}
+
+// meshes: [{mesh, inward}]; inward is {n, d} for a wall's own meshes ({n, d: null} for things on it),
+// null elsewhere. A mesh whose own material changed while
+// the sky light was on (an imported object switched to its lit look) keeps the new material.
+export function exteriorShell(THREE, {meshes, ceilingHeight, light = PHYSICAL.exteriorLight, own, setOwn}) {
+  installChunks(THREE);
+  const ceiling = Number.isFinite(ceilingHeight) ? ceilingHeight : 1e6;
+  const entries = meshes.filter(({mesh}) => [own(mesh)].flat().some(lit)).map(({mesh, inward}) => ({mesh, inward, source: null, copy: null, made: []}));
+  function prepare(entry) {
+    const source = own(entry.mesh);
+    if (entry.source === source) return;
+    entry.made.forEach(material => material.dispose());
+    const copies = [source].flat().map(material => {
+      if (!lit(material)) return material;
+      const copy = new (exteriorClass(material.constructor))().copy(material);
+      copy.defines = {...copy.defines, ROOM_EXTERIOR: ''};
+      copy.userData.roomExterior = {inward: [...(entry.inward?.n || [0, 0, 0])], wallD: entry.inward?.d ?? -1e6, ceiling, lamp: ceiling - PHYSICAL.ceilingDrop - .01, light};
+      return copy;
+    });
+    entry.source = source; entry.copy = Array.isArray(source) ? copies : copies[0];
+    entry.made = copies.filter(copy => ![source].flat().includes(copy));
+  }
+  let on = false;
+  return {
+    meshes: entries.length,
+    walls: entries.filter(entry => entry.inward).length,
+    set(value) {
+      if (value === on) return; on = value;
+      for (const entry of entries) {
+        if (on) {prepare(entry); setOwn(entry.mesh, entry.copy);}
+        else if (own(entry.mesh) === entry.copy) setOwn(entry.mesh, entry.source);
+      }
+    },
+    dispose() {this.set(false); for (const {made} of entries) made.forEach(material => material.dispose());},
+  };
+}
+
 // Owns the local lamps only; time-lighting.mjs points the shared sun and hides the other rigs.
-export function createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure = 1}) {
+export function createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure = 1, walls = [], ceilingY = Infinity, own, setOwn}) {
   const {ev100, exposure} = physicalExposure();
   const preExposure = exposure / toneExposure;
   const gltfLights = [];
@@ -126,7 +248,13 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
   // glTF lamps replace the generated ones, as on the phone (no sun either).
   const specs = gltfLights.length ? [] : planLocalLights(roomBox, parts);
   const lights = [];
-  let active = false, power = true;
+  let active = false, power = true, outside = null;
+  // The lowest ceiling surface; walls usually rise a little above it.
+  const ceilings = parts.filter(part => part.kind === 'ceiling').map(part => part.box.min[1]);
+  const ceilingHeight = ceilings.length ? Math.min(...ceilings) : ceilingY;
+  const inward = wallInward(THREE, {room, walls});
+  const skyMeshes = [];
+  room.traverse(mesh => {if (mesh.isMesh) skyMeshes.push({mesh, inward: inward.get(mesh) || null});});
 
   function build() {
     if (lights.length || !specs.length) return;
@@ -153,6 +281,8 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
   function sync() {
     for (const {spec, light} of lights) light.visible = active && (spec.kind !== 'ceiling' || power);
     for (const entry of gltfLights) entry.light.intensity = active ? entry.intensity * preExposure : entry.intensity;
+    if (active && !outside && own) outside = exteriorShell(THREE, {meshes: skyMeshes, ceilingHeight, own, setOwn});
+    outside?.set(active);
   }
   return {
     usesModelLights: gltfLights.length > 0,
@@ -162,12 +292,13 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
     deactivate() {if (!active) return; active = false; sync();},
     setPower(value) {power = value; sync();},
     snapshot: () => ({active, ev100, exposure, preExposure, gltfLights: gltfLights.length,
+      exterior: {onWalls: outside?.walls ?? 0, meshes: outside?.meshes ?? 0, ceilingHeight, light: PHYSICAL.exteriorLight},
       parts: parts.map(({name, kind}) => ({name, kind})),
       lights: specs.map((spec, index) => ({...spec, visible: lights[index]?.light.visible ?? false,
         candela: spec.kind === 'window' ? spotCandela(spec.watts) : pointCandela(spec.watts),
         intensity: lights[index]?.light.intensity ?? null}))}),
     dispose() {
-      active = false; sync();
+      active = false; sync(); outside?.dispose(); outside = null;
       for (const {light} of lights) {light.removeFromParent(); light.target?.removeFromParent(); light.dispose();}
       lights.length = 0;
     },
