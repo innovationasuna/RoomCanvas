@@ -27,9 +27,9 @@ setup_init() {
     esac
     # Never trace private configuration or token values.
     umask 077
-    # huggingface (default) or modelscope: unpinned model snapshots that ModelScope
+    # modelscope (default) or huggingface: unpinned model snapshots that ModelScope
     # mirrors under the same repo ID. Pinned revisions always stay on Hugging Face.
-    MODEL_SOURCE="${MODEL_SOURCE:-huggingface}"
+    MODEL_SOURCE="${MODEL_SOURCE:-modelscope}"
     case "$MODEL_SOURCE" in
         huggingface|modelscope) ;;
         *) fail 'MODEL_SOURCE must be huggingface or modelscope.' ;;
