@@ -39,13 +39,18 @@ READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview)\.gl
 # Its writes: new object with photos, more photos for a finished one (补拍), masks, reconstruction, measured size.
 WRITES = re.compile(rf'^/viewforge/(objects/(create|capture|masks|reconstruct)|dimensions/{NAME})$')
 MAX_BODY = 400 * 1024 * 1024
-ROOM_READS = re.compile(r'^/room-reconstruction/(health|catalog|jobs(/[0-9a-f]{32})?|assets/[0-9a-f]{32}/(Room\.glb|room_objects\.json|thumbnail\.jpg))$')
+# Reads for the room service: health, catalog, jobs, a finished room's files, and a job's replay
+# (timeline, 3D scaffold, and the models / pictures the service itself allowlists under files/).
+ROOM_READS = re.compile(r'^/room-reconstruction/(health|catalog|jobs(/[0-9a-f]{32}(/replay(/scaffold/(points\.bin|layout\.json)|/files/[\w./-]+)?)?)?'
+                        r'|assets/[0-9a-f]{32}/(Room\.glb|room_objects\.json|thumbnail\.jpg))$')
 ROOM_WRITES = re.compile(r'^/room-reconstruction/jobs(/[0-9a-f]{32}/retry)?$')
 MAX_SCAN = 2 * 1024**3
 
 
 def room_forwarded(path, method='GET'):
     path = urlsplit(path).path
+    if '..' in path:
+        return None
     return path if (ROOM_READS if method == 'GET' else ROOM_WRITES).fullmatch(path) else None
 
 

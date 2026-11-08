@@ -74,6 +74,8 @@ python3 web/scripts/serve.py
 
 房间选择页的 **重建房间**（也可直接打开 `web/#reconstruct`）上传一个房间的完整扫描 ZIP（最大 2 GB），提交后显示实际的流水线阶段，失败可以重试；关闭页面不影响服务器上的任务，完成的房间自动加入列表。`serve.py` 只把 `/room-reconstruction/` 下的健康检查、任务、目录和已发布文件转给房间重建服务，写请求只接受本页面发出的，大文件分块转发。扫描格式、服务启动和接口见 [从网页重建房间](../docs/ROOM_RECONSTRUCTION.md#从网页重建房间)。
 
+重建任务可以 **实时查看** 或 **查看过程**（`replay.html?job=<任务号>`）：左栏按阶段列出重建记录，右边三维视图从扫描点云、物品框一路变成最终房间，底部时间轴可拖动回看。说明文字、数据来源和接口见 [查看重建过程](../docs/ROOM_RECONSTRUCTION.md#查看重建过程)。
+
 ## 近侧墙
 
 靠镜头一侧的墙（背面朝向镜头或几乎侧对镜头的墙）不会挡住视线，而是变成半透明（不透明度 0.08），墙上的门窗、插座、窗帘、挂画随之变淡。高于 1.6 米的家具（衣柜、书架、白板）背靠近侧墙、或位于房间靠镜头的一半时也会变淡；转动视角时有 10 厘米的缓冲，不会在中线附近反复闪烁。
@@ -173,6 +175,7 @@ python3 web/scripts/serve.py
 | 功能 | 主要位置与内容 |
 | --- | --- |
 | 房间选择页 | `index.html`、`home.css`、`home.mjs`、`rooms.json`：房间列表、预览卡片与加载状态；`room-reconstruction.mjs`：上传扫描、任务状态与重试 |
+| 重建过程 | `replay.html`、`replay/`：实时 / 回看页面（`timeline.mjs` 时间轴换算，`room-view.mjs` 三维视图，`replay.mjs` 页面）；服务器端 `scripts/room_replay.py` 读取运行目录、概括记录 |
 | 共用外观 | `theme.css`、`icon.svg`、`assets/fonts/` |
 | 工作台界面 | `editor/form-workspace.mjs` / `.css`：左侧栏、物品库、详情面板、设置与引导；`workspace-panels.mjs` 面板互斥，`workspace-motion.mjs` / `.css` 界面过渡 |
 | 场景与放置 | `editor/scene-editor.js`、`room-catalog.mjs`、`placement*.mjs`、`joystick-ui.mjs`：场景加载、选择与放置；`layout.mjs`、`warehouse-drawer.mjs` 管理布局和物品库，`joints.mjs`、`walk.mjs` 提供开合与漫游，`ground-grid.mjs`、`furniture-thumbnail.mjs` 绘制地面网格和缩略图 |
