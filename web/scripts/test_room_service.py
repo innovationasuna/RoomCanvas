@@ -61,6 +61,30 @@ class ScanValidation(unittest.TestCase):
                         service.extract_scan(io.BytesIO(data), Path(root))
 
 
+class Preview(unittest.TestCase):
+    """--preview (no GPU): health says so and new or retried reconstructions are refused."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        jobs = service.Jobs(Path(self.temp.name) / 'jobs', Path.cwd(), runner='cli')
+        handler = type('PreviewHandler', (service.Handler,), {'jobs': jobs, 'preview': True, 'log_message': lambda *args: None})
+        self.server = service.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f'http://127.0.0.1:{self.server.server_port}/room-reconstruction'
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close()
+        self.temp.cleanup()
+
+    def test_health_reports_preview_and_uploads_are_refused(self):
+        with urlopen(self.base + '/health', timeout=10) as response:
+            self.assertTrue(json.loads(response.read())['preview'])
+        for path in ['/jobs', '/jobs/' + 'a' * 32 + '/retry']:
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(Request(self.base + path, data=b'x', headers={'X-Upload-ID': 'b' * 32, 'X-Room-Name': 'r'}), timeout=10)
+            self.assertEqual(caught.exception.code, 503)
+            self.assertIn('GPU', json.loads(caught.exception.read())['error'])
+
+
 class APIIntegration(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
