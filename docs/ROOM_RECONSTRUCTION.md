@@ -54,7 +54,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。
 
-**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，会同时转发 `7866`；服务不在 SSH 主机的 `127.0.0.1:7866` 时加 `--room-remote '<地址>:<端口>'`。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
+**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，默认经服务器上的网关（`python3 web/scripts/gateway.py`，监听 `127.0.0.1:7870`，房间服务在 `127.0.0.1:7866`，用 `--rooms` 改）转发；不用网关时给 `--remote` 或 `--room-remote '<地址>:<端口>'`，会回到分开的两条隧道（本机 `7865`、`7866`）。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
 
 打开 <http://127.0.0.1:7880/web/>，点击 **重建房间**，或直接打开 <http://127.0.0.1:7880/web/#reconstruct>。
 
@@ -74,7 +74,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 首页“房间重建任务”里，正在重建的任务有 **实时查看**，结束的任务有 **查看过程**，都打开 `web/replay.html?job=<任务号>`：
 
-- 左栏按 10 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云和物品框，物品做好一件框就填上一件，之后依次换成初版房间、每轮验收的房间和最终房间（新模型约 2 秒淡入）。底部时间轴可拖动、单步，时钟显示真实用时。
+- 左栏按 10 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云和物品框；制作物品时房间的墙和地面先出现，物品做好一件就在原位出现一件，没做的留线框；之后依次换成初版房间、每轮验收的房间和最终房间（新模型约 2 秒淡入）。底部时间轴可拖动、单步，时钟显示真实用时。
 - 重建中每 5 秒取一次新记录并停在最新处；往回拖可以看之前的步骤，点 **回到最新** 继续跟随。结束后从头自动播放，整个过程压缩到 90 秒。
 - 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的验收结果。流水线阶段用固定的中文说明；建模 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。概括出来之前先显示按时间合并的简要说明。
 - 概括使用 `$ROOMCANVAS_HOME/runtime/bin/codex`（没有时用 PATH 里的 `codex`）。模型和思考程度可用环境变量 `LR_REPLAY_MODEL`、`LR_REPLAY_EFFORT` 修改，`LR_REPLAY_CODEX` 指定其他命令；启动服务时加 `--no-replay-summary` 则不调用模型，只用简要说明。调用失败写入 `<任务号>/replay-error.log`，5 分钟后重试。
@@ -85,6 +85,8 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 "$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_replay.py \
   --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs" --run '<运行目录，内含 pipeline/<场景>>' --name '<名称>'
 ```
+
+一次运行目录常有几十 GB，大部分是回放用不到的物品建模中间文件。加 `--slim-to '<新目录>'` 会先把回放读取的文件（日志、验收结果、点云与布局、房间模型、配图，保留文件时间）复制到新目录，再登记这份副本，原运行目录可以删除或留在别处。room3 的运行从 55 GB 减到 245 MB，回放内容与原目录一致。
 
 登记的任务只用于回看，不进入房间列表；默认忽略最后一轮验收两分钟之后写入的记录，`--until <Unix 时间>` 可指定截止时间。服务运行中登记也会被识别，无需重启。
 
