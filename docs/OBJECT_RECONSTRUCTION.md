@@ -31,7 +31,7 @@ sh scripts/setup_server.sh objects
 
 入口也可直接使用 [`bash object-reconstruction/scripts/setup.sh`](../object-reconstruction/scripts/setup.sh)。脚本创建重建环境、外部源码、模型权重和独立 BiRefNet 环境，包含 API 依赖；具体配方与续跑行为见 [安装说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#安装)。
 
-脚本只在缺失时生成 `object-reconstruction/configs/local.env`。已有配置中的 `VIEWFORGE_ROOT` 优先；若与终端显式设置的值冲突，会停止并给出重跑命令。编辑配置中的 `CUDA_VISIBLE_DEVICES`（一张获准使用的 GPU）、`VIEWFORGE_GPU_LOCK`（共享该卡的应用使用同一路径）、`TORCH_CUDA_ARCH_LIST` 和 `TZ`，见 [服务器配置](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#服务器配置)。安装前需指定编译架构或可见 GPU 时，在终端显式 export；安装脚本只读取配置中的根目录。
+脚本只在缺失时生成 `object-reconstruction/configs/local.env`。已有配置中的 `VIEWFORGE_ROOT` 优先；若与终端显式设置的值冲突，会停止并给出重跑命令。GPU、锁文件、编译架构和时区都有默认值，不用填；共享服务器上需要固定一张获准使用的 GPU 时，才在配置里设 `CUDA_VISIBLE_DEVICES`、`VIEWFORGE_GPU_LOCK` 等，见 [服务器配置](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#服务器配置)。安装前需指定编译架构或可见 GPU 时，在终端显式 export；安装脚本只读取配置中的根目录。
 
 ### 启动与检查
 
