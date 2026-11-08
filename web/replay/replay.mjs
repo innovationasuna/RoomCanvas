@@ -20,6 +20,23 @@ function fail(message) {
   $('loading').classList.add('error');
 }
 
+// Opened without ?job=: list the reconstruction jobs to pick from.
+const STATUS = {queued: '排队中', running: '重建中', preparing: '整理中', completed: '已完成', failed: '未完成'};
+async function choose() {
+  let jobs;
+  try {
+    const response = await fetch('/room-reconstruction/jobs', {cache: 'no-store'});
+    if (!response.ok) throw new Error();
+    jobs = (await response.json()).jobs.filter((j) => j.status !== 'queued').sort((a, b) => b.created - a.created);
+  } catch {
+    return fail('房间重建服务未连接');
+  }
+  if (!jobs.length) return fail('还没有重建任务');
+  const when = (t) => new Date(t * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3);
+  $('loading').innerHTML = `<div class="pick"><div class="pick-title">选择要查看的重建任务</div>` + jobs.map((j) =>
+    `<a href="?job=${j.id}"><b>${esc(j.name || '房间')}</b><span>${STATUS[j.status] || ''} · ${when(j.created)}</span></a>`).join('') + '</div>';
+}
+
 async function fetchData() {
   const response = await fetch(api, {cache: 'no-store'});
   if (!response.ok) throw new Error(response.status === 404 ? '没有找到这个重建任务' : '房间重建服务未连接');
@@ -27,7 +44,7 @@ async function fetchData() {
 }
 
 async function start() {
-  if (!/^[0-9a-f]{32}$/.test(job)) return fail('链接里缺少重建任务编号');
+  if (!/^[0-9a-f]{32}$/.test(job)) return choose();
   try {
     data = await fetchData();
   } catch (error) {
