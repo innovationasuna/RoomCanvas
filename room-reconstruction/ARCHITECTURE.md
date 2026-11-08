@@ -1,136 +1,96 @@
 # Architecture
 
-LiteReality is one resumable pipeline with two explicit phases and five public stages:
+The module separates capture processing, agent authoring, room operations, and
+model execution. [pipeline/stages.py](src/litereality_agent/pipeline/stages.py)
+defines the standard stage order:
 
 ```text
-cli.py → PipelineRunner → scene_init                    → realism_authoring
-                          ingest → reconstruct → seed      author → publish
+ingest → reconstruct → seed → author → publish → simulate (optional)
 ```
 
-Each stage exposes `run(context, options) -> StageResult`. `PipelineRunner` owns ordering,
-prerequisites, reuse, failure handling, and state in `run/<scene>/.litereality/pipeline.json`.
+`simulate` is non-required: a bare CLI `run` includes it, but its failure is
+nonfatal unless strict mode is selected. `--through publish` stops before it.
 
-## Package layout
+Stages expose `run(context, options) -> StageResult`.
+[PipelineRunner](src/litereality_agent/pipeline/runner.py) handles prerequisites,
+reuse, failures, and state in `<scene>/.litereality/pipeline.json`.
 
-```text
-src/litereality_agent/
-├── cli.py               the supported command surface
-├── settings.py          Pydantic environment settings
-├── pipeline/            workflow ordering, state, and phase implementations
-│   ├── scene_init/      capture ingest, reconstruction, and deterministic seed room
-│   ├── realism_authoring/
-│   │   ├── author/      evidence and optional realism passes
-│   │   └── publish/     final compilation and viewer
-│   └── room_qc/         final checks and placement correction
-├── agent/               agent runners, tools (each owning its source), traces, and narration
-│   └── providers/       which coding agent drives a session (`claude/` and `codex/`)
-├── room_ops/            Room.py manifest, compilation, rendering, and export
-├── models/              DINOv2, GroundingDINO, TRELLIS, and object generation
-└── runtimes/            hosted execution transports such as Modal
+## Package ownership
 
-scripts/                  standalone capture and publishing utilities
-deploy/modal/             hosted model wrappers; never imported by application code
-```
+Paths below are relative to [src/litereality_agent](src/litereality_agent/).
 
-There are no top-level `services`, `adapters`, or `shared` packages. There is also no nested
-`pipeline/stages` package. Phase decisions belong in `pipeline`. Reusable agent capabilities
-belong in `agent`, and the portable room representation belongs in `room_ops`. Models own
-inference, while runtimes own execution location.
+| Package | Responsibility |
+|---|---|
+| `cli.py` | Installed `litereality` commands |
+| `settings.py` | Typed settings and environment loading |
+| `pipeline/scene_init/` | Ingest, layout repair, reconstruction, seed room |
+| `pipeline/realism_authoring/author/` | Evidence, authoring, optional refinement/materials/quality passes |
+| `pipeline/realism_authoring/small_objects/` | Per-object keep, discard, or rebuild |
+| `pipeline/realism_authoring/articulate/` | Identify, cut, and animate openable parts |
+| `pipeline/realism_authoring/live/` | Authoring viewer |
+| `pipeline/room_qc/` | Validation, placement correction, and publication |
+| `pipeline/simulate/` | Optional MuJoCo export and shake check |
+| `agent/` | Agent sessions, providers, capability tools, and traces |
+| `room_ops/` | Portable room representation, compilation, rendering, export |
+| `models/` | Detection, embeddings, reference images, and object generation |
+| `runtimes/` | Hosted execution and deployment setup |
 
-`pipeline/realism_authoring/author` owns the optional post-authoring passes (`refine_objects`,
-`materials`, and model-driven `quality`). They remain part of the authoring phase rather than
-separate public pipeline stages. The agent session and its capability-tool framework live in
-`agent/`, so adding another agent workflow does not expand a pipeline-stage package.
+The [server runner](server/run_room.py) configures a single-machine environment
+and orchestrates the additional passes. Small-object and articulation passes are
+not separate stages in `pipeline/stages.py`. See the
+[project workflow](../docs/ROOM_RECONSTRUCTION.md) for their inputs and output selection.
 
-## Agent harnesses
+## Agent providers
 
-The *harness* is the agent loop (file tools, capability tools, hooks, event stream); the *model*
-is the brain inside it. They are independent knobs. `agent/providers/` is the seam for the first:
-a `SessionSpec` goes in, a normalised event stream comes out, and `resolve(role)` picks the
-harness from `LR_<ROLE>_PROVIDER > LR_AGENT_PROVIDER > claude`.
+[agent/providers](src/litereality_agent/agent/providers/) accepts a `SessionSpec`
+and normalizes provider events. The default is Codex with `gpt-6-astra`.
+[models.env](models.env) and [settings.py](src/litereality_agent/settings.py)
+configure per-role providers and models; Claude remains an explicit alternative.
+Author, materials, quality, and refinement have explicit Codex defaults;
+the procedural role inherits the general provider unless overridden.
 
-Harnesses are not feature-equivalent, so each declares a `supports` set and call sites branch on
-it rather than assuming. Claude Code hosts capability tools in-process, can steer a session's
-ending with a `PreToolUse` hook, reports cost, honours a tool allowlist, and surfaces file reads
-as observable `Read` calls. Codex runs out-of-process: capability tools are bridged through
-`agent/tools/mcp_server.py` over stdio MCP, the step budget degrades to a hard stop, shell access
-cannot be withheld, and no cost is reported. `providers.describe()` prints those gaps into the
-stage header so a degraded run never looks like a normal one.
+Codex exposes capability tools over stdio MCP through
+[tools/mcp_server.py](src/litereality_agent/agent/tools/mcp_server.py).
+Claude hosts them in process. Provider capabilities differ: Codex does not report
+cost or offer the Claude pre-tool hook/tool allowlist, and enforces a hard session
+limit. Call sites inspect the provider's declared capabilities.
 
-Object refinement is the one pass that is Claude-only: its `render_object` tool is built per
-object around live session state, so there is no registry entry for the stdio bridge to rebuild.
-It fails with an explicit message rather than running without its only self-check tool.
+Object refinement creates a per-object render tool; Codex serves it through
+[object_server.py](src/litereality_agent/pipeline/realism_authoring/author/object_server.py).
 
-## Agent capability tools
+## Tool and dependency boundaries
 
-`agent/tools/default_registry.py` is the source of truth for agent tools. The authoring pass uses
-this registry, and the materials and quality passes use the same one:
+[default_registry.py](src/litereality_agent/agent/tools/default_registry.py)
+registers six tools: `fetch_material`, `render`, `critic`, `select_views`,
+`grid`, and `check_collisions`. Compilation is shared implementation called
+by render, not a registered tool.
 
-1. `fetch_material` searches Poly Haven for a PBR material and can recolour it.
-2. `render` builds the room, selects useful views, and returns render and photo comparisons.
-3. `critic` grades images against a stated goal and returns issues to fix.
-4. `select_views` chooses capture frames for a room, wall, or object.
-5. `grid` draws a metric grid over a surface reference.
-6. `check_collisions` checks mesh or box collisions and suggests placement fixes.
+Pipeline code owns workflow decisions. Agent tools own reusable capabilities;
+`room_ops` owns the portable room format; model packages own inference;
+runtime adapters own execution location. Dependency boundaries are checked in
+[test_architecture.py](tests/test_architecture.py).
 
-The `compile` package is shared code used by `render`. It is not a registered agent tool. Shared
-image selection and wall stitching code lives under `agent/tools/shared` because several tools and
-the evidence stage use it.
+## Configuration and execution
 
-Imports follow one direction, enforced by `tests/test_architecture.py`:
-
-```text
-cli.py → pipeline → agent → room_ops
-                ↘ models → runtimes
-                ↘ room_ops
-```
-
-Arrows point from caller to dependency. Models, room-ops code, and reusable agents never import
-pipeline code; the pipeline owns the CLI adapters that bind scene-package arguments before calling
-an agent. Runtime selection happens in `models/registry.py`; the pipeline consumes that small
-composition boundary.
-
-## Room ownership and quality control
-
-`room_ops` owns the portable room representation and operations that work without pipeline state:
-
-1. It reads and writes the Room.py manifest.
-2. It compiles Blender and GLB files.
-3. It renders rooms and exports assets.
-4. It serves the walkable viewer.
-
-Quality control has two scopes. `pipeline/scene_init/reconstruct/mesh_qc` checks each generated
-asset before it enters the room. `pipeline/room_qc` checks the assembled room and corrects object
-placement. The collision tool keeps its reusable geometry code under `agent/tools`, while the
-pipeline decides what to do with each result.
-
-## Configuration and runtimes
-
-`LiteRealitySettings` uses `pydantic-settings` and loads values in this order:
+Settings precedence is:
 
 ```text
 process environment > .env > models.env > typed defaults
 ```
 
-Heavy inference is isolated from the main environment. A model package owns one inference path
-regardless of where it executes. A local adapter can run it in a separately configured process;
-a hosted adapter sends its request contract through `runtimes/`. Modal wraps canonical TRELLIS,
-GroundingDINO, and DINOv2 inference under `deploy/modal`; DINO also supports an explicitly selected
-local model environment.
-Deployment files stay outside application source. The CLI and unit tests do not start DINO,
-TRELLIS, Blender, or paid model calls.
+[models/registry.py](src/litereality_agent/models/registry.py) selects inference runtimes.
+Configured Modal credentials select hosted TRELLIS; otherwise `TRELLIS_PYTHON`
+is required. DINO also supports an explicit `LR_DINO_BACKEND=local` override.
+Heavy local models use separate Python environments.
 
-## Output compatibility
+## Validation and outputs
 
-Generated paths remain stable so previous work can be resumed:
+Object checks run in
+[reconstruct/mesh_qc](src/litereality_agent/pipeline/scene_init/reconstruct/mesh_qc/).
+Assembled-room checks run in
+[room_qc](src/litereality_agent/pipeline/room_qc/), including finite support contact,
+exported articulation, and mesh collision checks. Publication applies acceptance
+to the final export; simulation separately requires a clean load check.
 
-```text
-run/<scene>/
-├── scene.json
-├── scene_init/          crops, references, reconstructed objects, seed room
-├── realism_authoring/  authored room and final deliverables
-└── .litereality/        resume state
-```
-
-Some legacy artifact filenames such as `nano_banana_raw.png` are still read for compatibility;
-they are data-format details, not supported providers or package boundaries.
+See [room operations](src/litereality_agent/room_ops/README.md) for the editable
+format and [README outputs](README.md#outputs) for the scene-package layout.

@@ -4,8 +4,8 @@
 Runs under the TRELLIS Python (LITEREALITY_TRELLIS_LAUNCHER). Quality defaults are
 unchanged; only weight locations and low_vram differ from upstream.
 
-$ROOMCANVAS_HOME is the directory holding backends/weights (on the 3090 server,
-/workspace/geyinuo/RoomCanvas). Weights live outside this repo, so it is required.
+$ROOMCANVAS_HOME is the directory holding backends/weights, normally the
+RoomCanvas checkout root. Set it explicitly when invoking this launcher.
 """
 
 import json

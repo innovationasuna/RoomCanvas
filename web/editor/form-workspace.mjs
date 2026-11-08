@@ -27,7 +27,7 @@ function createWorkspace() {
   const panelSurface = element('div', 'rc-panel-surface');
   panelSurface.setAttribute('aria-hidden', 'true'); stage.prepend(panelSurface);
   $('.rc-warehouse-dock').remove();
-  $('#viewport').setAttribute('aria-label', '三维房间。单击选择家具，拖动已选家具移动；按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。');
+  $('#viewport').setAttribute('aria-label', '三维房间。单击选择物品，拖动已选物品移动；按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。');
 
   // Project operations belong with the room name, not beside every everyday tool.
   const project = $('.rc-project'), title = project.querySelector('strong');
@@ -51,7 +51,7 @@ function createWorkspace() {
     ['resume-layout', 'undo', '继续上次布置'],
     ['export-layout', 'download', '导出布局备份'],
     ['import-layout', 'upload', '导入布局'],
-    ['clear-room', 'cabinet', '收起全部家具'],
+    ['clear-room', 'cabinet', '收起全部物品'],
     ['reset-layout', 'reset', '恢复原始布置'],
   ]) $('#'+id).innerHTML = `${icon(symbol)}<span>${label}</span>`;
   $('#save-state').hidden = true;
@@ -112,7 +112,7 @@ function createWorkspace() {
   toolsPanel.append(density);
   const hintToggle = element('label', 'rc-switch-row rc-settings-hints', '<span class="rc-setting-copy"><span>操作提示</span><small>显示操作说明和引导</small></span><input id="hints-toggle" class="rc-setting-switch" type="checkbox" role="switch" aria-label="操作提示">');
   toolsPanel.append(hintToggle);
-  const guideAction = element('button', 'rc-settings-action', `<span class="rc-setting-copy"><span>重新查看上手引导</span><small>从选择家具到完成布置</small></span>${icon('chevron')}`);
+  const guideAction = element('button', 'rc-settings-action', `<span class="rc-setting-copy"><span>重新查看上手引导</span><small>从选择物品到完成布置</small></span>${icon('chevron')}`);
   guideAction.type = 'button'; guideAction.id = 'restart-guide'; toolsPanel.append(guideAction);
   // Source-model navigation belongs to the project menu, so settings has the same height in both modes.
   if (originalLink) {originalLink.classList.add('rc-full-only'); projectPanel.append(originalLink);}
@@ -129,7 +129,7 @@ function createWorkspace() {
     button.setAttribute('aria-label', label); button.dataset.tooltip = hint;
   };
   railButton($('#gesture-toggle'), 'hand', '手势控制面板', '手势 · 打开 / 收起面板');
-  railButton($('#list-toggle'), 'layers', '家具库');
+  railButton($('#list-toggle'), 'layers', '物品库');
   railButton($('#undo'), 'undo', '撤销', '撤销 · ⌘ / Ctrl Z');
   railButton(redo, 'redo', '重做', '重做 · ⌘ / Ctrl Shift Z');
   railButton($('#light'), 'light', '环境');
@@ -169,15 +169,15 @@ function createWorkspace() {
 
   // A compact furniture list, with real state filters and one add entry.
   const shelfHead = $('.rc-shelf-head');
-  shelfHead.querySelector('.rc-shelf-title').textContent = '家具库';
+  shelfHead.querySelector('.rc-shelf-title').textContent = '物品库';
   const search = $('.rc-search'); search.querySelector('span').innerHTML = icon('search');
-  search.querySelector('input').placeholder = '搜索家具名称';
+  search.querySelector('input').placeholder = '搜索物品名称';
   shelfHead.after(search);
   const tabs = element('div', 'rc-library-tabs', '<button type="button" data-library="room" aria-pressed="true">房间中 <span></span></button><button type="button" data-library="stored" aria-pressed="false">已收纳 <span></span></button>');
   search.after(tabs);
   const count = $('#object-count'); shelfHead.after(count);
   const add = $('#add-object');
-  add.querySelector('strong').textContent = '添加家具';
+  add.querySelector('strong').textContent = '添加物品';
   const libraryFoot = element('div', 'rc-library-footer');
   libraryFoot.append(add, importMenu);
   $('#warehouse-content').append(libraryFoot);
@@ -187,7 +187,7 @@ function createWorkspace() {
   $('#import-menu summary').textContent = '从已生成的模型添加';
 
   // Measurements and continuous tools stay visible; confirmation is pinned below the scroll area.
-  const inspectorHeading = element('div', 'rc-panel-heading', '<span>家具属性与操作</span><button type="button" class="rc-tool rc-close" id="close-inspector" aria-label="关闭家具详情">×</button>');
+  const inspectorHeading = element('div', 'rc-panel-heading', '<span>物品属性与操作</span><button type="button" class="rc-tool rc-close" id="close-inspector" aria-label="关闭物品详情">×</button>');
   const body = $('#selection-controls'); body.classList.add('rc-inspector-body');
   const summary = element('div', 'rc-object-summary'); summary.append($('#selected-name'), $('#selected-category'));
   const dimensions = element('section', 'rc-object-dimensions', '<div class="rc-inspector-section-heading"><h3>模型尺寸</h3><span>米 · 宽 × 深 × 高</span></div><dl><div><dt>宽</dt><dd id="dimension-width">—</dd></div><div><dt>深</dt><dd id="dimension-depth">—</dd></div><div><dt>高</dt><dd id="dimension-height">—</dd></div></dl>');
@@ -214,18 +214,18 @@ function createWorkspace() {
   inspectorFoot.append(focusButton, resetObject, storeButton);
   focusButton.innerHTML = `${icon('focus')}聚焦`;
   resetObject.innerHTML = `${icon('reset')}还原`;
-  resetObject.setAttribute('aria-label', '还原此家具的初始位置和角度');
+  resetObject.setAttribute('aria-label', '还原此物品的初始位置和角度');
   storeButton.innerHTML = `${icon('cabinet')}收起`;
-  storeButton.setAttribute('aria-label', '收起家具到家具库');
+  storeButton.setAttribute('aria-label', '收起物品到物品库');
   $('#cancel-placement').textContent = '取消调整';
   const pendingActions = $('.rc-pending-actions'); pendingActions.append($('#cancel-placement'), $('#confirm-placement'));
   const transaction = element('div', 'rc-inspector-transaction'); transaction.append($('.rc-state'), pendingActions);
   body.replaceChildren(summary, dimensions, transform, inspectorFoot, $('#wall-section'), continuousTools, legacy);
   for (const id of ['session-rotate-left', 'session-rotate-right']) transaction.querySelector('#'+id).hidden = true;
-  $('#empty-selection').textContent = '点击房间里的家具，或从家具库选择。';
+  $('#empty-selection').textContent = '点击房间里的物品，或从物品库选择。';
   inspector.replaceChildren(inspectorHeading, body, transaction, $('#empty-selection'), $('#selected-count'));
 
-  const guide = element('aside', 'rc-guide', '<div class="rc-guide-top"><span id="guide-step">开始布置</span><button type="button" id="dismiss-guide" aria-label="收起上手引导">×</button></div><strong id="guide-title">从一件家具开始</strong><p id="guide-copy">点选房间里的家具，或在左侧家具库中挑选。</p><div class="rc-guide-progress" aria-hidden="true"><i></i><i></i><i></i></div>');
+  const guide = element('aside', 'rc-guide', '<div class="rc-guide-top"><span id="guide-step">开始布置</span><button type="button" id="dismiss-guide" aria-label="收起上手引导">×</button></div><strong id="guide-title">从一件物品开始</strong><p id="guide-copy">点选房间里的物品，或在左侧物品库中挑选。</p><div class="rc-guide-progress" aria-hidden="true"><i></i><i></i><i></i></div>');
   scene.append(guide);
   const footer = $('.rc-footer');
   footer.prepend(element('span', 'rc-footer-brand', 'RoomCanvas <span>空间布置工作台</span>'));
@@ -244,7 +244,7 @@ function createWorkspace() {
           <div><dt>右键拖动</dt><dd>平移视角</dd></div>
           <div><dt>滚轮</dt><dd>放大 / 缩小</dd></div>
         </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局。</p></section>
-        <section><h3>调整家具</h3><p>单击选中家具后拖动，或使用右侧控件。</p><dl class="rc-help-controls">
+        <section><h3>调整物品</h3><p>单击选中物品后拖动，或使用右侧控件。</p><dl class="rc-help-controls">
           <div><dt>左上摇杆</dt><dd>移动</dd></div>
           <div><dt>左下转盘</dt><dd>旋转</dd></div>
           <div><dt>右侧拉杆</dt><dd>升降</dd></div>
@@ -259,8 +259,8 @@ function createWorkspace() {
       <section class="rc-help-shortcuts"><h3>常用快捷键</h3><dl>
         <div><dt>撤销</dt><dd><kbd>⌘ / Ctrl</kbd><kbd>Z</kbd></dd></div>
         <div><dt>重做</dt><dd><kbd>⌘ / Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd></dd></div>
-        <div><dt>搜索家具</dt><dd><kbd>/</kbd></dd></div>
-        <div><dt>旋转家具</dt><dd><kbd>R</kbd></dd></div>
+        <div><dt>搜索物品</dt><dd><kbd>/</kbd></dd></div>
+        <div><dt>旋转物品</dt><dd><kbd>R</kbd></dd></div>
         <div><dt>确认放置</dt><dd><kbd>Enter</kbd></dd></div>
         <div><dt>取消调整</dt><dd><kbd>Esc</kbd></dd></div>
       </dl></section>
@@ -377,9 +377,9 @@ function createWorkspace() {
       tab.querySelector('span').textContent = tab.dataset.library === 'room' ? roomCount : rows.length - roomCount;
     }
     empty.hidden = !state.ready || count > 0;
-    empty.textContent = term ? '没有找到这件家具，换个名称试试。' : filter === 'stored' ? '还没有收纳的家具。选中房间里的家具，点击“收起家具”即可放到这里。' : '房间里暂时没有家具，从“已收纳”中放回，或添加一件新家具。';
+    empty.textContent = term ? '没有找到这件物品，换个名称试试。' : filter === 'stored' ? '还没有收纳的物品。选中房间里的物品，点击“收起”即可放到这里。' : '房间里暂时没有物品，从“已收纳”中放回，或添加一件新物品。';
     clearFilter.hidden = empty.hidden || !term;
-    $('#object-count').textContent = term ? `找到 ${count} 件家具` : `共 ${rows.length} 件家具`;
+    $('#object-count').textContent = term ? `找到 ${count} 件物品` : `共 ${rows.length} 件物品`;
   }
   function setTool(tool) {
     root.dataset.tool = tool;
@@ -392,13 +392,13 @@ function createWorkspace() {
     root.dataset.wall = String(!!state.wall); root.dataset.ready = String(!!state.ready);
     if (state.wall && root.dataset.tool !== 'move') setTool('move');
     $('#exit-walk').hidden = state.mode !== 'walk'; walkButton.hidden = state.mode === 'walk';
-    $('.rc-panel-heading > span').textContent = state.pending ? '调整预览 · 尚未保存' : '家具属性与操作';
+    $('.rc-panel-heading > span').textContent = state.pending ? '调整预览 · 尚未保存' : '物品属性与操作';
     $('#view-caption').textContent = state.mode === 'walk' ? '室内漫游' : state.mode === 'preview' ? '空间体验' : state.view === 'top' ? '俯视布局' : '空间总览';
     guide.hidden = !state.ready || guideDone || root.dataset.hints === 'off' || state.mode !== 'edit';
     const step = state.pending ? 2 : state.selected ? 1 : 0;
-    $('#guide-step').textContent = ['开始布置', '已选中家具', '调整后确认'][step];
-    $('#guide-title').textContent = ['从一件家具开始', '试着换个位置', '满意了，就放在这里'][step];
-    $('#guide-copy').textContent = ['点选房间里的家具，或从家具库选择。', '拖动已选家具，或使用右侧连续拖动工具调整。选中本身不会改变位置。', '点击“确认放置”保存这次调整；不满意可取消，回到原位置。'][step];
+    $('#guide-step').textContent = ['开始布置', '已选中物品', '调整后确认'][step];
+    $('#guide-title').textContent = ['从一件物品开始', '试着换个位置', '满意了，就放在这里'][step];
+    $('#guide-copy').textContent = ['点选房间里的物品，或从物品库选择。', '拖动已选物品，或使用右侧连续拖动工具调整。选中本身不会改变位置。', '点击“确认放置”保存这次调整；不满意可取消，回到原位置。'][step];
     guide.querySelectorAll('.rc-guide-progress i').forEach((part, index) => part.classList.toggle('active', index <= step));
     for (const id of ['list-toggle','clear-room','reset-layout','export-layout','import-layout']) $('#'+id).disabled = !state.ready;
     filterLibrary();

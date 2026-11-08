@@ -1,6 +1,42 @@
-# 房间重建（LiteReality + Astra）
+# 房间重建
 
-把手机扫描（iPhone LiDAR + RoomPlan）重建成真实尺寸、带纹理的 `Room.glb`，再接到网页编辑器上。代码在 [`room-reconstruction/`](../room-reconstruction/)（LiteReality-Agent 官方代码，Agent 改用 Codex / GPT-6 Astra，改动见下文[对 LiteReality-Agent 改了什么](#对-litereality-agent-改了什么)）。在 3090 服务器上运行，目录和环境见 [交接文档](HANDOFF.md)。
+房间重建模块把 iPhone LiDAR + RoomPlan 扫描生成真实尺寸、带纹理的 `Room.glb`，供网页编辑器浏览和调整家具布局。流程包括房间结构重建、家具建模与摆放、视觉检查，并支持小物件重建和可动部件识别。
+
+## 运行环境
+
+重建在 Linux GPU 服务器上运行；完成后把房间文件复制到本机，由本机网页编辑器读取。房间重建不依赖物体 API 的 7862 端口。
+
+设置 `ROOMCANVAS_HOME` 为环境和数据根目录的绝对路径。该目录下的 `.env` 保存 API 密钥和图像生成设置；`runtime/` 存放 `litereality-env/`、`trellis-env/`、`blender/` 和 `cuda-12.4/`，`backends/` 存放 `TRELLIS.2/` 与 `weights/`。下文 `<…>` 都要替换为自己的值。
+
+## 安装
+
+服务器准备 Linux x86_64、NVIDIA 驱动和至少 24 GB 显存的 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17、已登录的 Codex CLI。系统包使用 Debian/Ubuntu apt，缺包时需 sudo 或 root；没有 sudo 时，`ffmpeg`、`git`、`git-lfs` 只要在 PATH 上即可（例如 `conda create -p <目录> -c conda-forge ffmpeg git-lfs` 后把 `<目录>/bin` 加入 PATH），库文件仍需管理员安装。
+
+**服务器上**，从仓库根目录执行；首次获取源码先运行 `git clone https://github.com/innovationasuna/RoomCanvas.git` 并进入 `RoomCanvas/`：
+
+```bash
+export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
+sh scripts/setup_server.sh rooms --dry-run  # 只看步骤，不安装或下载
+sh scripts/setup_server.sh rooms
+```
+
+也可直接运行 [`bash room-reconstruction/server/setup.sh`](../room-reconstruction/server/setup.sh)。脚本按仓库中的 [Dockerfile](../room-reconstruction/deploy/modal/trellis/Dockerfile) 和 [扩展构建配置](../room-reconstruction/deploy/modal/trellis/app.py) 安装：主环境在 `runtime/litereality-env/`，CUDA 12.4、Blender 5.1.2 和 TRELLIS 环境也放在 `runtime/`；源码与权重放在 `backends/`。稀疏解码器只下载所需的 JSON 和 safetensors 两个文件。设置 `MODEL_SOURCE=modelscope` 时，TRELLIS.2、稀疏解码器、Grounding DINO 和 DINOv2 改从 ModelScope 下载；固定版本的 DINOv3 仍从 Hugging Face 下载。官方 Blender 下载站访问不了时，把 `BLENDER_ARCHIVE_URL` 设为官方镜像上的同一文件（例如 `https://mirrors.aliyun.com/blender/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz`），脚本会按官方 SHA256 校验。TRELLIS 构建使用独立临时目录并保留现场；若上游使用固定 `/tmp/extensions` 且该路径已存在，会先停止，需核对其归属后处理。
+
+完成标记 `.roomcanvas-setup-complete` 只在文件与依赖检查通过后写入。重跑同一命令会跳过已完成步骤、恢复带 `.roomcanvas-setup-incomplete` 的步骤；无标记的已有目录只验证，不补装或覆盖，验证失败时停止并提示路径。不要给已有目录手工补标记来绕过检查。
+
+脚本仅在缺失时生成 `$ROOMCANVAS_HOME/.env`。填写 `OPENAI_API_KEY`；使用 Gemini 时填写 `GEMINI_API_KEY` 并设 `LR_IMAGE_PROVIDER=gemini`，同时填写扫描父目录 `LR_SCANS_DIR`。本地运行保持 `.env` 和启动终端中的 `MODAL_TOKEN_ID`、`MODAL_TOKEN_SECRET`、`MODAL_PROFILE` 为空，设置 `LR_DINO_BACKEND=local`。Blender、生成与检测解释器路径由 [`run_room.py`](../room-reconstruction/server/run_room.py) 设置。
+
+后续更新前先等重建结束。**服务器上**，在仓库根目录更新源码；只刷新主环境依赖时仍使用同一个环境目录：
+
+```bash
+git pull --ff-only
+UV_PROJECT_ENVIRONMENT="$ROOMCANVAS_HOME/runtime/litereality-env" \
+  uv sync --project room-reconstruction --frozen --python 3.11 --extra modal
+```
+
+安装失败后直接重跑 `sh scripts/setup_server.sh rooms`。已有完整环境的模型版本或编译依赖需要变更时，先核对脚本配方，再选择新的 `ROOMCANVAS_HOME` 安装；完成标记不会自动触发升级。
+
+实测情况：2026-11-03 在 RTX 3090 服务器上对已有环境运行 `scripts/setup_server.sh all`，各组件按已有目录只做检查，全部通过；2026-10-30 在 RTX 4090 服务器（Ubuntu 26.04，无 sudo）从零安装，主环境、CUDA 12.4 和 Blender 已装好并通过检查。TRELLIS.2 编译和模型下载的全新安装尚未实测；安装脚本不运行 GPU 推理。
 
 ## 从网页重建房间
 
@@ -8,33 +44,21 @@
 
 ### 启动服务
 
-先按下文和交接文档配置好服务器上的 LiteReality 运行环境、模型、Blender 以及 Agent 登录。**API 服务不会自动安装这些依赖。** 在完整 RoomCanvas 仓库根目录运行：
+先按上文 [安装](#安装) 装好房间重建环境并填好 `.env`；房间重建服务直接调用这套环境，不会自己安装依赖。**服务器上**，在 `RoomCanvas/` 根目录执行：
 
 ```bash
-PY=/workspace/geyinuo/RoomCanvas/runtime/litereality-env/bin/python
-ROOMCANVAS_HOME=/workspace/geyinuo/RoomCanvas "$PY" web/scripts/room_service.py \
-  --data-dir /workspace/geyinuo/RoomCanvas/runs/web-room-jobs
+export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
+"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_service.py \
+  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs"
 ```
 
-默认只监听服务器 `127.0.0.1:7866`。默认运行器调用已有的 `room-reconstruction/server/run_room.py`，保留自动选卡、GPU 锁、服务器环境配置和可动部件生成流程。API 自身使用 Python 标准库，没有新增 pip 依赖。
+默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。
 
-本机另开终端建立隧道（将 SSH 别名换成实际配置）：
+**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，会同时转发 `7866`；服务不在 SSH 主机的 `127.0.0.1:7866` 时加 `--room-remote '<地址>:<端口>'`。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
 
-```bash
-ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 3090x2-docker
-```
+打开 <http://127.0.0.1:7880/web/>，点击 **重建房间**，或直接打开 <http://127.0.0.1:7880/web/#reconstruct>。
 
-更新代码后，重启本机网页服务：
-
-```bash
-python3 web/scripts/serve.py
-# 如使用其他隧道地址：
-python3 web/scripts/serve.py --room-backend http://127.0.0.1:7866
-```
-
-访问 `http://127.0.0.1:7880/web/`，点击 **重建房间**。也可以直接打开 `http://127.0.0.1:7880/web/#reconstruct`。
-
-通用 uv 安装（例如按上游 README 配置的 macOS + Modal）可选择 `--runner cli --pipeline-dir /path/to/RoomCanvas/room-reconstruction`，此模式调用 `uv run --no-sync litereality run ... --through publish`，使用该环境已有的模型配置，不包含服务器专用可动部件后处理；部署方负责 GPU 资源协调。默认 `server` 模式沿用本项目已有的运行器。
+用 uv 直接安装的环境（例如 macOS + Modal）可选择 `--runner cli --pipeline-dir /path/to/RoomCanvas/room-reconstruction`，此模式调用 `uv run --no-sync litereality run ... --through publish`，使用该环境已有的模型配置，不包含服务器专用可动部件后处理；部署方负责 GPU 资源协调。默认 `server` 模式沿用本项目已有的运行器。
 
 ### 使用与结果
 
@@ -45,6 +69,24 @@ python3 web/scripts/serve.py --room-backend http://127.0.0.1:7866
 - 完成后自动运行 `room_objects.py`，校验 GLB 节点与布局，再发布 `Room.glb`、`room_objects.json` 和可选的 `thumbnail.jpg`。没有缩略图时显示“房间预览暂不可用”，不影响进入布置。
 - 新房间通过动态目录加入首页，不改写仓库中的 `web/rooms.json`。读取新房间仍需重建服务及隧道在线；后端离线不影响原有示例房间。
 - 原始扫描、运行输出及日志留在服务器的数据目录，不要放进 Git。失败详情看 `<任务号>/task.log`；默认运行器的阶段日志在 `<任务号>/run/attempt-*/`。网页不提供任意服务器路径或日志读取接口。
+
+### 查看重建过程
+
+首页“房间重建任务”里，正在重建的任务有 **实时查看**，结束的任务有 **查看过程**，都打开 `web/replay.html?job=<任务号>`：
+
+- 左栏按 10 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云和物品框，物品做好一件框就填上一件，之后依次换成初版房间、每轮验收的房间和最终房间（新模型约 2 秒淡入）。底部时间轴可拖动、单步，时钟显示真实用时。
+- 重建中每 5 秒取一次新记录并停在最新处；往回拖可以看之前的步骤，点 **回到最新** 继续跟随。结束后从头自动播放，整个过程压缩到 90 秒。
+- 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的验收结果。流水线阶段用固定的中文说明；建模 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。概括出来之前先显示按时间合并的简要说明。
+- 概括使用 `$ROOMCANVAS_HOME/runtime/bin/codex`（没有时用 PATH 里的 `codex`）。模型和思考程度可用环境变量 `LR_REPLAY_MODEL`、`LR_REPLAY_EFFORT` 修改，`LR_REPLAY_CODEX` 指定其他命令；启动服务时加 `--no-replay-summary` 则不调用模型，只用简要说明。调用失败写入 `<任务号>/replay-error.log`，5 分钟后重试。
+
+以前用命令行跑完的运行也可以登记进来回看，不复制运行目录：
+
+```bash
+"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_replay.py \
+  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs" --run '<运行目录，内含 pipeline/<场景>>' --name '<名称>'
+```
+
+登记的任务只用于回看，不进入房间列表；默认忽略最后一轮验收两分钟之后写入的记录，`--until <Unix 时间>` 可指定截止时间。服务运行中登记也会被识别，无需重启。
 
 ### API 与验证
 
@@ -57,7 +99,10 @@ python3 web/scripts/serve.py --room-backend http://127.0.0.1:7866
 | `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
 | `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
 | `GET /room-reconstruction/catalog` | 已完成房间列表 |
-| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、家具清单和缩略图 |
+| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、物品清单和缩略图 |
+| `GET /room-reconstruction/jobs/<任务号>/replay` | 重建过程：阶段、事件和已生成的房间模型 |
+| `GET /room-reconstruction/jobs/<任务号>/replay/scaffold/(points.bin\|layout.json)` | 扫描点云和物品框 |
+| `GET /room-reconstruction/jobs/<任务号>/replay/files/<相对路径>` | 运行目录里白名单内的模型和图片（物品图、各版房间模型、对比图），其余路径一律 404 |
 
 离线测试不调用 GPU、模型或 Agent：
 
@@ -68,83 +113,97 @@ node --test web/scripts/test_room_reconstruction.mjs
 
 ## 运行
 
+扫描输入必须已在服务器上，每个扫描目录含 `room.usdz`、`frame_*.jpg` 和相应相机／深度数据，格式见 [模块运行说明](../room-reconstruction/README.md#run)。如扫描在本机，**本机**，任意目录可上传到服务器上已存在的扫描父目录；先配置好 `~/.ssh/config` 别名或使用 `user@host`：
+
 ```bash
-PY=/workspace/geyinuo/RoomCanvas/runtime/litereality-env/bin/python
-$PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> --check   # 只检查配置，不占卡
-$PY room-reconstruction/server/run_room.py <扫描输入> <新的运行目录> \
+scp -r '<本机扫描目录的绝对路径>' '<SSH 主机>:<服务器扫描父目录的绝对路径>/'
+```
+
+**服务器上**，在 `RoomCanvas/` 根目录执行；每个新终端都重新设置 `ROOMCANVAS_HOME` 和 `PY`。检查输出确认路径和参数后，再执行正式命令：
+
+```bash
+export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
+PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
+"$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' --check \
+  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
+"$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' \
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
-`run_room.py` 会：
+`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁，默认执行一次 author 修复（`--repair-rounds 1`）；上面的模型和思考程度由命令行显式指定。
 
-- 自动挑一张空闲 GPU 并加锁；
-- author 视觉验收后的返工默认只做 1 轮（官方默认 2 轮，`--repair-rounds 0` 只验收不返工）；
-- 确认加载的是本仓库的代码，把配置记进运行目录（不记密钥）；
-- 建模阶段写出房间后，**默认接着跑“可动部件”这一步**（见下文），结果在 `<运行目录>/articulate/room_preview/`，网页用这一份；建模阶段自己的 `room_preview/` 和发布出来的房间不带新切的部件。不要就加 `--no-articulate`；中断后重跑同一命令会接着做。
+完整重建默认包含可动部件识别，成功产物在 `<运行目录>/articulate/room_preview/`；加 `--no-articulate` 可跳过这一步，此时使用 `<运行目录>/pipeline/<场景>/realism_authoring/room_preview/`。场景名以实际生成的 `scene.json` 所在目录为准。中断后用同一输入和运行目录重新执行可续跑。检查终端退出信息以及 `<运行目录>/attempt-*/pipeline.log`、`articulate.log` 和对应的 `exit`、`articulate-exit`；阶段失败时先看日志，不把目录存在当作重建成功。
 
-运行环境、模型权重和 `.env` 在服务器的 `ROOMCANVAS_HOME`（默认 `/workspace/geyinuo/RoomCanvas`）。
+## 接入网页
 
-## 接到网页
+`room_preview/` 中的主要产物是 `Room.glb`（网页模型）、`Room.blend`（建模源文件）和 `room_layout.json`（布局）。以下把选定的服务器结果复制到本机仓库的 `samples/my-room/`，再在本机生成清单；编辑器不直接读取服务器文件。
 
-重建完成后，给 `room_preview/` 生成网页用的物体清单 `room_objects.json`（家具分组、名字、能开合的门和柜门）：
+**本机**，准备 Git、Python 3 和 SSH 客户端，从准备存放源码的目录开始；已有本机仓库则直接进入 `RoomCanvas/`，省略克隆：
 
 ```bash
-python3 web/scripts/room_objects.py <room_preview 目录>
+git clone https://github.com/innovationasuna/RoomCanvas.git
+cd RoomCanvas
+mkdir -p samples/my-room
+scp -r '<SSH 主机>:<服务器结果目录>/room_preview' samples/my-room/
 ```
 
-再把房间目录（`Room.glb` + `room_objects.json` + `thumbnail.jpg`）加进 `web/rooms.json`，见 [网页说明](../web/README.md)。
+`<服务器结果目录>` 是上一节选定的 `room_preview/` 的父目录，例如 `<运行目录>/articulate`。这里的 `my-room` 是新房间名，已有同名目录时另选名字。
 
-## 小物件：舍弃、程序化或 TRELLIS
-
-author 阶段的小物件（书、拖鞋、袋子、枕头……）都是 Blender 基本形状拼的。这一步读 author 产出的 `Room.blend`，不重跑 author：
+要保留开合部件，还要复制同一结果旁的 `room/Objects/`，其中含 `*/*/sim/*.urdf`。**本机**，在 `RoomCanvas/` 根目录执行（该目录存在且需要关节时）：
 
 ```bash
-$PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录> --check
-$PY room-reconstruction/server/run_room.py --small-objects runs/<运行>/pipeline/<场景> <新目录>
+mkdir -p samples/my-room/room
+scp -r '<SSH 主机>:<服务器结果目录>/room/Objects' samples/my-room/room/
 ```
 
-1. **挑候选**：author 加的、能拿起来挪动的东西。不含房间结构、门窗、重建出来的家具、插座开关灯等固定设施、挂在墙上或天花板上的东西、能放东西的家具。没有尺寸阈值。叠在一起的（一摞书）合成一件。
-2. **找照片**：按相机投影挑能看到它的帧，Grounding DINO 在投影附近确认，优先清晰的，裁图转正；再从同一相机渲染当前模型，和照片并排。
-3. **Astra 逐件三选一**（每件只问一次）：
-   - **舍弃**：太小、看不清、不重要，或怎么建都不会像；
-   - **程序化**：当前模型已经像，保留；
-   - **TRELLIS**：软的、有褶皱的、形状复杂且照片清楚的。
+保持复制后的目录层级，脚本会自动找到 `room_preview/` 旁的 `../room/Objects/`；若另存到其他位置，生成命令加 `--joints '<本机 Objects 目录>'`。上述 `scp -r` 会跟随目录中的符号链接复制实际文件；换用其他复制工具时，也要避免留下指向服务器路径的链接。没有关节文件仍能生成物品清单，但不会生成对应的开合数据。
 
-   实验里观察到的规律作为参考写进提示词，不是硬规则。
-4. **TRELLIS 重建**：证据图 → gpt-image-2 参考图 → TRELLIS → 去掉碎片，按原物件的位置、高度和朝向（俯视最小外接矩形）放回原处，基本保持新模型自身比例，正面朝向拍得最清楚的相机。
-   - 某件显存不够时单独隔离，改用 512 分辨率再试；仍失败的保留原模型，重跑同一命令会补做。
-   - 生成后修正材质：布、纸、塑料等的金属度归零（TRELLIS 会给布包猜出 0.4 的金属度）；单一主色的物件，如果贴图色相和参考图差 8° 以上，就整体转回去（TRELLIS 曾把品红色的包固定生成成正红，换种子也一样）。多种颜色的东西（一摞书）不转。
-5. **对比图**：同一相机渲染“照片 | 原模型 | 重建”三联图放进 `overview.jpg`，供人检查；不再让 Astra 二次检查。
-
-结果在 `<新目录>/room_preview/`（`Room.blend`、`Room.glb`、`room_layout.json`，重建的物件标 `"rebuilt": "trellis"`），每件的照片、渲染对比、Astra 的回答和费用在 `items.json`、`summary.md`、`overview.jpg`。中断后重跑同一命令会接着做。重建的物件在网页里单独可移动，放在家具上的会随家具移动。
-
-## 可动部件：Astra 判断哪些东西能打开，切开装上合页
-
-建模阶段只给按类别规则该动的程序化物体（有门的柜子、升降桌……）和门窗加关节；TRELLIS 重建的、类别规则覆盖不到的、建模时做成一整块的，都不能动。这一步在 author 之后读 `Room.blend`，不重跑 author，给这些东西补上能开的部件（做法是可动物体试验的方法 2：直接切现有模型，不重新生成）。完整重建默认会在最后自动跑它；对已有的运行单独跑：
+**本机**，在 `RoomCanvas/` 根目录生成清单，只需 Python 标准库：
 
 ```bash
-$PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<场景> <新目录> --check
-$PY room-reconstruction/server/run_room.py --articulate runs/<运行>/pipeline/<场景> <新目录> \
+python3 web/scripts/room_objects.py samples/my-room/room_preview
+```
+
+脚本读取 `room_layout.json`，利用同目录的 `Room.glb` 检查节点，输出 `room_objects.json`；不会修改 GLB。检查输出的物品数、可动组数和关节数，并处理缺失节点或 `joint left out` 提示。
+
+**本机**，编辑 `RoomCanvas/web/rooms.json`，在现有 `rooms` 数组中追加以下对象，保留原条目并补齐逗号；`dir` 相对 `web/`，不是相对仓库根目录：
+
+```json
+{"id": "my-room", "name": "我的房间", "dir": "../samples/my-room/room_preview", "note": "手机扫描重建的房间"}
+```
+
+**本机**，在 `RoomCanvas/` 根目录启动网页：
+
+```bash
+python3 web/scripts/serve.py
+```
+
+打开 <http://127.0.0.1:7880/web/editor/?room=my-room>，确认模型、家具移动和部件开合正常。主页缩略图读取房间目录的 `thumbnail.jpg`，不影响编辑器加载；生成方法和文件格式见 [房间文件](../web/README.md#房间文件)。若要同时添加或导入照片重建的物品，改用 [带 SSH 隧道的启动方式](OBJECT_RECONSTRUCTION.md#在编辑器中使用)。
+
+## 小物件
+
+对已有房间中的书、拖鞋、枕头等物品，挑选照片、判断是否需要重建，再用 TRELLIS 生成模型并放回原处。单独运行，不重跑房间建模：
+
+**服务器上**，在 `RoomCanvas/` 根目录，按 [运行](#运行) 设置 `ROOMCANVAS_HOME` 和 `PY` 后执行；输入是含 `scene.json` 的已有场景目录：
+
+```bash
+"$PY" room-reconstruction/server/run_room.py --small-objects '<运行目录>/pipeline/<场景>' '<新目录>' --check
+"$PY" room-reconstruction/server/run_room.py --small-objects '<运行目录>/pipeline/<场景>' '<新目录>'
+```
+
+结果在 `<新目录>/room_preview/`，包含 `Room.blend`、`Room.glb` 和 `room_layout.json`；`overview.jpg` 提供照片与重建前后的对比。按上面的接入方式导入网页后，小物件可单独移动，放在家具上的物件会随家具移动。
+
+## 可动部件
+
+识别已有模型中的门、抽屉、盖子等部件，切分模型并添加关节和开合动画，再检查开合效果。完整重建会自动执行，也可对已有房间单独运行：
+
+**服务器上**，在 `RoomCanvas/` 根目录，按 [运行](#运行) 设置 `ROOMCANVAS_HOME` 和 `PY` 后执行：
+
+```bash
+"$PY" room-reconstruction/server/run_room.py --articulate '<运行目录>/pipeline/<场景>' '<新目录>' --check \
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
-# 先试几件：--only Pedestal0 Laptop0（不写最终房间）；只出图不问模型：--through views
+"$PY" room-reconstruction/server/run_room.py --articulate '<运行目录>/pipeline/<场景>' '<新目录>' \
+  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
-1. **挑候选**：家具和房间里的东西，不含房间结构、门窗、固定设施、挂在别的物体上的附件（门上的衣服、显示器的线），以及最长边不到 20 厘米的。已经有关节的也算，告诉 Astra 哪些部件已经能动，只问缺的。
-2. **出图**：每件单独渲染，在它自己的坐标系里（原点和朝向取自它在房间里的位置，米，Z 朝上）：正视、侧视两张带米制刻度的正交图，和从四个斜角看的透视图；再按相机投影裁 3 张照片。
-3. **Astra 判断**（每件一次）：照着照片判断真实物体有没有人会打开的部件（门、抽屉、盖子、屏幕、翻板；瓶盖这类取下来的不算），在模型里找到它，给出范围框、转轴或滑动方向、能开多大、模型里现在是开着还是合着、合上时后面是不是空的。模型里没有能切出来的面就答“没有”，不猜。框、转轴都对齐到坐标轴；离物体外表面 1.5 厘米以内的框边推到外面，免得留下一条边。
-4. **切开**：按框把面切下来，合成一个部件，原点放在转轴上（滑动的放在框中心），挂在新的 `<物体>_Hinges` 下；合上时后面是空的部件，后面补深色内腔，抽屉再在前脸后面补一个开口朝上的屉子跟着滑；加一段“合上 → 全开 → 合上”的动画（App 用）。
-5. **检查**（每件一次）：四个斜角的“合上”和“打开”图和照片一起给 Astra，每个部件开得对才留下；开错的比不能开更糟，直接去掉。
-6. **写结果**：留下的部件从 author 的 `Room.blend` 重新切一遍，写到 `<新目录>/room_preview/`（`Room.blend`、`Room.glb`、原样的 `room_layout.json`）；每件的关节写成 `<新目录>/room/Objects/Articulated/<物体>/sim/<物体>.urdf`，原运行的 `room/Objects` 链接在旁边，所以 `python3 web/scripts/room_objects.py <新目录>/room_preview` 能一次读到全部关节。
-
-记录在 `items.json`、`summary.md`、`overview.jpg`（照片 | 合上 | 打开）。中断后重跑同一命令会接着做。
-
-## 对 LiteReality-Agent 改了什么
-
-基线是官方 `28ffe1f4`（2026-10-03），即本仓库的第一个提交，原样放在 `room-reconstruction/`。之后：
-
-- **所有 Agent 改用 Codex**：默认 provider 从 claude 改为 codex（`models.env`、`settings.py`、`agent/providers/base.py`）；Codex 会话支持附图（`providers/codex.py`）；新增 `agent/providers/vision.py`，在建模路线分类、椅子分组、程序化完整性检查、布局 Agent 四处看图。provider 设回 claude 时仍走官方原来的代码。
-- **新增、不改官方文件**：3090 运行脚本 `room-reconstruction/server/`；小物件这一步 `pipeline/realism_authoring/small_objects/`（复用官方的证据图、参考图、TRELLIS 启动器和看图问答）。
-- **修 bug**：`room_ops/rendering/room_render/render_vs_capture.py`、`agent/author.py` 找 Blender 改用官方自己的 `room_ops/paths.find_blender`（原来总在 `$LITEREALITY_BLENDER` 后拼 `/blender`，填成程序路径时 publish 的对照渲染全部失败）。
-- **CI**：`.github/workflows/ci.yml` 先用 gitleaks 扫描全部历史里的密钥，再跑官方测试和网页测试。
-
-逐行改动看提交 2。另删了没有任何地方调用的官方代码（2026-10-27，用户同意删死代码）：`pipeline/scene_init/layout/agent_loop.py`、`toolcli.py`（让模型调用的 `physical_engine.toolcli` 包早已不存在），`layout/agent.py` 的 `solve_v10`、`layout/repair.py` 的 `solve_v11`–`solve_v13`，`agent/tools/shared/config.py` 的 `RANK_TOOL`、`ANNOTATE_TOOL`。
+结果在 `<新目录>/room_preview/`，包含 `Room.blend`、`Room.glb` 和 `room_layout.json`；`overview.jpg` 展示开合对比。按 [接入网页](#接入网页) 将该目录及 `<新目录>/room/Objects/` 复制到本机，再生成 `room_objects.json`，即可在编辑器中操作可动部件。

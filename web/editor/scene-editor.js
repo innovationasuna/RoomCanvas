@@ -886,7 +886,7 @@ function bindEvents() {
   $('#settle-object').onclick = () => act(() => {if (editObject(() => {}, 'settle')) showToast(placementStates.get(selected).label);});
   $('#reset-object').onclick = () => act(() => editObject((next) => {next[selected] = {x: 0, y: 0, z: 0, yaw: 0};}, 'reset'));
   $('#reset-layout').onclick = async () => {
-    if (!await workspace.confirm('恢复原始布置？', '房间中的家具将回到扫描时的位置，后来添加的家具会被收起。完成后可以撤销。', '恢复原始布置')) return;
+    if (!await workspace.confirm('恢复原始布置？', '房间中的物品将回到扫描时的位置，后来添加的物品会被收起。完成后可以撤销。', '恢复原始布置')) return;
     joysticks?.stop(); cancelSession(false); select(null, false); hasEdited = true;
     act(() => {layout = {...initialLayout(roomIds), ...Object.fromEntries(Object.keys(addedPart(layout)).map((id) => [id, stored()]))};});
     persist(); showToast('已恢复原始布置，可撤销'); $('#project-menu').open = false;
@@ -948,7 +948,7 @@ function bindEvents() {
   for (const id of ['overview', 'top', 'focus']) $(`#${id}`).onclick = () => view(id);
   for (const input of nearWallInputs()) input.onchange = requestRender;
   $('#ceiling').onchange = () => {ceilingObjects.forEach((object) => {object.visible = $('#ceiling').checked;}); renderer.shadowMap.needsUpdate = true; requestRender();};
-  $('#import-lighting').checked = query.get('materials') === 'pbr';
+  $('#import-lighting').checked = query.get('materials') !== 'original';
   $('#import-lighting').onchange = () => {
     if (pending) {$('#import-lighting').checked = !$('#import-lighting').checked; showToast('请先确认或取消当前摆放，再切换受光模式'); return;}
     select(null);
@@ -1118,7 +1118,7 @@ function appendWarehouseRow(entity, first = false) {
 
 function inspectObject(id) {
   if (!ready || falling) return;
-  if (pending) {showToast('请先确认或取消当前调整，再选择另一件家具'); return;}
+  if (pending) {showToast('请先确认或取消当前调整，再选择另一件物品'); return;}
   if (mode !== 'edit') setMode('edit');
   if (workspace.density === 'simple' || innerWidth <= 1100) warehouse.setOpen(false);
   if (layout[id].visible === false) {workspace.setTool('move'); beginSession(id);}
@@ -1296,7 +1296,7 @@ function updateSessionUI() {
   if (pending?.gravity) {
     $('#confirm-placement').textContent = falling ? '正在放置…' : dropPlan?.checked === false && dropPlan.ok ? '检查中…' : '确认放置';
     $('#confirm-placement').disabled = !!falling || !pending.valid;
-    $('#interaction-help').textContent = '拖动家具或使用右侧工具调整 · Enter 确认 · Esc 取消';
+    $('#interaction-help').textContent = '拖动物品或使用右侧工具调整 · Enter 确认 · Esc 取消';
   } else $('#confirm-placement').textContent = '确认放置';
   // With gestures on, the hint says how the hand works.
   if (handsOn()) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
@@ -1528,7 +1528,7 @@ function bindPlacementEvents() {
     },
     store: () => storeObjects(selected),
     clear: async () => {
-      if (!await workspace.confirm('收起全部家具？', '可移动家具会进入家具库的“已收纳”，房间结构保留。之后可以逐件放回，也可以撤销。', '全部收起')) return;
+      if (!await workspace.confirm('收起全部物品？', '可移动物品会进入物品库的“已收纳”，房间结构保留。之后可以逐件放回，也可以撤销。', '全部收起')) return;
       storeObjects(); $('#project-menu').open = false;
     },
     setMode,
@@ -1660,7 +1660,7 @@ const gesturePort = {
     if (target.kind === 'none') return false;
     const track = {step: null, kind, start: {u: hand.u, v: hand.v}};
     if (target.kind === 'shelf') {
-      if (kind !== 'move') {showToast('从仓库拖出请先切到移动模式（左手 1）'); return false;}
+      if (kind !== 'move') {showToast('从物品库拖出请先切到移动模式（左手 1）'); return false;}
       if (pending?.id !== target.id && !canTakeAnotherPiece()) return false;
       // The piece hangs on the hand; it enters the room only when the hand does.
       warehouse.setOpen(false);
@@ -1672,7 +1672,7 @@ const gesturePort = {
     let id = pick(point.x, point.y);
     // A pinch on the preview, or on empty floor while there is one, keeps working on it.
     if (pending && (!id || id === pending.id)) id = pending.id;
-    if (!id) {$('#status').textContent = '没有指到物品：指向物品或仓库卡片后再捏合'; return false;}
+    if (!id) {$('#status').textContent = '没有指到物品：指向物品或物品库卡片后再捏合'; return false;}
     if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
     const placing = pending?.id === id;
     if (!placing && !canTakeAnotherPiece()) return false;
@@ -1712,7 +1712,7 @@ const gesturePort = {
     flushGestureMotion();
     const carrying = gesture?.carrying;
     endGesture();
-    if (carrying) {$('#status').textContent = '没有拖进房间，已放回仓库'; return;}
+    if (carrying) {$('#status').textContent = '没有拖进房间，已放回物品库'; return;}
     if (!pending) return;
     pending.pause();
     validateAfterRender();
@@ -1765,7 +1765,7 @@ const gesturePort = {
       const target = pinchTarget(handClient(hand));
       if (role !== 'helper' && (target.kind === 'control' || target.kind === 'shelf')) {
         if (target.kind === 'control') pressControl(target);
-        else showToast('从仓库拖出请先切到移动模式（左手 1）');
+        else showToast('从物品库拖出请先切到移动模式（左手 1）');
         return false;
       }
       if (gestureView || !ready || (role !== 'helper' && target.kind === 'none')) return false;
@@ -1901,7 +1901,7 @@ async function openImports() {
     $('#import-menu').hidden = false; $('#import-run').value = run; void chooseImport();
     warehouse.setOpen(false);
     const {axis, value} = asset.calibration;
-    await importRun(run, asset.base, metricScale(asset.base, axis, value)).catch((error) => {
+    await importRun(run, asset.base, metricScale(asset.base, axis, value), asset.capabilities).catch((error) => {
       console.error(error); showToast(`导入失败：${error.message || error}`);
     });
   }});
@@ -1965,10 +1965,10 @@ async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
   $('#import-object').disabled = true;
-  try {await importRun(run, base, scale);} finally {$('#import-object').disabled = false;}
+  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = false;}
   $('#import-menu').open = false;
 }
-async function importRun(run, base, scale) {
+async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
@@ -1982,7 +1982,8 @@ async function importRun(run, base, scale) {
     mesh.userData.collision = false; mesh.raycast = () => {};
     mesh.castShadow = true;
   });
-  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original',
+    preservePBR: capabilities?.material_mode === 'pbr'});
   light.scene.name = light.scene.userData.name = contact;
   light.scene.traverse((mesh) => {
     if (!mesh.isMesh) return;

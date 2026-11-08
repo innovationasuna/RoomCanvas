@@ -21,6 +21,9 @@ import threading
 import time
 import uuid
 import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import room_replay  # noqa: E402
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
@@ -111,9 +114,53 @@ class Jobs:
                 result['stages'].append({'name': 'articulate', 'status': 'completed' if record['status'] in {'preparing', 'completed'} else 'pending'})
         except (OSError, ValueError, KeyError):
             pass
-        if record['status'] == 'completed':
+        if record['status'] == 'completed' and not record.get('replay_only'):
             result['room'] = self.room(record)
+        if record.get('replay_only'):
+            result['replay_only'] = True
         return result
+
+    def load_new(self):
+        """Pick up jobs registered on disk while the service runs (room_replay.py register)."""
+        with self.lock:
+            for path in self.root.glob('*/job.json'):
+                if path.parent.name not in self.records:
+                    try:
+                        record = json.loads(path.read_text())
+                    except (OSError, ValueError):
+                        continue
+                    if record.get('replay_only'):
+                        self.records[record['id']] = record
+
+    def replay_worker(self, run=None, interval=20):
+        """Condense the modelling agent's log for live and finished jobs, a batch at a time."""
+        run = run or room_replay.codex_runner()
+        backoff = {}
+        while True:
+            self.load_new()
+            with self.lock:
+                records = [dict(r) for r in self.records.values()]
+            for record in records:
+                folder = self.root / record['id']
+                if backoff.get(record['id'], 0) > time.time() or record['status'] == 'queued':
+                    continue
+                scene = room_replay.find_scene(folder)
+                if not scene:
+                    continue
+                try:
+                    until = record.get('until')
+                    agent = room_replay.agent_records(scene, until)
+                    summary = room_replay.Summary(folder)
+                    start = min([r['t'] for r in agent] or [time.time()])
+                    summary.condense(agent, run, start, final=record['status'] not in ('running', 'preparing'))
+                    for event in room_replay.review_events(scene, until):
+                        if event.get('issues'):
+                            summary.review(event['id'], event['issues'], run)
+                except Exception as error:  # a failed call keeps the rule wording; try again later
+                    backoff[record['id']] = time.time() + 300
+                    with (folder / 'replay-error.log').open('a') as log:
+                        log.write(f'{time.ctime()} {error!r}\n')
+            time.sleep(interval)
 
     def room(self, record):
         return {'id': 'scan-' + record['id'], 'name': record['name'],
@@ -240,6 +287,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        replay = None
+        if path == PREFIX + '/jobs':
+            self.jobs.load_new()
         with self.jobs.lock:
             if path == PREFIX + '/health':
                 return self.respond(200, {'ok': True, 'max_upload': MAX_UPLOAD})
@@ -247,19 +297,46 @@ class Handler(BaseHTTPRequestHandler):
                 records = sorted(self.jobs.records.values(), key=lambda r: r['created'], reverse=True)
                 return self.respond(200, {'jobs': [self.jobs.public(r) for r in records]})
             if path == PREFIX + '/catalog':
-                return self.respond(200, {'rooms': [self.jobs.room(r) for r in self.jobs.records.values() if r['status'] == 'completed']})
+                return self.respond(200, {'rooms': [self.jobs.room(r) for r in self.jobs.records.values()
+                                                    if r['status'] == 'completed' and not r.get('replay_only')]})
             match = re.fullmatch(PREFIX + rf'/jobs/({ID})', path)
             if match and match[1] in self.jobs.records:
                 return self.respond(200, self.jobs.public(self.jobs.records[match[1]]))
-            match = re.fullmatch(PREFIX + rf'/assets/({ID})/([^/]+)', path)
-            if not match or match[2] not in ASSETS or self.jobs.records.get(match[1], {}).get('status') != 'completed':
+            # Replay: the timeline, the 3D scaffold, and allowlisted models / pictures of a job's run.
+            match = re.fullmatch(PREFIX + rf'/jobs/({ID})/replay(?:/(scaffold/(?:points\.bin|layout\.json)|files/(.+)))?', path)
+            if match and match[1] in self.jobs.records:
+                record = self.jobs.records[match[1]]
+                replay = (self.jobs.root / match[1], record['status'], record.get('until'), match[2], match[3], record.get('name'))
+            else:
+                match = re.fullmatch(PREFIX + rf'/assets/({ID})/([^/]+)', path)
+                if not match or match[2] not in ASSETS or self.jobs.records.get(match[1], {}).get('status') != 'completed':
+                    return self.respond(404, {'error': '没有找到该任务或资源'})
+                asset = self.jobs.root / match[1] / 'assets' / match[2]
+        if replay:
+            folder, status, until, part, rel, name = replay
+            if not part:
+                data = room_replay.timeline(folder, status, until)
+                data['name'] = name
+                return self.respond(200, data)
+            if part.startswith('scaffold/'):
+                files = room_replay.scaffold(folder)
+                asset = dict(zip(('points.bin', 'layout.json'), files)).get(part.split('/')[1]) if files else None
+            else:
+                scene = room_replay.find_scene(folder)
+                asset = room_replay.scene_file(scene, unquote(rel)) if scene else None
+            if not asset:
                 return self.respond(404, {'error': '没有找到该任务或资源'})
-            asset = self.jobs.root / match[1] / 'assets' / match[2]
+            return self.send_file(asset, cache=status == 'completed')
         if not asset.is_file():
             return self.respond(404, {'error': '该资源尚未生成'})
+        self.send_file(asset)
+
+    def send_file(self, asset, cache=False):
         self.send_response(200)
         self.send_header('Content-Type', mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
         self.send_header('Content-Length', str(asset.stat().st_size))
+        if cache:  # finished runs do not change; live ones may rewrite a model
+            self.send_header('Cache-Control', 'max-age=3600')
         self.end_headers()
         with asset.open('rb') as source:
             shutil.copyfileobj(source, self.wfile)
@@ -317,6 +394,7 @@ def main():
     parser.add_argument('--runner', choices=('server', 'cli'), default='server', help='server: existing GPU launcher; cli: generic uv installation')
     parser.add_argument('--python', default=sys.executable, help='Python for the existing server/run_room.py launcher')
     parser.add_argument('--timeout', type=int, default=21600)
+    parser.add_argument('--no-replay-summary', action='store_true', help='do not condense agent logs with codex (rule wording only)')
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
     # Prevent two service processes from sharing this job store / queue.
@@ -325,6 +403,8 @@ def main():
     Handler.jobs = Jobs(args.data_dir, args.pipeline_dir, args.uv, args.timeout, args.runner, args.python)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     threading.Thread(target=Handler.jobs.worker, daemon=True).start()
+    if not args.no_replay_summary:
+        threading.Thread(target=Handler.jobs.replay_worker, daemon=True).start()
     print(f'Room reconstruction API: http://127.0.0.1:{args.port}', flush=True)
     server.serve_forever()
 

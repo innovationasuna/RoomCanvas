@@ -4,8 +4,10 @@ import json
 import os
 from pathlib import Path
 import sys
+from contextlib import ExitStack
 
 import yaml
+from mvsam_pbr import baked_export, export_settings, native_baking_support, require_baking_dependencies
 
 CODE = Path(__file__).resolve().parents[1]
 
@@ -47,6 +49,9 @@ def main():
     args = parser.parse_args()
     root, run = args.root.resolve(), args.run_dir.resolve()
     cfg = yaml.safe_load((run/'config.yaml').read_text())
+    material_settings = export_settings(cfg)
+    if material_settings:
+        require_baking_dependencies()
     inputs = json.loads((run/'inputs.json').read_text())
     out = run/'reconstruction'
     out.mkdir(exist_ok=False)
@@ -58,10 +63,21 @@ def main():
     # Only redirect output; model execution and algorithm options stay upstream-owned.
     upstream.get_output_dir = lambda *args, **kwargs: out
     os.chdir(out)
-    upstream.run_weighted_inference(input_path=Path(inputs['input_dir']),
-        mask_prompt=inputs['mask_prompt'], image_names=[row['name'] for row in inputs['images']],
-        da3_output_path=str(run/'da3/da3_output.npz'), model_tag='local',
-        seed=cfg['seed'], decode_formats=['gaussian', 'mesh'], **cfg['mv'])
+    if material_settings:
+        from sam3d_objects.model.backbone.tdfy_dit.utils import postprocessing_utils
+    with ExitStack() as stack:
+        if material_settings:
+            stack.enter_context(native_baking_support(postprocessing_utils, out, material_settings['texture_padding']))
+            receipt = stack.enter_context(baked_export(postprocessing_utils, out, material_settings))
+        upstream.run_weighted_inference(input_path=Path(inputs['input_dir']),
+            mask_prompt=inputs['mask_prompt'], image_names=[row['name'] for row in inputs['images']],
+            da3_output_path=str(run/'da3/da3_output.npz'), model_tag='local',
+            seed=cfg['seed'], decode_formats=['gaussian', 'mesh'], **cfg['mv'])
+    if material_settings:
+        if receipt['status'] != 'complete':
+            raise RuntimeError('MV-SAM3D did not complete native PBR colour baking')
+        # The old preview generator converts texture materials back to vertex colours.
+        return
     # A preview is optional: a failed simplification must not discard a valid
     # reconstruction or prevent the full GLB from being viewed.
     try:

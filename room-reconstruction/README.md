@@ -1,222 +1,107 @@
-<h1>
-  <a href="#"><img alt="LiteReality-Agent" src="assets/banner.png" width="100%"/></a>
-</h1>
+# Room reconstruction
 
-An open-source, end-to-end toolkit for turning real-world scans into simulation-ready 3D environments. Scan a room with the [LiteReality Scanner](https://apps.apple.com/gb/app/litereality/id6774158260); the agent reconstructs the scene, generates articulated assets, resolves layout and collisions, and prepares the environment for robotics simulation.
+This module turns an iPhone LiDAR/RoomPlan capture into an editable room for
+RoomCanvas: room structure, reconstructed furniture, materials, and optional
+small-object and articulated-part passes. It exports Blender and GLB assets for
+the browser furniture editor, with an optional MuJoCo export.
 
-<p>
-  <a href="https://litereality.github.io/agent/" alt="Website">
-    <img src="https://img.shields.io/badge/Website-litereality.github.io-D58236">
-  </a>
-  <a href="https://litereality.github.io/agent/litereality-agent-post/" alt="Blog">
-    <img src="https://img.shields.io/badge/Blog-read%20the%20post-363634">
-  </a>
-  <a href="https://apps.apple.com/gb/app/litereality/id6774158260" alt="LiteReality Scanner">
-    <img src="https://img.shields.io/badge/LiteReality%20Scanner-App%20Store-363634?logo=apple&logoColor=white">
-  </a>
-  <a href="https://arxiv.org/abs/2610.01863">
-    <img alt="arXiv:2610.01863" src="https://img.shields.io/badge/arXiv-2610.01863-b31b1b">
-  </a>
-</p>
+For the project's scan-to-editor workflow and GPU server commands, see
+[RoomCanvas room reconstruction](../docs/ROOM_RECONSTRUCTION.md).
 
-<table align="center" width="100%">
-  <tr>
-    <td width="50%"><img src="assets/office_scan-recon-sim.gif" width="100%"
-        alt="Office: RGBD scan, agent reconstruction, then a MuJoCo shake test"></td>
-    <td width="50%"><img src="assets/kitchen_scan-recon-sim.gif" width="100%"
-        alt="Kitchen: RGBD scan, agent reconstruction, then a MuJoCo shake test"></td>
-  </tr>
-</table>
-
-<p align="center">
-  <a href="https://litereality.github.io/agent/vr/index.html">
-    ✨ <strong>Explore more examples in the interactive 3D viewer →</strong>
-  </a>
-</p>
-
-## News
-
-- 📄 **2026-10-01 — Paper released.** Read [LiteReality-Agent on arXiv](https://arxiv.org/abs/2610.01863).
-- 🤖 **2026-09-12 — Simulation-ready release.** Every reconstructed room now loads as a MuJoCo scene:
-  objects are rigid bodies with mass, colliders and joints, and the whole room exports to URDF and MJCF.
-- ⚙️ **2026-09-09 — Procedural reconstruction with sim-ready physics.** Articulated objects now carry
-  their own mass, inertia, colliders and joints, following
-  [Articraft](https://github.com/articraftresearch/Articraft), and export to URDF and MJCF.
-- 📐 **2026-09-07 — Layout agents.** The noisy layout of a raw scan is settled into a collision-free,
-  simulation-ready layout before anything is built from it.
-- 🚀 **2026-08-01 — LiteReality-Agent 0.0.** Turn your room scans from the LiteReality Scanner app
-  into interactive, realistic 3D.
-
-## How to use
-
-1. **Get the scanner app** — [LiteReality Scanner on the App Store](https://apps.apple.com/gb/app/litereality/id6774158260), free.
-2. **Scan your room.** One walkthrough captures the RGB frames, depth, and the RoomPlan
-   `room.usdz` the pipeline needs.
-3. **Upload the scan** to the machine you'll run on.
-4. **Run LiteReality-Agent** — for an articulated,
-   realistic room reconstruction.
-
-**Test scenes.** Don't have a scan yet? Clone the example room scans and start from them:
-
-```bash
-git clone https://github.com/LiteReality/example-scans.git
-uv run litereality run example-scans/<scan>
-```
-
-## Requirements
-
-Tested on **macOS** (Apple Silicon) and **Linux** (with a >=24 GB GPU).
-
-1. [`uv`](https://docs.astral.sh/uv/)
-2. **Blender 5.x** (tested on 5.1). `BLENDER_PATH` points at the install *directory*, not the binary.
-3. **An image-generation API key** for reference images — typically under $1 per scene.
-   `OPENAI_API_KEY` by default, or `GEMINI_API_KEY` with `LR_IMAGE_PROVIDER=gemini`.
-4. **Logged-in agent CLIs on your `PATH`.** `codex` with GPT-6 is the default for room
-   authoring, materials, object refinement and independent visual review. `claude` remains the
-   default for reconstruction reasoning and procedural asset initialization. Per-role overrides
-   are in `models.env`; see [support-first authoring](doc/support-first-authoring.md).
-5. **Somewhere to run TRELLIS and GroundingDINO** — either a [Modal](https://modal.com) account
-   (recommended; free tier, no local GPU, works on macOS) or a Linux box with a ≥24 GB NVIDIA GPU.
-   See [Install](#install) — this is the one real choice in the setup.
+Based on LiteReality-Agent; see [citation.bib](citation.bib).
 
 ## Install
 
-TRELLIS and GroundingDINO need a GPU. By default they run **hosted on Modal**, which is the
-recommended path: nothing heavy runs on your machine, so an Apple Silicon Mac with no GPU is
-enough, and detection fans out across several containers at once instead of queueing behind a
-single card. Modal's free tier covers this workload comfortably. Got your own Linux GPU? See
-[deploy/local-gpu.md](deploy/local-gpu.md) instead.
+Run the commands below from `room-reconstruction/`. Requirements:
 
-**1. Install the environment.**
+- Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/) 0.9.17 or newer.
+- Blender 5.x; set `BLENDER_PATH` to its installation directory.
+- A signed-in `codex` CLI on `PATH`. Agent roles default to Codex with
+  `gpt-6-astra`; provider and model settings are in [models.env](models.env).
+- An image-generation key: `OPENAI_API_KEY`, or `GEMINI_API_KEY` with
+  `LR_IMAGE_PROVIDER=gemini`.
+- Hosted GPU models on Modal, or a configured local NVIDIA GPU runtime.
+
+Install the application and copy the environment template if `.env` does not exist:
 
 ```bash
 uv sync --frozen --extra modal --group dev
 cp .env.example .env
 ```
 
-**2. Fill in `.env`.**
+Fill in `.env`:
 
-| variable | where it comes from |
+| Setting | Purpose |
 |---|---|
-| `OPENAI_API_KEY` | reference image generation — typically under $1 per scene |
-| `GEMINI_API_KEY` | only for `LR_IMAGE_PROVIDER=gemini` → [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| `MODAL_TOKEN_ID` · `MODAL_TOKEN_SECRET` | a free [Modal](https://modal.com) account → [modal.com/settings/tokens](https://modal.com/settings/tokens) |
-| `BLENDER_PATH` | your Blender install **directory**, not the binary |
-| `LR_SCANS_DIR` | the folder holding your scans |
+| `BLENDER_PATH` | Directory containing the Blender executable |
+| `LR_SCANS_DIR` | Parent directory of captures |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | Reference-image generation |
+| `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` | Modal token pair, for hosted inference |
+| `MODAL_PROFILE` | Named Modal profile, as an alternative to the token pair |
 
-For example:
-```dotenv
-OPENAI_API_KEY=sk-...
-MODAL_TOKEN_ID=ak-...
-MODAL_TOKEN_SECRET=as-...
-BLENDER_PATH=/Applications/Blender.app/Contents/MacOS
-LR_SCANS_DIR=~/scans
-```
-
-**3. Deploy the models.**
+Follow [Modal deployment](deploy/modal/README.md) to deploy the combined model app,
+or [local GPU setup](deploy/local-gpu.md) to configure isolated model environments.
+Then check the installation:
 
 ```bash
-uv run litereality setup
+uv run python sanity.py
 ```
 
-One-time per workspace. See [deploy/modal/README.md](deploy/modal/README.md) for details.
-
-**4. Check you're ready to go.**
-
-```bash
-SANITY_DEEP=1 uv run python sanity.py
-```
-
+`SANITY_DEEP=1` enables model loading/inference checks and may invoke hosted services.
 
 ## Run
 
-The installed CLI is the only supported pipeline entry point. One command runs everything:
+The single-machine server entry point is [server/run_room.py](server/run_room.py).
+Its runtime paths and full-run, small-object, and articulation modes are documented
+in the [RoomCanvas guide](../docs/ROOM_RECONSTRUCTION.md).
+
+For module-level runs, a capture contains `room.usdz`, RGB frames, and camera/depth data:
 
 ```bash
-uv run litereality run  scans/<scan>
+uv run litereality run scans/<scene> --through publish
+uv run litereality run scans/<scene> --through seed
+uv run litereality stage author run/<scene> --force --polish --live
+uv run litereality stage publish run/<scene>
+uv run litereality view run/<scene>
 ```
 
-A reconstruction has two stages: **scene init** followed by **authoring**.
+Use the generated directory containing `scene.json` for stage and viewer commands;
+its name can differ from the input folder. `--polish` adds object refinement and
+materials; `--quality-pass` separately enables model-driven quality review.
+`--live` opens the authoring viewer.
 
-Scene init is deterministic.
-Authoring is agentic: the agent looks at the seed room, compares it against the capture,
-and edits it until it matches. Either half can be run on its own.
+The standard stages are `ingest → reconstruct → seed → author → publish`.
+The bare `run` command also attempts the non-required `simulate` stage;
+`--through publish` stops before it. Simulation can be requested separately:
 
 ```bash
-# scene init — capture to seed room. Takes the CAPTURE, writes run/Elliott-Studio/
-uv run litereality run scans/<scan> --through seed
-
-# authoring — seed room to finished room. Takes the PACKAGE scene init just produced
-uv run litereality stage author run/<scan> --force --polish --live
+uv run litereality stage simulate run/<scene>
+uv run litereality stage simulate run/<scene> --shake
 ```
 
-`--polish` adds object refinement and materials on top of authoring. The model-driven quality
-pass is separate — add `--quality-pass` for it — because it is the longest agent pass on a run and
-nothing downstream reads its output.
-`--live` shows how everything is built in real time, alongside the agent's trace. With `--live` the
-viewer starts before the room exists and waits for it, so it works on a scene's first authoring
-run; it prints its url again once the first build lands.
+## Outputs
 
-## Simulate it
+Under a scene package:
 
-The finished room as a MuJoCo scene — bodies rather than one baked mesh, each with the mass,
-inertia, friction, colliders and joints its own generated asset was compiled and solver-gated with.
+- `scene.json`: capture and artifact paths.
+- `scene_init/`: evidence, reconstructed objects, and seed room.
+- `realism_authoring/room/`: editable `Room.py` and object assets.
+- `realism_authoring/room_preview/`: `Room.glb`, `Room.blend`, and build metadata.
+- `realism_authoring/mujoco/`: optional `scene.xml`, meshes, and export report.
+- `.litereality/pipeline.json`: stage state for resuming.
 
-```bash
-uv run litereality stage simulate run/<scan>            # -> realism_authoring/mujoco/scene.xml
-uv run litereality stage simulate run/<scan> --shake     # ...and measure what actually moves
-```
+The server's articulation pass writes a separate `<run_dir>/articulate/room_preview/`;
+it does not replace the standard published preview. Use the output selected by the
+RoomCanvas guide. A generated file alone does not establish validation or acceptance.
 
-[`doc/Sim-Ready-intergration/Mujoco.md`](doc/Sim-Ready-intergration/Mujoco.md) covers where each
-number comes from and what happens to an object that has no compiled physics.
+## Documentation
 
-## See the results
-
-```bash
-uv run litereality view run/<scan>
-```
-
-
-### The room itself
-
-In the formats you'd take elsewhere:
-
-- `room_preview/Room.glb` — materials baked and clips intact, for Blender / Unity / Unreal / the web
-- `room_preview/Room.blend` — the same room as a Blender scene
-- `room/` — define the entire room here
-
-## Development
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for package ownership, dependency direction, and the current
-agent tool registry.
-
-Safe local verification is limited to static checks, offline unit tests, CLI parsing, and package
-builds:
-
-```bash
-uv run ruff check src tests sanity.py scripts
-uv run pytest -q
-uv build
-```
-
-Tests marked `blender`, `scan`, or `live` are excluded by default.
-
-## Citation
-
-If you use LiteReality-Agent in your research, please cite our [paper](https://arxiv.org/abs/2610.01863).
-You can also [download the BibTeX citation](citation.bib).
-
-```bibtex
-@misc{huang2026literealityagentagenticinteractable3d,
-  title         = {LiteReality-Agent: An Agentic System for
-                   Interactable 3D Indoor Scene Reconstruction},
-  author        = {Zhening Huang and Yueyan Li and Johnathan Chiu and
-                   Xiaoyang Lyu and Matt Zhou and Yuxin Yao and
-                   Joan Lasenby and Shangzhe Wu},
-  year          = {2026},
-  eprint        = {2610.01863},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.CV},
-  url           = {https://arxiv.org/abs/2610.01863}
-}
-```
+- [Architecture](ARCHITECTURE.md)
+- [Agent tools](src/litereality_agent/agent/tools/README.md)
+- [Ingest](src/litereality_agent/pipeline/scene_init/ingest/README.md) and
+  [layout](src/litereality_agent/pipeline/scene_init/layout/README.md)
+- [Object generation](src/litereality_agent/models/object_generation/README.md)
+- [Room format and operations](src/litereality_agent/room_ops/README.md)
+- [Collision checks](doc/QC/collision_check.md) and [support checks](doc/QC/supporting_relationship.md)
+- [MuJoCo export](doc/Sim-Ready-intergration/Mujoco.md)
+- [Tests](tests/README.md) and [capture utilities](scripts/README.md)
