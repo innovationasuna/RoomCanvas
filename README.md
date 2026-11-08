@@ -121,7 +121,7 @@ cd RoomCanvas
 sh scripts/setup_server.sh            # 可先加 --dry-run 只看步骤；已装好的部分会跳过
 ```
 
-脚本结束时会提示需要填写的 `.env` 和 `object-reconstruction/configs/local.env`，以及一键启动服务器的命令 `bash scripts/start_server.sh`。
+脚本结束后只需要在 `room-reconstruction/.env` 里填 `OPENAI_API_KEY`（房间重建的参考图生成用），并登录 Codex CLI；其余配置（GPU、锁文件、编译架构、数据目录）都有默认值，不用填。然后运行 `bash scripts/start_server.sh` 启动服务器。
 
 SAM 3D、TRELLIS.2、DA3 等模型默认从 ModelScope 下载（`MODEL_SOURCE=modelscope`，仓库名相同，不需要 HF 令牌）。要改用 Hugging Face 时 `export MODEL_SOURCE=huggingface HF_TOKEN='<已获 SAM 3D 访问权限的令牌>'`。GitHub、PyTorch 和少数只在 Hugging Face 上的模型仍要外网，需要时设置 `https_proxy`。
 
