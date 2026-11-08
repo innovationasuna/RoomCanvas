@@ -56,6 +56,7 @@ class Tunnel(unittest.TestCase):
         self.assertEqual(command[0], 'ssh')
         self.assertIn('-N', command)
         self.assertIn('ExitOnForwardFailure=yes', command)
+        self.assertIn('ControlPath=none', command)
         self.assertEqual(command[command.index('-L') + 1], '127.0.0.1:7865:172.18.0.2:7862')
         self.assertEqual(command[-1], 'gpu-box')
 
