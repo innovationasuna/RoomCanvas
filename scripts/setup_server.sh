@@ -332,10 +332,9 @@ snapshot() {
 next_commands() {
     if (( DRY_RUN )); then printf '\nDRY-RUN complete: no environments, downloads, configuration files or services were created.\n'; fi
     printf '\nNext commands (after filling the configuration keys):\n'
-    show cd "$SETUP_REPO/object-reconstruction"
-    printf '  source configs/local.env && source scripts/env.sh\n'
-    printf '  python scripts/web.py --host 127.0.0.1 --port 7862\n'
-    printf '  # In another terminal, replace /path/to/scan and /path/to/new-run:\n'
+    show bash "$SETUP_REPO/scripts/start_server.sh"
+    printf '  # Starts the room service, the object service and the gateway; then on your computer: python3 web/scripts/serve.py --ssh <SSH host>\n'
+    printf '  # To check a room run in another terminal, replace /path/to/scan and /path/to/new-run:\n'
     show env "ROOMCANVAS_HOME=$ROOMCANVAS_HOME" "$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" "$SETUP_REPO/room-reconstruction/server/run_room.py" /path/to/scan /path/to/new-run --check
     printf '  The service requires the objects setup; --check requires the rooms setup. --check is not an inference test.\n'
 }
