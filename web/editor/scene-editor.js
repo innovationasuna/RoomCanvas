@@ -147,6 +147,7 @@ const lightingPanel = mountLightingPanel({root: $('#lighting-menu'), timeRoot: $
 });
 let analogActive = false, validationFrame = 0, validationTimer = 0;
 let layoutStamp = 0, tallStamp = -1, tall = new Map(), blockingNear = new Set();
+let supportStamp = -1, supported = new Map(), concealedIds = new Set();
 function cancelValidation() {
   cancelAnimationFrame(validationFrame); clearTimeout(validationTimer);
   validationFrame = validationTimer = 0;
@@ -205,6 +206,8 @@ function requestRender() {
         tall = new Map();
         for (const [id, entity] of entities) {
           if (layout[id].visible === false || placement.isWall(id)) continue;
+          // A book on a bookcase's top shelf reaches 1.6 m, but it follows its bookcase (below).
+          if (entities.has(placementStates.get(id)?.support)) continue;
           const box = new THREE.Box3().setFromObject(entity.group);
           if (box.isEmpty() || box.max.y - floorY < 1.6) continue;
           const points = [box.min, box.max].flatMap((a) => [box.min, box.max].flatMap((b) => [[a.x, box.min.y, b.z], [a.x, box.max.y, b.z]]));
@@ -220,12 +223,26 @@ function requestRender() {
             || (cutting && inNearHalf(middle, [center.x, center.y, center.z], view, blockingNear.has(id)))) blocking.add(id);
       }
       blockingNear = blocking;
+      // On a near wall (a painting) or against one: see-through, unless it is the piece being arranged.
+      const faint = new Set([...entities.keys()].filter((id) => id !== selected
+        && ((placement.isWall(id) && hidden.has(placementStates.get(id)?.wall)) || blockingNear.has(id))));
+      // What rests on such a piece (books in a bookcase, a bag on a wall ledge) goes with it,
+      // instead of floating where the piece was. Supports come from the placement check.
+      if (supportStamp !== layoutStamp) {
+        supportStamp = layoutStamp; supported = new Map();
+        for (const [id, state] of placementStates) if (entities.has(state?.support) && state.support !== id) {
+          if (!supported.has(state.support)) supported.set(state.support, []);
+          supported.get(state.support).push(id);
+        }
+      }
+      for (const queue = [...faint]; queue.length;) for (const child of supported.get(queue.pop()) || []) {
+        if (child !== selected && !faint.has(child)) {faint.add(child); queue.push(child);}
+      }
+      concealedIds = faint;
       for (const [id, entity] of entities) {
         const visible = layout[id].visible !== false && !wallGhostSources.has(id);
         if (entity.group.visible !== visible) {entity.group.visible = visible; renderer.shadowMap.needsUpdate = true;}
-        // On a near wall (a painting) or against one: see-through, unless it is the piece being arranged.
-        const faint = id !== selected && ((placement.isWall(id) && hidden.has(placementStates.get(id)?.wall)) || blockingNear.has(id));
-        if (setSeeThrough(entity.group, faint, hideNear ? 0 : SEE_THROUGH)) renderer.shadowMap.needsUpdate = true;
+        if (setSeeThrough(entity.group, faint.has(id), hideNear ? 0 : SEE_THROUGH)) renderer.shadowMap.needsUpdate = true;
       }
     }
     lightingRig?.syncOccluders();
@@ -496,9 +513,9 @@ function endWallRelocation() {
   requestRender();
 }
 
-// 近侧墙: 'solid', 'faint' (see-through) or 'hidden'.
+// 近侧墙: 'solid', 'faint' (see-through) or 'hidden' (the default).
 const nearWallInputs = () => document.querySelectorAll('input[name="near-walls"]');
-const nearWallMode = () => document.querySelector('input[name="near-walls"]:checked')?.value || 'faint';
+const nearWallMode = () => document.querySelector('input[name="near-walls"]:checked')?.value || 'hidden';
 function setNearWallMode(value) {for (const input of nearWallInputs()) input.checked = input.value === value;}
 function syncNearWallOptions(disabled = false) {for (const input of nearWallInputs()) input.disabled = disabled;}
 
@@ -2221,6 +2238,7 @@ async function load() {
       room.updateMatrixWorld(true);
       camera.updateMatrixWorld();
       return {scene: sceneKey, formatVersion: VERSION, selected, view: activeView, mode, walk: walk?.snapshot() || null, cameraBasis: basis(), layout: copyLayout(pending ? pending.before : layout),
+        nearWalls: {mode: nearWallMode(), walls: (host.dataset.hiddenWalls || '').split(',').filter(Boolean), concealed: [...concealedIds].sort()},
         pending: pending ? {id: pending.id, locked: pending.locked, valid: pending.valid, message: pending.message, candidate: copyLayout(pending.candidate)} : null, placement: Object.fromEntries(placementStates), motionNotice,
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
         wallTargets: placement.wallTargets().map(({name,center}) => {const p = new THREE.Vector3().fromArray(center).project(camera), rect = host.getBoundingClientRect(); return {name,center,screen:{x:rect.x+(p.x*.5+.5)*rect.width,y:rect.y+(-p.y*.5+.5)*rect.height}};}),
