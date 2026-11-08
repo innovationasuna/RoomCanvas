@@ -20,7 +20,7 @@
 
 ```bash
 # 无 local.env 时可先 export VIEWFORGE_ROOT='<外部运行目录的绝对路径>'
-export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'   # 或 export MODEL_SOURCE=modelscope
+export MODEL_SOURCE=modelscope   # 或 export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'
 bash scripts/setup.sh --dry-run
 bash scripts/setup.sh
 ```
