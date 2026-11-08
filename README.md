@@ -138,13 +138,16 @@ python3 web/scripts/serve.py --ssh <SSH 主机>
 **服务器启动**：安装完成后，一条命令启动房间服务、物体服务和网关（已在运行的会跳过）；`status` 只查看状态。
 
 ```bash
-bash scripts/start_server.sh              # 服务器上，在仓库根目录
-python3 web/scripts/serve.py --ssh <SSH 主机>   # 本机
+bash scripts/start_server.sh                    # 服务器上，在仓库根目录（服务器重启后再运行一次即可）
+python3 web/scripts/serve.py --ssh <SSH 主机>         # 本机，在仓库根目录
+python3 web/scripts/serve.py --ssh <SSH 主机> --cpa   # 本机；服务器的 Codex 用本机 CLIProxyAPI（自己的订阅）时
 ```
 
 - 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
 - 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。
 - 本机想用两条隧道、不经网关时，给 `serve.py` 加 `--remote <地址>:7862`（可再加 `--room-remote`）。
+- 隧道断开（如 AutoDL 网关掉线）时 `serve.py` 会自动重连；用密码登录的主机每次重连都要再输一次密码，建议配好密钥。
+- `--cpa` 把服务器的 `127.0.0.1:8317` 转回本机的 CLIProxyAPI，服务器上的 `runtime/bin/codex` 默认用它（`ROOMCANVAS_CODEX_PROFILE=api` 改用 `.env.astra` 的接口）；本机关掉 `serve.py`，服务器上的 agent 精修和回放概括就调不了模型。
 - 重启物体服务会丢内存中的任务，3090 上有其他人的任务时先确认；脚本不会重启已在运行的服务。
 - **没有 GPU 的机器**（如 AutoDL 无卡模式）：脚本检测不到显卡时自动进入预览模式，也可以手动加 `--preview`。预览模式下可以浏览房间、物品库和重建回放，保存物品尺寸也照常；“重建房间”会提示这台服务器没有 GPU，“添加物品”会被拒绝并说明原因。没有 `configs/local.env` 时物体服务用默认目录 `runtime/object-reconstruction`。已在运行的服务不会被切换，要换模式先停掉再启动。
 
