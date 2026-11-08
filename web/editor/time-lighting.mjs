@@ -40,7 +40,8 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   const lampPosition = new THREE.Vector3(center.x, Math.min(bounds.max.y, ceilingY) - Math.min(.2, height * .06), center.z);
   let selected = 'balanced', spot = null, marker = null, windowLight = null, warm = false;
   let lamps = indoorLighting(indoor);
-  const physical = createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure: renderer.toneMappingExposure ?? profile.exposure ?? 1});
+  const physical = createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure: renderer.toneMappingExposure ?? profile.exposure ?? 1,
+    walls, ceilingY, own: ownMaterial, setOwn: setOwnMaterial});
   const glassCasters = new Map();
   // Captured window glass/exterior photos can contain authored daylight emission.
   // Give these meshes owned materials, so night can dim it without touching shared assets
