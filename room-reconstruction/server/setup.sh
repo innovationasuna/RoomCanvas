@@ -207,7 +207,7 @@ else
 text = Path(sys.argv[1]).read_text().replace("LR_DINO_BACKEND=auto", "LR_DINO_BACKEND=local")
 with open(sys.argv[2], "x") as f: f.write(text)' "$CODE/.env.example" "$ROOMCANVAS_HOME/.env"
 fi
-printf '  Fill OPENAI_API_KEY (or GEMINI_API_KEY with LR_IMAGE_PROVIDER=gemini), LR_SCANS_DIR, and authenticate the configured coding agent. run_room.py supplies Blender/model paths.\n'
+printf '  Only OPENAI_API_KEY (or GEMINI_API_KEY with LR_IMAGE_PROVIDER=gemini) in .env needs filling, plus logging in the configured coding agent (Codex CLI); LR_SCANS_DIR defaults to scans_uploaded and run_room.py supplies Blender/model paths.\n'
 printf '  Local GPU route: keep MODAL_TOKEN_ID, MODAL_TOKEN_SECRET and MODAL_PROFILE empty in .env and the invoking shell; set LR_DINO_BACKEND=local in any existing .env.\n'
 step 'Room setup steps finished; no inference has been run'
 next_commands
