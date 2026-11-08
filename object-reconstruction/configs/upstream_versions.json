@@ -7,6 +7,7 @@
   "depth-anything-3": {"commit": "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4"},
   "pytorch3d": {"commit": "75ebeeaea0908c5527e7b1e305fbc7681382db47"},
   "gsplat": {"commit": "2323de5905d5e90e035f792fe65bad0fedd413e7"},
+  "nvdiffrast": {"commit": "253ac4fcea7de5f396371124af597e6cc957bfae", "repository": "https://github.com/NVlabs/nvdiffrast.git"},
   "moge": {"commit": "a8c37341bc0325ca99b9d57981cc3bb2bd3e255b"},
   "utils3d": {"commit": "3913c65d81e05e47b9f367250cf8c0f7462a0900"},
   "dinov2": {

@@ -10,6 +10,8 @@ import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readab
   startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest} from './add-object.mjs';
 import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs';
 import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs';
+import {createImportMaterials} from './import-materials.mjs';
+import {createEnvironmentLighting} from './environment-lighting.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const KEY = 'roomcanvas:add-object';
@@ -176,7 +178,7 @@ export function mountAddObject({onReady, toast}) {
       state.run = job.run;
       remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
       cardState('重建好了，填尺寸');
-      if (!dialog.open) toast(`${state.object} 重建好了：点仓库里的“添加物品”填尺寸`);
+      if (!dialog.open) toast(`${state.object} 重建好了：点物品库里的“添加物品”填尺寸`);
       await openSize();
     } catch (error) {
       $('#add-build-error').hidden = $('#add-build-again').hidden = false;
@@ -195,7 +197,7 @@ export function mountAddObject({onReady, toast}) {
     const saved = savedMeasurement(state.asset);
     if (saved) {$('#add-axis').value = saved.axis; $('#add-meters').value = String(+saved.meters.toFixed(3));}
     describeSize();
-    await openViewer(state.run, state.asset.base, state.asset.manifest_url);
+    await openViewer(state.run, state.asset.base, state.asset.manifest_url, state.asset.capabilities);
   }
   function measured() {
     return metricScale(state.asset.base, $('#add-axis').value, Number($('#add-meters').value));
@@ -216,6 +218,7 @@ export function mountAddObject({onReady, toast}) {
     $('#add-place').disabled = true;
     try {
       const asset = await saveMeasurement(state.run, $('#add-axis').value, Number($('#add-meters').value));
+      asset.capabilities = state.asset.capabilities;
       dialog.close();
       remember(null);
       const run = state.run;
@@ -227,7 +230,7 @@ export function mountAddObject({onReady, toast}) {
     }
   };
 
-  async function openViewer(run, base, manifestURL) {
+  async function openViewer(run, base, manifestURL, capabilities) {
     closeViewer();
     $('#add-cover-view').hidden = true;
     $('#add-cover-note').textContent = manifestURL ? '正在读取补拍建议…' : '这个结果没有补拍建议，也可以直接补拍。';
@@ -278,7 +281,12 @@ export function mountAddObject({onReady, toast}) {
     // Unit-sized, standing on y = 0, as the editor places it; the box shows the measured extent.
     const shape = new THREE.Group();
     shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, 1 / Math.max(...Object.values(base.lengths)))));
-    gltf.scene.traverse((mesh) => {
+    if (capabilities?.material_mode === 'pbr') {
+      viewer.materials = createImportMaterials(THREE, gltf.scene, {preservePBR: true});
+      viewer.environment = createEnvironmentLighting(renderer, scene, {intensity: .6});
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1));
+      const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(2, 3, 4); scene.add(light);
+    } else gltf.scene.traverse((mesh) => {
       if (mesh.isMesh) mesh.material = new THREE.MeshBasicMaterial({vertexColors: !!mesh.geometry.attributes.color, side: THREE.DoubleSide});
     });
     shape.add(gltf.scene);
@@ -337,7 +345,9 @@ export function mountAddObject({onReady, toast}) {
   }
   function closeViewer() {
     if (!viewer) return;
-    viewer.resize.disconnect(); viewer.controls.dispose(); disposeObjectTree(viewer.scene);
+    viewer.resize.disconnect(); viewer.controls.dispose();
+    viewer.materials?.dispose(); viewer.environment?.dispose();
+    disposeObjectTree(viewer.scene);
     viewer.renderer.dispose(); viewer.renderer.domElement.remove(); viewer.labels.remove();
     viewer = null;
   }

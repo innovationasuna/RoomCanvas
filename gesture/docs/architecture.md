@@ -23,11 +23,11 @@ GestureFrame 包含 operator/helper、捏合时序、菜单请求与中断/歧�
 ## 坐标与映射
 
 - Three.js 采用米、弧度、Y 向上；地面是 XZ 平面。
-- 摄像头原图不翻转，预览及屏幕指针统一水平镜像。Right 固定用于物体控制，Left 固定用于相机环绕/菜单；每个角色须有分类分数 ≥0.8 的唯一候选，位置连续性不得覆盖左右手限制。右手天蓝、左手浅绿，均显示指尖/连线/中点；不提供角色交换，物理左右手标注仍需真人核对。
+- 摄像头原图不翻转，预览及屏幕指针统一水平镜像。Right 固定用于物体控制，Left 固定用于相机环绕/菜单；每个角色须有分类分数 ≥0.8 的唯一候选，位置连续性不得覆盖左右手限制。右手天蓝、左手浅绿，均显示指尖/连线/中点；不提供角色交换。
 - 指针是拇指/食指中点。捏合距离用掌部尺度归一化，图像坐标按画面宽高比修正。
 - 家具控制保留抓取偏移，旋转后的包围盒约束在 6×5×3m 房间内；高度不能穿地/天花板，无家具间物理碰撞。
 - XYZ 平面映射采用抓取时相机右/上轴；掌部投影尺度对数变化沿相机前后轴控制深度。掌面侧转时冻结深度并在转回时重建尺度参考，不补偿侧转期间变化。
-- 所有参数集中在 src/shared/config.ts，当前为未经验收的初始配置。
+- 所有参数集中在 src/shared/config.ts。
 
 ## 状态与中断
 
@@ -43,6 +43,6 @@ GestureFrame 包含 operator/helper、捏合时序、菜单请求与中断/歧�
 
 使用 Vite 仅绑定 127.0.0.1:8800。GLB、模型、WASM 均走同源本地资源，无 CDN、远程字体或遥测。开发模式有本地 HMR WebSocket；生产构建是静态文件。
 
-## 可选 Mac mini 后端（2026-10-10）
+## 可选的远程识别
 
-`camera → tracking/remote（JPEG，同源 HTTPS）→ backend/server.py（MediaPipe Python CPU / IMAGE）→ TrackingFrame → gestures → controls → scene`。本地 Worker 模式保持默认，远程模式必须由用户开启按钮启动。backend 使用独立实例池隔离每帧推理，多客户端房间状态仍留在各自浏览器。无帧队列，繁忙返回 503 丢帧重试。令牌仅用于测试接口访问，无客户端数据持久化。远程启动及真实设备验收见 [macmini-test.md](macmini-test.md)。
+`camera → tracking/remote（JPEG，同源 HTTPS）→ backend/server.py（MediaPipe Python CPU / IMAGE）→ TrackingFrame → gestures → controls → scene`。本地 Worker 模式保持默认，远程模式必须由用户开启按钮启动。backend 使用独立实例池隔离每帧推理，多客户端房间状态仍留在各自浏览器。无帧队列，繁忙返回 503 丢帧重试。访问令牌只用于接口鉴权，不持久化任何客户端数据。部署见 [远程识别后端](remote-backend.md)。

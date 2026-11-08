@@ -9,9 +9,10 @@ export function scanError(file, name) {
 }
 export function jobDescription(job) {
   if (job.status === 'failed') return job.error || '重建未完成，可以重试。';
+  if (job.replay_only) return '已有的重建记录，可以回看过程。';
   if (job.status === 'completed') return '重建完成，已加入房间列表。';
   if (job.status === 'queued') return '已提交，等待服务器开始重建。';
-  if (job.status === 'preparing') return '正在整理模型与可布置的家具。';
+  if (job.status === 'preparing') return '正在整理模型与可布置的物品。';
   const stages = job.stages || [];
   const names = Object.keys(labels).filter(name => name !== 'articulate' || stages.some(stage => stage.name === name));
   const next = names.find(name => !stages.some(stage => stage.name === name && ['completed', 'reused'].includes(stage.status)));
@@ -135,6 +136,12 @@ export function mountRoomReconstruction({onRoomsChanged}) {
           time.textContent = date.toLocaleString('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'});
           note.textContent = jobDescription(job);
           copy.append(name, time, note); row.append(copy);
+          // Live while it runs, a replay afterwards.
+          if (job.status !== 'queued') {
+            const watch = document.createElement('a'); watch.className = 'home-button';
+            watch.textContent = ['running', 'preparing'].includes(job.status) ? '实时查看' : '查看过程';
+            watch.href = `replay.html?job=${encodeURIComponent(job.id)}`; row.append(watch);
+          }
           if (job.status === 'completed' && job.room) {
             const link = document.createElement('a'); link.className = 'home-button'; link.textContent = '进入布置';
             link.href = `editor/?room=${encodeURIComponent(job.room.id)}`; row.append(link);

@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs; do node --check "$f"; done
+      - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs web/replay/*.mjs web/*.mjs; do node --check "$f"; done
       - run: node --test 'web/editor/tests/*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
       - name: Check the sample rooms with their real models (CPU)
@@ -77,7 +77,7 @@ jobs:
       - run: python -m pip install -r configs/api-requirements.txt httpx pillow numpy scipy trimesh pyyaml plyfile
       - name: Check the API, uploads, masks, dimensions and reconstruction contracts (CPU)
         run: |
-          for suite in api assets dimensions objects masks capture runner cover_scene; do
+          for suite in api assets dimensions objects masks capture runner cover_scene mvsam_pbr; do
             python -m unittest discover -s tests -p "test_${suite}.py" -v
           done
 
