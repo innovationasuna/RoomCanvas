@@ -158,7 +158,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 def tunnel_command(host, forwards):
     """The ssh command that forwards each 127.0.0.1:<local_port> to <remote> as seen from <host>."""
-    command = ['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
+    # ControlPath=none: with ControlMaster in ~/.ssh/config a second ssh hands the forwards to the master and
+    # exits, leaving the ports open after this script stops.
+    command = ['ssh', '-N', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
     for local_port, remote in forwards:
         if not re.fullmatch(r'[\w.-]+:\d+', remote):
             raise ValueError(f'remote must be <address>:<port>, got {remote!r}')
