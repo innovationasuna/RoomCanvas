@@ -136,6 +136,22 @@ class Events(unittest.TestCase):
         self.assertAlmostEqual(data['boxes'][0]['yaw'], 3.14159265 / 2, places=5)
         self.assertEqual(data['walls'][0]['b'], [3, -0])
 
+    def test_a_slim_copy_replays_the_same_without_the_bulk(self):
+        bulk = 'scene_init/obj_stage/reconstructed_objs/Storage0/mesh.glb'
+        write(self.scene / bulk, 'x' * 1000)
+        dest = self.root / 'slim'
+        replay.slim(self.root / 'run', dest)
+        self.assertFalse((dest / 'pipeline' / 'demo' / bulk).exists())
+
+        def replayed(run):
+            job = self.root / ('job-' + run.name)
+            (job / 'run').mkdir(parents=True)
+            (job / 'run' / 'pipeline').symlink_to(run / 'pipeline')
+            return replay.timeline(job), replay.scaffold(job)
+        (a, (pa, la)), (b, (pb, lb)) = replayed(self.root / 'run'), replayed(dest)
+        self.assertEqual(a, b)
+        self.assertEqual((pa.read_bytes(), la.read_text()), (pb.read_bytes(), lb.read_text()))
+
     def test_a_stray_empty_scene_folder_is_ignored(self):
         job = self.root / 'job3'
         (job / 'run' / 'pipeline' / 'pipeline' / 'scene_init' / 'scene_stage' / 'room_init').mkdir(parents=True)
