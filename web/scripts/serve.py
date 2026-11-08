@@ -2,6 +2,7 @@
 """Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
 python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + tunnels to the object and room services
+python3 web/scripts/serve.py --ssh <host> --gateway <address>:7870  # the same through gateway.py: one tunnel
 python3 web/scripts/serve.py                                         # page only, tunnel opened elsewhere
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
 
@@ -207,13 +208,20 @@ def main():
                         help='object service address as seen from HOST (default: 127.0.0.1:7862)')
     parser.add_argument('--room-remote', default='127.0.0.1:7866',
                         help='room reconstruction API address as seen from HOST (default: 127.0.0.1:7866)')
+    parser.add_argument('--gateway', metavar='ADDRESS:PORT',
+                        help='gateway.py address as seen from HOST: one tunnel for both services (replaces --remote and --room-remote)')
     args = parser.parse_args()
+    if args.gateway and not args.ssh:
+        parser.error('--gateway needs --ssh')
     Handler.viewforge = args.viewforge.rstrip('/')
     Handler.room_backend = args.room_backend.rstrip('/')
     tunnel = None
+    if args.gateway:  # paths already tell the services apart, so both backends are the one forwarded port
+        Handler.room_backend = Handler.viewforge
     if args.ssh:
-        forwards = [(urlsplit(Handler.viewforge).port or 80, args.remote),
-                    (urlsplit(Handler.room_backend).port or 80, args.room_remote)]
+        forwards = [(urlsplit(Handler.viewforge).port or 80, args.gateway or args.remote)]
+        if not args.gateway:
+            forwards.append((urlsplit(Handler.room_backend).port or 80, args.room_remote))
         try:
             command = tunnel_command(args.ssh, forwards)
         except ValueError as error:
@@ -221,8 +229,8 @@ def main():
         tunnel = open_tunnel(command, [port for port, _ in forwards])
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
-          + (f' (tunnel via {args.ssh} to {args.remote})' if tunnel else '')
-          + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.room_remote})' if tunnel else ''))
+          + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
+          + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else ''))
     def stop(signum, frame):
         raise KeyboardInterrupt
     for signum in (signal.SIGTERM, signal.SIGHUP):  # closing the terminal or `kill` also closes the tunnel
