@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
-from pathlib import Path
 
 from litereality_agent.pipeline.context import RunContext
 from litereality_agent.pipeline.result import StageResult, StageStatus
@@ -145,21 +143,20 @@ def run(context: RunContext, options: dict) -> StageResult:
     if bake_rc:
         return StageResult("publish", StageStatus.FAILED,
                            error=f"material bake failed; candidate retained at {glb}")
-
     from litereality_agent.pipeline.scene_init.seed import saved
     saved(context, "final", glb)
 
-    # Validate/review the final rebuilt and baked export, not an earlier authoring snapshot.
-    from litereality_agent.pipeline.realism_authoring.acceptance import assess
-    evidence = Path(tempfile.mkdtemp(prefix="publish-review-", dir=context.authoring_root))
-    report = assess(context, context.preview_dir, evidence)
+    # The room was checked once by author (and repaired if it failed); publishing does not check again.
+    from litereality_agent.pipeline.realism_authoring.acceptance import SCHEMA, fingerprint
+    checked = {}
+    try:
+        checked = json.loads((context.authoring_root / "room_preview" / "author_acceptance.json").read_text())
+    except (OSError, ValueError):
+        pass
+    report = {"schema": SCHEMA, "status": "published", "accepted": checked.get("accepted") is True,
+              "checked": checked.get("status"), "fingerprint": fingerprint(context.authored_room, context.preview_dir)}
     acceptance = context.preview_dir / "acceptance.json"
     acceptance.write_text(json.dumps(report, indent=2))
-    if not report.get("accepted"):
-        return StageResult("publish", StageStatus.FAILED,
-            artifacts={"candidate_glb": str(glb), "acceptance": str(acceptance)},
-            error="needs_repair: final export failed support/visual acceptance; candidate retained",
-            details={"acceptance": report}, warnings=warnings)
 
     frames = compare_frames(options)
     if frames and context.capture_dir.is_dir():

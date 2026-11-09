@@ -185,8 +185,8 @@ def _add_author_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--author-turns", type=int, help="authoring hard turn backstop (default 140)")
     parser.add_argument("--author-provider", choices=["claude", "codex"],
                         help="author and repair harness (default Codex/GPT-6)")
-    parser.add_argument("--repair-rounds", type=int, choices=range(4), default=2,
-                        help="bounded support-first repair rounds (default 2; 0 checks only)")
+    parser.add_argument("--repair-rounds", type=int, choices=range(2), default=1,
+                        help="repair once when the one check fails (default 1; 0 checks only)")
     parser.add_argument("--repair-steps", type=int, default=40, help="tool calls per repair (1..150)")
     parser.add_argument("--repair-seconds", type=int, default=600, help="wall seconds per repair (1..1800)")
 

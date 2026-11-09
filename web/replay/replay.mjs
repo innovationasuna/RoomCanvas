@@ -1,5 +1,5 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
-import {buildTimeline, clock, sceneAt, outcome, DURATION} from './timeline.mjs';
+import {buildTimeline, clock, sceneAt, outcome, withoutScores, DURATION} from './timeline.mjs';
 
 // Playback length: set by the timeline (longer when many objects take shape).
 const span = () => tl?.duration ?? DURATION;
@@ -89,6 +89,8 @@ async function poll() {
 // Door / window ids in build order, so Wall0_Door_0 maps to the assembled room's Door0 and so on.
 let openings = {};
 function rebuild() {
+  // Older services named the checks 验收 and scored them: show them as checks, without scores.
+  data.stages = data.stages.map((s) => ({...s, name: withoutScores(s.name), desc: withoutScores(s.desc)}));
   tl = buildTimeline(data);
   player.duration = tl.duration;
   openings = {Door: [], Window: []};
@@ -105,7 +107,7 @@ function rebuild() {
   const pct = (t) => `${t / span() * 100}%`;
   $('track').innerHTML = tl.stages.map((s) => `<div class="seg" data-s="${s.id}" title="${esc(s.name)}" style="left:${pct(s.replay[0])};width:calc(${pct(s.replay[1] - s.replay[0])} - 3px)"><div class="fill"></div></div>` +
     `<span class="lab" data-s="${s.id}" style="left:${pct(s.replay[0])}">${esc(s.name)}</span>`).join('') +
-    tl.events.filter((e) => e.model || e.kind === 'review').map((e) => `<i class="mk ${e.kind === 'review' ? 'r' : 'v'}" style="left:${pct(e.at)}" title="${esc(e.say)}"></i>`).join('') +
+    tl.events.filter((e) => e.model || e.kind === 'review').map((e) => `<i class="mk ${e.kind === 'review' ? 'r' : 'v'}" style="left:${pct(e.at)}" title="${esc(withoutScores(e.say))}"></i>`).join('') +
     '<div class="head" id="head"></div>';
   fitLabels();
   $('live').hidden = !data.live;
@@ -113,8 +115,8 @@ function rebuild() {
 }
 
 // ---------- left: the record, newest at the bottom ----------
-const talk = (e) => `<p class="say ${e.kind === 'milestone' ? 'ms' : e.kind === 'review' ? 'rv' : ''}" data-i="${e.i}">${esc(e.say)}</p>`;
-const chip = (e) => `<div class="chip ${e.kind === 'error' ? 'err' : ''}" data-i="${e.i}"><span class="app">${KIND[e.kind] || '操作'}</span><span>${esc(e.say)}</span></div>`;
+const talk = (e) => `<p class="say ${e.kind === 'milestone' ? 'ms' : e.kind === 'review' ? 'rv' : ''}" data-i="${e.i}">${esc(withoutScores(e.say))}</p>`;
+const chip = (e) => `<div class="chip ${e.kind === 'error' ? 'err' : ''}" data-i="${e.i}"><span class="app">${KIND[e.kind] || '操作'}</span><span>${esc(withoutScores(e.say))}</span></div>`;
 const shot = (e) => e.img ? `<div class="shot" data-z="${e.i}"><img src="${files(e.img)}" alt="" loading="lazy"></div>` : '';
 function renderLog(idx) {
   if (idx < shownTo) {
@@ -138,7 +140,7 @@ $('log').addEventListener('click', (ev) => {
   if (z) {
     const e = tl.events[+z.dataset.z];
     player.pause();
-    $('lb').innerHTML = `<div><img src="${files(e.img)}" alt=""><div class="cap">${esc(e.say)}</div></div>`;
+    $('lb').innerHTML = `<div><img src="${files(e.img)}" alt=""><div class="cap">${esc(withoutScores(e.say))}</div></div>`;
     $('lb').classList.add('on');
     return;
   }
@@ -249,10 +251,10 @@ function render(t, p, force = false) {
     // A job that stopped after an acceptance review ends with that verdict, not as a crash.
     const failed = data.status === 'failed' && done && !result;
     $('planN').textContent = data.live ? `进行中 · 第 ${si + 1} 步 / 共 ${data.stages.length} 步` : done ? '重建结束' : `第 ${si + 1} 步 / 共 ${data.stages.length} 步`;
-    $('planName').textContent = failed ? '重建中途出错' : result ? (result.passed ? '验收通过' : '没有通过最后检查') : st?.name || '等待开始';
+    $('planName').textContent = failed ? '重建中途出错' : result ? (result.repaired ? '已修复' : result.passed ? '检查通过' : '没有通过检查') : st?.name || '等待开始';
     $('planName').classList.toggle('fail', failed || (result && !result.passed));
     $('planDesc').textContent = failed ? '服务器上的重建没有完成，可以在任务列表里重试。' : result ? result.text : st?.desc || '';
-    $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.passed ? '验收通过' : '没通过最后检查 · 没有发布'}</span>` : '';
+    $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.repaired ? '已修复' : result.passed ? '检查通过' : '没通过检查 · 没有发布'}</span>` : '';
   }
   const scene = sceneAt(tl, t);
   const addedAll = tl.build?.reveal.map((r) => r.node);

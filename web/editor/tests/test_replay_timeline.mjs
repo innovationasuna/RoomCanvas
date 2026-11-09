@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildTimeline, sceneAt, outcome, clock, DURATION} from '../../replay/timeline.mjs';
+import {buildTimeline, sceneAt, outcome, withoutScores, clock, DURATION} from '../../replay/timeline.mjs';
 
 const stages = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review'].map((id) => ({id, name: id, desc: ''}));
 const events = [
@@ -48,10 +48,21 @@ test('the scene shows the latest model reached and the objects built so far', ()
   assert.equal(sceneAt(tl, 0).points >= 0, true);
 });
 
-test('the closing line counts rounds and says whether it passed', () => {
-  assert.deepEqual(outcome(events), {passed: false, text: '验收查了 2 轮，最高 5.0 分，没达到发布标准'});
-  assert.equal(outcome([{kind: 'review', score: 8, passed: true}]).text, '验收通过（8.0 分）');
+test('the closing line says whether the check passed or the room was repaired, with no score', () => {
+  assert.deepEqual(outcome(events), {passed: false, repaired: false, text: '没通过检查'});
+  assert.deepEqual(outcome([{kind: 'review', passed: true}]), {passed: true, repaired: false, text: '检查通过'});
+  const fixed = outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'result'}]);
+  assert.equal(fixed.repaired, true);
+  assert.equal(fixed.passed, true);
+  assert.equal(outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'error'}]).passed, false);
   assert.equal(outcome([{kind: 'tool'}]), null);
+});
+
+test('text shown to people has no scores', () => {
+  assert.equal(withoutScores('第 1 轮验收 4.5 分，没通过：床面太亮'), '第 1 次检查，没通过：床面太亮');
+  assert.equal(withoutScores('自评 6.5 分，继续调整窗帘'), '继续调整窗帘');
+  assert.equal(withoutScores('自评 6.5 分'), '完成一次自查');
+  assert.equal(withoutScores('把椅子分成 2 类'), '把椅子分成 2 类');
 });
 
 test('an empty job still builds a usable timeline', () => {

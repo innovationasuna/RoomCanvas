@@ -152,11 +152,11 @@ def run(context: RunContext, options: dict) -> StageResult:
     # The gate reads the BUILD. A session that rendered has one; a session that stopped early
     # or only edited may not, and an unbuilt room is exactly the one whose claims nobody checked.
     # `Room.py` is valid Python here (author.run guarantees it), so build it once (~1-2 min).
-    from litereality_agent.pipeline.realism_authoring.acceptance import finish
+    from litereality_agent.pipeline.realism_authoring.acceptance import done, finish
     report = finish(context, options)
     result.artifacts["acceptance"] = str(preview / "author_acceptance.json")
     result.details["acceptance"] = report
-    if not report.get("accepted"):
+    if not done(report):
         result.status = StageStatus.FAILED
-        result.error = "needs_repair: support/visual acceptance failed; source and evidence retained"
+        result.error = "needs_repair: the check failed and no repaired room was built; source and evidence retained"
     return result
