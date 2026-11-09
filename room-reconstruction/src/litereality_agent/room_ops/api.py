@@ -85,7 +85,42 @@ def compile_room(
         return None
     if bake:
         bake_room(preview / "Room.blend", glb, blender=blender)
+    _record_build(room_dir, glb)
     return glb
+
+
+SEED_GLB = "scene_init/scene_stage/room_init/room_preview/Room.glb"
+
+
+def _glb_tree(path) -> dict:
+    """{node name: parent name or None} from a GLB's JSON chunk (no mesh data is read)."""
+    import json
+    import struct
+
+    with open(path, "rb") as f:
+        length = struct.unpack("<I", f.read(20)[12:16])[0]
+        nodes = json.loads(f.read(length)).get("nodes", [])
+    parent = {c: k for k, node in enumerate(nodes) for c in node.get("children", [])}
+    return {node.get("name"): (nodes[parent[k]].get("name") if k in parent else None)
+            for k, node in enumerate(nodes) if node.get("name")}
+
+
+def _record_build(room_dir: Path, glb: Path) -> None:
+    """Trace the parts a build of the authored room has beyond the seed room, so the replay can show
+    each part from the first build that contains it. Only for <scene>/realism_authoring/room."""
+    room_dir = Path(room_dir).absolute()
+    if room_dir.parent.name != "realism_authoring":
+        return
+    scene = room_dir.parent.parent
+    try:
+        from litereality_agent import telemetry
+
+        before, after = _glb_tree(scene / SEED_GLB), _glb_tree(glb)
+        added = sorted(n for n, p in after.items() if n not in before and (p is None or p in before))
+        telemetry.record(scene / "scene_init" / "obj_stage" / "traces", "room_built",
+                         at=Path(glb).stat().st_mtime, added=added)
+    except Exception:  # noqa: BLE001 — a replay record never fails a build
+        pass
 
 
 def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 1024) -> int:

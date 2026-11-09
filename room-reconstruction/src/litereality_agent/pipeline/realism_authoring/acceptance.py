@@ -187,6 +187,26 @@ def assess(context, preview: Path, evidence: Path) -> dict:
     return report
 
 
+def _record_round(context, attempt: Path, number: int, evidence: Path, report: dict) -> None:
+    """Trace this round's room model and verdict, so the replay does not rely on file times."""
+    from litereality_agent import telemetry
+    from litereality_agent.pipeline.scene_init.seed import saved
+
+    rel = str(evidence.relative_to(context.scene_dir))
+    saved(context, "round", evidence / "Room.glb", attempt=attempt.name, round=number)
+    review = {}
+    if report.get("review"):
+        try:
+            review = json.loads(Path(report["review"]).read_text())
+        except (OSError, ValueError):
+            review = {}
+    telemetry.record(
+        context.object_root / "traces", "review_done", attempt=attempt.name, round=number,
+        folder=rel, score=review.get("score"), passed=bool(review.get("pass")),
+        accepted=bool(report.get("accepted")), reviewed=bool(review),
+    )
+
+
 def finish(context, options: dict) -> dict:
     preview = context.authoring_root / "room_preview"
     rounds = int(options.get("repair_rounds", 2))
@@ -227,6 +247,7 @@ def finish(context, options: dict) -> dict:
         report["round"] = number
         path = evidence / "assessment.json"
         path.write_text(json.dumps(report, indent=2))
+        _record_round(context, attempt, number, evidence, report)
         preview.mkdir(parents=True, exist_ok=True)
         (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
         if report["accepted"] or number == rounds or rc:
