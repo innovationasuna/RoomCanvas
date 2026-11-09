@@ -1,7 +1,9 @@
 // The replay's 3D view: scan point cloud and layout boxes first, then whichever room model the
 // timeline has reached (assembled room, each acceptance round, final). A newer model fades in over
-// the previous one. The camera follows smoothly; near walls fade so the room stays readable.
+// the previous one, and each object that appears takes shape from the scan points around it. The camera
+// follows smoothly; near walls fade so the room stays readable.
 import * as THREE from 'three';
+import {Materializer} from './materialize.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
@@ -45,6 +47,7 @@ export class RoomView {
     r.setPixelRatio(Math.min(devicePixelRatio, 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.05;
+    r.localClippingEnabled = true;
     container.appendChild(r.domElement);
     r.domElement.style.display = 'block';
     const scene = this.scene = new THREE.Scene();
@@ -63,8 +66,8 @@ export class RoomView {
     c.enableDamping = true;
     c.maxPolarAngle = Math.PI * 0.47;
     this.frame(new THREE.Box3(new THREE.Vector3(-2, -1.5, -2), new THREE.Vector3(2, 1.2, 2)));
-    c.addEventListener('start', () => {this.userHeld = true; this.aimTo = null; this.vel = {theta: 0, phi: 0, target: new THREE.Vector3()};});
-    this.vel = {theta: 0, phi: 0, target: new THREE.Vector3()};
+    c.addEventListener('start', () => {this.userHeld = true; this.aimTo = null; this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};});
+    this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};
     this.wantSpin = false;
     this.userHeld = false;
     this.aimTo = null;
@@ -76,6 +79,10 @@ export class RoomView {
     this.mix = 1;
     this.state = null;
     this.boxes = {};
+    this.forming = new Materializer(scene);
+    this.calm = matchMedia('(prefers-reduced-motion: reduce)');
+    this.formTag = Object.assign(document.createElement('div'), {className: 'forming', hidden: true});
+    container.appendChild(this.formTag);
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
     this.scaffoldUrls = scaffold;
@@ -100,6 +107,7 @@ export class RoomView {
     const offset = new THREE.Vector3(1, 1.05, 1.08).normalize().multiplyScalar(this.radius * 2.15);
     this.camera.position.copy(this.center).add(offset);
     this.controls.target.copy(this.center);
+    this.defaultDist = offset.length();
     this.defaultPolar = new THREE.Spherical().setFromVector3(offset).phi;
   }
 
@@ -210,6 +218,7 @@ export class RoomView {
     for (const o of meshes) {
       if ([o.material].flat().some((m) => wallMats.has(m) || m.transparent || m.opacity < 1)) continue;
       const m = new THREE.Mesh(o.geometry, mask);
+      m.userData.mask = true;
       m.renderOrder = 1;
       m.visible = false;
       o.add(m);
@@ -276,7 +285,10 @@ export class RoomView {
       this.wallLines.visible = state.walls > 0 && !inRoom;
       this.wallLines.children.forEach((l) => (l.material.opacity = 0.6 * state.walls));
     }
-    const placed = this.revealed(partial, state.built, openings);
+    if (quiet) this.forming.finishAll();
+    const {shown: placed, appeared} = this.revealed(partial, state.built, openings);
+    // A finished object takes shape in the room (not when many appear at once, e.g. the whole model is saved).
+    if (!quiet && this.current === 'seed' && appeared.length <= 12) appeared.forEach((node) => this.materialize(node));
     this.reveal(state.model === 'final' ? state.added : null, quiet);
     for (const [id, group] of Object.entries(this.boxes)) {
       const done = state.built.has(id);
@@ -301,35 +313,32 @@ export class RoomView {
       const node = root.getObjectByName(name);
       if (!node) continue;
       const show = !HIDDEN.test(name) && (!added || added.has(name));  // the ceiling stays hidden
-      if (show && !node.visible && !quiet && this.current === 'final') this.fadeIn(node);
+      const appears = show && !node.visible;
       node.visible = show;
+      if (appears && !quiet && this.current === 'final') this.materialize(node);
     }
   }
 
-  fadeIn(node) {
-    const mats = [];
-    node.traverse((o) => {
-      if (!o.isMesh) return;
-      if (!o.userData.ownMaterial) {o.material = [o.material].flat().length > 1 ? o.material.map((m) => m.clone()) : o.material.clone(); o.userData.ownMaterial = true;}
-      for (const m of [o.material].flat()) {
-        m.userData.restore ??= {opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite};
-        mats.push(m);
-      }
-    });
-    this.partFades = (this.partFades || []).filter((f) => f.node !== node);
-    this.partFades.push({node, mats, k: 0});
+  materialize(node) {
+    if (this.calm.matches) return;
+    this.forming.start(node, this.points?.geometry.attributes.position.array);
   }
 
-  // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown.
+  // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown and the
+  // objects that just became visible.
   revealed(partial, built, openings) {
     const root = this.models.seed?.root, shown = new Set();
-    if (!root) return shown;
+    const appeared = [];
+    if (!root) return {shown, appeared};
     if (openings) root.userData.openings = openings;
-    if (!partial) {root.children.forEach((o) => (o.visible = !HIDDEN.test(o.name))); return shown;}
     const keep = new Set();
-    for (const id of built) for (const node of nodesFor(root, id)) {keep.add(node); shown.add(id);}
-    root.children.forEach((o) => (o.visible = !HIDDEN.test(o.name) && (SHELL.test(o.name) || keep.has(o))));
-    return shown;
+    if (partial) for (const id of built) for (const node of nodesFor(root, id)) {keep.add(node); shown.add(id);}
+    for (const o of root.children) {
+      const show = !HIDDEN.test(o.name) && (!partial || SHELL.test(o.name) || keep.has(o));
+      if (show && !o.visible && !SHELL.test(o.name)) appeared.push(o);
+      o.visible = show;
+    }
+    return {shown, appeared};
   }
 
   boundsOf(key) {
@@ -344,18 +353,20 @@ export class RoomView {
   // ---------- camera direction (the page decides when to spin, aim or pose) ----------
   release() {this.userHeld = false;}
   spin(on) {this.wantSpin = on;}
-  aim(keys) {
+  // Turn to what was just built; close (moves in toward the objects) while they take shape.
+  aim(keys, {close = false} = {}) {
     const box = new THREE.Box3();
     keys.forEach((k) => box.union(this.boundsOf(k)));
     if (box.isEmpty()) return false;
-    const o = box.getCenter(new THREE.Vector3());
+    const o = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length();
     const dir = new THREE.Vector2(this.center.x - o.x, this.center.z - o.z);
     const off = this.camera.position.clone().sub(this.controls.target);
     const az = dir.length() > 0.3 ? Math.atan2(dir.x, dir.y) : Math.atan2(off.x, off.z);
-    this.aimTo = {az, polar: null, target: this.center.clone().lerp(o, 0.4), at: 0};
+    const dist = close ? Math.min(Math.max(size * 2.6, this.defaultDist * 0.42), this.defaultDist) : null;
+    this.aimTo = {az, polar: null, dist, target: this.center.clone().lerp(o, close ? 0.8 : 0.4), at: 0};
     return true;
   }
-  pose(az, polar) {this.aimTo = {az, polar, target: this.center.clone(), at: 0};}
+  pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center.clone(), at: 0};}
   settledFor() {return this.aimTo?.at ? performance.now() - this.aimTo.at : 0;}
   clearAim() {
     if (!this.aimTo) return;
@@ -374,17 +385,10 @@ export class RoomView {
       this.setFade(this.models[this.incoming].root, this.mix);
       if (this.mix >= 1) this.swap(this.incoming);
     }
-    for (const f of this.partFades || []) {
-      f.k = Math.min(f.k + fdt / 0.9, 1);
-      for (const m of f.mats) {
-        const r = m.userData.restore;
-        m.transparent = f.k < 1 || r.transparent;
-        m.opacity = r.opacity * f.k;
-        m.depthWrite = f.k < 1 ? false : r.depthWrite;
-        m.needsUpdate = true;
-      }
-    }
-    if (this.partFades?.some((f) => f.k >= 1)) this.partFades = this.partFades.filter((f) => f.k < 1);
+    this.forming.update(fdt);
+    const tris = this.forming.triangles();
+    this.formTag.hidden = tris == null;
+    if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.autoRotate = false;
     if (!this.userHeld && dt > 0) {
       const tgt = this.controls.target, v = this.vel, a = this.aimTo;
@@ -394,16 +398,19 @@ export class RoomView {
         if (a.az == null) {v.theta *= Math.exp(-dt * 4); sph.theta += v.theta * dt;}
         else {const [o, nv] = smoothDamp(0, dTheta, v.theta, 1.1, 0.9, dt); sph.theta += o; v.theta = nv;}
         if (a.polar != null) {const [o, nv] = smoothDamp(sph.phi, a.polar, v.phi, 1.1, 0.6, dt); sph.phi = o; v.phi = nv;}
+        if (a.dist != null) {const [o, nv] = smoothDamp(sph.radius, a.dist, v.dist, 1.1, 4, dt); sph.radius = o; v.dist = nv;}
         for (const k of ['x', 'y', 'z']) {const [o, nv] = smoothDamp(tgt[k], a.target[k], v.target[k], 1.1, 1.5, dt); tgt[k] = o; v.target[k] = nv;}
         const still = Math.abs(v.theta) < 0.03 && Math.abs(v.phi) < 0.03;
-        if (!a.at && Math.abs(dTheta) < 0.02 && (a.polar == null || Math.abs(a.polar - sph.phi) < 0.02) && tgt.distanceTo(a.target) < 0.02 && still) a.at = now;
+        if (!a.at && Math.abs(dTheta) < 0.02 && (a.polar == null || Math.abs(a.polar - sph.phi) < 0.02) && (a.dist == null || Math.abs(a.dist - sph.radius) < 0.05) && tgt.distanceTo(a.target) < 0.02 && still) a.at = now;
       } else {
         v.theta += ((this.wantSpin ? SPIN : 0) - v.theta) * (1 - Math.exp(-dt * 1.2));
         sph.theta += v.theta * dt;
         v.phi *= Math.exp(-dt * 4); sph.phi += v.phi * dt;
         if (this.focusTo) {
           for (const k of ['x', 'y', 'z']) {const [o, nv] = smoothDamp(tgt[k], this.focusTo[k], v.target[k], 1.4, 1.5, dt); tgt[k] = o; v.target[k] = nv;}
-          if (tgt.distanceTo(this.focusTo) < 0.005) {this.focusTo = null; v.target.set(0, 0, 0);}
+          // Back out to the overview distance after a close look.
+          const [o, nv] = smoothDamp(sph.radius, this.defaultDist, v.dist, 1.4, 4, dt); sph.radius = o; v.dist = nv;
+          if (tgt.distanceTo(this.focusTo) < 0.005 && Math.abs(sph.radius - this.defaultDist) < 0.02) {this.focusTo = null; v.target.set(0, 0, 0); v.dist = 0;}
         }
       }
       sph.makeSafe();
