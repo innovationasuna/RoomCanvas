@@ -19,4 +19,6 @@ gesture/docs/DEV_HISTORY.md
 
 # Local GPU server environments, sources and model weights
 /runtime/
+# serve.py 缓存的已完成房间和重建回放（runs/room-cache/）
+/runs/
 /backends/
