@@ -5,7 +5,101 @@ from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from serve import Tunnel as SSHTunnel, forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
+from serve import Handler, RoomDeletions, Tunnel as SSHTunnel, forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
+
+
+class RoomDeletion(unittest.TestCase):
+    def test_removal_persists_and_is_idempotent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'state/deleted.json'
+            store = RoomDeletions(path)
+            self.assertEqual(store.read(), set())
+            store.remove('office')
+            store.remove('office')
+            store.remove('scan-' + 'a' * 32)
+            self.assertEqual(RoomDeletions(path).read(), {'office', 'scan-' + 'a' * 32})
+            store.restore('office')
+            store.restore('office')
+            self.assertEqual(RoomDeletions(path).read(), {'scan-' + 'a' * 32})
+
+    def test_http_delete_filters_manifest_and_rejects_cross_origin(self):
+        import tempfile
+        import threading
+        import json
+        import urllib.request
+        import urllib.error
+        from http.server import ThreadingHTTPServer
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            class LocalHandler(Handler):
+                deletions = RoomDeletions(Path(directory) / 'deleted.json')
+                cache = Path(directory) / 'room-cache'
+                def log_message(self, *args):
+                    pass
+            server = ThreadingHTTPServer(('127.0.0.1', 0), LocalHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f'http://127.0.0.1:{server.server_port}'
+            try:
+                request = urllib.request.Request(base + '/web/rooms/office', method='DELETE')
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(json.load(response), {'deleted': 'office'})
+                # Simulate an unavailable reconstruction service; static rooms still work.
+                original = urllib.request.urlopen
+                def offline_backend(request, *args, **kwargs):
+                    if isinstance(request, str) and '/room-reconstruction/' in request:
+                        raise OSError('offline')
+                    return original(request, *args, **kwargs)
+                with patch('serve.urllib.request.urlopen', side_effect=offline_backend):
+                    with original(base + '/web/rooms.json') as response:
+                        data = json.load(response)
+                    with original(base + '/web/rooms/trash') as response:
+                        trash = json.load(response)['rooms']
+                self.assertEqual([room['name'] for room in trash], ['办公室'])
+                self.assertEqual(trash[0]['dir'], '../samples/office')
+                self.assertNotIn('office', [room['id'] for room in data['rooms']])
+                self.assertIn('room3', [room['id'] for room in data['rooms']])
+                self.assertEqual(data['deleted'], ['office'])
+                for path, headers, code in [('/web/rooms/room3', {'Origin': 'https://other.test'}, 403),
+                                             ('/web/rooms/../README.md', {}, 404)]:
+                    with self.assertRaises(urllib.error.HTTPError) as failure:
+                        original(urllib.request.Request(base + path, method='DELETE', headers=headers))
+                    self.assertEqual(failure.exception.code, code)
+                self.assertEqual(LocalHandler.deletions.read(), {'office'})
+                with self.assertRaises(urllib.error.HTTPError) as failure:
+                    original(urllib.request.Request(base + '/web/rooms/office/restore', method='POST',
+                                                   headers={'Origin': 'https://other.test'}))
+                self.assertEqual(failure.exception.code, 403)
+                self.assertEqual(LocalHandler.deletions.read(), {'office'})
+                with original(urllib.request.Request(base + '/web/rooms/office/restore', method='POST')) as response:
+                    self.assertEqual(json.load(response), {'restored': 'office'})
+                with patch('serve.urllib.request.urlopen', side_effect=offline_backend):
+                    with original(base + '/web/rooms.json') as response:
+                        self.assertIn('office', [room['id'] for room in json.load(response)['rooms']])
+                    with original(base + '/web/rooms/trash') as response:
+                        self.assertEqual(json.load(response), {'rooms': []})
+                    # Existing scan IDs remain recoverable even when their service is offline.
+                    scan = 'scan-' + 'a' * 32
+                    LocalHandler.deletions.remove(scan)
+                    with original(base + '/web/rooms/trash') as response:
+                        offline = json.load(response)['rooms']
+                    self.assertEqual([room['id'] for room in offline], [scan])
+                # A running scan has a name and status even before it has a catalog entry.
+                from io import BytesIO
+                def live_backend(request, *args, **kwargs):
+                    if isinstance(request, str) and request.endswith('/room-reconstruction/jobs'):
+                        return BytesIO(json.dumps({'jobs': [{'id': 'a' * 32, 'name': '我的客厅', 'status': 'running'}]}).encode())
+                    return offline_backend(request, *args, **kwargs)
+                with patch('serve.urllib.request.urlopen', side_effect=live_backend):
+                    with original(base + '/web/rooms/trash') as response:
+                        running = json.load(response)['rooms']
+                self.assertEqual(running[0]['name'], '我的客厅')
+                self.assertEqual(running[0]['status'], 'running')
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
 
 
 class Forwarding(unittest.TestCase):

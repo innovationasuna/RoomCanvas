@@ -22,3 +22,6 @@ gesture/docs/DEV_HISTORY.md
 # serve.py 缓存的已完成房间和重建回放（runs/room-cache/）
 /runs/
 /backends/
+
+# Local room list removals
+.roomcanvas/

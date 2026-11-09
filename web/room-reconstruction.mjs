@@ -25,7 +25,7 @@ async function request(path, options = {}) {
   return data;
 }
 
-export function mountRoomReconstruction({onRoomsChanged}) {
+export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async () => {}, isRoomHidden = () => false}) {
   const $ = id => document.getElementById(id);
   const dialog = $('reconstruction-dialog'), form = $('reconstruction-form');
   let connected = false, uploading = false, selected = null, uploadID = null;
@@ -118,8 +118,10 @@ export function mountRoomReconstruction({onRoomsChanged}) {
     if (polling) return;
     polling = true; $('refresh-jobs').disabled = true;
     try {
-      const {jobs} = await request('/jobs');
+      let {jobs} = await request('/jobs');
       if (!Array.isArray(jobs)) throw new Error('任务列表格式无效，请检查重建服务版本。');
+      await onJobsChanged(jobs);
+      jobs = jobs.filter(job => !isRoomHidden(`scan-${job.id}`));
       $('jobs-message').textContent = '';
       $('reconstruction-jobs').hidden = !jobs.length;
       const roomIDs = jobs.filter(j => j.status === 'completed').map(j => j.id).sort().join(',');
@@ -171,4 +173,5 @@ export function mountRoomReconstruction({onRoomsChanged}) {
   window.addEventListener('pagehide', () => clearInterval(timer));
   window.addEventListener('pageshow', event => {if (event.persisted) {timer = schedule(); void refresh();}});
   if (location.hash === '#reconstruct') $('reconstruct-room').click();
+  return {refresh};
 }
