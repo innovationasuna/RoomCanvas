@@ -37,6 +37,11 @@ class ScanValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(service.extract_scan(archive(), Path(root)).name, 'scan')
 
+    def test_scanner_point_cloud_is_kept(self):  # LiteReality Scanner ships pointcloud.pcd; ingest prefers it
+        with tempfile.TemporaryDirectory() as root:
+            capture = service.extract_scan(archive({'scan/pointcloud.pcd': b'pcd'}), Path(root))
+            self.assertTrue((capture / 'pointcloud.pcd').is_file())
+
     def test_reject_traversal_symlinks_scripts_and_multiple_rooms(self):
         for bad in [{'../outside.txt': b'no'}, {'/tmp/no.txt': b'no'}, {'scan/run.py': b'no'},
                     {'other/room.usdz': b'no'}, {'scan/scene.json': b'{}'}]:

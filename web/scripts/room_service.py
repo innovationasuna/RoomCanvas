@@ -54,7 +54,7 @@ def extract_scan(archive, destination):
                 continue
             if item.is_dir():
                 continue
-            if path.suffix.lower() not in {'.usdz', '.jpg', '.jpeg', '.png', '.json', '.mp4', '.obj', '.mtl', '.txt', '.ply', '.heic'}:
+            if path.suffix.lower() not in {'.usdz', '.jpg', '.jpeg', '.png', '.json', '.mp4', '.obj', '.mtl', '.txt', '.ply', '.pcd', '.heic'}:
                 raise ValueError('扫描包只能包含扫描数据，不能包含程序或其他文件')
             if str(path).casefold() in names:
                 raise ValueError('扫描包包含重复文件')
