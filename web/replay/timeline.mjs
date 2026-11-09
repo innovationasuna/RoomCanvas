@@ -125,11 +125,22 @@ export function sceneAt(tl, t) {
   };
 }
 
-// The closing line: how many acceptance rounds, best score, passed or not.
+// The closing line: whether the one check passed, or the room was repaired after it (no score).
 export function outcome(events) {
-  const rounds = events.filter((e) => e.kind === 'review' && typeof e.score === 'number');
-  if (!rounds.length) return null;
-  const last = rounds.at(-1), best = Math.max(...rounds.map((e) => e.score));
-  return {passed: !!last.passed, text: last.passed ? `验收通过（${last.score.toFixed(1)} 分）`
-    : `验收查了 ${rounds.length} 轮，最高 ${best.toFixed(1)} 分，没达到发布标准`};
+  const checks = events.filter((e) => e.kind === 'review');
+  if (!checks.length) return null;
+  if (checks.at(-1).passed) return {passed: true, repaired: false, text: '检查通过'};
+  const fix = events.findLast((e) => String(e.id || '').startsWith('fix'));
+  if (fix?.kind === 'result') return {passed: true, repaired: true, text: '没通过检查，已按问题修好'};
+  return {passed: false, repaired: false, text: '没通过检查'};
+}
+
+// Text shown to people carries no scores (older records said "4.5 分" or "自评 6.5 分").
+export function withoutScores(text) {
+  const had = /\d\s*分/.test(String(text ?? ''));
+  const out = String(text ?? '')
+    .replace(/[（(]?\s*(?:自评|评分|打分|得分|最高)?\s*\d+(?:\.\d+)?\s*分\s*[）)]?/g, '')
+    .replace(/\s+([，。、：；])/g, '$1').replace(/([，、：；])\1+/g, '$1').replace(/^[，、：；\s]+|[，、：；\s]+$/g, '')
+    .replace(/轮验收/g, '次检查').replace(/验收/g, '检查');
+  return out || (had ? '完成一次自查' : out);
 }

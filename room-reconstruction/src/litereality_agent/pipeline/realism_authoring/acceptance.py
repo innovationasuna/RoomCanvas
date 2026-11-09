@@ -1,7 +1,8 @@
-"""Bounded support-first repair and independent review, with build-bound acceptance.
+"""One check of the authored room (support, then an independent visual review: pass or not, no
+score) and, when it does not pass, one bounded repair whose rebuilt room is the result.
 
 No missing, failed or interrupted check is a pass. Sources and review candidates survive
-failure; only an exact, validated build can be reused as a completed author/publish stage.
+failure; only an exact build that passed, or was repaired, can be reused as a completed stage.
 """
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import math
 import shutil
 from pathlib import Path
 
@@ -39,10 +39,15 @@ def fingerprint(room: Path, preview: Path) -> dict:
         "checks": {p.name: digest(p) for p in [
             Path(__file__), *(Path(__file__).parent.parent / "room_qc").glob("*.py")]},
         "build": {
-            name: digest(preview / name)
+            name: digest(preview / name) if (preview / name).is_file() else None
             for name in ("Room.glb", "room_layout.json", "manifest.json")
         },
     }
+
+
+def done(report: dict) -> bool:
+    """The room may go on: it passed the check, or failed it and was repaired once (then published)."""
+    return report.get("accepted") is True or report.get("status") in ("repaired", "published")
 
 
 def is_accepted(room: Path, preview: Path, name="author_acceptance.json") -> bool:
@@ -50,7 +55,7 @@ def is_accepted(room: Path, preview: Path, name="author_acceptance.json") -> boo
         report = json.loads((preview / name).read_text())
         return (
             report.get("schema") == SCHEMA
-            and report.get("accepted") is True
+            and done(report)
             and report.get("fingerprint") == fingerprint(room, preview)
         )
     except (OSError, ValueError, TypeError):
@@ -58,13 +63,8 @@ def is_accepted(room: Path, preview: Path, name="author_acceptance.json") -> boo
 
 
 def visual_accepted(review: dict) -> bool:
-    score = review.get("score")
     return (
         review.get("pass") is True
-        and isinstance(score, (int, float))
-        and not isinstance(score, bool)
-        and math.isfinite(score)
-        and score >= 8
         and review.get("issues") == []
         and review.get("all_objects_reviewed") is True
     )
@@ -111,7 +111,7 @@ support_part on each supported group so it follows the correct moving link.
 Preserve manifest identities, represents_prims, source neural meshes and articulated joints.
 Do not delete difficult objects, add invisible supports, change checks or edit reports.
 Inspect renders against photographs. Save valid Room.py frequently. Do not launch another
-model. The supervisor will rebuild and independently check your result. Budget: {steps} tool
+model. The supervisor will rebuild your result and use it as the room. Budget: {steps} tool
 calls / {seconds} seconds. Return a concise summary of fixes and unresolved problems.""",
     )
     result = None
@@ -168,9 +168,9 @@ def assess(context, preview: Path, evidence: Path) -> dict:
                 "Check EVERY listed object, merged member, chair stack, support surface and opening. "
                 "Check shape, scale, missing objects, materials and excessive lighting. "
                 "Do not approve invisible/uncertain support or insufficient evidence. "
-                "Return JSON: pass (boolean), score (0-10), all_objects_reviewed (boolean), "
+                "Return JSON: pass (boolean), all_objects_reviewed (boolean), "
                 "issues (list of concrete unresolved defects with object IDs). "
-                "A pass needs score >=8, no issues, and all objects reviewed. Layout: "
+                "A pass needs no issues and all objects reviewed. Layout: "
                 + json.dumps(layout["objects"]),
                 json_mode=True,
             )
@@ -202,65 +202,80 @@ def _record_round(context, attempt: Path, number: int, evidence: Path, report: d
             review = {}
     telemetry.record(
         context.object_root / "traces", "review_done", attempt=attempt.name, round=number,
-        folder=rel, score=review.get("score"), passed=bool(review.get("pass")),
+        folder=rel, passed=bool(review.get("pass")),
         accepted=bool(report.get("accepted")), reviewed=bool(review),
     )
 
 
+def _build(context, preview: Path):
+    return run_module(
+        context,
+        "litereality_agent.room_ops.compile.build_from_room",
+        ["--room", context.authored_room, "--out", preview, "--regenerate"],
+        log_name="acceptance_build",
+    )
+
+
 def finish(context, options: dict) -> dict:
+    """Check the room once. If it does not pass, repair it once (a repair that runs out of its budget
+    keeps what it saved) and rebuild: that room is the result, not checked again."""
     preview = context.authoring_root / "room_preview"
-    rounds = int(options.get("repair_rounds", 2))
+    fix = int(options.get("repair_rounds", 1))
     steps = int(options.get("repair_steps", 40))
     seconds = int(options.get("repair_seconds", 600))
-    if not 0 <= rounds <= 3 or not 1 <= steps <= 150 or not 1 <= seconds <= 1800:
-        raise ValueError("repair caps: rounds 0..3, steps 1..150, seconds 1..1800")
+    if fix not in (0, 1) or not 1 <= steps <= 150 or not 1 <= seconds <= 1800:
+        raise ValueError("repair caps: repair_rounds 0 (check only) or 1, steps 1..150, seconds 1..1800")
     root = context.authoring_root / "acceptance"
     root.mkdir(parents=True, exist_ok=True)
     # Never overwrite an earlier attempt's evidence.
     import tempfile
 
+    from litereality_agent import telemetry
+
     attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
-    for number in range(rounds + 1):
-        rc, log = run_module(
-            context,
-            "litereality_agent.room_ops.compile.build_from_room",
-            ["--room", context.authored_room, "--out", preview, "--regenerate"],
-            log_name="acceptance_build",
-        )
-        evidence = attempt / f"round_{number:02d}"
-        evidence.mkdir()
-        shutil.copytree(context.authored_room, evidence / "room", symlinks=True)
-        if not rc:
-            for name in ("Room.glb", "room_layout.json", "manifest.json"):
-                if (preview / name).is_file():
-                    shutil.copy2(preview / name, evidence / name)
-        report = (
-            assess(context, preview, evidence)
-            if not rc
-            else {
-                "schema": SCHEMA,
-                "accepted": False,
-                "status": "needs_repair",
-                "error": f"build failed: {log}",
-            }
-        )
-        report["round"] = number
-        path = evidence / "assessment.json"
-        path.write_text(json.dumps(report, indent=2))
-        _record_round(context, attempt, number, evidence, report)
-        preview.mkdir(parents=True, exist_ok=True)
-        (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
-        if report["accepted"] or number == rounds or rc:
-            return report
-        try:
-            asyncio.run(
-                repair(
-                    context.authored_room, context.capture_dir, path, steps=steps, seconds=seconds,
-                    provider=options.get("provider")
-                )
+    rc, log = _build(context, preview)
+    evidence = attempt / "round_00"
+    evidence.mkdir()
+    shutil.copytree(context.authored_room, evidence / "room", symlinks=True)
+    if not rc:
+        for name in ("Room.glb", "room_layout.json", "manifest.json"):
+            if (preview / name).is_file():
+                shutil.copy2(preview / name, evidence / name)
+    report = (
+        assess(context, preview, evidence)
+        if not rc
+        else {"schema": SCHEMA, "accepted": False, "status": "needs_repair", "error": f"build failed: {log}"}
+    )
+    report["round"] = 0
+    path = evidence / "assessment.json"
+    path.write_text(json.dumps(report, indent=2))
+    _record_round(context, attempt, 0, evidence, report)
+    preview.mkdir(parents=True, exist_ok=True)
+    (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
+    if report["accepted"] or not fix or rc:
+        return report
+    note = None
+    try:
+        asyncio.run(
+            repair(
+                context.authored_room, context.capture_dir, path, steps=steps, seconds=seconds,
+                provider=options.get("provider")
             )
-        except Exception as exc:
-            report.update(accepted=False, status="needs_repair", error=str(exc))
-            (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
-            return report
-    raise AssertionError("unreachable")
+        )
+    except Exception as exc:  # out of budget or interrupted: what it saved is still the room
+        note = str(exc)
+    rc, log = _build(context, preview)
+    if rc:
+        # The repair left a room that does not build: put the checked one back.
+        shutil.rmtree(context.authored_room)
+        shutil.copytree(evidence / "room", context.authored_room, symlinks=True)
+        _build(context, preview)
+        report.update(status="needs_repair", error=f"repaired room does not build: {log}")
+    else:
+        report.update(status="repaired", fingerprint=fingerprint(context.authored_room, preview))
+    if note:
+        report["repair_note"] = note
+    telemetry.record(context.object_root / "traces", "repair_done", attempt=attempt.name,
+                     status=report["status"], note=note)
+    (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
+    return report

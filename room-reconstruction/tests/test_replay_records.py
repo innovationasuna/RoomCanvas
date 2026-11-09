@@ -96,7 +96,7 @@ def test_rooms_and_verdicts_are_recorded_with_their_paths(scene):
     assert got[1]["t"] == T0 + 900 and got[1]["round"] == 0 and got[1]["attempt"] == "attempt-x"
     review = got[2]
     assert review["folder"] == "realism_authoring/acceptance/attempt-x/round_00"
-    assert (review["score"], review["passed"], review["reviewed"]) == (6.5, False, True)
+    assert (review["passed"], review["reviewed"]) == (False, True) and "score" not in review
 
 
 def test_a_build_of_the_authored_room_records_the_parts_beyond_the_seed(scene, tmp_path):
