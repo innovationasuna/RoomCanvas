@@ -20,3 +20,6 @@ gesture/docs/DEV_HISTORY.md
 # Local GPU server environments, sources and model weights
 /runtime/
 /backends/
+
+# Local room list removals
+.roomcanvas/

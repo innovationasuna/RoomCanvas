@@ -24,19 +24,35 @@
       <div><h1>选择房间</h1><p class="lead">从一个房间开始，试一试新的布置。</p></div>
       <div class="heading-actions"><p id="room-count" class="room-count" hidden></p><button type="button" class="home-button primary" id="reconstruct-room">＋ 重建房间</button></div>
     </div>
-    <section class="reconstruction-jobs" id="reconstruction-jobs" aria-labelledby="jobs-title" hidden>
-      <div class="jobs-heading"><h2 id="jobs-title">房间重建任务</h2><button type="button" class="home-button" id="refresh-jobs">刷新状态</button></div>
-      <p id="jobs-message" role="status"></p>
-      <div id="jobs-list"></div>
-    </section>
     <section id="room-state" class="room-state" role="status">
       <strong id="state-title">正在读取房间…</strong>
       <p id="state-copy">即将显示可布置的空间。</p>
       <button type="button" id="retry-rooms" hidden>重新加载</button>
     </section>
-    <div class="rooms" id="rooms" aria-label="可布置的房间" aria-busy="true"></div>
+    <div class="room-browser" tabindex="0" role="region" aria-label="滚动浏览房间">
+    <div class="rooms" id="rooms" aria-label="房间列表" aria-busy="true"></div>
+    <section class="reconstruction-jobs" id="reconstruction-jobs" aria-labelledby="jobs-title" hidden>
+      <div class="jobs-heading"><h2 id="jobs-title">房间重建任务</h2><button type="button" class="home-button" id="refresh-jobs">刷新状态</button></div>
+      <p id="jobs-message" role="status"></p>
+      <div id="jobs-list"></div>
+    </section>
+    </div>
+    <div class="room-tools">
+      <button type="button" class="trash-entry" id="open-trash" aria-haspopup="dialog" aria-controls="trash-dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg>
+        <span>回收站</span><span class="trash-count" id="trash-count" hidden></span>
+      </button>
+    </div>
     <noscript><p>请启用 JavaScript 以查看房间并开始布置。</p></noscript>
   </main>
+  <dialog id="trash-dialog" class="reconstruction-dialog trash-dialog" aria-labelledby="trash-title" aria-describedby="trash-intro">
+    <div class="reconstruction-head"><h2 id="trash-title">回收站</h2><button type="button" class="home-button" id="close-trash" aria-label="关闭回收站">关闭</button></div>
+    <p class="reconstruction-intro" id="trash-intro">删除的房间保留在这里，恢复后会重新出现在房间列表中。</p>
+    <p id="trash-status" class="trash-status" role="status" aria-live="polite"></p>
+    <p id="trash-error" class="error" role="alert" hidden></p>
+    <div id="trash-list" class="trash-list" aria-busy="false"></div>
+    <div class="trash-actions"><button type="button" class="home-button" id="refresh-trash">刷新回收站</button></div>
+  </dialog>
   <dialog id="reconstruction-dialog" class="reconstruction-dialog" aria-labelledby="reconstruction-title">
     <div class="reconstruction-head"><h2 id="reconstruction-title">重建房间</h2><button type="button" class="home-button" id="close-reconstruction" aria-label="关闭重建窗口">关闭</button></div>
     <p class="reconstruction-intro">把真实房间的扫描变成可以布置的三维空间。</p>

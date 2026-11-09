@@ -1,5 +1,5 @@
 * {box-sizing:border-box}
-body {margin:0;min-height:100dvh;display:flex;flex-direction:column;font-size:14px;line-height:1.6}
+body {margin:0;height:100dvh;min-height:480px;display:flex;flex-direction:column;font-size:14px;line-height:1.6}
 [hidden] {display:none!important}
 a {color:inherit;text-decoration:none}
 button {font:inherit;cursor:pointer}
@@ -12,28 +12,62 @@ svg {width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;strok
 .brand {display:flex;align-items:center;gap:9px;font-size:17px;font-weight:600;letter-spacing:-.6px;white-space:nowrap}
 .brand svg {width:27px;height:30px;color:var(--rc-green)}
 .header-context {padding-left:24px;border-left:1px solid var(--rc-line);font-size:13px;color:var(--rc-muted)}
-main {width:100%;max-width:1200px;margin:0 auto;padding:40px 32px 48px;flex:1}
+main {width:100%;max-width:1600px;margin:0 auto;padding:36px 32px 32px;flex:1;min-height:0;display:flex;flex-direction:column}
 .page-heading {display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}
 h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px}
 .lead {margin:8px 0 0;color:var(--rc-muted);font-size:14px}
 .room-count {margin:0 0 2px;color:var(--rc-muted);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
-/* Two rooms share the full content width: (100% - 24px) / 2, with equal outer margins. */
-.rooms {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
-.room {display:flex;flex-direction:column;min-width:0;border:1px solid var(--rc-line);border-radius:6px;overflow:hidden;background:var(--rc-panel);transition:border-color 140ms,background-color 140ms}
-.room:hover {border-color:var(--rc-green);background:var(--rc-raised)}
-.room:active {background:var(--rc-field)}
-.room-preview {aspect-ratio:16/10;display:grid;place-items:center;overflow:hidden;background:var(--rc-canvas);color:var(--rc-field)}
-.room-preview img {display:block;width:100%;height:100%;object-fit:contain}
-.preview-missing {display:flex;flex-direction:column;align-items:center;gap:12px;font-size:13px}
-.preview-missing svg {width:44px;height:44px}
-.room-copy {display:flex;flex-direction:column;flex:1;padding:20px 22px}
-.room-title-row {display:flex;align-items:center;justify-content:space-between;gap:16px}
-.room-title-row h2 {font-size:20px;font-weight:500;line-height:1.4;margin:0}
-.room-facts {font-size:12px;white-space:nowrap;color:var(--rc-muted);font-variant-numeric:tabular-nums}
-.room-note {font-size:13px;line-height:1.8;margin:8px 0 18px;color:var(--rc-muted)}
-.room-open {display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:36px;margin-top:auto;font-size:13px;font-weight:500;color:var(--rc-green)}
-.room-open svg {transition:transform 140ms}
-.room:hover .room-open svg {transform:translateX(3px)}
+/* A native left-side scroll rail keeps mouse, touch and keyboard scrolling in sync. */
+.home-header,.home-footer,.page-heading {flex-shrink:0}
+.room-browser {flex:1;min-height:0;overflow-y:scroll;overflow-x:hidden;direction:rtl;scrollbar-gutter:stable;padding:2px 2px 10px 18px;scrollbar-color:var(--rc-green) var(--rc-field);scrollbar-width:auto;overscroll-behavior-y:contain}
+.room-browser > * {direction:ltr}
+.room-browser::-webkit-scrollbar {width:10px}
+.room-browser::-webkit-scrollbar-track {background:var(--rc-field);border:1px solid var(--rc-line);border-radius:8px}
+.room-browser::-webkit-scrollbar-thumb {background:var(--rc-green);border:2px solid var(--rc-field);border-radius:8px;min-height:44px}
+.room-browser::-webkit-scrollbar-thumb:hover {background:var(--rc-text)}
+.room-browser:focus-visible {outline:1px solid var(--rc-green);outline-offset:5px;border-radius:4px}
+/* Compact, cover-first gallery; one room keeps the same width as a full row. */
+.rooms {display:grid;--room-columns:4;grid-template-columns:repeat(var(--room-columns),minmax(0,1fr));gap:26px 22px;align-items:stretch}
+.room {position:relative;display:flex;flex-direction:column;min-width:0;border:1px solid var(--rc-line);border-radius:10px;background:var(--rc-raised);transition:border-color 160ms}
+.room:hover,.room:focus-within {border-color:var(--rc-green)}
+.room-link {display:flex;flex-direction:column;flex:1;min-width:0;border-radius:8px}
+.room-preview {position:relative;flex-shrink:0;aspect-ratio:16/9;overflow:hidden;border-radius:9px 9px 0 0;background:var(--rc-canvas);color:var(--rc-field);isolation:isolate}
+.room-media {position:absolute;inset:0;display:grid;place-items:center}
+.room-media img {display:block;width:100%;height:100%;object-fit:contain;transition:transform 220ms ease}
+.room-link:hover .room-media img {transform:scale(1.035)}
+.preview-missing {display:flex;flex-direction:column;align-items:center;gap:10px;font-size:12px}
+.preview-missing svg {width:36px;height:36px}
+.room-overlay {position:absolute;inset:auto 0 0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:28px 12px 10px;background:linear-gradient(transparent,rgba(0,0,0,.64));color:#fff}
+.room-facts {font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums}
+.room-facts {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room-open {grid-column:2;grid-row:1 / span 2;align-self:center;white-space:nowrap;font-size:16px;font-weight:600;line-height:1.5;color:var(--rc-muted);transition:color 140ms}
+.room-status {display:inline-flex;align-items:center;gap:6px}
+.room-status::before {content:"";width:6px;height:6px;border-radius:50%;background:var(--rc-green)}
+.room-copy {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px;align-content:center;flex:1;padding:14px 16px}
+.room-title-row {grid-column:1;min-width:0}
+.room-title-row h2 {margin:0;font-size:16px;font-weight:600;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color 140ms}
+.room:is(:hover,:focus-within) :is(h2,.room-open) {color:var(--rc-green)}
+.room-note {grid-column:1;min-width:0;margin:0;color:var(--rc-muted);font-size:12px;line-height:1.7;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.room-building {background:var(--rc-field);color:var(--rc-green);border:1px solid var(--rc-line)}
+.room-building .room-media {background-image:linear-gradient(var(--rc-line) 1px,transparent 1px),linear-gradient(90deg,var(--rc-line) 1px,transparent 1px);background-size:28px 28px}
+.room-building .preview-missing {padding:12px;background:var(--rc-field);border-radius:6px}
+.room-menu {position:absolute;right:0;top:0;z-index:2}
+.room-menu-toggle {display:grid;place-items:center;width:32px;height:32px;margin:8px;list-style:none;border:1px solid #ffffff38;border-radius:6px;background:#252623dd;color:#fff;cursor:pointer}
+.room-menu-toggle::-webkit-details-marker {display:none}
+.room-menu-toggle:hover,.room-menu[open] .room-menu-toggle {background:var(--rc-bg);border-color:var(--rc-green)}
+.room-menu-toggle svg {width:20px;height:20px;fill:currentColor;stroke:none}
+.room-delete {position:absolute;right:8px;top:46px;white-space:nowrap;min-width:116px;min-height:42px;padding:9px 16px;border:1px solid var(--rc-control);border-radius:6px;background:var(--rc-panel);box-shadow:0 6px 20px #0003;color:var(--rc-text);font-size:13px;text-align:left}
+.room-delete:hover {color:var(--rc-warn);background:var(--rc-field)}
+.room-delete:disabled {opacity:.5;cursor:wait}
+.room-delete-error {margin:8px 0 0;font-size:12px}
+/* Empty cells occupy exactly the same cover and copy tracks as populated cards. */
+.room-empty {display:flex;flex-direction:column;min-width:0;padding:0;border:1px dashed var(--rc-control);border-radius:10px;background:var(--rc-panel);color:var(--rc-muted);text-align:center;transition:background-color 160ms,border-color 160ms}
+.room-empty-preview {width:100%;aspect-ratio:16/9;display:grid;place-items:center;border-bottom:1px solid var(--rc-line);background:var(--rc-field);border-radius:9px 9px 0 0}
+.room-empty-preview svg {width:30px;height:30px;stroke-width:1}
+.room-empty-copy {display:flex;flex-direction:column;justify-content:center;flex:1;width:100%;padding:14px 16px;gap:4px}
+.room-empty-title {font-size:16px;line-height:1.5;font-weight:500}
+.room-empty-note {font-size:12px;line-height:1.7}
+.room-empty:hover {border-color:var(--rc-green);background:var(--rc-raised);color:var(--rc-green)}
 .room-state {padding:32px;background:var(--rc-panel);border:1px solid var(--rc-line);border-radius:6px}
 .room-state strong {display:block;font-size:16px;font-weight:500}
 .room-state p {margin:8px 0 0;color:var(--rc-muted)}
@@ -41,29 +75,37 @@ h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px
 .room-state button:hover {background:var(--rc-raised)}
 .error {color:var(--rc-warn)}
 .home-footer {display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:36px;padding:8px 24px;border-top:1px solid var(--rc-line);color:var(--rc-muted);font-size:11px}
+@media (max-width:1200px) {
+  .rooms {--room-columns:3}
+}
 @media (max-width:900px) {
-  main {padding:32px 24px 40px}
-  .rooms {gap:18px}
-  .room-copy {padding:16px 18px}
-  .room-title-row {align-items:flex-start;flex-direction:column;gap:4px}
+  main {padding:28px 24px 40px}
+  .rooms {--room-columns:2;gap:26px 18px}
 }
 @media (max-width:600px) {
   .home-header {min-height:56px;padding:0 16px}
   .header-context {display:none}
-  main {padding:28px 16px 32px}
+  main {padding:24px 16px 32px}
   h1 {font-size:24px}
-  .lead {font-size:13px;max-width:23em}
-  .page-heading {gap:12px;margin-bottom:22px;align-items:flex-start}
-  .room-count {margin-top:8px}
-  .rooms {grid-template-columns:minmax(0,1fr);gap:20px}
-  .room-title-row {align-items:center;flex-direction:row;gap:12px}
-  .room-title-row h2 {font-size:18px}
-  .room-open {min-height:40px}
+  .lead {font-size:13px}
+  .rooms {gap:24px 14px}
+  .room-browser {padding-left:12px}
+  .room-copy {padding:12px;column-gap:8px}
+  .room-title-row h2,.room-open,.room-empty-title {font-size:15px}
+  .room-empty-copy {padding:12px}
+  .room-overlay {padding:24px 8px 8px;gap:6px}
+  .room-facts {font-size:11px}
+  .room-menu-toggle {width:30px;height:30px;margin:6px}
   .home-footer {padding:12px 16px;flex-wrap:wrap;gap:4px 16px}
+  .preview-missing {font-size:11px}
+  .preview-missing svg {width:28px;height:28px}
+}
+@media (max-width:380px) {
+  .rooms {--room-columns:1}
 }
 @media (prefers-reduced-motion:reduce) {
-  .room,.room-open svg {transition:none}
-  .room:hover .room-open svg {transform:none}
+  .room,.room-empty,.room-media img,.room-title-row h2,.room-open {transition:none}
+  .room-link:hover .room-media img {transform:none}
 }
 
 /* Room reconstruction uses the existing charcoal surfaces and brass action colour. */
@@ -73,7 +115,7 @@ h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px
 .home-button.primary {background:var(--rc-green);color:var(--rc-bg);border-color:var(--rc-green);font-weight:600}
 .home-button.primary:hover:not(:disabled) {background:var(--rc-text);border-color:var(--rc-text)}
 .home-button:disabled {cursor:not-allowed;background:var(--rc-field);border-color:var(--rc-line);color:var(--rc-muted)}
-.reconstruction-jobs {margin-bottom:28px;padding:20px 24px;background:var(--rc-panel);border:1px solid var(--rc-line);border-radius:6px}
+.reconstruction-jobs {margin-top:36px;padding:20px 24px;background:var(--rc-panel);border:1px solid var(--rc-line);border-radius:6px}
 .jobs-heading,.reconstruction-head {display:flex;align-items:center;justify-content:space-between;gap:16px}
 .jobs-heading h2 {margin:0;font-size:16px;font-weight:500}
 #jobs-message {color:var(--rc-muted);margin:8px 0}
@@ -117,3 +159,30 @@ h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px
   .reconstruction-job time {display:block;margin:4px 0 0}
   .reconstruction-actions .home-button {width:100%}
 }
+
+/* Recycle bin stays at the lower right, outside the scrolling room grid. */
+.room-tools {display:flex;justify-content:flex-end;flex-shrink:0;padding-top:14px}
+.trash-entry {display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:9px 16px;border:1px solid var(--rc-line);border-radius:8px;background:var(--rc-panel);color:var(--rc-muted);transition:background-color 160ms,border-color 160ms,color 160ms}
+.trash-entry:hover,.trash-entry:focus-visible,.trash-entry[aria-expanded="true"] {border-color:var(--rc-green);background:var(--rc-raised);color:var(--rc-green)}
+.trash-entry:active {background:var(--rc-active)}
+.trash-count {min-width:20px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums}
+.trash-dialog {width:min(640px,calc(100% - 32px))}
+.trash-status {margin:0 0 16px;color:var(--rc-muted);font-size:13px}
+.trash-list {display:flex;flex-direction:column;gap:12px}
+.trash-room {display:flex;align-items:center;gap:16px;padding:14px;border:1px solid var(--rc-line);border-radius:6px;background:var(--rc-bg)}
+.trash-preview {width:96px;aspect-ratio:16/10;flex:none;display:grid;place-items:center;background:var(--rc-field);color:var(--rc-muted);border-radius:4px;overflow:hidden}
+.trash-preview img {width:100%;height:100%;object-fit:contain;background:var(--rc-canvas)}
+.trash-preview svg {width:30px;height:30px}
+.trash-copy {flex:1;min-width:0;overflow-wrap:anywhere}
+.trash-copy h3 {margin:0;font-size:16px;font-weight:500}
+.trash-copy p {margin:4px 0 0;font-size:12px;color:var(--rc-muted)}
+.trash-copy small {color:var(--rc-muted);font-size:11px}
+.trash-room .home-button {flex:none;min-height:44px}
+.trash-actions {display:flex;justify-content:flex-end;margin-top:20px}
+@media(max-width:600px) {
+  .room-tools {padding-top:10px}
+  .trash-room {flex-wrap:wrap;gap:12px}
+  .trash-preview {width:72px}
+  .trash-room .home-button {width:100%}
+}
+@media(prefers-reduced-motion:reduce) {.trash-entry {transition:none}}
