@@ -54,7 +54,7 @@ WRITES = re.compile(rf'^/viewforge/(objects/(create|capture|masks|reconstruct)|d
 MAX_BODY = 400 * 1024 * 1024
 # Reads for the room service: health, catalog, jobs, a finished room's files, and a job's replay
 # (timeline, 3D scaffold, and the models / pictures the service itself allowlists under files/).
-ROOM_READS = re.compile(r'^/room-reconstruction/(health|catalog|jobs(/[0-9a-f]{32}(/replay(/scaffold/(points\.bin|layout\.json)|/files/[\w./-]+)?)?)?'
+ROOM_READS = re.compile(r'^/room-reconstruction/(health|catalog|jobs(/[0-9a-f]{32}(/replay(/scaffold/(points\.bin|layout\.json|colors\.bin)|/files/[\w./-]+)?)?)?'
                         r'|assets/[0-9a-f]{32}/(Room\.glb|room_objects\.json|thumbnail\.jpg))$')
 ROOM_WRITES = re.compile(r'^/room-reconstruction/jobs(/[0-9a-f]{32}/retry)?$')
 MAX_SCAN = 2 * 1024**3
