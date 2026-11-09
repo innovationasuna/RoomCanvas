@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from litereality_agent import PACKAGE_ROOT, REPO_ROOT, telemetry
@@ -198,6 +199,20 @@ def _trellis_route(scan: str) -> set[str] | None:
     return {r["name"] for r in data.get("scans", {}).get(scan, []) if r.get("route") == "trellis"}
 
 
+def _record_objects(scan: str, glbs: dict[str, Path | None], since: float) -> None:
+    """One trace line per asset, timed by when its GLB was written, so a replay can show each
+    object finishing at its own time (the batch reports only once, at the end). A GLB older than
+    ``since`` was reused from an earlier run."""
+    traces = config.traces_dir(scan)
+    for asset_id, glb in glbs.items():
+        if glb is not None and Path(glb).is_file():
+            at = Path(glb).stat().st_mtime
+            telemetry.record(traces, "object_done", at=at, name=asset_id, method="trellis",
+                             status="ok", reused=at < since)
+        else:
+            telemetry.record(traces, "object_done", name=asset_id, method="trellis", status="failed")
+
+
 def collect_references(scan: str) -> list[tuple[str, Path]]:
     """Return (asset_id, reference_png) for every TRELLIS-reconstructable asset.
 
@@ -310,6 +325,7 @@ def run_for_scan(
         if dry_run:
             plan["status"] = "dry_run"
             return plan
+        launched = time.time()
         results = reconstructor.reconstruct_refs(
             staged, recon_dir, seed=seed
         )  # simplify ratio default
@@ -321,6 +337,9 @@ def run_for_scan(
         ]
         generated = sorted(
             Path(path).name for path in results.values() if path and Path(path).is_file()
+        )
+        _record_objects(
+            scan, {aid: Path(results[aid]) if results.get(aid) else None for aid, _ in staged}, launched
         )
         plan["status"] = "ok" if not failed else "failed"
         if failed:
@@ -389,8 +408,10 @@ def run_for_scan(
         plan["status"] = "dry_run"
         return plan
 
+    launched = time.time()
     proc = _run(cmd, cwd=str(REPO_ROOT))
     generated = sorted(p.name for p in recon_dir.glob("*.glb"))
+    _record_objects(scan, {aid: recon_dir / f"{aid}.glb" for aid, _ in refs}, launched)
     failed = sorted(aid for aid, _ in refs if not (recon_dir / f"{aid}.glb").is_file())
     if proc.returncode:
         plan["status"] = f"launcher_exit_{proc.returncode}"

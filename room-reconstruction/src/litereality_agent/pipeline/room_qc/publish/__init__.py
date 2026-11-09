@@ -146,6 +146,9 @@ def run(context: RunContext, options: dict) -> StageResult:
         return StageResult("publish", StageStatus.FAILED,
                            error=f"material bake failed; candidate retained at {glb}")
 
+    from litereality_agent.pipeline.scene_init.seed import saved
+    saved(context, "final", glb)
+
     # Validate/review the final rebuilt and baked export, not an earlier authoring snapshot.
     from litereality_agent.pipeline.realism_authoring.acceptance import assess
     evidence = Path(tempfile.mkdtemp(prefix="publish-review-", dir=context.authoring_root))

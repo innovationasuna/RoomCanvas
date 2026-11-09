@@ -42,7 +42,10 @@ def start(scan: str, directory: str | Path | None = None) -> Path:
     (d / "images").mkdir(parents=True, exist_ok=True)
     (d / "agent").mkdir(parents=True, exist_ok=True)
     _state.update(scan=scan, dir=d, t0=time.time())
-    event("trace_start", scan=scan)
+    # One id per top-level run, inherited by the stage subprocesses, so a resumed run (a new id)
+    # can be told apart from the one before it.
+    run = os.environ.setdefault("LITEREALITY_RUN_ID", f"{int(time.time())}-{os.getpid()}")
+    event("trace_start", scan=scan, run=run, pid=os.getpid())
     return d
 
 
@@ -57,6 +60,27 @@ def event(kind: str, **data) -> None:
         return
     t0 = _state["t0"] or time.time()
     rec = {"t": round(time.time(), 3), "dt": round(time.time() - t0, 3), "kind": kind, **data}
+    _append(d, rec)
+
+
+def record(directory: str | Path, kind: str, *, at: float | None = None, **data) -> None:
+    """Append one event to ``<directory>/trace.jsonl`` whether or not this process started a trace.
+
+    For records the reconstruction replay times itself by (objects finished, rooms saved, reviews):
+    the stages that write them may run in their own process or in a resumed run. ``at`` is when it
+    happened (e.g. a file's mtime) if not now. Skipped when the traces directory does not exist.
+    """
+    d = Path(directory)
+    if not d.is_dir():
+        return
+    rec = {"t": round(time.time() if at is None else at, 3), "kind": kind, **data}
+    run = os.environ.get("LITEREALITY_RUN_ID")
+    if run:
+        rec.setdefault("run", run)
+    _append(d, rec)
+
+
+def _append(d: Path, rec: dict) -> None:
     line = json.dumps(rec, default=str)
     with _lock:
         with (d / "trace.jsonl").open("a", encoding="utf-8") as f:
