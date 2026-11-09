@@ -3,7 +3,10 @@
 The pipeline already writes timestamped records while it runs (scene_init/obj_stage/traces/*.jsonl,
 the acceptance reviews) and drops models as they are finished (each object, the assembled room,
 each acceptance round, the final room). This module reads them, so the same data serves a live view
-while the job runs and a replay afterwards.
+while the job runs and a replay afterwards. Newer runs also record in trace.jsonl when each AI-made
+object was written (object_done), each room model was saved (model_saved), each acceptance round was
+judged (review_done) and what each build of the authored room added (room_built); older runs fall
+back to file times and to when the agent's log first names a part.
 
 Pipeline records become events with fixed Chinese wording. The modelling agent's own log (commands,
 results, thoughts, in English) is condensed into plain Chinese by a model in batches; the results are
@@ -148,12 +151,20 @@ def object_names(scene):
     return name
 
 
+def trace_rows(scene, until=None):
+    rows = [r for r in read_jsonl(Path(scene) / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
+    return [r for r in rows if r['t'] <= until] if until else rows
+
+
+def saved_at(rows, model):
+    """When the pipeline recorded writing a room model (seed / final), or None for runs without the record."""
+    return next((r['t'] for r in reversed(rows) if r.get('kind') == 'model_saved' and r.get('model') == model), None)
+
+
 def pipeline_events(scene, until=None):
     """Events from the pipeline's own trace, worded with fixed templates."""
     scene = Path(scene)
-    rows = [r for r in read_jsonl(scene / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
-    if until:
-        rows = [r for r in rows if r['t'] <= until]
+    rows = trace_rows(scene, until)
     events, said = [], set()
     name = object_names(scene)
 
@@ -185,6 +196,11 @@ def pipeline_events(scene, until=None):
                 add(r, 'plan', '形状复杂的物品已由 AI 重建完成')
         elif kind == 'image_generation' and status == 'ok' and r.get('name'):
             add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'], img=_object_image(scene, r['name']))
+        elif kind == 'object_done' and status == 'ok' and r.get('name'):
+            # Objects reconstructed by AI, each at the time its model was written; a resumed run
+            # records reused models again with the same time.
+            add(r, 'plan', f'做好{name(r["name"])}的模型', 'tool', once=f'obj:{r["name"]}:{round(r["t"])}',
+                show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'classify':
             add(r, 'plan', f'选好做法：{r.get("procedural", 0)} 件用程序建模，{r.get("trellis", 0)} 件交给 AI 重建', 'think')
         elif kind == 'agent_step' and r.get('name'):
@@ -198,33 +214,52 @@ def pipeline_events(scene, until=None):
         elif kind in ('openings_physics', 'procedural_physics'):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
 
-    seed = scene / SEED
-    if _mtime(seed) and (not until or _mtime(seed) <= until):
-        events.append({'id': 'seed', 't': _mtime(seed), 'stage': 'plan', 'kind': 'milestone',
+    seed = _model_time(scene, rows, 'seed', SEED, until)
+    if seed:
+        events.append({'id': 'seed', 't': seed, 'stage': 'plan', 'kind': 'milestone',
                        'say': '物品都做好了，拼成第一版房间', 'model': 'seed'})
     events += review_events(scene, until)
-    final = scene / FINAL
-    if _mtime(final) and (not until or _mtime(final) <= until):
-        events.append({'id': 'final', 't': _mtime(final), 'stage': last_review_stage(scene), 'kind': 'milestone',
+    final = _model_time(scene, rows, 'final', FINAL, until)
+    if final:
+        events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
     return events
 
 
-def _rounds(scene):
-    return sorted(Path(scene).glob('realism_authoring/acceptance/*/round_*/visual_review.json'),
-                  key=lambda p: (_mtime(p) or 0, str(p)))
+def _model_time(scene, rows, model, rel, until=None):
+    """When a room model was written: the trace record, else (older runs) the file's time; None if not yet."""
+    if not (Path(scene) / rel).is_file():
+        return None
+    t = saved_at(rows, model) or _mtime(Path(scene) / rel)
+    return t if t and (not until or t <= until) else None
 
 
-def last_review_stage(scene):
-    return ['review', 'review2', 'review3'][min(max(len(_rounds(scene)) - 1, 0), 2)]
+def _rounds(scene, until=None):
+    """Reviewed acceptance rounds in order: (review time, visual_review.json, round model time or None).
+
+    Runs that record review_done / model_saved are timed by those records; older runs by file times."""
+    scene = Path(scene)
+    rows = trace_rows(scene)
+    done = [r for r in rows if r.get('kind') == 'review_done' and r.get('reviewed') and r.get('folder')]
+    if done:
+        saved = {(r.get('attempt'), r.get('round')): r['t'] for r in rows
+                 if r.get('kind') == 'model_saved' and r.get('model') == 'round'}
+        rounds = [(r['t'], scene / r['folder'] / 'visual_review.json', saved.get((r.get('attempt'), r.get('round'))))
+                  for r in sorted(done, key=lambda r: r['t'])]
+    else:
+        paths = sorted(scene.glob('realism_authoring/acceptance/*/round_*/visual_review.json'),
+                       key=lambda p: (_mtime(p) or 0, str(p)))
+        rounds = [(_mtime(p), p, _mtime(p.parent / 'Room.glb')) for p in paths]
+    return [x for x in rounds if x[0] and (not until or x[0] <= until)]
+
+
+def last_review_stage(scene, until=None):
+    return ['review', 'review2', 'review3'][min(max(len(_rounds(scene, until)) - 1, 0), 2)]
 
 
 def review_events(scene, until=None):
     events = []
-    for k, path in enumerate(_rounds(scene)):
-        t = _mtime(path)
-        if until and t > until:
-            continue
+    for k, (t, path, _) in enumerate(_rounds(scene, until)):
         try:
             review = json.loads(path.read_text())
         except (OSError, ValueError):
@@ -249,14 +284,15 @@ def review_events(scene, until=None):
 def models(scene, until=None):
     """URLs (relative to the scene) of the room models available up to `until`."""
     scene = Path(scene)
+    rows = trace_rows(scene, until)
     out = {}
-    if _mtime(scene / SEED) and (not until or _mtime(scene / SEED) <= until):
+    if _model_time(scene, rows, 'seed', SEED, until):
         out['seed'] = SEED
-    for k, path in enumerate(_rounds(scene)):
+    for k, (_, path, saved) in enumerate(_rounds(scene, until)):
         glb = path.parent / 'Room.glb'
-        if glb.is_file() and (not until or _mtime(glb) <= until):
+        if glb.is_file() and saved and (not until or saved <= until):
             out[f'round{k}'] = _rel(scene, glb)
-    if _mtime(scene / FINAL) and (not until or _mtime(scene / FINAL) <= until):
+    if _model_time(scene, rows, 'final', FINAL, until):
         out['final'] = FINAL
     return out
 
@@ -287,10 +323,17 @@ def build_schedule(scene, until=None):
     final look when the first of them appears). Parts never named appear when the agent's session ends."""
     scene = Path(scene)
     seed, final = scene / SEED, scene / FINAL
-    if not (_mtime(seed) and _mtime(final)) or (until and _mtime(final) > until):
+    trace = trace_rows(scene, until)
+    if not (_model_time(scene, trace, 'seed', SEED, until) and _model_time(scene, trace, 'final', FINAL, until)):
         return None
     before, after = glb_tree(seed), glb_tree(final)
     added = [n for n, p in after.items() if n not in before and (p is None or p in before)]
+    # Runs that record each build of the authored room: a part shows from the first build that has it.
+    built = {}
+    for r in trace:
+        if r.get('kind') == 'room_built':
+            for n in r.get('added') or []:
+                built.setdefault(n, r['t'])
     rows = []
     for path in sorted((scene / TRACES).glob('authoring_trace.*.jsonl')):
         if '.raw.' not in path.name:
@@ -302,6 +345,8 @@ def build_schedule(scene, until=None):
     end = rows[-1]['t']
 
     def first(name):
+        if name in built:
+            return built[name]
         word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
         return next((t for t, text in texts if word.search(text)), end)
     reveal = sorted(({'node': n, 't': first(n)} for n in added), key=lambda r: r['t'])
@@ -639,7 +684,7 @@ def register(data_dir, run, name, until=None):
     scene = scenes[0]
     rows = [r for r in read_jsonl(scene / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
     if until is None:  # the run ends with its last review or final export; later records belong to other work
-        ends = [_mtime(p) for p in _rounds(scene)] + [_mtime(scene / FINAL)]
+        ends = [t for t, _, _ in _rounds(scene)] + [_model_time(scene, rows, 'final', FINAL)]
         until = max(t for t in ends if t) + 120
     identifier = uuid.uuid4().hex
     folder = Path(data_dir) / identifier

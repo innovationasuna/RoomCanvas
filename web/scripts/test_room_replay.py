@@ -168,6 +168,55 @@ class Events(unittest.TestCase):
         self.assertTrue(all(r and r[0].stat().st_size == 2 * 12 for r in results))
 
 
+class TraceRecords(unittest.TestCase):
+    """Runs that record object, model and review times in trace.jsonl are timed by them, not by file times."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.scene = make_run(Path(self.tmp.name) / 'run')
+        rows = [
+            {'t': T0 + 40, 'kind': 'object_done', 'name': 'Storage1', 'method': 'trellis', 'status': 'ok'},
+            {'t': T0 + 40, 'kind': 'object_done', 'name': 'Storage1', 'method': 'trellis', 'status': 'ok', 'reused': True},
+            {'t': T0 + 45, 'kind': 'object_done', 'name': 'Sofa0', 'method': 'trellis', 'status': 'failed'},
+            {'t': T0 + 95, 'kind': 'model_saved', 'model': 'seed', 'path': replay.SEED},
+            {'t': T0 + 400, 'kind': 'room_built', 'added': ['Curtain']},
+            {'t': T0 + 980, 'kind': 'model_saved', 'model': 'round', 'attempt': 'attempt-x', 'round': 0},
+            {'t': T0 + 985, 'kind': 'review_done', 'attempt': 'attempt-x', 'round': 0, 'reviewed': True,
+             'folder': 'realism_authoring/acceptance/attempt-x/round_00', 'score': 4.0, 'passed': False},
+            {'t': T0 + 1080, 'kind': 'model_saved', 'model': 'round', 'attempt': 'attempt-x', 'round': 1},
+            {'t': T0 + 1085, 'kind': 'review_done', 'attempt': 'attempt-x', 'round': 1, 'reviewed': True,
+             'folder': 'realism_authoring/acceptance/attempt-x/round_01', 'score': 7.5, 'passed': True},
+            {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'path': replay.FINAL},
+        ]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_each_ai_made_object_appears_at_its_own_time_once(self):
+        events = replay.pipeline_events(self.scene, T0 + 1300)
+        made = [e for e in events if e.get('show') == ['Storage1']]
+        self.assertEqual([(e['t'], e['say']) for e in made], [(T0 + 40, '做好柜子2的模型')])
+        self.assertFalse([e for e in events if e.get('show') == ['Sofa0']])  # failed: nothing to show
+
+    def test_models_and_reviews_use_the_recorded_times(self):
+        events = {e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}
+        self.assertEqual(events['seed']['t'], T0 + 95)
+        self.assertEqual(events['final']['t'], T0 + 1140)
+        self.assertEqual([events['r0']['t'], events['r1']['t']], [T0 + 985, T0 + 1085])
+        self.assertEqual(events['r1']['model'], 'round1')
+        self.assertEqual(list(replay.models(self.scene, T0 + 1300)), ['seed', 'round0', 'round1', 'final'])
+        self.assertEqual(list(replay.models(self.scene, T0 + 1000)), ['seed', 'round0'])
+
+    def test_a_part_shows_from_the_first_build_that_has_it(self):
+        glb(self.scene / replay.SEED, {'@roots': ['Floor0', 'Bed0']}, T0 + 100)
+        glb(self.scene / replay.FINAL, {'@roots': ['Floor0', 'Bed0', 'Curtain', 'Lamp']}, T0 + 1150)
+        times = {r['node']: r['t'] for r in replay.build_schedule(self.scene, T0 + 1300)['reveal']}
+        self.assertEqual(times['Curtain'], T0 + 400)  # built, though the log never names it
+        self.assertEqual(times['Lamp'], T0 + 610)  # no build record: falls back to the session end
+
+
 def glb(path, tree, t):
     """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""
     import struct
