@@ -4,15 +4,15 @@
 
 ## 服务器配置
 
-先按 [首次部署](../../docs/OBJECT_RECONSTRUCTION.md#首次部署) 运行安装入口。脚本从 [`configs/local.env.example`](../configs/local.env.example) 生成缺失的 `configs/local.env`（不进仓库）；编辑以下变量，已有配置保留。每次运行服务或重建前都要显式加载。
+先按 [首次部署](../../docs/OBJECT_RECONSTRUCTION.md#首次部署) 运行安装入口。脚本从 [`configs/local.env.example`](../configs/local.env.example) 生成缺失的 `configs/local.env`（不进仓库）；只有 `VIEWFORGE_ROOT` 必填，其余变量可选、已有配置保留。每次运行服务或重建前都要显式加载。
 
 | 变量 | 含义 |
 | --- | --- |
 | `VIEWFORGE_ROOT` | 外部数据根目录的绝对路径，需可写，存放环境、权重、照片和结果 |
-| `CUDA_VISIBLE_DEVICES` | 授权使用的一张 GPU |
-| `VIEWFORGE_GPU_LOCK` | 共享 GPU 锁文件的绝对路径，父目录需可写；所有使用这张卡的应用应指向同一路径 |
-| `TORCH_CUDA_ARCH_LIST` | CUDA 架构，如 RTX 30 系列为 `8.6` |
-| `TZ` | 时区；没有 tzdata 的容器可用 `CST-8` 表示 UTC+8 |
+| `CUDA_VISIBLE_DEVICES` | 可选。授权使用的一张 GPU；不设时 `scripts/env.sh` 选当前空闲显存最多的一张。共享服务器上应固定 |
+| `VIEWFORGE_GPU_LOCK` | 可选。共享 GPU 锁文件的绝对路径，父目录需可写；不设时为 `$VIEWFORGE_ROOT/cache/gpu.lock`。所有使用这张卡的应用应指向同一路径 |
+| `TORCH_CUDA_ARCH_LIST` | 可选。CUDA 架构，如 RTX 30 系列为 `8.6`；不设时按所选 GPU 的 `compute_cap` 自动取 |
+| `TZ` | 可选，默认系统时区；没有 tzdata 的容器可用 `CST-8` 表示 UTC+8 |
 
 ## 安装
 
@@ -20,7 +20,7 @@
 
 ```bash
 # 无 local.env 时可先 export VIEWFORGE_ROOT='<外部运行目录的绝对路径>'
-export HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'   # 或 export MODEL_SOURCE=modelscope
+# 默认从 ModelScope 下载，无需令牌；改用 Hugging Face：export MODEL_SOURCE=huggingface HF_TOKEN='<已获 SAM 3D 访问权限的 Hugging Face 令牌>'
 bash scripts/setup.sh --dry-run
 bash scripts/setup.sh
 ```

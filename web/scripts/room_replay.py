@@ -601,6 +601,34 @@ def _scaffold(job_dir):
 
 # ---------- register an existing run for replay only ----------
 
+# Besides the served FILES, the replay reads these (logs, review verdicts, point cloud and layout).
+READS = ('scene_init/obj_stage/traces/trace.jsonl', 'scene_init/obj_stage/traces/authoring_trace.*.jsonl',
+         'realism_authoring/acceptance/*/round_*/visual_review.json',
+         'scene_init/obj_stage/object_init/input/scan_geometry/*/scene_points.obj',
+         'scene_init/obj_stage/object_init/input/scene_data/*/layout_shell.json',
+         'scene_init/obj_stage/object_init/input/scene_data/*/layout_baseline.json')
+
+
+def slim(run, dest):
+    """Copy only what the replay needs from a run (hundreds of MB instead of tens of GB), keeping paths and times."""
+    import shutil
+    run, dest = Path(run).resolve(), Path(dest)
+    scenes = [p for p in (run / 'pipeline').glob('*') if (p / 'scene_init' / 'obj_stage').is_dir()]
+    if len(scenes) != 1:
+        raise SystemExit(f'expected one scene under {run}/pipeline')
+    scene, total = scenes[0], 0
+    wanted = {p for pattern in READS for p in scene.glob(pattern)}
+    for root, _, names in os.walk(scene):
+        for name in names:
+            path = Path(root) / name
+            if path in wanted or FILES.fullmatch(str(path.relative_to(scene))):
+                target = dest / 'pipeline' / scene.name / path.relative_to(scene)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)  # the replay orders review rounds by file time
+                total += path.stat().st_size
+    return total
+
+
 def register(data_dir, run, name, until=None):
     """Add a finished run (its directory holds pipeline/<scene>) as a replay-only job; nothing is copied."""
     import uuid
@@ -625,13 +653,19 @@ def register(data_dir, run, name, until=None):
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Register an existing room run for replay (no copy).')
+    parser = argparse.ArgumentParser(description='Register an existing room run for replay (no copy unless --slim-to).')
     parser.add_argument('--data-dir', type=Path, required=True, help='the room service --data-dir')
     parser.add_argument('--run', type=Path, required=True, help='run directory containing pipeline/<scene>')
     parser.add_argument('--name', required=True)
     parser.add_argument('--until', type=float, help='ignore records after this Unix time (default: last review + 2 min)')
+    parser.add_argument('--slim-to', type=Path, help='first copy only the files the replay needs here, and register that copy')
     args = parser.parse_args()
-    print(register(args.data_dir, args.run, args.name, args.until))
+    run = args.run
+    if args.slim_to:
+        size = slim(run, args.slim_to)
+        print(f'copied {size / 2**20:.0f} MB to {args.slim_to}')
+        run = args.slim_to
+    print(register(args.data_dir, run, args.name, args.until))
 
 
 if __name__ == '__main__':

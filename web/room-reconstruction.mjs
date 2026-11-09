@@ -42,8 +42,9 @@ export function mountRoomReconstruction({onRoomsChanged}) {
     $('check-reconstruction').disabled = true;
     $('reconstruction-service').textContent = '正在检查重建服务…';
     try {
-      await request('/health'); connected = true;
-      $('reconstruction-service').textContent = '房间重建服务已连接';
+      const health = await request('/health');
+      connected = !health.preview;
+      $('reconstruction-service').textContent = health.preview ? '这台服务器没有 GPU，只能浏览房间和回放，暂不能重建。' : '房间重建服务已连接';
     } catch (error) {
       connected = false;
       $('reconstruction-service').textContent = error.message;
