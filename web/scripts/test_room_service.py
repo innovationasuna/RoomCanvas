@@ -94,7 +94,8 @@ class APIIntegration(unittest.TestCase):
         self.worker = service.ThreadingHTTPServer(('127.0.0.1', 0), worker_handler)
         threading.Thread(target=self.worker.serve_forever, daemon=True).start()
         proxy_handler = type('ProxyHandler', (serve.Handler,), {
-            'room_backend': f'http://127.0.0.1:{self.worker.server_port}', 'log_message': lambda *args: None})
+            'room_backend': f'http://127.0.0.1:{self.worker.server_port}', 'cache': self.root / 'room-cache',
+            'log_message': lambda *args: None})
         self.proxy = serve.Server(('127.0.0.1', 0), proxy_handler)
         threading.Thread(target=self.proxy.serve_forever, daemon=True).start()
         self.base = f'http://127.0.0.1:{self.proxy.server_port}'
