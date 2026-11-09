@@ -75,9 +75,40 @@ def forwarded(path, method='GET'):
     return quote(path)
 
 
+class RoomDeletions:
+    """Persist list removals without erasing scans or cancelling worker processes."""
+    def __init__(self, path):
+        self.path = Path(path)
+        self.lock = threading.Lock()
+
+    def read(self):
+        if not self.path.exists():
+            return set()
+        return set(json.loads(self.path.read_text()))
+
+    def remove(self, identifier):
+        self.update(identifier, removed=True)
+
+    def restore(self, identifier):
+        self.update(identifier, removed=False)
+
+    def update(self, identifier, removed):
+        with self.lock:
+            deleted = self.read()
+            if removed:
+                deleted.add(identifier)
+            else:
+                deleted.discard(identifier)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(sorted(deleted)))
+            temporary.replace(self.path)
+
+
 class Handler(SimpleHTTPRequestHandler):
     viewforge = 'http://127.0.0.1:7865'
     room_backend = 'http://127.0.0.1:7866'
+    deletions = RoomDeletions(ROOT / '.roomcanvas/deleted-rooms.json')
     cache = ROOT / 'runs/room-cache'
 
     def room_json(self, status, data):
@@ -94,13 +125,38 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        if urlsplit(self.path).path == '/web/rooms.json':
+        path = urlsplit(self.path).path
+        if path in {'/web/rooms.json', '/web/rooms/trash'}:
             data = json.loads((ROOT / 'web/rooms.json').read_text())
             status, body, _ = self.room_answer('/room-reconstruction/catalog', 2)
             try:
                 data['rooms'].extend(json.loads(body)['rooms'] if status == 200 else [])
             except (ValueError, KeyError):
                 pass  # Existing rooms remain usable while the reconstruction worker is offline.
+            try:
+                deleted = self.deletions.read()
+            except (OSError, ValueError):
+                return self.room_json(500, {'error': '无法读取房间删除记录'})
+            if path == '/web/rooms/trash':
+                known = {room['id']: room for room in data['rooms']}
+                # Running/failed scans are jobs rather than published catalog rooms.
+                if any(identifier.startswith('scan-') and identifier not in known for identifier in deleted):
+                    try:
+                        with urllib.request.urlopen(self.room_backend + '/room-reconstruction/jobs', timeout=2) as response:
+                            for job in json.load(response)['jobs']:
+                                known.setdefault('scan-' + job['id'], {
+                                    'id': 'scan-' + job['id'], 'name': job['name'], 'status': job['status'],
+                                    'summary': '重建任务仍保留，恢复后可继续查看。',
+                                })
+                    except (OSError, ValueError, KeyError):
+                        pass
+                rooms = [known.get(identifier, {
+                    'id': identifier, 'name': '扫描房间' if identifier.startswith('scan-') else identifier,
+                    'summary': '暂时无法读取房间详情。恢复后，连接原服务即可查看。',
+                }) for identifier in sorted(deleted)]
+                return self.room_json(200, {'rooms': rooms})
+            data['rooms'] = [room for room in data['rooms'] if room['id'] not in deleted]
+            data['deleted'] = sorted(deleted)
             return self.room_json(200, data)
         room_target = room_forwarded(self.path)
         if room_target:
@@ -109,6 +165,19 @@ class Handler(SimpleHTTPRequestHandler):
         if target is None:
             return super().do_GET()
         self.relay(urllib.request.Request(self.viewforge + target), 60)
+
+    def do_DELETE(self):
+        origin = self.headers.get('Origin')
+        if origin and urlsplit(origin).netloc != self.headers.get('Host'):
+            return self.room_json(403, {'error': '不允许跨站删除'})
+        match = re.fullmatch(r'/web/rooms/([A-Za-z0-9_-]{1,100})', urlsplit(self.path).path)
+        if not match:
+            return self.room_json(404, {'error': '房间地址无效'})
+        try:
+            self.deletions.remove(match[1])
+        except (OSError, ValueError):
+            return self.room_json(500, {'error': '删除未保存，请检查网页服务的写入权限后重试。'})
+        return self.room_json(200, {'deleted': match[1]})
 
     def do_HEAD(self):
         target = room_forwarded(self.path)
@@ -162,6 +231,16 @@ class Handler(SimpleHTTPRequestHandler):
                 shutil.copyfileobj(source, self.wfile)
 
     def do_POST(self):
+        restore = re.fullmatch(r'/web/rooms/([A-Za-z0-9_-]{1,100})/restore', urlsplit(self.path).path)
+        if restore:
+            origin = self.headers.get('Origin')
+            if origin and urlsplit(origin).netloc != self.headers.get('Host'):
+                return self.room_json(403, {'error': '不允许跨站恢复'})
+            try:
+                self.deletions.restore(restore[1])
+            except (OSError, ValueError):
+                return self.room_json(500, {'error': '恢复未保存，请检查网页服务的写入权限后重试。'})
+            return self.room_json(200, {'restored': restore[1]})
         room_target = room_forwarded(self.path, 'POST')
         if room_target:
             return self.room_post(room_target)

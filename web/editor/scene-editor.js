@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import {setLayer} from './material-layers.mjs';
+import {createSelectionHighlight} from './selection-highlight.mjs';
 import {workspace} from './form-workspace.mjs';
 import {createGroundGrid} from './ground-grid.mjs';
+import {frameWorkspaceCamera, workspaceViewSize} from './workspace-camera.mjs';
 import {THUMBNAIL_SIZE, frameThumbnailCamera} from './furniture-thumbnail.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -76,7 +78,7 @@ let previewSerial = 0;
 // Meshes shown as the drag preview → their preview layer (see material-layers.mjs).
 const previewLayers = new Map();
 
-let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, placement, collision, wallVisibility;
+let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, roomBounds, placement, collision, wallVisibility;
 let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
@@ -92,17 +94,12 @@ const ceilingObjects = [], selectedMeshes = [];
 const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#c4c9ba');
-const camera = new THREE.OrthographicCamera(-5, 5, 4, -4, .02, 3000);
+const orbitCamera = new THREE.PerspectiveCamera(45, 1, .02, 3000);
+const planCamera = new THREE.OrthographicCamera(-5, 5, 4, -4, .02, 3000);
+let camera = orbitCamera;
 camera.aspect = 1;
 let cameraSpan = 7.8;
 const selectionBox = new THREE.Box3();
-const footprint = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
-  color: 0x298970, transparent: true, opacity: .13, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
-}));
-footprint.rotation.x = -Math.PI / 2;
-footprint.renderOrder = 3;
-footprint.visible = false;
-scene.add(footprint);
 const dropProjection = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({color:0x298970,transparent:true,opacity:.28,depthWrite:false,side:THREE.DoubleSide}));
 dropProjection.visible = false; dropProjection.renderOrder = 4; scene.add(dropProjection);
 const dropGuide = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({color:0x298970,dashSize:.04,gapSize:.025,transparent:true,opacity:.6}));
@@ -331,7 +328,7 @@ function updateSelectionVisuals() {
   const midpoint = selectionBox.getCenter(new THREE.Vector3());
   const state = placementStates.get(selected);
   if (pending?.gravity) {
-    footprint.visible = false; arrows.forEach(arrow => {arrow.visible = false;});
+    arrows.forEach(arrow => {arrow.visible = false;});
     // Reproject the label as the camera or the falling object moves.
     if (!falling && dropPlan) {
       const hull = placement.projectedBase(selected, layout);
@@ -343,12 +340,7 @@ function updateSelectionVisuals() {
     }
   }
   const color = pending && !pending.valid ? 0xc86c51 : state?.state === 'stable' ? 0x2c8772 : state?.state === 'blocked' ? 0xb9513e : 0xc58d36;
-  footprint.material.color.setHex(color);
-  // Floating objects keep a ground projection; confirmed support uses its actual height.
   const supportY = Number.isFinite(state?.height) ? state.height : floorY;
-  footprint.rotation.set(-Math.PI / 2, 0, 0);
-  footprint.position.set(midpoint.x, supportY + .015, midpoint.z);
-  footprint.scale.set(size.x + .08, size.z + .08, 1);
   const axes = basis();
   const directions = [axes.forward, axes.right, {x: -axes.forward.x, z: -axes.forward.z}, {x: -axes.right.x, z: -axes.right.z}];
   directions.forEach((axis, i) => {
@@ -366,9 +358,6 @@ function updateSelectionVisuals() {
     const anchor = new THREE.Vector3().fromArray(mount.center);
     const tangent = new THREE.Vector3().fromArray(mount.tangent);
     if (tangent.x * axes.right.x + tangent.z * axes.right.z < 0) tangent.negate();
-    footprint.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3().fromArray(mount.n));
-    footprint.position.copy(anchor);
-    footprint.scale.set(mount.width + .04, mount.height + .04, 1);
     [new THREE.Vector3(0, 1, 0), tangent, new THREE.Vector3(0, -1, 0), tangent.clone().negate()].forEach((axis, i) => {
       arrows[i].position.copy(anchor).addScaledVector(axis, (i % 2 ? mount.width : mount.height) / 2 + .07);
       arrows[i].setDirection(axis);
@@ -631,12 +620,7 @@ function pickWall(clientX, clientY) {
   return nearest;
 }
 
-// The selected piece glows a little.
-const SELECTED = {material: (material) => {
-  const clone = material.clone();
-  if (clone.emissive) {clone.emissive.set(0xad854d); clone.emissiveIntensity = .1;}
-  return clone;
-}};
+const SELECTED = createSelectionHighlight(THREE);
 function restoreMaterials() {
   for (const mesh of selectedMeshes) setLayer(mesh, 'selected', null);
   selectedMeshes.length = 0;
@@ -653,7 +637,6 @@ function select(id, announce = true) {
   motionNotice = null;
   hovered = null;
   host.style.cursor = '';
-  footprint.visible = !!id;
   dropProjection.visible = dropGuide.visible = false; $('#drop-label').hidden = true;
   arrows.forEach((arrow) => {arrow.visible = false;});
   $('#selection-label').hidden = !id;
@@ -664,7 +647,7 @@ function select(id, announce = true) {
   }
   if (id) {
     entities.get(id).group.traverse((mesh) => {
-      if (!mesh.isMesh) return;
+      if (!mesh.isMesh || mesh.userData.contactOnly) return;
       setLayer(mesh, 'selected', SELECTED);
       selectedMeshes.push(mesh);
     });
@@ -776,21 +759,31 @@ function alignCameraToStage() {
   const width = host.clientWidth, height = host.clientHeight;
   if (!width || !height) return;
   // The full stage stays fixed while panels open over it; only a real viewport resize refits projection.
-  camera.left = -cameraSpan * camera.aspect / 2; camera.right = cameraSpan * camera.aspect / 2;
-  camera.top = cameraSpan / 2; camera.bottom = -cameraSpan / 2;
+  camera.aspect = width / height;
+  if (camera.isOrthographicCamera) {
+    camera.left = -cameraSpan * camera.aspect / 2; camera.right = cameraSpan * camera.aspect / 2;
+    camera.top = cameraSpan / 2; camera.bottom = -cameraSpan / 2;
+  }
   camera.clearViewOffset();
+}
+
+function useCamera(projection) {
+  camera = projection === 'orthographic' ? planCamera : orbitCamera;
+  controls.object = camera;
+  alignCameraToStage();
 }
 
 function view(mode) {
   if (!ready) return;
   finishHold();
   activeView = mode;
+  useCamera(mode === 'top' ? 'orthographic' : 'perspective');
   const span = Math.max(roomSize.x, roomSize.z);
   camera.up.set(0, 1, 0);
   camera.zoom = 1;
   cameraSpan = span * (host.clientWidth <= 740 ? 1.18 : 1.08) / Math.min(camera.aspect, 1);
   const distance = Math.max(12, roomSize.length() * 2);
-  const target = new THREE.Vector3(center.x, floorY + .65, center.z);
+  const target = new THREE.Vector3(center.x, floorY + Math.min(roomSize.y * .4, 1.2), center.z);
   if (mode === 'top') {
     target.y = floorY;
     camera.position.copy(target).add(new THREE.Vector3(0, distance, .001));
@@ -799,9 +792,10 @@ function view(mode) {
     bounds.getCenter(target);
     const size = bounds.getSize(new THREE.Vector3());
     cameraSpan = Math.max(1.5, size.length() * 1.3) / Math.min(camera.aspect, 1);
-    camera.position.copy(target).add(new THREE.Vector3(1, .9, 1).normalize().multiplyScalar(distance));
+    frameWorkspaceCamera(THREE, camera, {bounds: bounds.clone().expandByScalar(.08), target, direction: new THREE.Vector3(1, .9, 1)});
   } else {
-    camera.position.copy(target).add(new THREE.Vector3(Math.sin(.78)*Math.sin(.62), Math.cos(.78), Math.sin(.78)*Math.cos(.62)).multiplyScalar(distance));
+    frameWorkspaceCamera(THREE, camera, {bounds: roomBounds, target, coverage: .94,
+      direction: new THREE.Vector3(Math.sin(1.0)*Math.sin(.62), Math.cos(1.0), Math.sin(1.0)*Math.cos(.62))});
   }
   controls.target.copy(target);
   controls.update();
@@ -1640,14 +1634,14 @@ function canTakeAnotherPiece() {
   showToast(`请先确认${name}的预览或取消，再拿另一件物品`);
   return false;
 }
-// 保存正交相机的实际缩放，以及环绕时需要的屏幕坐标基。
+// Both projections report the visible world span at the orbit target.
 function cameraState() {
   controls.update(); camera.updateMatrixWorld();
   const orbit = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
   return {theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, zoom: camera.zoom, minPhi: Math.min(.02, orbit.phi), maxPhi: controls.maxPolarAngle,
     target: controls.target.toArray(), right: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).toArray(),
     up: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).toArray(),
-    width: (camera.right - camera.left) / camera.zoom, height: (camera.top - camera.bottom) / camera.zoom};
+    ...workspaceViewSize(camera, orbit.radius)};
 }
 function applyCamera(pose) {
   controls.target.fromArray(pose.target);
@@ -2098,10 +2092,9 @@ async function load() {
   room.traverse((object) => {if (object.isMesh) originalMatrices.set(object, object.matrixWorld.clone());});
   flattenObjects(room, config.nodes);
   const bounds = new THREE.Box3().setFromObject(room);
+  roomBounds = bounds.clone();
   center = bounds.getCenter(new THREE.Vector3()); roomSize = bounds.getSize(new THREE.Vector3());
   floorY = new THREE.Box3().setFromObject(room.getObjectByName('Floor0')).max.y;
-  groundGrid = createGroundGrid(THREE, {floorY, target: controls.target});
-  scene.add(groundGrid);
   for (const root of room.children) {
     if (config.isCeiling(root.userData.name || root.name)) {ceilingObjects.push(root); root.visible = $('#ceiling').checked;}
   }
@@ -2131,6 +2124,8 @@ async function load() {
   progress.value = 92;
   ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
   placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  groundGrid = createGroundGrid(THREE, {floorY, target: controls.target, walls: placement.wallTargets()});
+  scene.add(groundGrid);
   if (enhancedLighting) {
     try {indoor = indoorLighting(JSON.parse(localStorage.getItem(`roomcanvas:indoor-lighting:${sceneKey}`)));} catch {}
     if (query.get('indoor') === 'off') indoor = {...indoor, power: false};
@@ -2238,6 +2233,7 @@ async function load() {
       room.updateMatrixWorld(true);
       camera.updateMatrixWorld();
       return {scene: sceneKey, formatVersion: VERSION, selected, view: activeView, mode, walk: walk?.snapshot() || null, cameraBasis: basis(), layout: copyLayout(pending ? pending.before : layout),
+        projection: camera.isPerspectiveCamera ? 'perspective' : 'orthographic',
         nearWalls: {mode: nearWallMode(), walls: (host.dataset.hiddenWalls || '').split(',').filter(Boolean), concealed: [...concealedIds].sort()},
         pending: pending ? {id: pending.id, locked: pending.locked, valid: pending.valid, message: pending.message, candidate: copyLayout(pending.candidate)} : null, placement: Object.fromEntries(placementStates), motionNotice,
         wallRelocation: wallRelocation ? {target: wallRelocation.target, valid: wallRelocation.valid, message: wallRelocation.message, candidate: wallRelocation.candidate ? copyLayout(wallRelocation.candidate) : null} : null,
@@ -2298,11 +2294,12 @@ async function load() {
 
 // Explicit lab mode only. Normal editor sessions expose no scene mutation/test controls.
 function installLightingLab() {
-  const cameraKeys = ['left', 'right', 'top', 'bottom', 'near', 'far', 'zoom'];
+  const cameraKeys = projection => ['near', 'far', 'zoom', ...(projection === 'perspective' ? ['fov', 'aspect'] : ['left', 'right', 'top', 'bottom'])];
   function captureState() {
     if (pending || falling || analogActive) throw new Error('请先结束摆放再保存基线');
     return {version: 1, scene: sceneKey, layout: encodeLayout(roomPart(layout), sceneKey),
-      camera: {...Object.fromEntries(cameraKeys.map(key => [key, camera[key]])), position: camera.position.toArray(),
+      camera: {projection: camera.isPerspectiveCamera ? 'perspective' : 'orthographic',
+        ...Object.fromEntries(cameraKeys(camera.isPerspectiveCamera ? 'perspective' : 'orthographic').map(key => [key, camera[key]])), position: camera.position.toArray(),
         quaternion: camera.quaternion.toArray(), up: camera.up.toArray(), target: controls.target.toArray(), span: cameraSpan},
       nearWalls: nearWallMode(), ceiling: $('#ceiling').checked, warm, mode, lightingTime, indoor: {...indoor}, grading: {...grading}};
   }
@@ -2311,7 +2308,9 @@ function installLightingLab() {
     restoreState(state) {
       if (state?.version !== 1 || state.scene !== sceneKey) throw new Error('基线与当前模型不匹配');
       const pose = state.camera;
-      if (!pose || [...cameraKeys.map(key => pose[key]), pose.span, ...pose.position, ...pose.quaternion, ...pose.target, ...pose.up].some(v => !Number.isFinite(v)) || pose.zoom <= 0) throw new Error('无效的基线相机');
+      const projection = pose?.projection || 'orthographic';
+      if (!pose || !['orthographic', 'perspective'].includes(projection)
+        || [...cameraKeys(projection).map(key => pose[key]), pose.span, ...pose.position, ...pose.quaternion, ...pose.target, ...pose.up].some(v => !Number.isFinite(v)) || pose.zoom <= 0) throw new Error('无效的基线相机');
       const restored = decodeLayout(state.layout, sceneKey, roomIds);
       cancelSession(false); select(null); hinged.closeAll();
       layout = {...restored, ...addedPart(layout)};
@@ -2326,7 +2325,8 @@ function installLightingLab() {
       if (lightingRig) lightingRig.apply(lightingTime, {warm});
       else for (const object of scene.children) if (object.isDirectionalLight) object.color.set(warm ? 0xffd2a5 : 0xffffff);
       grading = colorGrading(state.grading); lightingPanel.setGrade(grading); staticLighting?.setGrading(grading);
-      cameraSpan = pose.span; Object.assign(camera, Object.fromEntries(cameraKeys.map(key => [key, pose[key]])));
+      useCamera(projection);
+      cameraSpan = pose.span; Object.assign(camera, Object.fromEntries(cameraKeys(projection).map(key => [key, pose[key]])));
       camera.position.fromArray(pose.position); camera.up.fromArray(pose.up); camera.quaternion.fromArray(pose.quaternion);
       controls.target.fromArray(pose.target); camera.updateProjectionMatrix(); controls.update();
       applyLayout(); renderer.shadowMap.needsUpdate = true; requestRender();

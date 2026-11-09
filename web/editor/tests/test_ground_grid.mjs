@@ -1,7 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
-import {createGroundGrid} from '../ground-grid.mjs';
+import {createGroundGrid, groundGridFrame} from '../ground-grid.mjs';
+
+test('a rotated scan gets metre axes parallel to its main walls, fixed at a structural corner', () => {
+  const angle = -.55, tangent = [Math.cos(angle), 0, Math.sin(angle)];
+  const normal = [-tangent[2], 0, tangent[0]];
+  const main = {tangent, n: normal, d: 2, bounds: [[-3, 0], [3, 2.8]]};
+  const short = {tangent: normal, n: tangent, d: 3, bounds: [[-1, 0], [1, 2.8]]};
+  const frame = groundGridFrame([short, main]);
+  assert.deepEqual(frame, groundGridFrame([main, short]));
+  assert.ok(Math.abs(frame.x[0] * tangent[2] - frame.x[1] * tangent[0]) < 1e-12);
+  assert.ok(Math.abs(Math.hypot(...frame.x) - 1) < 1e-12);
+  assert.ok(Math.abs(frame.x[0] * frame.z[0] + frame.x[1] * frame.z[1]) < 1e-12);
+  assert.ok(Math.abs(frame.origin[0] * normal[0] + frame.origin[1] * normal[2] - main.d) < 1e-12);
+  const grid = createGroundGrid(THREE, {floorY: 0, walls: [short, main]});
+  const camera = new THREE.OrthographicCamera(-8, 8, 6, -6, .02, 100);
+  camera.position.set(7, 8, 9); camera.lookAt(0, 0, 0); update(grid, camera);
+  const before = grid.material.uniforms.gridOrigin.value.clone();
+  camera.position.set(-3, 9, 20); camera.zoom = 4; camera.lookAt(0, 0, 0); update(grid, camera);
+  assert.deepEqual(grid.material.uniforms.gridOrigin.value, before, 'camera changes never drag the grid origin');
+  assert.deepEqual(grid.material.uniforms.gridXAxis.value.toArray(), frame.x);
+  assert.deepEqual(groundGridFrame(), {origin: [0, 0], x: [1, 0], z: [0, 1]});
+});
 
 function update(grid, camera) {
   camera.updateProjectionMatrix(); camera.updateMatrixWorld();
