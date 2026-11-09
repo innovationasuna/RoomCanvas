@@ -253,13 +253,14 @@ function render(t, p, force = false) {
   // Turn to the parts the agent just added (while playing forward).
   const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
   lastAdded = scene.added;
-  if (p.playing && newly.length && view.aim(newly)) hold = 2000;
+  if (p.playing && newly.length && view.aim(newly, {close: true})) hold = 2000;
   const idx = tl.indexAt(t);
   if (idx === lastIdx && !force) return;
   const prevIdx = lastIdx;
   lastIdx = idx;
   const e = tl.events[idx];
-  if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'))) hold = 2000;
+  // Once the room shell shows, a finished object takes shape in place: move in close to watch it.
+  if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = 2000;
   renderLog(idx);
 }
 

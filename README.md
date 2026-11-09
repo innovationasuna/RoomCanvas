@@ -141,7 +141,11 @@ python3 web/scripts/serve.py --ssh <SSH 主机>
 bash scripts/start_server.sh                    # 服务器上，在仓库根目录（服务器重启后再运行一次即可）
 python3 web/scripts/serve.py --ssh <SSH 主机>         # 本机，在仓库根目录
 python3 web/scripts/serve.py --ssh <SSH 主机> --cpa   # 本机；服务器的 Codex 用本机 CLIProxyAPI（自己的订阅）时
+python3 web/scripts/serve.py --ssh <SSH 主机> --server-dir <服务器仓库目录>   # 本机；同一条连接顺带运行上面的 start_server.sh
 ```
+
+- **本机一条命令**：加 `--server-dir`（如 AutoDL 上的 `/root/autodl-tmp/RoomCanvas`）后，`serve.py` 用同一条 SSH 连接在服务器上运行 `scripts/start_server.sh`（已在运行的服务不动），只输一次密码。
+- **已完成的房间和重建回放存到本机**：`serve.py --ssh` 在后台把服务器上已完成任务的回放（点云、各版房间模型、配图）和房间文件下载到本机 `runs/room-cache/`（终端显示进度，每 5 分钟检查一次新任务），页面优先读本机副本，不再经隧道。之后不加 `--ssh` 启动，或服务器关机时，这些房间和回放照样能打开。还在重建的任务不缓存；任务重试后旧副本会删掉重新下载。加 `--no-download` 不下载，`--cache <目录>` 换位置。
 
 - 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
 - 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。
