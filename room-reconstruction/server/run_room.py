@@ -10,8 +10,8 @@ The code that runs is this checkout's room-reconstruction/. Runtimes, model weig
 .env come from $ROOMCANVAS_HOME. --set records each configuration workaround explicitly in
 run-config.json. --check prints what would run and exits without creating anything.
 
-Author repairs after its visual review default to 1 round here (official default 2), to save
-model calls. --small-objects runs the small-object pass on a finished run's scene directory
+Author checks the room once (support, then a pass/fail visual review, no score); if it fails,
+one repair runs and its rebuilt room is the result (--repair-rounds 0 only checks). --small-objects runs the small-object pass on a finished run's scene directory
 (runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
 --articulate does the same for openable parts: Astra decides per object whether it has parts that
 open and where, Blender cuts them out and hinges them (see realism_authoring/articulate/).
@@ -71,7 +71,7 @@ p.add_argument("run_dir", type=Path)
 p.add_argument("--from", dest="from_stage")
 p.add_argument("--through")
 p.add_argument("--set", action="append", default=[])
-p.add_argument("--repair-rounds", default="1", choices="0123", help="author repair rounds")
+p.add_argument("--repair-rounds", default="1", choices="01", help="repair once when the check fails (0: check only)")
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
 p.add_argument("--only", nargs="*", help="with a pass: only these objects")

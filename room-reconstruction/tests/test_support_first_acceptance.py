@@ -31,47 +31,81 @@ def context(tmp_path):
         None,
         {},
         {"pass": True},
-        {"pass": True, "score": 9, "all_objects_reviewed": True, "issues": ["floating"]},
-        {"pass": True, "score": float("nan"), "all_objects_reviewed": True, "issues": []},
-        {"pass": "true", "score": 9, "all_objects_reviewed": True, "issues": []},
+        {"pass": True, "all_objects_reviewed": True, "issues": ["floating"]},
+        {"pass": True, "all_objects_reviewed": False, "issues": []},
+        {"pass": "true", "all_objects_reviewed": True, "issues": []},
     ],
 )
 def test_visual_acceptance_requires_complete_typed_evidence(review):
     assert not A.visual_accepted(review or {})
 
 
-def test_visual_acceptance_passes_complete_review():
+def test_visual_acceptance_is_pass_or_not_without_a_score():
     assert A.visual_accepted(dict(pass_=False)) is False
-    assert A.visual_accepted({"pass": True, "score": 8, "all_objects_reviewed": True, "issues": []})
+    assert A.visual_accepted({"pass": True, "all_objects_reviewed": True, "issues": []})
 
 
-def test_repair_loop_stops_at_cap_without_accepting(tmp_path, monkeypatch):
+def failing_check(monkeypatch, builds=None):
+    """A check that fails; `builds` lists the build exit codes in order (default: all build)."""
+    codes = iter(builds or [])
+    monkeypatch.setattr(A, "run_module", lambda *a, **kw: (next(codes, 0), None))
+    monkeypatch.setattr(A, "assess", lambda *a: {"accepted": False, "status": "needs_repair"})
+
+
+def test_a_failed_check_is_repaired_once_and_not_checked_again(tmp_path, monkeypatch):
     c = context(tmp_path)
-    calls = []
-    monkeypatch.setattr(A, "run_module", lambda *a, **kw: (0, None))
-    monkeypatch.setattr(A, "assess", lambda *a: {"accepted": False})
+    calls, checks = [], []
+    failing_check(monkeypatch)
+    monkeypatch.setattr(A, "assess", lambda *a: checks.append(1) or {"accepted": False, "status": "needs_repair"})
 
     async def repair(*a, **kw):
         calls.append(kw)
 
     monkeypatch.setattr(A, "repair", repair)
-    r = A.finish(c, {"repair_rounds": 2, "repair_steps": 7, "repair_seconds": 20})
-    assert not r["accepted"] and len(calls) == 2
-    assert calls == [{"steps": 7, "seconds": 20, "provider": None}] * 2
+    r = A.finish(c, {"repair_rounds": 1, "repair_steps": 7, "repair_seconds": 20})
+    assert r["status"] == "repaired" and A.done(r) and not r["accepted"]
+    assert calls == [{"steps": 7, "seconds": 20, "provider": None}] and checks == [1]
     assert (c.authored_room / "Room.py").is_file()
 
 
-def test_interrupted_repair_is_never_accepted(tmp_path, monkeypatch):
+def test_check_only_does_not_repair(tmp_path, monkeypatch):
     c = context(tmp_path)
-    monkeypatch.setattr(A, "run_module", lambda *a, **kw: (0, None))
-    monkeypatch.setattr(A, "assess", lambda *a: {"accepted": False})
+    failing_check(monkeypatch)
+    monkeypatch.setattr(A, "repair", lambda *a, **kw: pytest.fail("repaired with repair_rounds 0"))
+    r = A.finish(c, {"repair_rounds": 0})
+    assert r["status"] == "needs_repair" and not A.done(r)
+
+
+def test_more_than_one_repair_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        A.finish(context(tmp_path), {"repair_rounds": 2})
+
+
+def test_a_repair_out_of_budget_keeps_what_it_saved(tmp_path, monkeypatch):
+    c = context(tmp_path)
+    failing_check(monkeypatch)
 
     async def repair(*a, **kw):
+        (c.authored_room / "Room.py").write_text("SHELL = {'fixed': True}")
         raise RuntimeError("wall time budget reached")
 
     monkeypatch.setattr(A, "repair", repair)
     r = A.finish(c, {})
-    assert r["status"] == "needs_repair" and not r["accepted"]
+    assert r["status"] == "repaired" and "budget" in r["repair_note"]
+    assert "fixed" in (c.authored_room / "Room.py").read_text()
+
+
+def test_a_repaired_room_that_does_not_build_is_put_back(tmp_path, monkeypatch):
+    c = context(tmp_path)
+    failing_check(monkeypatch, builds=[0, 1, 0])  # checked build, repaired build fails, restored build
+
+    async def repair(*a, **kw):
+        (c.authored_room / "Room.py").write_text("broken(")
+
+    monkeypatch.setattr(A, "repair", repair)
+    r = A.finish(c, {})
+    assert r["status"] == "needs_repair" and not A.done(r)
+    assert (c.authored_room / "Room.py").read_text() == "SHELL = {}"
 
 
 def test_failed_build_does_not_validate_stale_export(tmp_path, monkeypatch):
@@ -81,7 +115,7 @@ def test_failed_build_does_not_validate_stale_export(tmp_path, monkeypatch):
     assert not A.finish(c, {})["accepted"]
 
 
-def test_failed_export_acceptance_blocks_publish(tmp_path, monkeypatch):
+def test_publish_does_not_check_again(tmp_path, monkeypatch):
     c = context(tmp_path)
 
     def run(*args, **kwargs):
@@ -89,13 +123,16 @@ def test_failed_export_acceptance_blocks_publish(tmp_path, monkeypatch):
         (c.preview_dir / "Room.glb").write_bytes(b"candidate")
         return 0, None
 
+    authored = c.authoring_root / "room_preview"
+    authored.mkdir(parents=True)
+    (authored / "author_acceptance.json").write_text(json.dumps({"accepted": False, "status": "repaired"}))
     monkeypatch.setattr(publish, "run_module", run)
     monkeypatch.setattr("litereality_agent.room_ops.api.bake_room", lambda *a: 0)
-    monkeypatch.setattr(A, "assess", lambda *a: {"accepted": False, "support_pass": False})
+    monkeypatch.setattr(A, "assess", lambda *a: pytest.fail("checked again at publish"))
     result = publish.run(c, {"compare_frames": 0})
-    assert result.status is StageStatus.FAILED
-    assert (c.preview_dir / "Room.glb").is_file()
-    assert not publish.complete(c)
+    assert result.status is not StageStatus.FAILED
+    report = json.loads((c.preview_dir / "acceptance.json").read_text())
+    assert report["status"] == "published" and report["checked"] == "repaired"
 
 
 def test_merged_membership_cannot_be_removed(tmp_path):
