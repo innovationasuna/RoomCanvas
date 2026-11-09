@@ -99,7 +99,7 @@ try {
     assert.equal(await sliders.count(), 4);
     assert.equal(await page.locator('#lighting-menu select').count(), 0);
     assert.equal(await page.locator('#light-menu #lighting-time').count(), 1);
-    assert.deepEqual(await page.locator('#lighting-time option').allTextContents(), ['普通光照', '早晨', '中午', '下午', '夜间']);
+    assert.deepEqual(await page.locator('#lighting-time option').allTextContents(), ['普通光照', '早晨', '中午', '下午', '夜间', '物理光照']);
     assert.equal(await page.locator('#light-menu input[type=checkbox]').count(), 0);
     assert.equal(await page.locator('#lamp-strip').count(), 0);
     assert.equal(await page.locator('#light-menu input[type=range]').count(), 1);

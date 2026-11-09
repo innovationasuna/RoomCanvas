@@ -16,7 +16,7 @@
 
 ### 首次部署
 
-准备 Linux x86_64 + NVIDIA 驱动和 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17，以及已获 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌；改用 ModelScope 时（`export MODEL_SOURCE=modelscope`）不需要令牌。两套环境一起安装时还需要 Debian/Ubuntu apt 和 sudo（或 root）。
+准备 Linux x86_64 + NVIDIA 驱动和 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17，以及模型来源：默认 `MODEL_SOURCE=modelscope`，SAM 3D 从 ModelScope 下载，不需要 Hugging Face 令牌；改用 Hugging Face（`MODEL_SOURCE=huggingface`）时需要已获 `facebook/sam-3d-objects` 访问权限的令牌。两套环境一起安装时还需要 Debian/Ubuntu apt 和 sudo（或 root）。
 
 **服务器上**，在仓库根目录执行；已有仓库省略克隆：
 
@@ -24,14 +24,14 @@
 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
 export VIEWFORGE_ROOT='<环境、权重与数据根目录的绝对路径>'
-export HF_TOKEN='<Hugging Face 令牌>'   # 或 export MODEL_SOURCE=modelscope
+# 默认从 ModelScope 下载，无需令牌；改用 Hugging Face：export MODEL_SOURCE=huggingface HF_TOKEN='<Hugging Face 令牌>'
 sh scripts/setup_server.sh objects --dry-run
 sh scripts/setup_server.sh objects
 ```
 
 入口也可直接使用 [`bash object-reconstruction/scripts/setup.sh`](../object-reconstruction/scripts/setup.sh)。脚本创建重建环境、外部源码、模型权重和独立 BiRefNet 环境，包含 API 依赖；具体配方与续跑行为见 [安装说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#安装)。
 
-脚本只在缺失时生成 `object-reconstruction/configs/local.env`。已有配置中的 `VIEWFORGE_ROOT` 优先；若与终端显式设置的值冲突，会停止并给出重跑命令。编辑配置中的 `CUDA_VISIBLE_DEVICES`（一张获准使用的 GPU）、`VIEWFORGE_GPU_LOCK`（共享该卡的应用使用同一路径）、`TORCH_CUDA_ARCH_LIST` 和 `TZ`，见 [服务器配置](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#服务器配置)。安装前需指定编译架构或可见 GPU 时，在终端显式 export；安装脚本只读取配置中的根目录。
+脚本只在缺失时生成 `object-reconstruction/configs/local.env`。已有配置中的 `VIEWFORGE_ROOT` 优先；若与终端显式设置的值冲突，会停止并给出重跑命令。GPU、锁文件、编译架构和时区都有默认值，不用填；共享服务器上需要固定一张获准使用的 GPU 时，才在配置里设 `CUDA_VISIBLE_DEVICES`、`VIEWFORGE_GPU_LOCK` 等，见 [服务器配置](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#服务器配置)。安装前需指定编译架构或可见 GPU 时，在终端显式 export；安装脚本只读取配置中的根目录。
 
 ### 启动与检查
 
@@ -105,9 +105,9 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh '<SSH 主机>'
 ```
 
-打开 <http://127.0.0.1:7880/web/>。隧道把本机 `127.0.0.1:7865` 接到 SSH 主机一侧的 `127.0.0.1:7862`，按 `Ctrl-C` 停止网页时一起关闭。
+打开 <http://127.0.0.1:7880/web/>。这条命令默认把本机 `127.0.0.1:7865` 接到 SSH 主机一侧的网关 `127.0.0.1:7870`（先在服务器上运行 `python3 web/scripts/gateway.py --objects <监听地址>:7862`，它把房间请求转给 `127.0.0.1:7866`），按 `Ctrl-C` 停止网页时一起关闭。
 
-**本机**，在 `RoomCanvas/` 根目录，目标不是默认地址时用以下命令替代启动命令（不要同时启动两份）：
+**本机**，在 `RoomCanvas/` 根目录，不用网关、直接连物体服务时用以下命令替代启动命令（不要同时启动两份）：
 
 ```bash
 python3 web/scripts/serve.py --ssh '<SSH 主机>' --remote '<监听地址>:7862'

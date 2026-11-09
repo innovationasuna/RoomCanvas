@@ -40,7 +40,7 @@ if ! exists "$WEIGHTS/sam3d"; then
     if [[ "$MODEL_SOURCE" == modelscope ]]; then
         printf '  MODEL_SOURCE=modelscope: SAM 3D comes from ModelScope under the same repo ID; HF_TOKEN is not needed.\n'
     elif [[ -z "${HF_TOKEN:-}" ]]; then
-        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access (or use MODEL_SOURCE=modelscope). Token values are never printed.\n'
+        printf '  REQUIRED: request access to the SAM 3D Objects model on Hugging Face, accept its terms, and export HF_TOKEN with read access (or leave MODEL_SOURCE at its default, modelscope). Token values are never printed.\n'
         if (( ! DRY_RUN )); then fail 'HF_TOKEN is required for the missing gated SAM 3D Objects weights.'; fi
     else printf '  HF_TOKEN is present (value hidden); model access will be checked by the download.\n'; fi
 fi
@@ -49,13 +49,13 @@ step 'Create runtime directories and local.env without replacing existing config
 ensure_dir "$VIEWFORGE_ROOT/envs" "$VIEWFORGE_ROOT/logs" "$THIRD" "$WEIGHTS"
 if exists "$CODE/configs/local.env"; then skip "$CODE/configs/local.env";
 else
-    # Retain the template's GPU/lock/architecture placeholders for the owner to
-    # choose. Only VIEWFORGE_ROOT is read from an existing local.env, in a subshell.
+    # The template's GPU/lock/architecture/time-zone lines are optional comments; only
+    # VIEWFORGE_ROOT is read from an existing local.env, in a subshell.
     run python3 -c 'from pathlib import Path; import shlex, sys
 text = Path(sys.argv[1]).read_text().replace("export VIEWFORGE_ROOT=/path/to/ViewForge", "export VIEWFORGE_ROOT=" + shlex.quote(sys.argv[3]))
 with open(sys.argv[2], "x") as f: f.write(text)' "$CODE/configs/local.env.example" "$CODE/configs/local.env" "$VIEWFORGE_ROOT"
 fi
-printf '  Fill/check VIEWFORGE_ROOT, CUDA_VISIBLE_DEVICES (one authorized GPU), VIEWFORGE_GPU_LOCK, TORCH_CUDA_ARCH_LIST and TZ in configs/local.env. Setup reads only VIEWFORGE_ROOT from it; export build/GPU settings explicitly before installation.\n'
+printf '  configs/local.env only needs VIEWFORGE_ROOT; the GPU, lock, build architecture and time zone have defaults (pin a GPU there on a shared server).\n'
 
 step 'Clone DA3, DINOv2 and utils3d; preserve and verify existing source pins'
 # Metadata reads are static and work on macOS without conda or a GPU.

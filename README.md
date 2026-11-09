@@ -40,7 +40,7 @@
 - 左侧物品库支持搜索、实物缩略图和“房间中／已收纳”筛选；设置可切换简洁／完整工具
 - 逐三角面的碰撞和支撑检测，重网格的检查在后台线程
 - 收起全部物品 / 恢复原始布置，撤销重做；布局保存在当前浏览器，可继续上次布置或导入导出 JSON
-- 近侧墙和挡视线的高家具自动变半透明，也可以整个隐藏或保持实心
+- 近侧墙和挡视线的高家具（连同放在上面的东西）默认自动隐藏，也可以改成半透明或保持实心
 - “体验”内走进房间：中键拖动转头、WASD 走动、Q / E 升降视线，撞到墙和家具会停下
 - 鼠标指到门、柜门、抽屉、窗上提示是什么、点一下会怎样，点一下就开合
 
@@ -112,19 +112,18 @@
 
 - Linux x86_64 + NVIDIA GPU 和可用驱动，Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17。
 - Debian/Ubuntu 的 apt；缺少系统包时需要 sudo（或 root）。没有 sudo 时，`ffmpeg`、`git-lfs` 可以用 Conda 装好并加入 PATH。
-- 有 `facebook/sam-3d-objects` 访问权限的 Hugging Face 令牌；也可以改用 ModelScope，见下方说明。
+- 模型权重默认从 ModelScope 下载，不需要 Hugging Face 令牌；改用 Hugging Face 需要已获 `facebook/sam-3d-objects` 访问权限的令牌，见下方说明。
 - 房间重建还需要已登录的 Codex CLI，并在 `.env` 填写 API 密钥。
 
 ```bash
 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
-export HF_TOKEN='<Hugging Face 令牌>'   # SAM 3D 权重需先在 Hugging Face 申请访问
 sh scripts/setup_server.sh            # 可先加 --dry-run 只看步骤；已装好的部分会跳过
 ```
 
-脚本结束时会提示需要填写的 `.env` 和 `object-reconstruction/configs/local.env`，以及启动物体重建服务的命令。
+脚本结束后只需要在 `room-reconstruction/.env` 里填 `OPENAI_API_KEY`（房间重建的参考图生成用），并登录 Codex CLI；其余配置（GPU、锁文件、编译架构、数据目录）都有默认值，不用填。然后运行 `bash scripts/start_server.sh` 启动服务器。
 
-服务器在国内、访问 Hugging Face 慢或不通时，先 `export MODEL_SOURCE=modelscope`：SAM 3D、TRELLIS.2、DA3 等模型改从 ModelScope 下载（仓库名相同，不需要 HF 令牌）。GitHub、PyTorch 和少数只在 Hugging Face 上的模型仍要外网，需要时设置 `https_proxy`。
+SAM 3D、TRELLIS.2、DA3 等模型默认从 ModelScope 下载（`MODEL_SOURCE=modelscope`，仓库名相同，不需要 HF 令牌）。要改用 Hugging Face 时 `export MODEL_SOURCE=huggingface HF_TOKEN='<已获 SAM 3D 访问权限的令牌>'`。GitHub、PyTorch 和少数只在 Hugging Face 上的模型仍要外网，需要时设置 `https_proxy`。
 
 **本机**：克隆仓库，一条命令启动网页并连上服务器。
 
@@ -134,7 +133,23 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。`--ssh` 用一条 SSH 连接同时转发物体重建服务（本机 `7865`）和房间重建服务（本机 `7866`），按 `Ctrl-C` 停止时一起关闭。物体重建服务监听的不是服务器的 `127.0.0.1:7862` 时，加 `--remote <监听地址>:7862`；房间重建服务地址不同时，加 `--room-remote <地址>:<端口>`；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+
+**服务器启动**：安装完成后，一条命令启动房间服务、物体服务和网关（已在运行的会跳过）；`status` 只查看状态。
+
+```bash
+bash scripts/start_server.sh                    # 服务器上，在仓库根目录（服务器重启后再运行一次即可）
+python3 web/scripts/serve.py --ssh <SSH 主机>         # 本机，在仓库根目录
+python3 web/scripts/serve.py --ssh <SSH 主机> --cpa   # 本机；服务器的 Codex 用本机 CLIProxyAPI（自己的订阅）时
+```
+
+- 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
+- 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。
+- 本机想用两条隧道、不经网关时，给 `serve.py` 加 `--remote <地址>:7862`（可再加 `--room-remote`）。
+- 隧道断开（如 AutoDL 网关掉线）时 `serve.py` 会自动重连；用密码登录的主机每次重连都要再输一次密码，建议配好密钥。
+- `--cpa` 把服务器的 `127.0.0.1:8317` 转回本机的 CLIProxyAPI，服务器上的 `runtime/bin/codex` 默认用它（`ROOMCANVAS_CODEX_PROFILE=api` 改用 `.env.astra` 的接口）；本机关掉 `serve.py`，服务器上的 agent 精修和回放概括就调不了模型。
+- 重启物体服务会丢内存中的任务，3090 上有其他人的任务时先确认；脚本不会重启已在运行的服务。
+- **没有 GPU 的机器**（如 AutoDL 无卡模式）：脚本检测不到显卡时自动进入预览模式，也可以手动加 `--preview`。预览模式下可以浏览房间、物品库和重建回放，保存物品尺寸也照常；“重建房间”会提示这台服务器没有 GPU，“添加物品”会被拒绝并说明原因。没有 `configs/local.env` 时物体服务用默认目录 `runtime/object-reconstruction`。已在运行的服务不会被切换，要换模式先停掉再启动。
 
 每次进入先显示原始布置；已确认的布局保存在当前浏览器，点击房间名 → **继续上次布置** 恢复。需要备份或换设备时，从同一菜单导出布局 JSON。照片重建的物品可以在物品库的“从已生成的模型添加”里重新加入。
 

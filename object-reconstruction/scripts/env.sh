@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Source configs/local.env explicitly before this file; never auto-load it.
 : "${VIEWFORGE_ROOT:?Set VIEWFORGE_ROOT, or explicitly source configs/local.env first}"
-: "${CUDA_VISIBLE_DEVICES:?Set one authorized CUDA_VISIBLE_DEVICES value}"
+# Without an explicit CUDA_VISIBLE_DEVICES, use the GPU with the most free memory right now; on a shared
+# server set it (and the same VIEWFORGE_GPU_LOCK for every app on that card) in configs/local.env.
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits 2>/dev/null | sort -t, -k2 -nr | head -1 | cut -d, -f1)
+  : "${CUDA_VISIBLE_DEVICES:?No GPU found by nvidia-smi; set CUDA_VISIBLE_DEVICES}"
+  export CUDA_VISIBLE_DEVICES
+fi
+# The build architecture follows the selected GPU (e.g. 8.6 for an RTX 3090) unless set explicitly.
+: "${TORCH_CUDA_ARCH_LIST:=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i "$CUDA_VISIBLE_DEVICES" 2>/dev/null | head -1)}"
+export TORCH_CUDA_ARCH_LIST
 export CONDA_PREFIX="$VIEWFORGE_ROOT/envs/mvsam3d"
 export PATH="$CONDA_PREFIX/bin:$PATH" CUDA_HOME="$CONDA_PREFIX"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}" MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}" MAX_JOBS="${MAX_JOBS:-4}"
