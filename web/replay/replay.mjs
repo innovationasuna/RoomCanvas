@@ -1,5 +1,8 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
 import {buildTimeline, clock, sceneAt, outcome, DURATION} from './timeline.mjs';
+
+// Playback length: set by the timeline (longer when many objects take shape).
+const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
 
@@ -9,10 +12,11 @@ const api = `/room-reconstruction/jobs/${job}/replay`;
 const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
 const KIND = {tool: '操作', image: '图片', result: '检查', error: '出错'};
 const POLL = 5000;
+const WATCH = 3400;  // ms the camera stays on an object once there: it takes shape in 3 s
 
 let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
-const player = window.player = new Player(DURATION);
+const player = window.player = new Player(span());
 let view = null;
 
 function fail(message) {
@@ -52,11 +56,11 @@ async function start() {
   }
   document.title = `${data.name || '房间'} · 重建过程`;
   $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (data.start ? ` · ${new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3)}` : '');
-  view = window.view = new RoomView($('view'), {files, scaffold: {points: `${api}/scaffold/points.bin`, layout: `${api}/scaffold/layout.json`}});
+  view = window.view = new RoomView($('view'), {files, scaffold: {points: `${api}/scaffold/points.bin`, layout: `${api}/scaffold/layout.json`, colors: `${api}/scaffold/colors.bin`}});
   rebuild();
   $('loading').remove();
   if (data.live) {
-    player.seek(DURATION);
+    player.seek(span());
     setTimeout(poll, POLL);
   } else {
     player.play();
@@ -68,10 +72,10 @@ async function poll() {
   try {
     const next = await fetchData();
     if (next.events.length !== data.events.length || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
-      const wasEnd = player.t >= DURATION - 0.01;
+      const wasEnd = player.t >= span() - 0.01;
       data = next;
       rebuild();
-      if (following || wasEnd) player.seek(DURATION);
+      if (following || wasEnd) player.seek(span());
     }
     $('liveError').hidden = true;
   } catch {
@@ -86,6 +90,7 @@ async function poll() {
 let openings = {};
 function rebuild() {
   tl = buildTimeline(data);
+  player.duration = tl.duration;
   openings = {Door: [], Window: []};
   for (const e of tl.events) for (const id of e.show || []) {
     const m = id.match(/_(Door|Window)_\d+$/);
@@ -97,7 +102,7 @@ function rebuild() {
   shownTo = -1;
   if (!tl.events.length) $('log').insertAdjacentHTML('beforeend', '<p class="pending">任务排队中，开始重建后这里会实时显示过程。</p>');
   $('dots').innerHTML = data.stages.map((s, k) => `<i data-k="${k}" title="${esc(s.name)}"></i>`).join('');
-  const pct = (t) => `${t / DURATION * 100}%`;
+  const pct = (t) => `${t / span() * 100}%`;
   $('track').innerHTML = tl.stages.map((s) => `<div class="seg" data-s="${s.id}" title="${esc(s.name)}" style="left:${pct(s.replay[0])};width:calc(${pct(s.replay[1] - s.replay[0])} - 3px)"><div class="fill"></div></div>` +
     `<span class="lab" data-s="${s.id}" style="left:${pct(s.replay[0])}">${esc(s.name)}</span>`).join('') +
     tl.events.filter((e) => e.model || e.kind === 'review').map((e) => `<i class="mk ${e.kind === 'review' ? 'r' : 'v'}" style="left:${pct(e.at)}" title="${esc(e.say)}"></i>`).join('') +
@@ -151,15 +156,15 @@ $('dots').onclick = (ev) => {
 function seekTo(t) {
   player.pause();
   player.seek(t);
-  following = t >= DURATION - 0.01;
+  following = t >= span() - 0.01;
 }
 function fitLabels() {
   const width = $('track').clientWidth;
   $('track').querySelectorAll('.lab').forEach((el) => {
     const st = tl.stages.find((x) => x.id === el.dataset.s);
-    el.classList.toggle('tight', el.scrollWidth + 6 > width * (st.replay[1] - st.replay[0]) / DURATION);
-    el.classList.toggle('end', st.replay[0] / DURATION * width + el.scrollWidth > width);
-    el.style.left = `${(el.classList.contains('end') ? st.replay[1] : st.replay[0]) / DURATION * 100}%`;
+    el.classList.toggle('tight', el.scrollWidth + 6 > width * (st.replay[1] - st.replay[0]) / span());
+    el.classList.toggle('end', st.replay[0] / span() * width + el.scrollWidth > width);
+    el.style.left = `${(el.classList.contains('end') ? st.replay[1] : st.replay[0]) / span() * 100}%`;
   });
 }
 // The current stage's name always shows; names it would cover are hidden instead of half-covered.
@@ -176,7 +181,7 @@ function hideCovered() {
 }
 new ResizeObserver(() => {if (tl) {fitLabels(); hideCovered();}}).observe($('track'));
 $('track').addEventListener('pointerdown', (ev) => {
-  const seek = (x) => {const r = $('track').getBoundingClientRect(); seekTo((x - r.left) / r.width * DURATION);};
+  const seek = (x) => {const r = $('track').getBoundingClientRect(); seekTo((x - r.left) / r.width * span());};
   seek(ev.clientX);
   const move = (m) => seek(m.clientX);
   addEventListener('pointermove', move);
@@ -190,7 +195,7 @@ const step = (d) => {
 $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 $('play').onclick = () => {following = false; player.toggle();};
-$('latest').onclick = () => seekTo(DURATION);
+$('latest').onclick = () => seekTo(span());
 addEventListener('keyup', (ev) => {if (ev.code === 'Space') ev.preventDefault();});
 addEventListener('keydown', (ev) => {
   if (ev.code === 'Space') {ev.preventDefault(); if (!ev.repeat) {following = false; player.toggle();}}
@@ -203,7 +208,7 @@ addEventListener('keydown', (ev) => {
 function directCamera(t, p) {
   if (p.playing && !wasPlaying) view.release();
   wasPlaying = p.playing;
-  const end = t >= DURATION;
+  const end = t >= span();
   const inLayout = !end && tl.stageAt(t)?.id === 'layout';
   if (inLayout && !posed) {view.pose(0.75, 0.6); posed = true; hold = 0;}
   if (!inLayout && posed) {view.pose(null, view.defaultPolar); posed = false; hold = 1;}
@@ -219,8 +224,10 @@ function render(t, p, force = false) {
     $('play').dataset.on = p.playing;
     $('play').innerHTML = `<svg><use href="#i-${p.playing ? 'pause' : 'play'}"/></svg>`;
   }
-  const atEnd = t >= DURATION - 0.01, done = atEnd && !data.live;
-  $('head') && ($('head').style.left = `${t / DURATION * 100}%`);
+  const atEnd = t >= span() - 0.01, done = atEnd && !data.live;
+  // The room is finished: light it as the room preview does (物理光照).
+  view.physical(done);
+  $('head') && ($('head').style.left = `${t / span() * 100}%`);
   $('clock').textContent = clock(tl.realAt(t));
   $('total').textContent = '/ ' + clock(tl.events.at(-1)?.minute || 0);
   $('latest').hidden = !data.live || following || atEnd;
@@ -253,14 +260,14 @@ function render(t, p, force = false) {
   // Turn to the parts the agent just added (while playing forward).
   const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
   lastAdded = scene.added;
-  if (p.playing && newly.length && view.aim(newly, {close: true})) hold = 2000;
+  if (p.playing && newly.length && view.aim(newly, {close: true})) hold = WATCH;
   const idx = tl.indexAt(t);
   if (idx === lastIdx && !force) return;
   const prevIdx = lastIdx;
   lastIdx = idx;
   const e = tl.events[idx];
   // Once the room shell shows, a finished object takes shape in place: move in close to watch it.
-  if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = 2000;
+  if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   renderLog(idx);
 }
 

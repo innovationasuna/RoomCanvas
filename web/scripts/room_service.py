@@ -305,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
             if match and match[1] in self.jobs.records:
                 return self.respond(200, self.jobs.public(self.jobs.records[match[1]]))
             # Replay: the timeline, the 3D scaffold, and allowlisted models / pictures of a job's run.
-            match = re.fullmatch(PREFIX + rf'/jobs/({ID})/replay(?:/(scaffold/(?:points\.bin|layout\.json)|files/(.+)))?', path)
+            match = re.fullmatch(PREFIX + rf'/jobs/({ID})/replay(?:/(scaffold/(?:points\.bin|layout\.json|colors\.bin)|files/(.+)))?', path)
             if match and match[1] in self.jobs.records:
                 record = self.jobs.records[match[1]]
                 replay = (self.jobs.root / match[1], record['status'], record.get('until'), match[2], match[3], record.get('name'))
@@ -321,8 +321,11 @@ class Handler(BaseHTTPRequestHandler):
                 data['name'] = name
                 return self.respond(200, data)
             if part.startswith('scaffold/'):
-                files = room_replay.scaffold(folder)
-                asset = dict(zip(('points.bin', 'layout.json'), files)).get(part.split('/')[1]) if files else None
+                if part == 'scaffold/colors.bin':
+                    asset = room_replay.scaffold_colors(folder)
+                else:
+                    files = room_replay.scaffold(folder)
+                    asset = dict(zip(('points.bin', 'layout.json'), files)).get(part.split('/')[1]) if files else None
             else:
                 scene = room_replay.find_scene(folder)
                 asset = room_replay.scene_file(scene, unquote(rel)) if scene else None

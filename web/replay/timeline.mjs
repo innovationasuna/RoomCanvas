@@ -1,7 +1,19 @@
-// Replay timeline: map a job's events (real minutes) onto a fixed-length playback (seconds).
-// Each reached stage gets time in proportion to how much happened in it; events are spread
-// evenly inside their stage, and the clock still shows the real time.
-export const DURATION = 90;
+// Replay timeline: map a job's events (real minutes) onto a short playback (seconds).
+// Playback time follows real time in proportion, except that long waits with nothing new are squeezed,
+// and each object taking shape in the room keeps enough time to watch it. The clock shows real time.
+export const DURATION = 90;       // seconds, unless the objects need more (see FORM_SECONDS)
+const FORM_SECONDS = 4.5;         // camera moves in (~1.2 s), then the object takes shape (3 s)
+const FORM_SHARE = 0.6;           // objects taking shape fill at most this share of the playback
+const EVENT_SECONDS = 0.25;       // any two events stay apart at least this long
+const STAGE_SECONDS = 2;          // a stage's first event keeps this long, so quick stages still show what they do
+const UNFOLD_SECONDS = 6;         // the scan stage at least: the scan unfolds slowly
+const TAIL = 0.03;                // share of the playback after the last event
+
+// Real minutes a wait counts for: short waits as they are, long ones squeezed (total: the whole run).
+export function squeeze(minutes, total) {
+  const cap = Math.max(total * 0.04, 1);
+  return minutes <= cap ? minutes : cap + (minutes - cap) * 0.1;
+}
 
 export function buildTimeline(data, duration = DURATION) {
   const events = (data.events || []).map((e, i) => ({...e, i}));
@@ -14,26 +26,60 @@ export function buildTimeline(data, duration = DURATION) {
     end = real[1];
     return {...s, real, count: own.length};
   });
-  const weight = (s) => 1.6 + s.count;
-  const total = stages.reduce((n, s) => n + weight(s), 0) || 1;
-  let cursor = 0;
-  for (const s of stages) {
-    s.replay = [cursor, cursor + weight(s) / total * duration];
-    cursor = s.replay[1];
+  // From the modelling stage on, the room shell shows and a finished object takes shape in place; so do the
+  // parts the modelling agent adds to the final model.
+  const order = (data.stages || []).map((s) => s.id), plan = order.indexOf('plan');
+  const forms = (e) => plan >= 0 && order.indexOf(e.stage) >= plan && !!e.show?.some((k) => k !== '@boxes');
+  const build = data.build || null;
+  const points = [
+    ...events.map((e, k) => ({minute: e.minute, form: forms(e), opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
+    // parts named at the same minute appear together
+    ...(build && data.models?.final ? [...new Set(build.reveal.map((r) => r.minute))].map((minute) => ({minute, form: true})) : []),
+  ].sort((a, b) => a.minute - b.minute || a.form - b.form);
+  const forming = points.filter((p) => p.form).length;
+  duration = Math.max(duration, forming * FORM_SECONDS / FORM_SHARE);
+  // Each gap between two points gets max(its least time, squeezed real time × scale); find the scale that
+  // fills the playback (less the tail).
+  const last = points.at(-1)?.minute ?? 0, first = points[0]?.minute ?? 0;
+  const gaps = points.slice(1).map((p, k) => ({
+    real: squeeze(Math.max(p.minute - points[k].minute, 0), last - first),
+    least: Math.max(points[k].form ? FORM_SECONDS : 0, points[k].opens ? STAGE_SECONDS : 0, EVENT_SECONDS),
+  }));
+  // The scan stage's events share UNFOLD_SECONDS at least.
+  const scanGaps = gaps.filter((g, k) => points[k].scan);
+  scanGaps.forEach((g) => (g.least = Math.max(g.least, UNFOLD_SECONDS / scanGaps.length)));
+  const room = duration * (1 - TAIL);
+  const fill = (scale) => gaps.reduce((n, g) => n + Math.max(g.least, g.real * scale), 0);
+  let lo = 0, hi = 1;
+  while (fill(hi) < room && hi < 1e9) hi *= 2;
+  for (let k = 0; k < 60; k++) {const mid = (lo + hi) / 2; if (fill(mid) < room) lo = mid; else hi = mid;}
+  const scale = gaps.length && fill(0) < room ? hi : 0;
+  const leastSum = fill(0), shrink = leastSum > room ? room / leastSum : 1;  // too many points: shrink evenly
+  // keys: [playback seconds, real minutes], one per point
+  const keys = [];
+  let at = 0;
+  points.forEach((p, k) => {
+    if (k) {const g = gaps[k - 1]; at += Math.max(g.least, g.real * scale) * shrink;}
+    keys.push([at, p.minute]);
+  });
+  // Events in order of time: each takes the next key at its minute.
+  const used = new Set();
+  for (const e of [...events].sort((a, b) => a.minute - b.minute || a.i - b.i)) {
+    let k = keys.findIndex((x, j) => !used.has(j) && x[1] >= e.minute - 1e-9);
+    if (k < 0) k = keys.length - 1;
+    used.add(k);
+    e.at = keys[k][0];
   }
-  if (stages.length) stages.at(-1).replay[1] = duration;
-  for (const s of stages) {
-    const own = events.filter((e) => e.stage === s.id), [a, b] = s.replay;
-    own.forEach((e, j) => (e.at = a + (b - a) * (j + 0.25) / own.length));
-  }
+  // A stage runs from its first event to the next stage's first event.
+  for (const s of stages) s.replay = [Math.min(...events.filter((e) => e.stage === s.id).map((e) => e.at)), 0];
+  if (stages.length) stages[0].replay[0] = 0;
+  stages.forEach((s, k) => (s.replay[1] = k + 1 < stages.length ? stages[k + 1].replay[0] : duration));
   if (events.length) events[0].at = 0;
-  const keys = [...stages.flatMap((s) => [[s.replay[0], s.real[0]], [s.replay[1], s.real[1]]]), ...events.map((e) => [e.at, e.minute])]
-    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   return {
-    duration, stages, events, build: data.build || null, models: data.models || {},
+    duration, stages, events, build, models: data.models || {},
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
-    // Playback time -> real minutes, interpolated between stage edges and events.
+    // Playback time -> real minutes, interpolated between keys.
     realAt(t) {
       const k = keys.findLastIndex((x) => x[0] <= t);
       if (k < 0) return 0;
