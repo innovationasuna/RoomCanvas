@@ -105,7 +105,7 @@ class Events(unittest.TestCase):
     def test_reviews_and_models_in_order(self):
         reviews = replay.review_events(self.scene, self.until)
         self.assertEqual([e['stage'] for e in reviews], ['review', 'review2'])
-        self.assertEqual(reviews[0]['say'], '第 1 轮验收 4.0 分，没通过')
+        self.assertEqual(reviews[0]['say'], '检查房间没通过')
         self.assertTrue(reviews[1]['passed'])
         self.assertEqual([e['issues'] for e in reviews], [['The bed is too bright.'], ['The curtains are too stiff.']])
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
@@ -343,7 +343,7 @@ class Condensing(unittest.TestCase):
         self.assertTrue(summary.review('r0', ['The bed is too bright.'], self.fake('床面太亮')))
         self.assertFalse(summary.review('r0', ['The bed is too bright.'], self.fake('again')))
         events = replay.timeline(self.job, 'completed', T0 + 1300)['events']
-        self.assertIn('第 1 轮验收 4.0 分，没通过：床面太亮', [e['say'] for e in events])
+        self.assertIn('检查房间没通过：床面太亮', [e['say'] for e in events])
 
     def test_stages_follow_the_timeline_order(self):
         events = replay.timeline(self.job, 'completed', T0 + 1300)['events']

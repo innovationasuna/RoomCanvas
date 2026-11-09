@@ -30,9 +30,9 @@ STAGES = [
     {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸并补充陈设细节。'},
     {'id': 'adjust', 'name': '核查并调整', 'desc': '查找摆放和外观差异，核对位置并调整细节。'},
     {'id': 'check', 'name': '自查并再修改', 'desc': '对照照片自查并继续修改，带着剩余问题送验。'},
-    {'id': 'review', 'name': '首轮验收', 'desc': '独立对照照片检查房间效果，指出未达标之处。'},
-    {'id': 'review2', 'name': '修改后再验收', 'desc': '根据验收意见修改，再次检查。'},
-    {'id': 'review3', 'name': '最终验收', 'desc': '再次检查，决定能不能发布。'},
+    {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
+    {'id': 'review2', 'name': '修复问题', 'desc': '没通过检查时，按检查出的问题修一次，修好的房间就是结果。'},
+    {'id': 'review3', 'name': '再次检查', 'desc': '以前的流程在修复后会再检查一次。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
 AGENT_STAGES = ['assemble', 'adjust', 'check']
@@ -253,7 +253,13 @@ def _rounds(scene, until=None):
     return [x for x in rounds if x[0] and (not until or x[0] <= until)]
 
 
+def _repairs(scene, until=None):
+    return [r for r in trace_rows(scene, until) if r.get('kind') == 'repair_done']
+
+
 def last_review_stage(scene, until=None):
+    if _repairs(scene, until):
+        return 'review2'
     return ['review', 'review2', 'review3'][min(max(len(_rounds(scene, until)) - 1, 0), 2)]
 
 
@@ -266,18 +272,22 @@ def review_events(scene, until=None):
             continue
         folder = path.parent
         pair = _first(folder.glob('compare/pairs/pair_*.png'))
-        score = review.get('score')
         passed = review.get('pass')
-        say = f'第 {k + 1} 轮验收' + (f' {score:.1f} 分' if isinstance(score, (int, float)) else '') + ('，通过' if passed else '，没通过')
+        # One check now; older runs checked again after each repair.
+        say = ('检查房间' if not k else f'第 {k + 1} 次检查') + ('：通过' if passed else '没通过')
         # Rounds name the text differently (description / defect); plain strings occur too.
         issues = [(i.get('description') or i.get('defect') or i.get('issue') or i.get('text') or '') if isinstance(i, dict) else str(i)
                   for i in review.get('issues', [])]
         issues = [i.strip() for i in issues if str(i).strip()]
         event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(k, 2)], 'kind': 'review',
-                 'say': say, 'score': score, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
+                 'say': say, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
         if (folder / 'Room.glb').is_file():
             event['model'] = f'round{k}'
         events.append(event)
+    for k, r in enumerate(_repairs(scene, until)):
+        fixed = r.get('status') == 'repaired'
+        events.append({'id': f'fix{k}', 't': r['t'], 'stage': 'review2', 'kind': 'result' if fixed else 'error',
+                       'say': '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本'})
     return events
 
 
@@ -427,10 +437,10 @@ def rule_agent_events(records, window=180):
 PROMPT = """你在给“房间重建过程回放”网页写左栏说明，读者是普通用户，不懂编程。
 下面是建模 agent 一段工作的原始记录（JSON，seq 递增，minute 是距本次重建开始的分钟数）。
 请把它们合并概括成 {lo}–{hi} 条中文短句，按时间顺序，每条不超过 30 个汉字，说清楚这一步在做什么、得到了什么。
-不要出现命令、文件名、路径、代码、英文术语；没有证据说已经修好的，不要写成已经修好；评分照实写。
+不要出现命令、文件名、路径、代码、英文术语；没有证据说已经修好的，不要写成已经修好；不要写分数（打分、几分、评分都不写），只写发现了什么问题、改了什么。
 这些都是 agent 自己的检查：写“自查”“检查”，不要写“验收”或“验收通过”（验收专指之后独立的验收轮次，结果另行显示）。
 每条给出它概括的 seq 范围（from/to，覆盖全部记录、相互不重叠、按顺序），kind 取 think（想法）、tool（操作）、result（结果或检查）、error（出错）之一。
-stage 取 {stages} 之一：assemble=搭建完整房间（读资料、看照片、搭初稿、补陈设），adjust=核查并调整（查穿插和外观差异、校准位置、调细节），check=自查并再修改（自评打分、按自评继续改、收尾送验）。stage 不能比前一条靠前，第一条不能早于 {current}。
+stage 取 {stages} 之一：assemble=搭建完整房间（读资料、看照片、搭初稿、补陈设），adjust=核查并调整（查穿插和外观差异、校准位置、调细节），check=自查并再修改（对照照片自查、按自查继续改、收尾送检）。stage 不能比前一条靠前，第一条不能早于 {current}。
 如果某条对应的记录里有 img，可以在 image_seq 填那条记录的 seq，否则填 null。
 只输出 JSON 数组，例如 [{{"from": 0, "to": 3, "stage": "assemble", "kind": "think", "say": "先看完全部照片，再搭一版初稿", "image_seq": null}}]。
 
