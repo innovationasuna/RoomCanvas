@@ -2,9 +2,10 @@
 """Serve the repository for the editor, and pass ViewForge's object APIs through from the same origin.
 
 python3 web/scripts/serve.py --ssh <host>                           # page + one tunnel to gateway.py (127.0.0.1:7870 on <host>)
+python3 web/scripts/serve.py --ssh <host> --server-dir <repo on host> # also start the services there (scripts/start_server.sh)
 python3 web/scripts/serve.py --ssh <host> --cpa                     # also lend <host> this computer's CLIProxyAPI (127.0.0.1:8317)
 python3 web/scripts/serve.py --ssh <host> --remote <address>:7862   # page + separate tunnels to the object and room services
-python3 web/scripts/serve.py                                         # page only, tunnel opened elsewhere
+python3 web/scripts/serve.py                                         # page only: local rooms and the cached ones
 python3 web/scripts/serve.py --viewforge http://127.0.0.1:7865
 
 The editor reads ViewForge's objects at /viewforge/assets/catalog and /viewforge/assets/<run>/...,
@@ -14,11 +15,16 @@ a scan and follows the job at /room-reconstruction/..., which goes to the room r
 this script opens one SSH connection forwarding both (local ports taken from --viewforge and --room-backend),
 reopens it whenever it drops, and closes it on exit. --cpa also forwards 127.0.0.1:8317 on <host> back to this
 computer, so the server's Codex can use the CLIProxyAPI (the user's own subscription) running here.
+--server-dir runs scripts/start_server.sh in that directory on <host> over the same connection (it leaves running
+services alone), so one password starts everything.
+Finished rooms and replays are kept under runs/room-cache/ and read from there (room_cache.py); with --ssh the
+missing ones download in the background. Without the server the cached ones still open.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
 import json
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -33,6 +39,9 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import room_cache  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
@@ -69,6 +78,7 @@ def forwarded(path, method='GET'):
 class Handler(SimpleHTTPRequestHandler):
     viewforge = 'http://127.0.0.1:7865'
     room_backend = 'http://127.0.0.1:7866'
+    cache = ROOT / 'runs/room-cache'
 
     def room_json(self, status, data):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -86,20 +96,70 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if urlsplit(self.path).path == '/web/rooms.json':
             data = json.loads((ROOT / 'web/rooms.json').read_text())
+            status, body, _ = self.room_answer('/room-reconstruction/catalog', 2)
             try:
-                with urllib.request.urlopen(self.room_backend + '/room-reconstruction/catalog', timeout=2) as response:
-                    data['rooms'].extend(json.load(response)['rooms'])
-            except (OSError, ValueError, KeyError):
+                data['rooms'].extend(json.loads(body)['rooms'] if status == 200 else [])
+            except (ValueError, KeyError):
                 pass  # Existing rooms remain usable while the reconstruction worker is offline.
             return self.room_json(200, data)
         room_target = room_forwarded(self.path)
         if room_target:
-            # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
-            return self.relay(urllib.request.Request(self.room_backend + room_target), 60, room=True)
+            return self.room_get(room_target)
         target = forwarded(self.path)
         if target is None:
             return super().do_GET()
         self.relay(urllib.request.Request(self.viewforge + target), 60)
+
+    def do_HEAD(self):
+        target = room_forwarded(self.path)
+        kept = target and room_cache.is_file(target) and room_cache.local(self.cache, target)
+        if kept and kept.is_file():
+            return self.send_kept(kept, head=True)
+        return super().do_HEAD()
+
+    def room_get(self, path):
+        """A finished job's file from the local copy when there is one; JSON answers live, else the kept one."""
+        kept = room_cache.local(self.cache, path)
+        if kept and room_cache.is_file(path) and kept.is_file():
+            return self.send_kept(kept)
+        if kept is None or room_cache.is_file(path):
+            # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
+            return self.relay(urllib.request.Request(self.room_backend + path), 60, room=True)
+        status, body, kind = self.room_answer(path, 8 if kept.is_file() else 60)
+        if status is None:
+            return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
+        self.send_response(status)
+        self.send_header('Content-Type', kind)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def room_answer(self, path, timeout):
+        """(status, body, content type) of a JSON answer: asked live and kept, or the kept one when the
+        service cannot be reached; status None when there is neither."""
+        kept = room_cache.local(self.cache, path)
+        try:
+            with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
+                body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
+        except urllib.error.HTTPError as error:
+            return error.code, error.read(), error.headers.get('Content-Type', 'application/json')
+        except OSError:
+            if kept and kept.is_file():
+                return 200, kept.read_bytes(), 'application/json; charset=utf-8'
+            return None, b'', ''
+        if status == 200 and kept:
+            room_cache.save(kept, body)
+        return status, body, kind
+
+    def send_kept(self, path, head=False):
+        self.send_response(200)
+        self.send_header('Content-Type', room_cache.content_type(path))
+        self.send_header('Content-Length', str(path.stat().st_size))
+        self.send_header('Last-Modified', self.date_time_string(path.stat().st_mtime))
+        self.end_headers()
+        if not head:
+            with path.open('rb') as source:
+                shutil.copyfileobj(source, self.wfile)
 
     def do_POST(self):
         room_target = room_forwarded(self.path, 'POST')
@@ -160,19 +220,29 @@ class Handler(SimpleHTTPRequestHandler):
             shutil.copyfileobj(response, self.wfile)
 
 
-def tunnel_command(host, forwards, reverse=()):
+def tunnel_command(host, forwards, reverse=(), server_dir=None):
     """The ssh command that forwards each 127.0.0.1:<local_port> to <remote> as seen from <host>, and each
-    port in `reverse` on <host>'s 127.0.0.1 back to the same port on this computer."""
+    port in `reverse` on <host>'s 127.0.0.1 back to the same port on this computer. With `server_dir` it also
+    starts the services there, then stays connected until this script closes its input."""
     # ControlPath=none: with ControlMaster in ~/.ssh/config a second ssh hands the forwards to the master and
     # exits, leaving the ports open after this script stops.
-    command = ['ssh', '-N', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
+    command = ['ssh'] + ([] if server_dir else ['-N'])
+    command += ['-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15']
     for local_port, remote in forwards:
         if not re.fullmatch(r'[\w.-]+:\d+', remote):
             raise ValueError(f'remote must be <address>:<port>, got {remote!r}')
         command += ['-L', f'127.0.0.1:{local_port}:{remote}']
     for port in reverse:
         command += ['-R', f'127.0.0.1:{port}:127.0.0.1:{port}']
+    if server_dir:  # `cat` ends when the connection or this script ends, so nothing stays behind on the server
+        return command + [host, f'cd {shlex.quote(server_dir)} && bash scripts/start_server.sh; exec cat > /dev/null']
     return command + [host]
+
+
+def spawn(command):
+    # The input is a pipe, not the terminal: a remote `cat` must not read what is typed here (the password
+    # prompt reads the terminal itself).
+    return subprocess.Popen(command, stdin=subprocess.PIPE)
 
 
 def open_tunnel(command, ports, wait=30):
@@ -184,7 +254,7 @@ def open_tunnel(command, ports, wait=30):
             continue
         # something already answers there, e.g. a tunnel opened by hand: it would look like ours
         sys.exit(f'Port {port} is already in use (a tunnel already open?). Close it, or run without --ssh.')
-    process = subprocess.Popen(command)
+    process = spawn(command)
     waiting = list(ports)
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
@@ -220,7 +290,7 @@ class Tunnel:
             print(f'SSH tunnel closed (exit {self.process.returncode}); reconnecting…', flush=True)
             if self.stopped.wait(min(3 * failures, 30)):
                 return
-            self.process = subprocess.Popen(self.command)
+            self.process = spawn(self.command)
 
     def close(self):
         self.stopped.set()
@@ -249,7 +319,12 @@ def main():
                              '(default with --ssh: 127.0.0.1:7870, unless --remote or --room-remote is given)')
     parser.add_argument('--cpa', nargs='?', const=8317, type=int, metavar='PORT',
                         help="with --ssh: forward this port on the server back to this computer's CLIProxyAPI (default 8317)")
+    parser.add_argument('--server-dir', metavar='DIR', help='with --ssh: the RoomCanvas checkout on HOST; start its services there')
+    parser.add_argument('--cache', type=Path, default=Handler.cache, help='local copies of finished rooms and replays (default: runs/room-cache)')
+    parser.add_argument('--no-download', action='store_true', help='with --ssh: do not download missing rooms and replays')
     args = parser.parse_args()
+    if args.server_dir and not args.ssh:
+        parser.error('--server-dir needs --ssh')
     if args.cpa and not args.ssh:
         parser.error('--cpa needs --ssh')
     if args.gateway and not args.ssh:
@@ -262,7 +337,8 @@ def main():
     args.room_remote = args.room_remote or '127.0.0.1:7866'
     Handler.viewforge = args.viewforge.rstrip('/')
     Handler.room_backend = args.room_backend.rstrip('/')
-    tunnel = None
+    Handler.cache = args.cache.resolve()
+    tunnel = sync = None
     if args.gateway:  # paths already tell the services apart, so both backends are the one forwarded port
         Handler.room_backend = Handler.viewforge
     if args.ssh:
@@ -270,10 +346,12 @@ def main():
         if not args.gateway:
             forwards.append((urlsplit(Handler.room_backend).port or 80, args.room_remote))
         try:
-            command = tunnel_command(args.ssh, forwards, [args.cpa] if args.cpa else [])
+            command = tunnel_command(args.ssh, forwards, [args.cpa] if args.cpa else [], args.server_dir)
         except ValueError as error:
             parser.error(str(error))
         tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
+        if not args.no_download:
+            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True)).start()
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
@@ -289,6 +367,8 @@ def main():
         pass
     finally:
         server.server_close()
+        if sync:
+            sync.stop()
         if tunnel:
             tunnel.close()
 
