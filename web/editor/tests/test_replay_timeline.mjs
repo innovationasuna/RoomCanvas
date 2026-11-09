@@ -77,3 +77,47 @@ test('while the agent works, the final model shows with only the parts named so 
   // without the final model (a live job) nothing changes until the next saved model
   assert.equal(sceneAt(buildTimeline({...data, models: {seed: 's'}}), at(52)).model, 'seed');
 });
+
+const gapsOf = (tl, stage) => {
+  const at = tl.events.filter((e) => e.stage === stage).map((e) => e.at);
+  return at.slice(1).map((t, k) => t - at[k]);
+};
+
+test('playback follows real time in proportion', () => {
+  // steps of 1-2 minutes in a 100-minute job: short of a long wait, so kept as they are
+  const ev = [{stage: 'scan', minute: 0}, ...[10, 11, 12, 14].map((minute) => ({stage: 'assemble', minute, kind: 'think'})),
+    {stage: 'review', minute: 100, kind: 'review'}];
+  const [a, b, c] = gapsOf(buildTimeline({stages, events: ev}), 'assemble');
+  assert.ok(Math.abs(a - b) < 1e-6);
+  assert.ok(Math.abs(c - 2 * a) < 1e-6);
+});
+
+test('a long wait with nothing new is squeezed', () => {
+  const ev = [{stage: 'scan', minute: 0}, ...[10, 20, 30, 230].map((minute) => ({stage: 'assemble', minute, kind: 'think'}))];
+  const [a, , c] = gapsOf(buildTimeline({stages, events: ev}), 'assemble');
+  assert.ok(c < 20 * a / 2, `200 minutes of waiting took ${c / a}× a 10-minute step`);
+  assert.ok(c > a);
+});
+
+test('each object taking shape keeps time to watch it, and many objects lengthen the playback', () => {
+  const objects = Array.from({length: 30}, (_, k) => ({stage: 'plan', minute: 10 + k * 0.01, show: [`Chair${k}`]}));
+  const tl = buildTimeline({stages, events: [{stage: 'scan', minute: 0}, ...objects, {stage: 'review', minute: 200, kind: 'review'}]});
+  assert.ok(gapsOf(tl, 'plan').every((g) => g >= 4.5 - 1e-6));
+  assert.ok(tl.duration > DURATION);
+  assert.equal(tl.stages.at(-1).replay[1], tl.duration);
+  // a short job keeps the usual length
+  assert.equal(buildTimeline({stages, events}).duration, DURATION);
+});
+
+test('quick stages still show for a moment and events keep their order', () => {
+  const tl = buildTimeline({stages, events});
+  const layout = tl.stages.find((s) => s.id === 'layout');
+  assert.ok(layout.replay[1] - layout.replay[0] >= 2 - 1e-6);
+  tl.events.forEach((e, k) => k && assert.ok(e.at >= tl.events[k - 1].at));
+});
+
+test('parts the agent names at the same minute take shape as one batch', () => {
+  const reveal = Array.from({length: 40}, (_, k) => ({node: `Part${k}`, minute: 50 + (k % 2)}));
+  const tl = buildTimeline({stages, events, models: {final: 'f'}, build: {base: 50, reveal}});
+  assert.equal(tl.duration, DURATION);  // two batches, not forty objects
+});

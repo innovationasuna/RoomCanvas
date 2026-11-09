@@ -607,6 +607,90 @@ def scaffold(job_dir):
         return _scaffold(job_dir)
 
 
+_COLORS_LOCK = threading.Lock()
+COLOR_TOLERANCE = 0.06  # metres: a frame sees a point when its depth there agrees this closely
+
+
+def scaffold_colors(job_dir):
+    """RGB (uint8 per point, same order as points.bin) taken from the capture's own photos, cached under
+    replay/colors.bin; None when it cannot be made (no frames, or no numpy/OpenCV in this interpreter)."""
+    with _COLORS_LOCK:
+        cache = Path(job_dir) / 'replay'
+        out, none = cache / 'colors.bin', cache / 'colors.none'
+        if out.is_file():
+            return out
+        if none.is_file():
+            return None
+        files = _scaffold(job_dir)
+        scene = find_scene(job_dir)
+        colors = _point_colors(scene, files[0]) if files and scene else None
+        if colors is None:
+            if files:
+                none.write_text('')  # tried: no frames to colour from
+            return None
+        tmp = out.with_suffix('.tmp')
+        tmp.write_bytes(colors)
+        tmp.replace(out)
+        return out
+
+
+def _frame_index(path):
+    return int(re.search(r'(\d+)', path.stem)[1])
+
+
+def _point_colors(scene, points_path):
+    """Each scan point takes the average colour of the photos that see it: in front of the camera, inside the
+    picture, and the depth map agreeing there (so a point hidden behind something is not painted with it).
+    The depth map decides visibility; the colour comes from the full-size photo. Unseen points stay grey."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+    rgbd = _first(Path(scene).glob('scene_init/obj_stage/object_init/input/rgbd/*/extrinsic'))
+    if not rgbd:
+        return None
+    rgbd = rgbd.parent
+    points = np.fromfile(points_path, '<f4').reshape(-1, 3).astype(np.float64)
+    if not len(points):
+        return None
+    world = np.c_[points, np.ones(len(points))].T
+    total, count = np.zeros((len(points), 3)), np.zeros(len(points))
+    for pose_path in sorted((rgbd / 'extrinsic').glob('extrinsic_*.npy'), key=_frame_index):
+        i = _frame_index(pose_path)
+        try:
+            K, pose = np.load(rgbd / 'intrinsic' / f'intrinsic_{i}.npy'), np.load(pose_path)
+        except (OSError, ValueError):
+            continue
+        depth = cv2.imread(str(rgbd / 'depth' / f'frame_{i}.jpg'), cv2.IMREAD_UNCHANGED)
+        photo = cv2.imread(str(rgbd / 'image' / f'frame_{i}.jpg'), cv2.IMREAD_COLOR)
+        if depth is None or photo is None or depth.ndim != 2:
+            continue
+        h, w = depth.shape
+        cam = np.linalg.inv(pose) @ world
+        z = cam[2]
+        front = z > 1e-6
+        safe = np.where(front, z, 1)
+        u, v = K[0, 0] * cam[0] / safe + K[0, 2], K[1, 1] * cam[1] / safe + K[1, 2]  # depth-map pixels
+        ui, vi = np.round(u).astype(int), np.round(v).astype(int)
+        seen = np.flatnonzero(front & (ui >= 0) & (ui < w) & (vi >= 0) & (vi < h))
+        d = depth[vi[seen], ui[seen]].astype(np.float32) / 1000
+        seen = seen[(d > 0) & (np.abs(d - z[seen]) < COLOR_TOLERANCE)]
+        if not len(seen):
+            continue
+        ph, pw = photo.shape[:2]
+        px = np.clip((u[seen] * pw / w).astype(int), 0, pw - 1)
+        py = np.clip((v[seen] * ph / h).astype(int), 0, ph - 1)
+        total[seen] += photo[py, px, ::-1]  # BGR -> RGB
+        count[seen] += 1
+    if not count.any():
+        return None
+    colors = np.full((len(points), 3), 150, np.uint8)
+    lit = count > 0
+    colors[lit] = np.clip(total[lit] / count[lit, None], 0, 255).astype(np.uint8)
+    return colors.tobytes()
+
+
 def _scaffold(job_dir):
     scene = find_scene(job_dir)
     cache = Path(job_dir) / 'replay'

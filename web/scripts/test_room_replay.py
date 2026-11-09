@@ -152,6 +152,40 @@ class Events(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual((pa.read_bytes(), la.read_text()), (pb.read_bytes(), lb.read_text()))
 
+    def test_scan_points_take_their_colour_from_the_photos(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest('numpy / OpenCV not installed')
+        job = self.root / 'job-colour'
+        (job / 'run').mkdir(parents=True)
+        (job / 'run' / 'pipeline').symlink_to(self.root / 'run' / 'pipeline')
+        self.assertIsNone(replay.scaffold_colors(job))  # no photos yet: tried once, then remembered
+        self.assertTrue((job / 'replay' / 'colors.none').is_file())
+        (job / 'replay' / 'colors.none').unlink()
+        # One camera at the origin looking along +z; the photo is twice the depth map's size and red.
+        rgbd = self.scene / 'scene_init/obj_stage/object_init/input/rgbd/demo'
+        for d in ('extrinsic', 'intrinsic', 'depth', 'image'):
+            (rgbd / d).mkdir(parents=True, exist_ok=True)
+        np.save(rgbd / 'extrinsic' / 'extrinsic_0.npy', np.eye(4))
+        np.save(rgbd / 'intrinsic' / 'intrinsic_0.npy', np.array([[10, 0, 2], [0, 10, 2], [0, 0, 1]], float))
+        depth = np.full((10, 10), 2000, np.uint16)  # 2 m everywhere: point (0, 1, 2) is seen at pixel (2, 7)
+        cv2.imencode('.png', depth)[1].tofile(str(rgbd / 'depth' / 'frame_0.jpg'))
+        photo = np.zeros((20, 20, 3), np.uint8)
+        photo[:, :] = (0, 0, 255)
+        cv2.imwrite(str(rgbd / 'image' / 'frame_0.jpg'), photo)
+        colours = replay.scaffold_colors(job).read_bytes()
+        self.assertEqual(len(colours), 2 * 3)
+        red, unseen = colours[:3], colours[3:]  # (3, 4, 5) falls outside the picture
+        self.assertGreater(red[0], 200)
+        self.assertLess(red[1], 60)
+        self.assertEqual(unseen, bytes([150, 150, 150]))
+        # hidden behind something nearer: not painted
+        (job / 'replay' / 'colors.bin').unlink()
+        cv2.imencode('.png', np.full((10, 10), 1000, np.uint16))[1].tofile(str(rgbd / 'depth' / 'frame_0.jpg'))
+        self.assertIsNone(replay.scaffold_colors(job))
+
     def test_a_stray_empty_scene_folder_is_ignored(self):
         job = self.root / 'job3'
         (job / 'run' / 'pipeline' / 'pipeline' / 'scene_init' / 'scene_stage' / 'room_init').mkdir(parents=True)
