@@ -34,6 +34,7 @@ class RoomDeletion(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             class LocalHandler(Handler):
                 deletions = RoomDeletions(Path(directory) / 'deleted.json')
+                cache = Path(directory) / 'room-cache'
                 def log_message(self, *args):
                     pass
             server = ThreadingHTTPServer(('127.0.0.1', 0), LocalHandler)
