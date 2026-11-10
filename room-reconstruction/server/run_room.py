@@ -160,12 +160,14 @@ a.run_dir.mkdir(parents=True, exist_ok=True)
 attempts = sorted(a.run_dir.glob("attempt-*"))
 attempt = a.run_dir / f"attempt-{len(attempts) + 1:02d}"
 attempt.mkdir()
-gpu = select_gpu("auto", list_gpus())
+# A shared machine can name the card (ROOMCANVAS_GPU, default auto) and accept other people's light
+# use of it (ROOMCANVAS_GPU_SHARED_MIB, default 0: only a completely idle card).
+gpu = select_gpu(env.get("ROOMCANVAS_GPU", "auto"), list_gpus(), int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0")))
 # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
 env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=str(gpu.index),
            LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
 record = {"started": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-          "gpu": gpu.uuid, **record}
+          "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
 (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
 with GpuLock(runtime / "locks", gpu), (attempt / "pipeline.log").open("w") as log:
     rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode

@@ -52,7 +52,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
   --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs"
 ```
 
-默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。
+默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。自动选卡只用完全空闲的卡；多人共用、卡上常驻别人小进程的机器，可设环境变量 `ROOMCANVAS_GPU=<编号>`（指定卡）和 `ROOMCANVAS_GPU_SHARED_MIB=<MiB>`（允许别人已占用不超过这么多显存），例如写进 `runtime/server-env.sh`；GPU 锁照常防止两个重建同时用一张卡，运行记录 `run-config.json` 里记下当时别人占用的显存。
 
 **本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，默认经服务器上的网关（`python3 web/scripts/gateway.py`，监听 `127.0.0.1:7870`，房间服务在 `127.0.0.1:7866`，用 `--rooms` 改）转发；不用网关时给 `--remote` 或 `--room-remote '<地址>:<端口>'`，会回到分开的两条隧道（本机 `7865`、`7866`）。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
 
