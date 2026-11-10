@@ -1,4 +1,5 @@
-"""Pick one idle GPU and hold an exclusive lock on it for the whole run."""
+"""Pick one idle GPU (or, on a shared machine, one others use only lightly) and hold an exclusive
+lock on it for the whole run."""
 
 from __future__ import annotations
 
@@ -23,6 +24,10 @@ class Gpu:
     def idle(self) -> bool:
         return self.memory_used_mib <= IDLE_MEMORY_MIB and not self.compute_pids
 
+    def usable(self, shared_mib: int = 0) -> bool:
+        """Idle, or with `shared_mib` > 0, other people's processes use at most that much memory."""
+        return self.memory_used_mib <= shared_mib if shared_mib > 0 else self.idle
+
 
 def _query(*args: str) -> list[list[str]]:
     output = subprocess.run(
@@ -44,18 +49,22 @@ def list_gpus() -> list[Gpu]:
     ]
 
 
-def select_gpu(request: str, gpus: list[Gpu]) -> Gpu:
-    """request is 'auto', an index such as '1', or a UUID such as 'GPU-d11de16f-...'."""
+def select_gpu(request: str, gpus: list[Gpu], shared_mib: int = 0) -> Gpu:
+    """request is 'auto', an index such as '1', or a UUID such as 'GPU-d11de16f-...'.
+
+    `shared_mib` > 0 also accepts a GPU that other processes use up to that much memory (a shared
+    machine where a card is never completely free); the run then has that much less memory."""
     if request == "auto":
-        idle = [gpu for gpu in gpus if gpu.idle]
+        idle = [gpu for gpu in gpus if gpu.usable(shared_mib)]
         if not idle:
-            raise RuntimeError("no idle GPU: every GPU has memory in use or compute processes")
+            raise RuntimeError("no idle GPU: every GPU has memory in use or compute processes"
+                               + (f" (more than {shared_mib} MiB)" if shared_mib > 0 else ""))
         return idle[0]
     matches = [gpu for gpu in gpus if request in (str(gpu.index), gpu.uuid)]
     if not matches:
         raise RuntimeError(f"no GPU matches {request!r}")
     gpu = matches[0]
-    if not gpu.idle:
+    if not gpu.usable(shared_mib):
         raise RuntimeError(
             f"GPU {gpu.index} is busy: {gpu.memory_used_mib} MiB used, pids {gpu.compute_pids}"
         )
