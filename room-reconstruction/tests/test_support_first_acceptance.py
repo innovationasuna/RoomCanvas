@@ -64,7 +64,7 @@ def test_a_failed_check_is_repaired_once_and_not_checked_again(tmp_path, monkeyp
     monkeypatch.setattr(A, "repair", repair)
     r = A.finish(c, {"repair_rounds": 1, "repair_steps": 7, "repair_seconds": 20})
     assert r["status"] == "repaired" and A.done(r) and not r["accepted"]
-    assert calls == [{"steps": 7, "seconds": 20, "provider": None}] and checks == [1]
+    assert calls == [{"steps": 7, "seconds": 20, "provider": None, "traces": c.object_root / "traces"}] and checks == [1]
     assert (c.authored_room / "Room.py").is_file()
 
 

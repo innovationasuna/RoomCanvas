@@ -55,6 +55,8 @@ test('the closing line says whether the check passed or the room was repaired, w
   assert.equal(fixed.repaired, true);
   assert.equal(fixed.passed, true);
   assert.equal(outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'error'}]).passed, false);
+  // A retried job: the repair belongs to the earlier run, the last check failed after it.
+  assert.equal(outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'result'}, {kind: 'review', passed: false}]).passed, false);
   assert.equal(outcome([{kind: 'tool'}]), null);
 });
 

@@ -574,6 +574,23 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
         for name, _ in branches
     }
 
+    recorded: set[str] = set()
+
+    def record_built(branch: str, names: list[str]) -> None:
+        """Trace each object when it is first seen finished, timed by its files, so a live replay
+        shows it then (TRELLIS reports its batch only at the end; the same time dedupes the two)."""
+        recon = config.reconstruct_dir(scan)
+        for name in names:
+            if name in recorded:
+                continue
+            recorded.add(name)
+            single = recon / f"{name}.glb"
+            files = [single] if single.is_file() else [*(recon / name).glob("*.glb"),
+                                                       recon / name / "object.py", recon / name / "object.md"]
+            times = [f.stat().st_mtime for f in files if f.is_file()]
+            telemetry.record(config.traces_dir(scan), "object_done", at=max(times) if times else None,
+                             name=name, method=branch, status="ok")
+
     def poll() -> None:
         """Re-read what is on disk into `state`; the board renders, it does not look."""
         for branch, names in per_branch.items():
@@ -582,6 +599,7 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
             built, building, waiting, phase = _branch_split(scan, names)
             state[branch].update(done=len(built), built=built, active=building,
                                  queued=waiting, activity=phase)
+            record_built(branch, built)
 
     # The live viewer decides whether anything is alive from the age of the newest trace event, and
     # the only build events reaching the trace were the per-object `agent_step` lines a builder

@@ -90,6 +90,7 @@ export class RoomView {
     this.focusTo = null;
     this.wallFades = [];
     this.models = {};       // key -> {root, mask}
+    this.retryAt = {};      // key -> when a failed model load may be tried again
     this.current = null;    // model key fully shown
     this.incoming = null;   // model key fading in
     this.mix = 1;
@@ -219,8 +220,14 @@ export class RoomView {
   // ---------- room models ----------
   async model(key, url) {
     if (this.models[key]) return this.models[key].promise;
+    // A live job can list a model while it is still being written: after a failed load, try again later.
+    if (performance.now() < (this.retryAt[key] || 0)) throw new Error(`retry ${key} later`);
     const entry = this.models[key] = {};
-    entry.promise = new GLTFLoader().loadAsync(url).then((gltf) => {
+    entry.promise = new GLTFLoader().loadAsync(url).catch((error) => {
+      delete this.models[key];
+      this.retryAt[key] = performance.now() + 5000;
+      throw error;
+    }).then((gltf) => {
       const root = this.prepare(gltf.scene);
       root.visible = false;
       this.scene.add(root);
@@ -324,6 +331,7 @@ export class RoomView {
     if (key === this.current || key === this.incoming) return;
     this.wanted = key;
     const entry = await this.model(key, url).catch(() => null);
+    if (!entry && this.wanted === key) this.wanted = null;  // apply() asks for it again
     if (!entry || this.wanted !== key) return;
     if (quiet) this.swap(key);
     else {

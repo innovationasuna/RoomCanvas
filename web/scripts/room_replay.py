@@ -33,6 +33,7 @@ STAGES = [
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
     {'id': 'review2', 'name': '修复问题', 'desc': '没通过检查时，按检查出的问题修一次，修好的房间就是结果。'},
     {'id': 'review3', 'name': '再次检查', 'desc': '以前的流程在修复后会再检查一次。'},
+    {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
 AGENT_STAGES = ['assemble', 'adjust', 'check']
@@ -54,6 +55,9 @@ FILES = re.compile(r'^(?:'
 SEED = 'scene_init/scene_stage/room_init/room_preview/Room.glb'
 FINAL = 'realism_authoring/room_preview/Room.glb'
 TRACES = 'scene_init/obj_stage/traces'
+# The openable-parts pass writes beside the scene (RUN/articulate, the scene is RUN/pipeline/<scene>);
+# the page names it by this path, which scene_file maps there.
+ARTICULATED = 'articulate/room_preview/Room.glb'
 
 
 def find_scene(job_dir):
@@ -81,8 +85,15 @@ def read_jsonl(path):
     return rows
 
 
+def articulated_glb(scene):
+    return Path(scene).parent.parent / ARTICULATED
+
+
 def scene_file(scene, rel):
-    """Resolve an allowlisted file inside the scene directory, or None."""
+    """Resolve an allowlisted file inside the scene directory (or the openable-parts room), or None."""
+    if rel == ARTICULATED:
+        path = articulated_glb(scene)
+        return path.resolve() if path.is_file() else None
     if not FILES.fullmatch(rel or '') or '..' in rel.split('/'):
         return None
     path = (Path(scene) / rel).resolve()
@@ -167,6 +178,9 @@ def pipeline_events(scene, until=None):
     rows = trace_rows(scene, until)
     events, said = [], set()
     name = object_names(scene)
+    # Objects with a finished-model record; their per-attempt agent steps then only show retries and errors.
+    done = {r['name'] for r in rows if r.get('kind') == 'object_done' and r.get('status') == 'ok' and r.get('name')}
+    attempts = []  # run_room.py attempts seen, in order (older traces have a run id per stage process)
 
     def add(row, stage, say, kind='tool', once=None, **extra):
         if once:  # a resumed run repeats its early stages; show them once
@@ -177,7 +191,11 @@ def pipeline_events(scene, until=None):
 
     for r in rows:
         kind, stage, status = r.get('kind'), r.get('stage'), r.get('status')
-        if kind == 'scan_start':
+        if kind == 'trace_start' and re.fullmatch(r'attempt-\d+', str(r.get('run', ''))) and r['run'] not in attempts:
+            attempts.append(r['run'])
+            if len(attempts) > 1:  # a retry: the pipeline goes on from the work already done
+                add(r, 'scan', '重新开始重建，接着上次做好的部分继续', 'milestone')
+        elif kind == 'scan_start':
             preview = _first(scene.glob('scene_init/obj_stage/object_init/input/scan_geometry/*/preview.jpg'))
             add(r, 'scan', '收到房间扫描，开始重建', 'milestone', once='scan', img=_rel(scene, preview))
         elif kind == 'stage' and status == 'done':
@@ -206,13 +224,27 @@ def pipeline_events(scene, until=None):
         elif kind == 'agent_step' and r.get('name'):
             attempt = re.search(r'attempt(\d+)', r.get('step', ''))
             again = attempt and int(attempt[1]) > 1
+            if r['name'] in done and not again and not r.get('is_error'):
+                continue  # its object_done says it was made
             add(r, 'plan', f'{"重做" if again else "做好"}{name(r["name"])}的模型', 'error' if r.get('is_error') else 'tool',
                 show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'chair_qc' and r.get('cluster'):
             add(r, 'plan', f'做好{name(r["cluster"])}，检查形状' + ('，有需要留意的地方' if status == 'warn' else ''), 'result',
                 show=[r['cluster']], img=_object_image(scene, r['cluster']))
+        elif kind == 'chair_qc_retry' and r.get('cluster'):
+            ok = status != 'fail'
+            add(r, 'plan', f'重新生成{name(r["cluster"])}（第 {r.get("attempt", 1)} 次），' + ('形状检查通过' if ok else '形状还不对'),
+                'result' if ok else 'error', show=[r['cluster']] if ok else None, img=_object_image(scene, r['cluster']))
+        elif kind == 'chair_qc_restored' and r.get('cluster'):
+            add(r, 'plan', f'{name(r["cluster"])}重新生成都没通过，沿用原来的模型', 'error')
         elif kind in ('openings_physics', 'procedural_physics'):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
+        elif kind == 'repair_start':
+            add(r, 'review2', '按检查出的问题开始修复房间', 'think')
+        elif kind == 'articulate_start':
+            add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
+        elif kind == 'articulate_done' and r.get('status') != 'ok':
+            add(r, 'articulate', '可开合部件没有装成，使用检查后的房间', 'error')
 
     seed = _model_time(scene, rows, 'seed', SEED, until)
     if seed:
@@ -223,14 +255,25 @@ def pipeline_events(scene, until=None):
     if final:
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
+    articulated = _model_time(scene, rows, 'articulated', ARTICULATED, until)
+    if articulated:
+        events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
+                       'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
     return events
 
 
 def _model_time(scene, rows, model, rel, until=None):
-    """When a room model was written: the trace record, else (older runs) the file's time; None if not yet."""
-    if not (Path(scene) / rel).is_file():
+    """When a room model was written: its trace record; None if not yet.
+
+    Runs that record saved models are timed only by those records: the final model's file is rewritten
+    by every build while the agent works, so its file time would show the room as finished early. Older
+    runs without any such record fall back to the file's time."""
+    path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
+    if not path.is_file():
         return None
-    t = saved_at(rows, model) or _mtime(Path(scene) / rel)
+    t = saved_at(rows, model)
+    if t is None and model != 'articulated' and not any(r.get('kind') == 'model_saved' for r in trace_rows(scene)):
+        t = _mtime(path)
     return t if t and (not until or t <= until) else None
 
 
@@ -244,12 +287,12 @@ def _rounds(scene, until=None):
     if done:
         saved = {(r.get('attempt'), r.get('round')): r['t'] for r in rows
                  if r.get('kind') == 'model_saved' and r.get('model') == 'round'}
-        rounds = [(r['t'], scene / r['folder'] / 'visual_review.json', saved.get((r.get('attempt'), r.get('round'))))
-                  for r in sorted(done, key=lambda r: r['t'])]
+        rounds = [(r['t'], scene / r['folder'] / 'visual_review.json', saved.get((r.get('attempt'), r.get('round'))),
+                   r.get('run')) for r in sorted(done, key=lambda r: r['t'])]
     else:
         paths = sorted(scene.glob('realism_authoring/acceptance/*/round_*/visual_review.json'),
                        key=lambda p: (_mtime(p) or 0, str(p)))
-        rounds = [(_mtime(p), p, _mtime(p.parent / 'Room.glb')) for p in paths]
+        rounds = [(_mtime(p), p, _mtime(p.parent / 'Room.glb'), None) for p in paths]
     return [x for x in rounds if x[0] and (not until or x[0] <= until)]
 
 
@@ -258,14 +301,20 @@ def _repairs(scene, until=None):
 
 
 def last_review_stage(scene, until=None):
-    if _repairs(scene, until):
+    rounds = _rounds(scene, until)
+    if not rounds:
+        return 'review2' if _repairs(scene, until) else 'review'
+    if any(r['t'] >= rounds[-1][0] for r in _repairs(scene, until)):  # repaired after the last check
         return 'review2'
-    return ['review', 'review2', 'review3'][min(max(len(_rounds(scene, until)) - 1, 0), 2)]
+    run = rounds[-1][3]
+    return ['review', 'review2', 'review3'][min(sum(1 for r in rounds if r[3] == run) - 1, 2)]
 
 
 def review_events(scene, until=None):
-    events = []
-    for k, (t, path, _) in enumerate(_rounds(scene, until)):
+    events, runs = [], []
+    for k, (t, path, _, run) in enumerate(_rounds(scene, until)):
+        runs.append(run)
+        n = runs.count(run)  # checks within this run (a retried job checks its room again)
         try:
             review = json.loads(path.read_text())
         except (OSError, ValueError):
@@ -274,12 +323,12 @@ def review_events(scene, until=None):
         pair = _first(folder.glob('compare/pairs/pair_*.png'))
         passed = review.get('pass')
         # One check now; older runs checked again after each repair.
-        say = ('检查房间' if not k else f'第 {k + 1} 次检查') + ('：通过' if passed else '没通过')
+        say = ('检查房间' if n == 1 else f'第 {n} 次检查') + ('：通过' if passed else '没通过')
         # Rounds name the text differently (description / defect); plain strings occur too.
         issues = [(i.get('description') or i.get('defect') or i.get('issue') or i.get('text') or '') if isinstance(i, dict) else str(i)
                   for i in review.get('issues', [])]
         issues = [i.strip() for i in issues if str(i).strip()]
-        event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(k, 2)], 'kind': 'review',
+        event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(n - 1, 2)], 'kind': 'review',
                  'say': say, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
         if (folder / 'Room.glb').is_file():
             event['model'] = f'round{k}'
@@ -298,12 +347,14 @@ def models(scene, until=None):
     out = {}
     if _model_time(scene, rows, 'seed', SEED, until):
         out['seed'] = SEED
-    for k, (_, path, saved) in enumerate(_rounds(scene, until)):
+    for k, (_, path, saved, _run) in enumerate(_rounds(scene, until)):
         glb = path.parent / 'Room.glb'
         if glb.is_file() and saved and (not until or saved <= until):
             out[f'round{k}'] = _rel(scene, glb)
     if _model_time(scene, rows, 'final', FINAL, until):
         out['final'] = FINAL
+    if _model_time(scene, rows, 'articulated', ARTICULATED, until):
+        out['articulated'] = ARTICULATED
     return out
 
 
@@ -365,13 +416,16 @@ def build_schedule(scene, until=None):
 
 # ---------- the modelling agent's log ----------
 
-def agent_records(scene, until=None):
-    """Compact records of the modelling agent's session(s), for condensing."""
+def agent_records(scene, until=None, repair=False):
+    """Compact records of the modelling agent's session(s), for condensing; with `repair`, the repair
+    session after a failed check instead (shown in its own stage, not condensed)."""
     out = []
     for path in sorted((Path(scene) / TRACES).glob('authoring_trace.*.jsonl')):
         if '.raw.' in path.name:
             continue
         pass_name = path.name.split('.')[1]
+        if (pass_name == 'repair') != repair:
+            continue
         for r in read_jsonl(path):
             t, kind = r.get('t'), r.get('kind')
             if not isinstance(t, (int, float)) or (until and t > until):
@@ -406,7 +460,7 @@ def agent_records(scene, until=None):
     return out
 
 
-def rule_agent_events(records, window=180):
+def rule_agent_events(records, window=180, who='建模 agent ', prefix='a'):
     """Plain wording used until a batch is condensed: one line per few minutes of agent work, no commands."""
     events, group = [], []
 
@@ -419,8 +473,8 @@ def rule_agent_events(records, window=180):
         parts = [f'执行了 {tools} 次操作'] if tools else []
         parts += [f'看了 {len(images)} 组图片'] if images else []
         parts += [f'拿到 {checks} 次检查结果'] if checks else []
-        say = '建模 agent 继续工作' + ('：' + '，'.join(parts) if parts else '')
-        events.append({'id': f'a{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool', 'say': say,
+        say = f'{who}继续工作' + ('：' + '，'.join(parts) if parts else '')
+        events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool', 'say': say,
                        'img': images[-1]['img'] if images else None, 'rule': True})
         group.clear()
 
@@ -581,6 +635,9 @@ def timeline(job_dir, status='completed', until=None):
         covered = batch['to']
     for event in rule_agent_events([r for r in records if r['seq'] > covered]):
         event['stage'] = agent_stage_fallback(records, event['t'])
+        events.append(event)
+    for event in rule_agent_events(agent_records(scene, until, repair=True), who='修复 agent ', prefix='m'):
+        event['stage'] = 'review2'
         events.append(event)
     for event in events:
         if event['kind'] == 'review' and event.get('issues'):
@@ -765,6 +822,11 @@ def slim(run, dest):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)  # the replay orders review rounds by file time
                 total += path.stat().st_size
+    articulated = articulated_glb(scene)
+    if articulated.is_file():  # the room that was published, beside the scene
+        (dest / ARTICULATED).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(articulated, dest / ARTICULATED)
+        total += articulated.stat().st_size
     return total
 
 
@@ -778,7 +840,8 @@ def register(data_dir, run, name, until=None):
     scene = scenes[0]
     rows = [r for r in read_jsonl(scene / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
     if until is None:  # the run ends with its last review or final export; later records belong to other work
-        ends = [t for t, _, _ in _rounds(scene)] + [_model_time(scene, rows, 'final', FINAL)]
+        ends = [r[0] for r in _rounds(scene)] + [_model_time(scene, rows, m, rel) for m, rel in
+                                                 (('final', FINAL), ('articulated', ARTICULATED))]
         until = max(t for t in ends if t) + 120
     identifier = uuid.uuid4().hex
     folder = Path(data_dir) / identifier
