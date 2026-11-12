@@ -168,6 +168,7 @@ def repair_scan(
             # none of the re-rolls passed — restore the backup (don't ship a worse one)
             shutil.copy2(glb.with_suffix(".glb.orig"), glb)
             rec["final"] = "still_failing_restored_original"
+            telemetry.event("chair_qc_restored", cluster=cid)
         results.append(rec)
 
     report = {

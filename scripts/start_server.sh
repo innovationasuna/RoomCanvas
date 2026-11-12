@@ -9,6 +9,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export ROOMCANVAS_HOME="${ROOMCANVAS_HOME:-$REPO}"
+# A machine's own settings (caches and temp files kept in one place, download mirrors), if it has any.
+# shellcheck source=/dev/null
+[ -f "$ROOMCANVAS_HOME/runtime/server-env.sh" ] && . "$ROOMCANVAS_HOME/runtime/server-env.sh"
 OBJECT_HOST=127.0.0.1
 ACTION=start
 PREVIEW=0

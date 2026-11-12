@@ -24,7 +24,7 @@ sh scripts/setup_server.sh rooms
 
 完成标记 `.roomcanvas-setup-complete` 只在文件与依赖检查通过后写入。重跑同一命令会跳过已完成步骤、恢复带 `.roomcanvas-setup-incomplete` 的步骤；无标记的已有目录只验证，不补装或覆盖，验证失败时停止并提示路径。不要给已有目录手工补标记来绕过检查。
 
-脚本仅在缺失时生成 `$ROOMCANVAS_HOME/.env`。填写 `OPENAI_API_KEY`；使用 Gemini 时填写 `GEMINI_API_KEY` 并设 `LR_IMAGE_PROVIDER=gemini`，`LR_SCANS_DIR`（扫描父目录）默认是 `scans_uploaded`，只在扫描放在别处时才填。本地运行保持 `.env` 和启动终端中的 `MODAL_TOKEN_ID`、`MODAL_TOKEN_SECRET`、`MODAL_PROFILE` 为空，设置 `LR_DINO_BACKEND=local`。Blender、生成与检测解释器路径由 [`run_room.py`](../room-reconstruction/server/run_room.py) 设置。
+脚本仅在缺失时生成 `$ROOMCANVAS_HOME/.env`。填写 `OPENAI_API_KEY`；使用 Gemini 时填写 `GEMINI_API_KEY` 并设 `LR_IMAGE_PROVIDER=gemini`，`LR_SCANS_DIR`（扫描父目录）默认是 `scans_uploaded`，只在扫描放在别处时才填。本地运行保持 `.env` 和启动终端中的 `MODAL_TOKEN_ID`、`MODAL_TOKEN_SECRET`、`MODAL_PROFILE` 为空，设置 `LR_DINO_BACKEND=local`。Blender、生成与检测解释器路径由 [`run_room.py`](../room-reconstruction/server/run_room.py) 设置。`run_room.py` 读入的 `.env` 会覆盖启动服务时的同名环境变量；建模 agent 一次会话的时长上限 `LR_CODEX_SESSION_SECONDS`（默认 3600 秒，跑满按“没做完”处理，重试会接着已保存的房间继续）若写在 `.env` 里，就只能在那里改。
 
 后续更新前先等重建结束。**服务器上**，在仓库根目录更新源码；只刷新主环境依赖时仍使用同一个环境目录：
 
@@ -40,7 +40,7 @@ UV_PROJECT_ENVIRONMENT="$ROOMCANVAS_HOME/runtime/litereality-env" \
 
 ## 从网页重建房间
 
-房间选择页右上角的 **重建房间** 接受一个房间的完整扫描 ZIP（最大 2 GB，解压后最大 8 GB / 50,000 个文件）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；扫描 App 导出的 `pointcloud.pcd` 可一起放入（重建优先使用它）；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
+房间选择页右上角的 **重建房间** 接受一个房间的完整扫描包：LiteReality Scanner 导出的 tar 可以直接上传，也可以是 ZIP 或 `.tar.gz`（最大 2 GB，解压后最大 8 GB / 50,000 个文件；按文件开头判断格式，不看扩展名）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；扫描 App 导出的 `pointcloud.pcd` 可一起放入（重建优先使用它）；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
 
 ### 启动服务
 
@@ -52,7 +52,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
   --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs"
 ```
 
-默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。
+默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。自动选卡只用完全空闲的卡；多人共用、卡上常驻别人小进程的机器，可设环境变量 `ROOMCANVAS_GPU=<编号>`（指定卡）和 `ROOMCANVAS_GPU_SHARED_MIB=<MiB>`（允许别人已占用不超过这么多显存），例如写进 `runtime/server-env.sh`；GPU 锁照常防止两个重建同时用一张卡，运行记录 `run-config.json` 里记下当时别人占用的显存。
 
 **本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，默认经服务器上的网关（`python3 web/scripts/gateway.py`，监听 `127.0.0.1:7870`，房间服务在 `127.0.0.1:7866`，用 `--rooms` 改）转发；不用网关时给 `--remote` 或 `--room-remote '<地址>:<端口>'`，会回到分开的两条隧道（本机 `7865`、`7866`）。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
 
@@ -62,11 +62,11 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 ### 使用与结果
 
-- 填写房间名称，选择或拖入扫描 ZIP，点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
+- 填写房间名称，选择或拖入扫描包（tar 或 ZIP），点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
 - 上传百分比只表示文件传输进度。提交后显示实际流水线阶段，不估算重建完成百分比；同一 API 服务一次运行一个任务。
 - 提交成功后可关闭窗口或刷新网页，任务继续运行。任务记录保存在 `--data-dir`，失败可重试并复用已有阶段；同一次上传的重复提交不会创建重复任务。
 - 服务重启会恢复排队任务，并把未完成任务标记为需重试。上次进程仍运行时，任务文件锁阻止重复执行。超时默认 6 小时，可用 `--timeout <秒>` 修改。
-- 完成后自动运行 `room_objects.py`，校验 GLB 节点与布局，再发布 `Room.glb`、`room_objects.json` 和可选的 `thumbnail.jpg`。没有缩略图时显示“房间预览暂不可用”，不影响进入布置。
+- 完成后自动运行 `room_objects.py`，校验 GLB 节点与布局，再发布 `Room.glb`、`room_objects.json` 和可选的 `thumbnail.jpg`。服务器不生成缩略图，首页先显示“房间预览暂不可用”，不影响进入布置；在本机（`serve.py --ssh` 运行中）执行 `python3 web/scripts/thumbnail.py --url http://127.0.0.1:<端口>/web/ --room scan-<任务号> --ssh <服务器> --server-dir <服务器上的 RoomCanvas>`，会从编辑器截图并放到服务器上该房间的发布目录。
 - 新房间通过动态目录加入首页，不改写仓库中的 `web/rooms.json`。读取新房间仍需重建服务及隧道在线；后端离线不影响原有示例房间。
 - 原始扫描、运行输出及日志留在服务器的数据目录，不要放进 Git。失败详情看 `<任务号>/task.log`；默认运行器的阶段日志在 `<任务号>/run/attempt-*/`。网页不提供任意服务器路径或日志读取接口。
 
@@ -74,10 +74,10 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 首页“房间重建任务”里，正在重建的任务有 **实时查看**，结束的任务有 **查看过程**，都打开 `web/replay.html?job=<任务号>`：
 
-- 左栏按 10 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云（每个点的颜色取自扫描时拍的照片，按深度图判断是否被遮挡）从房间中间向四周展开，再出现物品框；制作物品时房间的墙和地面先出现，物品做好一件，镜头就推近到它跟前（选没有别的物品挡着的方向），到位后物品表面亮起与它同色的细密点云，蓝色线框从下往上扫过，实体紧跟着填满（约 3 秒，左下角显示三角面数），没做的留线框；建模 agent 后加的部件也这样出现。拖动时间轴时直接显示结果，系统开启“减少动态效果”时不播放；之后依次换成初版房间、检查时的房间和最终房间（新模型约 2 秒淡入）；左栏和结尾只说检查是否通过、是否修过，不显示分数。底部时间轴可拖动、单步，时钟显示真实用时。
+- 左栏按 11 个阶段列出重建记录并配图，右边三维视图随过程变化：先是扫描点云（每个点的颜色取自扫描时拍的照片，按深度图判断是否被遮挡）从房间中间向四周展开，再出现物品框；制作物品时房间的墙和地面先出现，物品做好一件，镜头就推近到它跟前（选没有别的物品挡着的方向），到位后物品表面亮起与它同色的细密点云，蓝色线框从下往上扫过，实体紧跟着填满（约 3 秒，左下角显示三角面数），没做的留线框；建模 agent 后加的部件也这样出现。拖动时间轴时直接显示结果，系统开启“减少动态效果”时不播放；之后依次换成初版房间、检查时的房间、最终房间和装好可开合部件的房间（发布的就是这一版；新模型约 2 秒淡入，实时查看时模型还没写完导致加载失败会 5 秒后再试）。实时查看建模时，正在改的房间也会显示，最多每 5 分钟换一次新版本（模型约 90 MB），记下最终房间后换成最终房间；左栏和结尾只说检查是否通过、是否修过，不显示分数。过程中失败的尝试和报错（如某件物品这次没做成）不在页面上显示，只留在日志里；任务本身没跑完时结尾显示“重建还没完成”（不标红），提示在任务列表里重试。底部时间轴可拖动、单步，时钟显示真实用时。
 - 已完成任务的回放文件由本机 `serve.py --ssh` 在后台下载到 `runs/room-cache/`，下载完后从本机读取，服务器关机也能看（见 [README](../README.md) 的服务器启动说明）。
 - 重建中每 5 秒取一次新记录并停在最新处；往回拖可以看之前的步骤，点 **回到最新** 继续跟随。结束后从头自动播放。播到最后（房间建好）时换成与房间预览相同的“物理光照”（直接调用编辑器的 `web/editor/time-lighting.mjs`，那边调整后回放跟着变），往回拖则回到回放自己的光照。回放按真实用时等比例排布（时钟显示真实时间），长时间没有新进展的等待会压缩，每件物品成形至少留 4.5 秒，读取扫描至少 6 秒；整体一般 90 秒左右，物品多时相应变长。
-- 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的检查结果。新的重建还会在 `trace.jsonl` 里记下回放按真实时间排布所需的时间点：AI 重建的每件物品写出模型的时间（`object_done`）、初版房间／检查时的房间／最终房间的保存时间（`model_saved`）、检查结论（`review_done`，通过与否）、修复结果（`repair_done`）、修复结果（`repair_done`）、建模 agent 每次编译房间新增的部件（`room_built`），以及每次运行的编号（`trace_start` 的 `run`）。没有这些记录的旧任务仍按文件时间和 agent 日志推断。流水线阶段用固定的中文说明；建模 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。概括出来之前先显示按时间合并的简要说明。
+- 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的检查结果。新的重建还会在 `trace.jsonl` 里记下回放按真实时间排布所需的时间点：每件物品做好的时间（`object_done`，AI 重建和程序建模都有，建模过程中一做好就记，便于实时查看）、椅子形状没通过后的重新生成（`chair_qc_retry`、`chair_qc_restored`）、初版房间／检查时的房间／最终房间／装好可开合部件的房间的保存时间（`model_saved`，`seed`/`round`/`final`/`articulated`）、检查结论（`review_done`，通过与否）、修复开始和结果（`repair_start`、`repair_done`，修复 agent 的操作另记在 `authoring_trace.repair.jsonl`）、可开合部件这一步的开始和结果（`articulate_start`、`articulate_done`）、建模 agent 每次编译房间新增的部件（`room_built`），以及每次运行的编号（`run`，`run_room.py` 用 `attempt-NN`，重试时回放会标出“重新开始重建”，检查次数按每次运行分别计）。有了这些记录，房间模型只按记录的时间出现：建模 agent 工作时会反复改写最终房间的文件，不再因此提前显示“导出最终房间”。没有这些记录的旧任务仍按文件时间和 agent 日志推断。流水线阶段用固定的中文说明；建模 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。概括出来之前先显示按时间合并的简要说明。
 - 概括使用 `$ROOMCANVAS_HOME/runtime/bin/codex`（没有时用 PATH 里的 `codex`）。模型和思考程度可用环境变量 `LR_REPLAY_MODEL`、`LR_REPLAY_EFFORT` 修改，`LR_REPLAY_CODEX` 指定其他命令；启动服务时加 `--no-replay-summary` 则不调用模型，只用简要说明。调用失败写入 `<任务号>/replay-error.log`，5 分钟后重试。
 
 以前用命令行跑完的运行也可以登记进来回看，不复制运行目录：
@@ -98,7 +98,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 | 接口 | 用途 |
 | --- | --- |
 | `GET /room-reconstruction/health` | API 连通性，不代表所有模型依赖已经可用 |
-| `POST /room-reconstruction/jobs` | 原始 ZIP 请求体；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
+| `POST /room-reconstruction/jobs` | 原始扫描包请求体（ZIP、tar 或 .tar.gz）；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
 | `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
 | `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
 | `GET /room-reconstruction/catalog` | 已完成房间列表 |

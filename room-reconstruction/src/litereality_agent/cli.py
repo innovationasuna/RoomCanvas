@@ -11,6 +11,7 @@ import contextlib
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 from litereality_agent import console
@@ -303,6 +304,8 @@ def _live_viewer(args, context):
 
 
 def _run(args) -> int:
+    # One id for this run, inherited by every stage process (run_room.py passes its attempt name).
+    os.environ.setdefault("LITEREALITY_RUN_ID", f"{int(time.time())}-{os.getpid()}")
     context = _context(args)
     # Only when the run STARTS at authoring. A full `run scans/<name>` legitimately begins with a
     # capture and produces the package on the way through.
