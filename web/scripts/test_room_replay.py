@@ -282,10 +282,32 @@ class LiveRecords(unittest.TestCase):
         self.append([{'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'}])
         self.assertEqual({e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}['final']['t'], T0 + 1140)
 
+    def test_the_room_being_built_shows_until_the_final_one_is_saved(self):
+        key = replay.draft_key(T0 + 1150)  # make_run's FINAL file time
+        self.assertEqual(replay.models(self.scene, T0 + 1300)[key], replay.FINAL)
+        events = {e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}
+        self.assertEqual((events[key]['t'], events[key]['model']), (T0 + 1150, key))
+        self.assertNotIn(key, replay.models(self.scene, T0 + 1100))  # not built yet at that time
+        self.append([{'t': T0 + 1160, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'}])
+        models = replay.models(self.scene, T0 + 1300)
+        self.assertIn('final', models)
+        self.assertFalse([k for k in models if k.startswith('draft')])
+
+    def test_masks_and_texture_maps_are_not_shown_as_pictures(self):
+        rows = [{'seq': 1, 't': T0 + 300, 'kind': 'images', 'n_images': 3,
+                 'saved': ['img/author_0010_Wall9_stitched_unknown_mask.jpg', 'img/author_0010_oak_rough.jpg', 'img/author_0010_Wall9_stitched.jpg']},
+                {'seq': 2, 't': T0 + 310, 'kind': 'images', 'n_images': 1, 'saved': ['img/author_0011_floor_normal.jpg']}]
+        write(self.scene / replay.TRACES / 'authoring_trace.extra.jsonl', ''.join(json.dumps(r) + '\n' for r in rows))
+        images = [r['img'] for r in replay.agent_records(self.scene) if r['key'].startswith('extra:')]
+        self.assertEqual(images, [f'{replay.TRACES}/img/author_0010_Wall9_stitched.jpg', None])
+
     def test_a_finished_object_is_said_once_and_retries_still_show(self):
         says = [e['say'] for e in sorted(replay.pipeline_events(self.scene, T0 + 1300), key=lambda e: e['t'])
                 if e.get('show') == ['Storage0']]
         self.assertEqual(says, ['做好柜子1的模型', '重做柜子1的模型'])  # attempt1's agent_step is covered by object_done
+        self.append([{'t': T0 + 75, 'kind': 'agent_step', 'name': 'Storage1', 'step': 'Storage1:attempt1', 'is_error': True}])
+        failed = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('show') == ['Storage1']]
+        self.assertEqual([(e['kind'], e['say']) for e in failed], [('error', '柜子2的模型这次没做成')])
         chair = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e['say'].startswith('重新生成')]
         self.assertEqual(chair[0]['say'], '重新生成椅子（第 1 次），形状检查通过')
 

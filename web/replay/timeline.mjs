@@ -137,6 +137,12 @@ export function outcome(events) {
   return {passed: false, repaired: false, text: '没通过检查'};
 }
 
+// The page shows what was done, not what went wrong on the way (failed attempts, errors): those stay in
+// the logs. The check's verdict and the job's own status still show.
+export function withoutErrors(events) {
+  return events.filter((e) => e.kind !== 'error');
+}
+
 // Text shown to people carries no scores (older records said "4.5 分" or "自评 6.5 分").
 export function withoutScores(text) {
   const had = /\d\s*分/.test(String(text ?? ''));
