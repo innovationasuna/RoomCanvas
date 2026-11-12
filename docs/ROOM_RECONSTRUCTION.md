@@ -40,7 +40,7 @@ UV_PROJECT_ENVIRONMENT="$ROOMCANVAS_HOME/runtime/litereality-env" \
 
 ## 从网页重建房间
 
-房间选择页右上角的 **重建房间** 接受一个房间的完整扫描 ZIP（最大 2 GB，解压后最大 8 GB / 50,000 个文件）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；扫描 App 导出的 `pointcloud.pcd` 可一起放入（重建优先使用它）；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
+房间选择页右上角的 **重建房间** 接受一个房间的完整扫描包：LiteReality Scanner 导出的 tar 可以直接上传，也可以是 ZIP 或 `.tar.gz`（最大 2 GB，解压后最大 8 GB / 50,000 个文件；按文件开头判断格式，不看扩展名）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；扫描 App 导出的 `pointcloud.pcd` 可一起放入（重建优先使用它）；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
 
 ### 启动服务
 
@@ -62,7 +62,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 ### 使用与结果
 
-- 填写房间名称，选择或拖入扫描 ZIP，点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
+- 填写房间名称，选择或拖入扫描包（tar 或 ZIP），点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
 - 上传百分比只表示文件传输进度。提交后显示实际流水线阶段，不估算重建完成百分比；同一 API 服务一次运行一个任务。
 - 提交成功后可关闭窗口或刷新网页，任务继续运行。任务记录保存在 `--data-dir`，失败可重试并复用已有阶段；同一次上传的重复提交不会创建重复任务。
 - 服务重启会恢复排队任务，并把未完成任务标记为需重试。上次进程仍运行时，任务文件锁阻止重复执行。超时默认 6 小时，可用 `--timeout <秒>` 修改。
@@ -98,7 +98,7 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 | 接口 | 用途 |
 | --- | --- |
 | `GET /room-reconstruction/health` | API 连通性，不代表所有模型依赖已经可用 |
-| `POST /room-reconstruction/jobs` | 原始 ZIP 请求体；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
+| `POST /room-reconstruction/jobs` | 原始扫描包请求体（ZIP、tar 或 .tar.gz）；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
 | `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
 | `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
 | `GET /room-reconstruction/catalog` | 已完成房间列表 |

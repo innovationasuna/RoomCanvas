@@ -1,10 +1,12 @@
 // A persistent server queue owns the work; closing this page never cancels reconstruction.
 const API = '/room-reconstruction';
 const labels = {ingest: '读取扫描与提取素材', reconstruct: '重建场景物体', seed: '建立房间结构', author: '生成完整房间', publish: '导出房间模型', articulate: '生成可动部件'};
+// The scanner app exports a tar; a zipped scan folder works too (the service reads either).
+const SCAN_ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i;
 export function scanError(file, name) {
   if (!name.trim() || name.trim().length > 80) return '请填写房间名称（最多 80 个字符）。';
-  if (!file || !/\.zip$/i.test(file.name)) return '请选择完整的房间扫描 ZIP。';
-  if (!file.size || file.size > 2 * 1024 ** 3) return '扫描 ZIP 需在 2 GB 以内且不能为空。';
+  if (!file || !SCAN_ARCHIVE.test(file.name)) return '请选择完整的房间扫描包（ZIP 或 tar）。';
+  if (!file.size || file.size > 2 * 1024 ** 3) return '扫描包需在 2 GB 以内且不能为空。';
   return '';
 }
 export function jobDescription(job) {
@@ -53,7 +55,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
   function pick(file) {
     if (uploading) return;
     selected = file; uploadID = null;
-    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入扫描 ZIP';
+    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入扫描包';
     report(file ? scanError(file, $('reconstruction-name').value || '房间') : '');
     controls();
   }
@@ -69,7 +71,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
   drop.ondrop = event => {
     event.preventDefault(); drop.classList.remove('dragging');
     if (uploading) return;
-    if (event.dataTransfer.files.length !== 1) return report('每次请选择一个房间的扫描 ZIP。');
+    if (event.dataTransfer.files.length !== 1) return report('每次请选择一个房间的扫描包。');
     $('reconstruction-file').value = ''; pick(event.dataTransfer.files[0]);
   };
   // Keep a drop-selected file valid even though the native file picker is empty.
@@ -88,7 +90,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', API + '/jobs'); xhr.timeout = 15 * 60 * 1000;
-        xhr.setRequestHeader('Content-Type', 'application/zip');
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.setRequestHeader('X-Room-Name', encodeURIComponent(name));
         xhr.setRequestHeader('X-Upload-ID', uploadID);
         xhr.upload.onprogress = event => {
@@ -108,7 +110,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
       });
       dialog.close();
       form.reset(); selected = null; uploadID = null;
-      $('scan-selected').textContent = '选择或拖入扫描 ZIP';
+      $('scan-selected').textContent = '选择或拖入扫描包';
       await refresh();
       $('reconstruction-jobs').scrollIntoView({block: 'nearest'});
     } catch (error) { report(error.message); void refresh(); }
