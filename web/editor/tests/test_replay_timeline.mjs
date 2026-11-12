@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildTimeline, sceneAt, outcome, withoutScores, clock, DURATION} from '../../replay/timeline.mjs';
+import {buildTimeline, sceneAt, outcome, withoutScores, withoutErrors, clock, DURATION} from '../../replay/timeline.mjs';
 
 const stages = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review'].map((id) => ({id, name: id, desc: ''}));
 const events = [
@@ -55,6 +55,8 @@ test('the closing line says whether the check passed or the room was repaired, w
   assert.equal(fixed.repaired, true);
   assert.equal(fixed.passed, true);
   assert.equal(outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'error'}]).passed, false);
+  // A retried job: the repair belongs to the earlier run, the last check failed after it.
+  assert.equal(outcome([{kind: 'review', passed: false}, {id: 'fix0', kind: 'result'}, {kind: 'review', passed: false}]).passed, false);
   assert.equal(outcome([{kind: 'tool'}]), null);
 });
 
@@ -131,4 +133,10 @@ test('parts the agent names at the same minute take shape as one batch', () => {
   const reveal = Array.from({length: 40}, (_, k) => ({node: `Part${k}`, minute: 50 + (k % 2)}));
   const tl = buildTimeline({stages, events, models: {final: 'f'}, build: {base: 50, reveal}});
   assert.equal(tl.duration, DURATION);  // two batches, not forty objects
+});
+
+test('failed attempts and errors are left off the page; the check verdict stays', () => {
+  const events = [{kind: 'tool', say: '做好柜子的模型'}, {kind: 'error', say: '门的模型这次没做成'},
+                  {kind: 'review', passed: false, say: '检查房间没通过'}, {kind: 'result', say: '按检查出的问题修好了房间'}];
+  assert.deepEqual(withoutErrors(events).map((e) => e.say), ['做好柜子的模型', '检查房间没通过', '按检查出的问题修好了房间']);
 });

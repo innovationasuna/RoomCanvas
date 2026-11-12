@@ -165,7 +165,8 @@ def _archive(path: Path, tag: str = "") -> Path | None:
 class AgentTrace:
     """Append-only recorder. Never raises into the caller — a broken trace must not fail a run."""
 
-    def __init__(self, pass_name: str, room: Path | None = None, scan: str | None = None):
+    def __init__(self, pass_name: str, room: Path | None = None, scan: str | None = None,
+                 path: Path | None = None):
         self.pass_name = pass_name
         self.t0 = time.time()
         self.seq = 0
@@ -175,7 +176,7 @@ class AgentTrace:
         self._fh = None       # open handle, so a rotation underneath us cannot cross-contaminate
         self._raw_fh = None
         try:
-            self.path = trace_path(room, scan, pass_name)
+            self.path = Path(path) if path else trace_path(room, scan, pass_name)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             # Truncate only THIS pass's own file. Every pass used to share one path, so
             # starting the materials pass wiped the authoring pass's record mid-run.

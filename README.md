@@ -149,6 +149,7 @@ python3 web/scripts/serve.py --ssh <SSH 主机> --server-dir <服务器仓库目
 
 - 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
 - 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。
+- 机器有自己的环境设置（缓存和临时文件放哪、下载镜像）时，写进 `runtime/server-env.sh`（不进 Git），`start_server.sh` 启动前会先加载它；手动运行 `run_room.py` 前也先 `source` 它。
 - 本机想用两条隧道、不经网关时，给 `serve.py` 加 `--remote <地址>:7862`（可再加 `--room-remote`）。
 - 隧道断开（如 AutoDL 网关掉线）时 `serve.py` 会自动重连；用密码登录的主机每次重连都要再输一次密码，建议配好密钥。
 - `--cpa` 把服务器的 `127.0.0.1:8317` 转回本机的 CLIProxyAPI，服务器上的 `runtime/bin/codex` 默认用它（`ROOMCANVAS_CODEX_PROFILE=api` 改用 `.env.astra` 的接口）；本机关掉 `serve.py`，服务器上的 agent 精修和回放概括就调不了模型。
@@ -181,7 +182,7 @@ cd android-app
 
 ### 4. 重建自己的房间
 
-在“选择房间”页点击 **重建房间**，上传 LiteReality Scanner 的完整扫描 ZIP，可以查看进度、失败后重试，完成的新房间自动加入列表。服务器上需要先启动房间重建服务（监听 `127.0.0.1:7866`），本机 `serve.py --ssh` 会一起转发。需要整屋扫描数据，普通照片不行。步骤见 [从网页重建房间](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)；也可以在服务器上用命令行重建，见 [房间重建](docs/ROOM_RECONSTRUCTION.md#运行)。
+在“选择房间”页点击 **重建房间**，上传 LiteReality Scanner 导出的完整扫描包（tar 直接传，也可以是 ZIP），可以查看进度、失败后重试，完成的新房间自动加入列表。服务器上需要先启动房间重建服务（监听 `127.0.0.1:7866`），本机 `serve.py --ssh` 会一起转发。需要整屋扫描数据，普通照片不行。步骤见 [从网页重建房间](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)；也可以在服务器上用命令行重建，见 [房间重建](docs/ROOM_RECONSTRUCTION.md#运行)。
 
 ## 怎么用
 

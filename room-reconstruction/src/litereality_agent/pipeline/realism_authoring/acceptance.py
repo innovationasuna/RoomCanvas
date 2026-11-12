@@ -91,7 +91,11 @@ def preserved_instances(seed: Path, room: Path) -> bool:
     return True
 
 
-async def repair(room: Path, scan: Path, report: Path, *, steps: int, seconds: int, provider: str | None = None):
+async def repair(room: Path, scan: Path, report: Path, *, steps: int, seconds: int, provider: str | None = None,
+                 traces: Path | None = None):
+    """One bounded repair session; its steps go to ``traces``/authoring_trace.repair.jsonl for the replay."""
+    from litereality_agent.agent.trace import AgentTrace
+
     harness = providers.resolve("author", provider)
     spec = providers.SessionSpec(
         cwd=room,
@@ -114,10 +118,23 @@ Inspect renders against photographs. Save valid Room.py frequently. Do not launc
 model. The supervisor will rebuild your result and use it as the room. Budget: {steps} tool
 calls / {seconds} seconds. Return a concise summary of fixes and unresolved problems.""",
     )
+    tr = AgentTrace("repair", room=room, path=traces / "authoring_trace.repair.jsonl" if traces else None)
+    tr.start(model=spec.model, provider=getattr(harness, "name", None), room=str(room), steps=steps)
     result = None
     async for event in harness.run(spec):
+        tr.raw(getattr(event, "raw", None) if getattr(event, "raw", None) is not None else event)
         if isinstance(event, providers.SessionResult):
             result = event
+        for block in getattr(event, "content", []) or []:
+            kind = type(block).__name__
+            if kind == "ToolUseBlock":
+                tr.tool(getattr(block, "name", "?"), getattr(block, "input", {}) or {},
+                        tool_id=getattr(block, "id", "") or "")
+            elif kind == "TextBlock":
+                tr.think(getattr(block, "text", ""))
+            elif kind == "ToolResultBlock":
+                tr.result(block)
+    tr.end(summary=(getattr(result, "result", "") or "")[:2000])
     if result is None or result.is_error or result.stopped:
         raise RuntimeError(
             f"repair incomplete: {getattr(result, 'stopped', '') or getattr(result, 'result', 'no result')}"
@@ -255,11 +272,13 @@ def finish(context, options: dict) -> dict:
     if report["accepted"] or not fix or rc:
         return report
     note = None
+    traces = context.object_root / "traces"
+    telemetry.record(traces, "repair_start", attempt=attempt.name)
     try:
         asyncio.run(
             repair(
                 context.authored_room, context.capture_dir, path, steps=steps, seconds=seconds,
-                provider=options.get("provider")
+                provider=options.get("provider"), traces=traces
             )
         )
     except Exception as exc:  # out of budget or interrupted: what it saved is still the room

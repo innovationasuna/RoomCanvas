@@ -129,10 +129,18 @@ export function sceneAt(tl, t) {
 export function outcome(events) {
   const checks = events.filter((e) => e.kind === 'review');
   if (!checks.length) return null;
-  if (checks.at(-1).passed) return {passed: true, repaired: false, text: '检查通过'};
-  const fix = events.findLast((e) => String(e.id || '').startsWith('fix'));
+  const last = checks.at(-1);
+  if (last.passed) return {passed: true, repaired: false, text: '检查通过'};
+  // Only a repair after the last check counts (a retried job may have repaired in an earlier run).
+  const fix = events.slice(events.indexOf(last)).findLast((e) => String(e.id || '').startsWith('fix'));
   if (fix?.kind === 'result') return {passed: true, repaired: true, text: '没通过检查，已按问题修好'};
   return {passed: false, repaired: false, text: '没通过检查'};
+}
+
+// The page shows what was done, not what went wrong on the way (failed attempts, errors): those stay in
+// the logs. The check's verdict and the job's own status still show.
+export function withoutErrors(events) {
+  return events.filter((e) => e.kind !== 'error');
 }
 
 // Text shown to people carries no scores (older records said "4.5 分" or "自评 6.5 分").

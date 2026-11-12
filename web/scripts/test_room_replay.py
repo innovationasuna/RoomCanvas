@@ -251,6 +251,107 @@ class TraceRecords(unittest.TestCase):
         self.assertEqual(times['Lamp'], T0 + 610)  # no build record: falls back to the session end
 
 
+class LiveRecords(unittest.TestCase):
+    """A new run watched live: the final room is not shown early, a retry is marked, the repair and the
+    openable-parts pass show, and objects / chairs report as they finish."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.scene = make_run(Path(self.tmp.name) / 'run')
+        self.rows = [
+            {'t': T0 + 5, 'kind': 'trace_start', 'run': 'attempt-01'},
+            {'t': T0 + 6, 'kind': 'trace_start', 'run': 'attempt-01'},  # each stage process starts the trace
+            {'t': T0 + 40, 'kind': 'object_done', 'name': 'Storage0', 'method': 'procedural', 'status': 'ok', 'run': 'attempt-01'},
+            {'t': T0 + 86, 'kind': 'chair_qc_retry', 'cluster': 'ChairCluster0', 'attempt': 1, 'status': 'ok'},
+            {'t': T0 + 95, 'kind': 'model_saved', 'model': 'seed', 'run': 'attempt-01'},
+        ]
+        self.append(self.rows)
+
+    def append(self, rows):
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_final_room_is_not_shown_while_the_agent_still_builds_it(self):
+        # make_run leaves realism_authoring/room_preview/Room.glb (rewritten by every agent build).
+        events = {e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}
+        self.assertNotIn('final', events)
+        self.assertNotIn('final', replay.models(self.scene, T0 + 1300))
+        self.append([{'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'}])
+        self.assertEqual({e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}['final']['t'], T0 + 1140)
+
+    def test_the_room_being_built_shows_until_the_final_one_is_saved(self):
+        key = replay.draft_key(T0 + 1150)  # make_run's FINAL file time
+        self.assertEqual(replay.models(self.scene, T0 + 1300)[key], replay.FINAL)
+        events = {e['id']: e for e in replay.pipeline_events(self.scene, T0 + 1300)}
+        self.assertEqual((events[key]['t'], events[key]['model']), (T0 + 1150, key))
+        self.assertNotIn(key, replay.models(self.scene, T0 + 1100))  # not built yet at that time
+        self.append([{'t': T0 + 1160, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'}])
+        models = replay.models(self.scene, T0 + 1300)
+        self.assertIn('final', models)
+        self.assertFalse([k for k in models if k.startswith('draft')])
+
+    def test_masks_and_texture_maps_are_not_shown_as_pictures(self):
+        rows = [{'seq': 1, 't': T0 + 300, 'kind': 'images', 'n_images': 3,
+                 'saved': ['img/author_0010_Wall9_stitched_unknown_mask.jpg', 'img/author_0010_oak_rough.jpg', 'img/author_0010_Wall9_stitched.jpg']},
+                {'seq': 2, 't': T0 + 310, 'kind': 'images', 'n_images': 1, 'saved': ['img/author_0011_floor_normal.jpg']}]
+        write(self.scene / replay.TRACES / 'authoring_trace.extra.jsonl', ''.join(json.dumps(r) + '\n' for r in rows))
+        images = [r['img'] for r in replay.agent_records(self.scene) if r['key'].startswith('extra:')]
+        self.assertEqual(images, [f'{replay.TRACES}/img/author_0010_Wall9_stitched.jpg', None])
+
+    def test_a_finished_object_is_said_once_and_retries_still_show(self):
+        says = [e['say'] for e in sorted(replay.pipeline_events(self.scene, T0 + 1300), key=lambda e: e['t'])
+                if e.get('show') == ['Storage0']]
+        self.assertEqual(says, ['做好柜子1的模型', '重做柜子1的模型'])  # attempt1's agent_step is covered by object_done
+        self.append([{'t': T0 + 75, 'kind': 'agent_step', 'name': 'Storage1', 'step': 'Storage1:attempt1', 'is_error': True}])
+        failed = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('show') == ['Storage1']]
+        self.assertEqual([(e['kind'], e['say']) for e in failed], [('error', '柜子2的模型这次没做成')])
+        chair = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e['say'].startswith('重新生成')]
+        self.assertEqual(chair[0]['say'], '重新生成椅子（第 1 次），形状检查通过')
+
+    def test_a_retried_run_is_marked_and_counts_its_own_checks(self):
+        self.append([
+            {'t': T0 + 990, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'run': 'attempt-01',
+             'folder': 'realism_authoring/acceptance/attempt-x/round_00'},
+            {'t': T0 + 1050, 'kind': 'trace_start', 'run': 'attempt-02'},
+            {'t': T0 + 1090, 'kind': 'review_done', 'reviewed': True, 'passed': True, 'run': 'attempt-02',
+             'folder': 'realism_authoring/acceptance/attempt-x/round_01'},
+        ])
+        events = replay.pipeline_events(self.scene, T0 + 1300)
+        self.assertEqual([e['say'] for e in events if e['kind'] == 'milestone' and e['say'].startswith('重新')],
+                         ['重新开始重建，接着上次做好的部分继续'])
+        self.assertEqual([e['say'] for e in events if e['kind'] == 'review'], ['检查房间没通过', '检查房间：通过'])
+
+    def test_the_repair_session_shows_in_its_own_stage(self):
+        self.append([{'t': T0 + 990, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'run': 'attempt-01',
+                      'folder': 'realism_authoring/acceptance/attempt-x/round_00'},
+                     {'t': T0 + 995, 'kind': 'repair_start', 'run': 'attempt-01'}])
+        repair = [{'seq': 1, 't': T0 + 1000, 'kind': 'session_start'},
+                  {'seq': 2, 't': T0 + 1010, 'kind': 'tool', 'tool': 'Bash', 'hint': 'python Room.py'}]
+        write(self.scene / replay.TRACES / 'authoring_trace.repair.jsonl', ''.join(json.dumps(r) + '\n' for r in repair))
+        self.assertFalse([r for r in replay.agent_records(self.scene) if r['key'].startswith('repair:')])
+        data = replay.timeline(self.scene.parent.parent.parent, 'running', T0 + 1300)
+        repair_says = [(e['stage'], e['say']) for e in data['events'] if '修复' in e['say']]
+        self.assertIn(('review2', '按检查出的问题开始修复房间'), repair_says)
+        self.assertIn(('review2', '修复 agent 继续工作：执行了 1 次操作'), repair_says)
+
+    def test_the_openable_parts_room_is_the_last_model(self):
+        run = self.scene.parent.parent
+        write(run / replay.ARTICULATED, t=T0 + 1250)
+        self.assertNotIn('articulated', replay.models(self.scene, T0 + 1300))  # not recorded yet
+        self.append([{'t': T0 + 1200, 'kind': 'articulate_start', 'run': 'attempt-01'},
+                     {'t': T0 + 1250, 'kind': 'articulate_done', 'status': 'ok', 'run': 'attempt-01'},
+                     {'t': T0 + 1250, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-01'}])
+        events = replay.pipeline_events(self.scene, T0 + 1300)
+        self.assertEqual([(e['stage'], e.get('model')) for e in events if e['stage'] == 'articulate'],
+                         [('articulate', None), ('articulate', 'articulated')])
+        self.assertEqual(replay.models(self.scene, T0 + 1300)['articulated'], replay.ARTICULATED)
+        self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED), (run / replay.ARTICULATED).resolve())
+        self.assertIsNone(replay.scene_file(self.scene, '../../articulate/room_preview/Room.glb'))
+
+
 def glb(path, tree, t):
     """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""
     import struct

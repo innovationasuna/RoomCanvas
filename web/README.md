@@ -65,7 +65,7 @@ python3 web/scripts/serve.py
 
 ### 房间选择页
 
-房间选择页列出 `rooms.json` 里的房间（`id`、名字、目录、一句介绍），以及房间重建服务已完成的房间（服务在线时由 `serve.py` 合并进列表，不改写 `rooms.json`）。卡片上的物品数和模型大小直接从房间文件读取，缩略图是房间目录中的 `thumbnail.jpg`，由 `scripts/thumbnail.py` 从编辑器整体视角截图生成（需要 Playwright 和 Pillow）。手动添加房间只需在 `rooms.json` 加一行并生成缩略图。
+房间选择页列出 `rooms.json` 里的房间（`id`、名字、目录、一句介绍），以及房间重建服务已完成的房间（服务在线时由 `serve.py` 合并进列表，不改写 `rooms.json`）。卡片上的物品数和模型大小直接从房间文件读取，缩略图是房间目录中的 `thumbnail.jpg`，由 `scripts/thumbnail.py` 从编辑器整体视角截图生成（需要 Playwright 和 Pillow）。手动添加房间只需在 `rooms.json` 加一行并生成缩略图。重建出来的房间也可以用它生成，缩略图放到服务器上该房间的发布目录，命令见 [使用与结果](../docs/ROOM_RECONSTRUCTION.md#使用与结果)。
 
 打开方式：列表里的房间是 `editor/?room=<id>`；任意房间目录用 `editor/?scene=<相对 editor/ 的路径>`，例如 `editor/?scene=../../samples/room3`。要把编辑器发布到仓库外某个房间目录旁边，运行 `python3 web/scripts/publish.py --scene-dir <房间目录>`。
 
@@ -73,7 +73,7 @@ python3 web/scripts/serve.py
 
 ## 重建房间
 
-房间选择页的 **重建房间**（也可直接打开 `web/#reconstruct`）上传一个房间的完整扫描 ZIP（最大 2 GB），提交后显示实际的流水线阶段，失败可以重试；关闭页面不影响服务器上的任务，完成的房间自动加入列表。`serve.py` 只把 `/room-reconstruction/` 下的健康检查、任务、目录和已发布文件转给房间重建服务，写请求只接受本页面发出的，大文件分块转发。扫描格式、服务启动和接口见 [从网页重建房间](../docs/ROOM_RECONSTRUCTION.md#从网页重建房间)。
+房间选择页的 **重建房间**（也可直接打开 `web/#reconstruct`）上传一个房间的完整扫描包（扫描 App 导出的 tar 或 ZIP，最大 2 GB），提交后显示实际的流水线阶段，失败可以重试；关闭页面不影响服务器上的任务，完成的房间自动加入列表。`serve.py` 只把 `/room-reconstruction/` 下的健康检查、任务、目录和已发布文件转给房间重建服务，写请求只接受本页面发出的，大文件分块转发。扫描格式、服务启动和接口见 [从网页重建房间](../docs/ROOM_RECONSTRUCTION.md#从网页重建房间)。
 
 首页房间卡片也会显示排队和正在重建的房间，点击卡片进入实时查看；任务完成后自动切换为“进入布置”。封面右上角“…”菜单中的“删除房间”会在确认后将房间移入回收站（包括对应任务入口），刷新和重启后仍保留删除状态。页面右下角的“回收站”显示已删除房间的数量，点击后可查看并逐个恢复；入口悬停、聚焦及打开时与房间卡片一样高亮。恢复后房间和对应重建任务会重新显示。扫描和模型文件保留，运行中的任务不会被取消。此功能需要更新并重启 `serve.py`；删除记录保存在本机 `.roomcanvas/deleted-rooms.json`，不提交到仓库。
 

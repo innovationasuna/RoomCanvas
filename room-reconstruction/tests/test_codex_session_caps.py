@@ -61,3 +61,18 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':123,'output_to
     result = run_fake(monkeypatch, program, 60, 25)
     assert not result.stopped and not result.is_error
     assert result.raw["usage"]["input_tokens"] == 123
+
+
+def test_a_reconnect_is_not_a_failed_session(monkeypatch):
+    program = """import json
+print(json.dumps({'type':'error','message':'Reconnecting... 1/5 (stream disconnected before completion)'}))
+print(json.dumps({'type':'turn.completed','usage':{}}))
+"""
+    assert not run_fake(monkeypatch, program, 60, 25).is_error
+
+
+def test_an_error_codex_cannot_retry_past_fails_the_session(monkeypatch):
+    program = """import json
+print(json.dumps({'type':'error','message':'unexpected status 401 Unauthorized'}))
+"""
+    assert run_fake(monkeypatch, program, 60, 25).is_error

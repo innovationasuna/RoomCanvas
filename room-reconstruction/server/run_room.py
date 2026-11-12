@@ -27,6 +27,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from gpu import GpuLock, list_gpus, select_gpu
@@ -159,11 +160,14 @@ a.run_dir.mkdir(parents=True, exist_ok=True)
 attempts = sorted(a.run_dir.glob("attempt-*"))
 attempt = a.run_dir / f"attempt-{len(attempts) + 1:02d}"
 attempt.mkdir()
-gpu = select_gpu("auto", list_gpus())
+# A shared machine can name the card (ROOMCANVAS_GPU, default auto) and accept other people's light
+# use of it (ROOMCANVAS_GPU_SHARED_MIB, default 0: only a completely idle card).
+gpu = select_gpu(env.get("ROOMCANVAS_GPU", "auto"), list_gpus(), int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0")))
+# One run id for every stage process of this attempt: the replay tells a retried run from the one before.
 env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=str(gpu.index),
-           LR_VISION_LOG_DIR=str(attempt / "vision"))
+           LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
 record = {"started": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-          "gpu": gpu.uuid, **record}
+          "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
 (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
 with GpuLock(runtime / "locks", gpu), (attempt / "pipeline.log").open("w") as log:
     rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
@@ -174,9 +178,25 @@ print(attempt.name, "exit", rc)
 scenes = [d for d in scene_dirs(a.run_dir)
           if (d / "realism_authoring/room_preview/Room.blend").is_file()
           and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
+
+
+def trace(scene: Path, kind: str, **data) -> None:
+    """One record in the scene's trace for the reconstruction replay (as telemetry.record writes it)."""
+    traces = scene / "scene_init/obj_stage/traces"
+    if traces.is_dir():
+        row = {"t": round(data.pop("at", None) or time.time(), 3), "kind": kind, "run": attempt.name, **data}
+        with (traces / "trace.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+
+
 if articulate and len(scenes) == 1:
     articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
+    trace(scenes[0], "articulate_start")
     with (attempt / "articulate.log").open("w") as log:
         art = subprocess.run(articulate, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
     (attempt / "articulate-exit").write_text(f"{art}\n")
+    room = a.run_dir / "articulate/room_preview/Room.glb"
+    trace(scenes[0], "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
+    if not art and room.is_file():
+        trace(scenes[0], "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
     print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
