@@ -398,7 +398,13 @@ class CodexHarness:
                 if event.get("type") == "turn.completed":
                     turns += 1
                     usage = event.get("usage") or usage
-                if event.get("type") in {"turn.failed", "error"}:
+                # Codex reports each retry of a dropped stream as a top-level `error` too
+                # ("Reconnecting... 1/5"). The session carries on after it, so it is not an end;
+                # only an error it cannot retry past is.
+                if event.get("type") == "turn.failed" or (
+                    event.get("type") == "error"
+                    and not str(event.get("message") or "").startswith("Reconnecting")
+                ):
                     terminal_error = True
                 if event.get("type") == "thread.started":
                     thread_id = str(event.get("thread_id") or "")
