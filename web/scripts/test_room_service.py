@@ -13,6 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import quote
+import tarfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -56,11 +57,41 @@ class ScanValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, self.assertRaises(ValueError):
             service.extract_scan(buf, Path(root))
 
+    def test_the_scanner_tar_is_accepted_as_exported(self):
+        """LiteReality Scanner exports a tar: ./ paths, roomplan/ and images/ folders, macOS ._ files."""
+        def tar(files, mode='w', links=()):
+            output = io.BytesIO()
+            with tarfile.open(fileobj=output, mode=mode) as bundle:
+                for name, data in files.items():
+                    info = tarfile.TarInfo(name); info.size = len(data)
+                    bundle.addfile(info, io.BytesIO(data))
+                for name, target in links:
+                    info = tarfile.TarInfo(name); info.type = tarfile.SYMTYPE; info.linkname = target
+                    bundle.addfile(info)
+            output.seek(0)
+            return output
+        usdz = io.BytesIO()  # a .usdz is a ZIP: a tar ending with one must still be read as a tar
+        with zipfile.ZipFile(usdz, 'w') as inner:
+            inner.writestr('room.usdc', b'usd')
+        files = {'./roomplan/room.usdz': b'scan', './frame_00000.json': b'{}',
+                 './depth_00000.png': b'depth', './images/frame_00000.jpg': b'image', './pointcloud.pcd': b'pcd',
+                 './._frame_00000.json': b'mac', './room.usdz': usdz.getvalue()}
+        for mode in ('w', 'w:gz'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as root:
+                capture = service.extract_scan(tar(files, mode), Path(root))
+                self.assertEqual(capture, Path(root))
+                self.assertTrue((capture / 'images/frame_00000.jpg').is_file())
+                self.assertFalse((capture / '._frame_00000.json').exists())
+        for bad, links in [({'../outside.json': b'{}'}, ()), ({}, [('./link.json', '/etc/passwd')])]:
+            with self.subTest(bad=bad, links=links), tempfile.TemporaryDirectory() as root:
+                with self.assertRaises(ValueError):
+                    service.extract_scan(tar({**files, **bad}, links=links), Path(root))
+
     def test_missing_capture_and_limits(self):
         for data in [b'not a zip', archive({'scan/frame_00000.json': b'{}'}).getvalue()]:
             with tempfile.TemporaryDirectory() as root:
                 if data == b'not a zip':
-                    with self.assertRaises(zipfile.BadZipFile): service.extract_scan(io.BytesIO(data), Path(root))
+                    with self.assertRaisesRegex(ValueError, 'ZIP 或 tar'): service.extract_scan(io.BytesIO(data), Path(root))
                 else:
                     with patch.object(service, 'MAX_EXPANDED', 1), self.assertRaises(ValueError):
                         service.extract_scan(io.BytesIO(data), Path(root))

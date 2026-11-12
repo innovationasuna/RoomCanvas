@@ -182,7 +182,7 @@ cd android-app
 
 ### 4. 重建自己的房间
 
-在“选择房间”页点击 **重建房间**，上传 LiteReality Scanner 的完整扫描 ZIP，可以查看进度、失败后重试，完成的新房间自动加入列表。服务器上需要先启动房间重建服务（监听 `127.0.0.1:7866`），本机 `serve.py --ssh` 会一起转发。需要整屋扫描数据，普通照片不行。步骤见 [从网页重建房间](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)；也可以在服务器上用命令行重建，见 [房间重建](docs/ROOM_RECONSTRUCTION.md#运行)。
+在“选择房间”页点击 **重建房间**，上传 LiteReality Scanner 导出的完整扫描包（tar 直接传，也可以是 ZIP），可以查看进度、失败后重试，完成的新房间自动加入列表。服务器上需要先启动房间重建服务（监听 `127.0.0.1:7866`），本机 `serve.py --ssh` 会一起转发。需要整屋扫描数据，普通照片不行。步骤见 [从网页重建房间](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)；也可以在服务器上用命令行重建，见 [房间重建](docs/ROOM_RECONSTRUCTION.md#运行)。
 
 ## 怎么用
 
