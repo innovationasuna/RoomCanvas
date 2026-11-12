@@ -401,6 +401,22 @@ export class RoomView {
     this.current = key;
     this.incoming = null;
     this.mix = 1;
+    // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
+    for (const [k, e] of Object.entries(this.models)) if (k.startsWith('draft') && k !== key && e.root) this.drop(k);
+  }
+
+  drop(key) {
+    const root = this.models[key].root;
+    root.removeFromParent();
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.geometry.dispose();
+      for (const m of [o.material].flat()) {
+        for (const v of Object.values(m)) if (v?.isTexture) v.dispose();
+        m.dispose();
+      }
+    });
+    delete this.models[key];
   }
 
   // partial: show the room as it is being built (shell + finished objects of the assembled room);

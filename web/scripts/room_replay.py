@@ -226,7 +226,9 @@ def pipeline_events(scene, until=None):
             again = attempt and int(attempt[1]) > 1
             if r['name'] in done and not again and not r.get('is_error'):
                 continue  # its object_done says it was made
-            add(r, 'plan', f'{"重做" if again else "做好"}{name(r["name"])}的模型', 'error' if r.get('is_error') else 'tool',
+            say = (f'{name(r["name"])}的模型这次没做成' if r.get('is_error')
+                   else f'{"重做" if again else "做好"}{name(r["name"])}的模型')
+            add(r, 'plan', say, 'error' if r.get('is_error') else 'tool',
                 show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'chair_qc' and r.get('cluster'):
             add(r, 'plan', f'做好{name(r["cluster"])}，检查形状' + ('，有需要留意的地方' if status == 'warn' else ''), 'result',
@@ -251,6 +253,10 @@ def pipeline_events(scene, until=None):
         events.append({'id': 'seed', 't': seed, 'stage': 'plan', 'kind': 'milestone',
                        'say': '物品都做好了，拼成第一版房间', 'model': 'seed'})
     events += review_events(scene, until)
+    draft = draft_time(scene, rows, until)
+    if draft:
+        events.append({'id': draft_key(draft), 't': draft, 'stage': 'assemble', 'kind': 'milestone',
+                       'say': '房间在继续搭建，这是目前的样子', 'model': draft_key(draft)})
     final = _model_time(scene, rows, 'final', FINAL, until)
     if final:
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
@@ -260,6 +266,27 @@ def pipeline_events(scene, until=None):
         events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
                        'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
     return events
+
+
+# The room the agent is editing is rebuilt into FINAL many times and is ~100 MB, so a live page takes a
+# new copy at most once per this many seconds.
+DRAFT_EVERY = 300
+
+
+def draft_time(scene, rows, until=None):
+    """While the room is still being authored or repaired: when its working model was last built.
+
+    None before the first version, once the final model is recorded, and for older runs without saved-model
+    records (their FINAL file time already stands for the finished room)."""
+    seed = saved_at(rows, 'seed')
+    if not seed or saved_at(rows, 'final'):
+        return None
+    t = _mtime(Path(scene) / FINAL)
+    return t if t and t > seed and (not until or t <= until) else None
+
+
+def draft_key(t):
+    return f'draft{int(t // DRAFT_EVERY)}'
 
 
 def _model_time(scene, rows, model, rel, until=None):
@@ -351,6 +378,9 @@ def models(scene, until=None):
         glb = path.parent / 'Room.glb'
         if glb.is_file() and saved and (not until or saved <= until):
             out[f'round{k}'] = _rel(scene, glb)
+    draft = draft_time(scene, rows, until)
+    if draft:
+        out[draft_key(draft)] = FINAL
     if _model_time(scene, rows, 'final', FINAL, until):
         out['final'] = FINAL
     if _model_time(scene, rows, 'articulated', ARTICULATED, until):
@@ -416,6 +446,11 @@ def build_schedule(scene, until=None):
 
 # ---------- the modelling agent's log ----------
 
+# Images the agent looks at that are working material, not pictures for people: wall masks (often all
+# black) and texture maps other than colour (roughness, normal, ...).
+NOT_PICTURE = re.compile(r'mask|_(?:rough|roughness|normal|nrm|disp|displacement|height|ao|metal|metallic|spec|opacity)(?=[._])', re.I)
+
+
 def agent_records(scene, until=None, repair=False):
     """Compact records of the modelling agent's session(s), for condensing; with `repair`, the repair
     session after a failed check instead (shown in its own stage, not condensed)."""
@@ -446,7 +481,8 @@ def agent_records(scene, until=None, repair=False):
                 saved = saved if isinstance(saved, list) else re.findall(r"'([^']+)'", saved or '')
                 if not saved:
                     continue
-                img = f'{TRACES}/{saved[0]}'
+                pictures = [name for name in saved if not NOT_PICTURE.search(name.rsplit('/', 1)[-1])]
+                img = f'{TRACES}/{pictures[0]}' if pictures else None
                 text = f'looked at {r.get("n_images", len(saved))} images'
             elif kind in ('session_start', 'session_end'):
                 text = kind + (': ' + str(r.get('summary', ''))[:600] if kind == 'session_end' else '')
