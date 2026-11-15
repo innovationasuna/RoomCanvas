@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 import struct
 import sys
+import tarfile
 import tempfile
 import threading
 import unittest
@@ -13,7 +14,6 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import quote
-import tarfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -21,14 +21,22 @@ import room_service as service
 import serve
 
 
-def archive(extra=None):
+def archive(extra=None, kind='zip', files=None):
     output = io.BytesIO()
-    files = {'scan/room.usdz': b'scan', 'scan/frame_00000.json': b'{}',
-             'scan/depth_00000.png': b'depth', 'scan/frame_00000.jpg': b'image'}
+    files = dict(files) if files is not None else {
+        'scan/room.usdz': b'scan', 'scan/frame_00000.json': b'{}',
+        'scan/depth_00000.png': b'depth', 'scan/frame_00000.jpg': b'image'}
     files.update(extra or {})
-    with zipfile.ZipFile(output, 'w') as bundle:
-        for name, data in files.items():
-            bundle.writestr(name, data)
+    if kind == 'zip':
+        with zipfile.ZipFile(output, 'w') as bundle:
+            for name, data in files.items():
+                bundle.writestr(name, data)
+    else:
+        with tarfile.open(fileobj=output, mode='w:gz' if kind == 'tar.gz' else 'w') as bundle:
+            for name, data in files.items():
+                item = tarfile.TarInfo(name)
+                item.size = len(data)
+                bundle.addfile(item, io.BytesIO(data))
     output.seek(0)
     return output
 
@@ -96,6 +104,51 @@ class ScanValidation(unittest.TestCase):
                     with patch.object(service, 'MAX_EXPANDED', 1), self.assertRaises(ValueError):
                         service.extract_scan(io.BytesIO(data), Path(root))
 
+    def test_tar_and_gzip_preserve_scan_data_with_nested_layouts(self):
+        for kind in ['tar', 'tar.gz']:
+            for prefix in ['', './扫描房间/']:
+                files = {prefix + 'roomplan/room.usdz': b'scan', prefix + 'images/frame_00000.json': b'{}',
+                         prefix + 'images/depth_00000.png': b'depth', prefix + 'images/frame_00000.jpg': b'image',
+                         prefix + '._room.usdz': b'mac metadata', '__MACOSX/._room.usdz': b'mac metadata'}
+                with self.subTest(kind=kind, prefix=prefix), tempfile.TemporaryDirectory() as root:
+                    capture = service.extract_scan(archive(kind=kind, files=files), Path(root))
+                    self.assertEqual((capture / 'roomplan/room.usdz').read_bytes(), b'scan')
+                    self.assertEqual((capture / 'images/depth_00000.png').read_bytes(), b'depth')
+                    self.assertFalse((capture / '._room.usdz').exists())
+
+    def test_tar_rejects_invalid_contents_and_duplicate_paths(self):
+        for kind in ['tar', 'tar.gz']:
+            for extra in [{'../outside.txt': b'no'}, {'/tmp/no.txt': b'no'}, {'scan\\bad.txt': b'no'},
+                          {'C:/bad.txt': b'no'}, {'scan/run.py': b'no'}, {'other/room.usdz': b'no'},
+                          {'scan/scene.json': b'{}'}, {'./scan/room.usdz': b'duplicate'},
+                          {'scan/ROOM.usdz': b'case duplicate'}]:
+                with self.subTest(kind=kind, extra=extra), tempfile.TemporaryDirectory() as root:
+                    with self.assertRaises(ValueError):
+                        service.extract_scan(archive(extra, kind=kind), Path(root))
+
+    def test_tar_rejects_links_and_special_files_even_in_metadata(self):
+        for kind in [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.FIFOTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE]:
+            for name in ['scan/link.txt', '__MACOSX/._link.txt']:
+                buf = archive(kind='tar')
+                with tarfile.open(fileobj=buf, mode='a') as bundle:
+                    item = tarfile.TarInfo(name); item.type = kind; item.linkname = 'scan/room.usdz'
+                    bundle.addfile(item)
+                buf.seek(0)
+                with self.subTest(kind=kind, name=name), tempfile.TemporaryDirectory() as root:
+                    with self.assertRaisesRegex(ValueError, '链接、特殊文件'):
+                        service.extract_scan(buf, Path(root))
+
+    def test_tar_limits_and_missing_scan_files(self):
+        for kind in ['tar', 'tar.gz']:
+            for limit, value in [('MAX_EXPANDED', 1), ('MAX_ENTRIES', 3)]:
+                with self.subTest(kind=kind, limit=limit), tempfile.TemporaryDirectory() as root:
+                    with patch.object(service, limit, value), self.assertRaisesRegex(ValueError, '过大'):
+                        service.extract_scan(archive(kind=kind), Path(root))
+            for files in [{}, {'room.usdz': b'scan'}, {'room.usdz': b'scan', 'frame_00000.json': b'{}', 'depth_00000.png': b'depth'}]:
+                with self.subTest(kind=kind, files=files), tempfile.TemporaryDirectory() as root:
+                    with self.assertRaises(ValueError):
+                        service.extract_scan(archive(kind=kind, files=files), Path(root))
+
 
 class Preview(unittest.TestCase):
     """--preview (no GPU): health says so and new or retried reconstructions are refused."""
@@ -147,9 +200,10 @@ class APIIntegration(unittest.TestCase):
         with urlopen(Request(self.base + path, data=data, headers=headers or {}), timeout=10) as response:
             return json.load(response)
 
-    def submit(self):
-        return self.request('/room-reconstruction/jobs', archive().getvalue(),
-                            {'X-Upload-ID': self.identifier, 'X-Room-Name': quote('测试客厅'), 'Content-Type': 'application/zip'})
+    def submit(self, kind='zip'):
+        return self.request('/room-reconstruction/jobs', archive(kind=kind).getvalue(),
+                            {'X-Upload-ID': self.identifier, 'X-Room-Name': quote('测试客厅'),
+                             'Content-Type': 'application/zip' if kind == 'zip' else 'application/octet-stream'})
 
     def fake_pipeline(self, args, log):
         if 'litereality' not in args:
@@ -199,6 +253,34 @@ class APIIntegration(unittest.TestCase):
         record = restored.records[self.identifier]; record['status'] = 'running'; restored.save(record)
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
+
+    def test_tar_uploads_through_proxy_and_publishes(self):
+        self.original_execute = self.jobs.execute
+        for index, kind in enumerate(['tar', 'tar.gz']):
+            self.identifier = str(index + 1) * 32
+            with self.subTest(kind=kind):
+                self.assertEqual(self.submit(kind)['status'], 'queued')
+                self.submit(kind)
+                capture = Path(self.jobs.records[self.identifier]['capture'])
+                self.assertEqual((capture / 'frame_00000.jpg').read_bytes(), b'image')
+                with patch.object(self.jobs, 'execute', side_effect=self.fake_pipeline):
+                    self.jobs.run_one(self.identifier)
+                job = self.request('/room-reconstruction/jobs/' + self.identifier)
+                self.assertEqual(job['status'], 'completed', job)
+                self.assertEqual(self.request(job['room']['dir'] + '/room_objects.json')['floor'], 'Floor')
+        self.assertEqual(len(self.jobs.records), 2, 'repeat uploads never duplicate jobs')
+
+    def test_invalid_archives_return_400_and_leave_no_job(self):
+        truncated = archive(kind='tar').getvalue()[:600]
+        for body in [b'not an archive', truncated, archive(kind='tar.gz').getvalue()[:30]]:
+            with self.subTest(size=len(body)), self.assertRaises(HTTPError) as caught:
+                self.request('/room-reconstruction/jobs', body,
+                             {'X-Upload-ID': self.identifier, 'X-Room-Name': 'test', 'Content-Type': 'application/octet-stream'})
+            self.assertEqual(caught.exception.code, 400)
+            self.assertIn('error', json.loads(caught.exception.read()))
+            self.assertFalse((self.jobs.root / self.identifier).exists())
+            self.assertEqual(self.jobs.records, {})
+            self.assertTrue(self.jobs.pending.empty())
 
     def test_server_runner_keeps_gpu_launcher_and_checks_its_exit_records(self):
         self.jobs.runner = 'server'

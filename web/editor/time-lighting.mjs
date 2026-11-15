@@ -6,11 +6,11 @@ import {createPhysicalLighting} from './physical-lighting.mjs';
 // Relative to the principal window, not geographic north or clock time.
 export const TIME_PRESETS = Object.freeze({
   balanced: Object.freeze({label: '普通光照', indoor: .07}),
-  morning: Object.freeze({label: '早晨', azimuth: -.7, elevation: .42, key: 3.1, fill: 0, window: .65, indoor: .07, exterior: .65, hemisphere: .14, environment: .08, color: 0xffe1b5, sky: 0xdce9ff, background: '#e7eae5'}),
-  noon: Object.freeze({label: '中午', azimuth: 0, elevation: 1.05, key: 4.2, fill: 0, window: .95, indoor: .07, exterior: .95, hemisphere: .18, environment: .10, color: 0xfff4e1, sky: 0xe6efff, background: '#e9ede5'}),
+  morning: Object.freeze({label: '早晨', azimuth: -.7, elevation: .42, key: 3.1, fill: 0, window: .65, indoor: .07, exterior: .65, hemisphere: .14, environment: .08, color: 0xffe1b5, sky: 0xdce9ff, background: '#ece3d3'}),
+  noon: Object.freeze({label: '中午', azimuth: 0, elevation: 1.05, key: 4.2, fill: 0, window: .95, indoor: .07, exterior: .95, hemisphere: .18, environment: .10, color: 0xfff4e1, sky: 0xe6efff, background: '#f0e8d8'}),
   afternoon: Object.freeze({label: '下午', azimuth: .7, elevation: .32, key: 2.9, fill: 0, window: .48, indoor: .07, exterior: .5, hemisphere: .10, environment: .06, color: 0xffc895, sky: 0xdce7ff, background: '#eae5dd'}),
   // Same recipe as the Android walkthrough; see physical-lighting.mjs. Window photos at face value.
-  physical: Object.freeze({label: '物理光照', indoor: 0, exterior: 1, background: '#e9ede5'}),
+  physical: Object.freeze({label: '物理光照', indoor: 0, exterior: 1, background: '#f0e8d8'}),
   night: Object.freeze({label: '夜间', key: 0, fill: 0, window: 0, indoor: 1, exterior: .025, hemisphere: .07, environment: .018, color: 0xffdcb4, sky: 0xb7c9e9, background: '#252b34'}),
 });
 export const timePreset = value => Object.hasOwn(TIME_PRESETS, value) ? value : 'noon';

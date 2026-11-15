@@ -84,7 +84,7 @@ if [[ "$SETUP_ACTION" == install ]]; then
     # selection or executing any private configuration file.
     # Read package indexes and build dependencies from pyproject, not a new list.
     if (( DRY_RUN )); then
-        printf '  Use PIP_EXTRA_INDEX_URL from pyproject.toml: https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121\n'
+        printf '  Use PIP_EXTRA_INDEX_URL from pyproject.toml: https://pypi.nvidia.com https://download.pytorch.org/whl/cu121\n'
     else
         PIP_EXTRA_INDEX_URL=$("$PY" -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1], "rb"))["tool"]["hatch"]["envs"]["default"]["env-vars"]["PIP_EXTRA_INDEX_URL"])' "$CODE/pyproject.toml")
         export PIP_EXTRA_INDEX_URL

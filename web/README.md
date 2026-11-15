@@ -159,7 +159,7 @@ python3 web/scripts/serve.py
 `scripts/serve.py` 只转发这几类地址给物体重建服务，写请求只接受本页面发出的：`/viewforge/assets/`（物品目录、尺寸、模型）、`/viewforge/objects/`（上传、抠图、重建、进度）、`/viewforge/dimensions/<结果>`（保存实测尺寸）。服务的部署见 [物体重建](../docs/OBJECT_RECONSTRUCTION.md)。
 
 - **添加物品**（物品库里的第一张卡片）：分四步用照片新建物品——
-  1. 命名，拖入照片（1–40 张 JPEG / PNG；1 张也能重建，绕物品从不同角度多拍几张效果更好；浏览器能解码的 HEIC 会先转成 JPEG）；
+  1. 命名，拖入照片（1–40 张 JPEG / PNG / HEIC / HEIF；1 张也能重建，绕物品从不同角度多拍几张效果更好）。按文件内容识别格式，HEIC / HEIF 在浏览器本地自动转成 JPEG，误改成 `.png` / `.jpg` 后缀的 HEIC 也能识别；JPEG / PNG 不重新压缩。转换时显示进度，确认预览可读取后才允许上传；失败会显示具体文件名。解码器随网页提供，仅在需要时加载，不向第三方发送照片；来源及许可证见 [`vendor/heic-to/`](vendor/heic-to/README.md)；
   2. 抠图预览（BiRefNet）：绿色是识别出的物品，点一张可以不用它，至少保留 1 张；
   3. 重建（DA3 深度 + MV-SAM3D，一般 3–8 分钟，GPU 繁忙时排队）；
   4. 查看结果，填一条实测边长，放进房间。
@@ -212,6 +212,7 @@ for c in lighting import_lighting lighting_stability time_lighting; do
   node web/scripts/check_$c.mjs --output /tmp/roomcanvas-$c --playwright $PW
 done
 node web/scripts/check_ground_grid.mjs --playwright $PW
+node web/scripts/check_object_photos.mjs --playwright $PW
 ```
 
 默认使用 Playwright 自带的 Chromium，也可以用 `--browser <浏览器路径>` 指定。各脚本覆盖的内容：
@@ -223,6 +224,7 @@ node web/scripts/check_ground_grid.mjs --playwright $PW
 | `check_lighting_stability.mjs` | 悬停和移出画布时不重绘、半透明墙前后一致、移动后正确更新 |
 | `check_time_lighting.mjs` | 五个时段、顶灯定位与衰减、角度和开关、按房间保存、调色只做一次合成、窄屏和键盘操作 |
 | `check_ground_grid.mjs` | 108 组透视 / 俯视、微小旋转及渲染合成的像素对比：地板遮挡网格，房间外的网格仍可见 |
+| `check_object_photos.mjs` | 合成 HEIC 原图与误改 PNG / JPEG 后缀、预览尺寸和颜色、损坏文件提示及实际上传编码；模拟接口，不启动重建任务 |
 
 输出包含示例房间的截图，请放在仓库外，不要提交。
 

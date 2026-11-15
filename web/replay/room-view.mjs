@@ -42,7 +42,7 @@ function nodesFor(root, id) {
 
 export class RoomView {
   // files(rel) -> URL of an allowlisted run file; scaffold = {points, layout} URLs or null.
-  constructor(container, {files, scaffold, background = 0xc4c9ba,
+  constructor(container, {files, scaffold, background = getComputedStyle(container).getPropertyValue('--rc-canvas').trim(),
     palette = {pointsLo: 0x46523f, pointsHi: 0x9a8457, wall: 0x3e4739, box: 0x8a6a2e, built: 0xb07d2c}} = {}) {
     this.container = container;
     this.files = files;

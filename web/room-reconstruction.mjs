@@ -5,7 +5,7 @@ const labels = {ingest: '读取扫描与提取素材', reconstruct: '重建场�
 const SCAN_ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i;
 export function scanError(file, name) {
   if (!name.trim() || name.trim().length > 80) return '请填写房间名称（最多 80 个字符）。';
-  if (!file || !SCAN_ARCHIVE.test(file.name)) return '请选择完整的房间扫描包（ZIP 或 tar）。';
+  if (!file || !SCAN_ARCHIVE.test(file.name)) return '请选择完整的房间扫描包（ZIP、TAR、TAR.GZ 或 TGZ）。';
   if (!file.size || file.size > 2 * 1024 ** 3) return '扫描包需在 2 GB 以内且不能为空。';
   return '';
 }
@@ -37,6 +37,8 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
     $('submit-reconstruction').disabled = uploading || !connected || !!scanError(selected, $('reconstruction-name').value);
     $('reconstruction-name').disabled = uploading;
     $('reconstruction-file').disabled = uploading;
+    $('remove-scan').hidden = !selected;
+    $('remove-scan').disabled = uploading;
     $('close-reconstruction').disabled = uploading;
     $('submit-reconstruction').textContent = uploading ? '正在提交…' : '上传并开始重建';
   };
@@ -55,7 +57,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
   function pick(file) {
     if (uploading) return;
     selected = file; uploadID = null;
-    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入扫描包';
+    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入扫描 ZIP / TAR';
     report(file ? scanError(file, $('reconstruction-name').value || '房间') : '');
     controls();
   }
@@ -64,6 +66,14 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
   dialog.addEventListener('cancel', event => { if (uploading) event.preventDefault(); });
   $('check-reconstruction').onclick = check;
   $('reconstruction-file').onchange = event => pick(event.target.files[0]);
+  $('remove-scan').onclick = () => {
+    if (uploading) return;
+    $('reconstruction-file').value = '';
+    $('scan-upload-progress').hidden = true;
+    $('scan-progress').value = 0;
+    pick(null);
+    $('reconstruction-file').focus();
+  };
   $('reconstruction-name').oninput = () => {uploadID = null; controls();};
   const drop = $('scan-drop');
   drop.ondragover = event => {event.preventDefault(); if (!uploading) drop.classList.add('dragging');};
@@ -90,7 +100,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', API + '/jobs'); xhr.timeout = 15 * 60 * 1000;
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.setRequestHeader('Content-Type', /\.zip$/i.test(selected.name) ? 'application/zip' : 'application/octet-stream');
         xhr.setRequestHeader('X-Room-Name', encodeURIComponent(name));
         xhr.setRequestHeader('X-Upload-ID', uploadID);
         xhr.upload.onprogress = event => {
@@ -110,7 +120,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
       });
       dialog.close();
       form.reset(); selected = null; uploadID = null;
-      $('scan-selected').textContent = '选择或拖入扫描包';
+      $('scan-selected').textContent = '选择或拖入扫描 ZIP / TAR';
       await refresh();
       $('reconstruction-jobs').scrollIntoView({block: 'nearest'});
     } catch (error) { report(error.message); void refresh(); }

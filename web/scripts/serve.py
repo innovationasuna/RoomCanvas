@@ -264,7 +264,7 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError:
             return self.room_json(400, {'error': '上传长度无效'})
         if length < 0 or length > MAX_SCAN:
-            return self.room_json(413, {'error': '扫描 ZIP 不能超过 2 GB'})
+            return self.room_json(413, {'error': '扫描包不能超过 2 GB'})
         headers = {key: self.headers[key] for key in ('Content-Type', 'X-Room-Name', 'X-Upload-ID') if key in self.headers}
         headers['Content-Length'] = str(length)
         self.connection.settimeout(120)
