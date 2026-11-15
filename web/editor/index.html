@@ -55,8 +55,8 @@
   <button class="rc-tool" id="reset-layout" title="恢复原始物品、位置和朝向，可撤销">↻ 一键还原</button>
   <button class="rc-tool" id="list-toggle" aria-controls="warehouse-content" aria-expanded="false"><svg aria-hidden="true"><use href="#icon-layers"/></svg>物品库</button>
   <details class="rc-menu" id="import-menu" hidden>
-   <summary class="rc-tool" title="把用照片重建的物品按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物品</summary>
-   <div class="rc-menu-panel rc-import">
+   <summary class="rc-tool" aria-controls="import-model-panel" aria-expanded="false" title="把用照片重建的物品按真实尺寸放进房间"><svg aria-hidden="true"><use href="#icon-upload"/></svg>导入物品</summary>
+   <div class="rc-menu-panel rc-import" id="import-model-panel" role="region" aria-label="从已生成的模型添加">
     <label>已重建的物品<select id="import-run"></select></label>
     <div class="rc-import-size"><label>实测边<select id="import-axis"><option>X</option><option>Y</option><option>Z</option></select></label><label>长度（米）<input id="import-meters" type="number" min="0.01" max="100" step="0.01"></label></div>
     <p id="import-note" class="rc-scale-note"></p>
@@ -186,7 +186,7 @@
 <section class="rc-shelf" id="object-panel" aria-label="物品库" hidden>
  <div id="warehouse-content" hidden>
  <div class="rc-shelf-head"><span class="rc-shelf-title">物品库</span><span class="rc-counter" id="object-count">17 件物品</span><label class="rc-search"><span>⌕</span><input id="search" type="search" placeholder="搜索物品" aria-label="搜索场景物品"></label><button class="rc-tool" id="close-list" aria-label="收起物品库面板">×</button></div>
- <div class="rc-catalog" id="object-list" aria-label="可编辑物品"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong>添加物品</strong><small id="add-object-state">几张照片重建</small></span></button></div>
+ <div class="rc-catalog" id="object-list" aria-label="可编辑物品"><button type="button" class="object-row rc-add-card" id="add-object" aria-haspopup="dialog"><span class="rc-add-plus" aria-hidden="true">+</span><span class="object-copy"><strong id="add-object-label">添加物品</strong><small id="add-object-state">几张照片重建</small></span></button></div>
  </div>
 </section>
 </div>
@@ -196,11 +196,11 @@
   <button class="rc-tool" value="close" aria-label="关闭（重建在服务器上继续）">×</button></form>
  <section data-panel="photos">
   <p class="rc-dialog-note" id="add-capture-intro" hidden></p>
-  <label class="rc-field" id="add-name-field">名称<input id="add-name" maxlength="53" placeholder="例如：我的椅子" autocomplete="off"></label>
-  <label class="rc-drop" id="add-drop"><input id="add-files" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic" multiple hidden><strong>拖入照片，或点这里选择</strong><small>1 张也能重建；绕物品从不同角度多拍几张、物品完整入镜，效果更好</small></label>
+  <label class="rc-field" id="add-name-field">名称（必填）<input id="add-name" maxlength="53" placeholder="例如：我的椅子" autocomplete="off"></label>
+  <label class="rc-drop" id="add-drop"><input id="add-files" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.jpg,.jpeg,.png,.heic,.heif" multiple hidden><strong>拖入照片，或点这里选择</strong><small>支持 JPEG、PNG、HEIC / HEIF；识别为 HEIC / HEIF 的照片会自动转为 JPEG，无需改后缀</small><small>1 张也能重建；绕物品从不同角度多拍几张、物品完整入镜，效果更好</small></label>
   <div class="rc-photo-grid" id="add-photos"></div>
   <p class="rc-dialog-note" id="add-photos-note" aria-live="polite"></p>
-  <div class="rc-dialog-actions"><button type="button" class="rc-action" id="add-capture-cancel" hidden>不补拍了</button><button type="button" class="rc-action rc-confirm" id="add-upload" disabled>上传并抠图</button></div>
+  <div class="rc-dialog-actions rc-photo-actions"><button type="button" class="rc-action" id="add-more-photos" hidden>＋ 继续添加照片</button><button type="button" class="rc-action" id="add-capture-cancel" hidden>不补拍了</button><button type="button" class="rc-action rc-confirm" id="add-upload" disabled>上传并抠图</button></div>
  </section>
  <section data-panel="masks" hidden>
   <div class="rc-photo-grid" id="add-masks"></div>

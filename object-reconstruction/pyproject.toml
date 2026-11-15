@@ -1,9 +1,11 @@
 [build-system]
-requires = ["hatchling", "hatch-requirements-txt"]
+# The server installs with --no-build-isolation, so editable build helpers
+# must be bootstrapped alongside Hatchling before installing the project.
+requires = ["hatchling", "hatch-requirements-txt", "editables>=0.3,<1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.envs.default.env-vars]
-PIP_EXTRA_INDEX_URL = "https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
+PIP_EXTRA_INDEX_URL = "https://pypi.nvidia.com https://download.pytorch.org/whl/cu121"
 
 [tool.hatch.metadata]
 # for git-referenced dependencies

@@ -15,7 +15,11 @@
   --rc-active: #3c3c30;
   --rc-warn: #eea294;
   --rc-control: #62665b;
-  --rc-canvas: #c4c9ba;
+  --rc-canvas: #e8deca;
+  --rc-canvas-text: #4b4030;
+  --rc-canvas-muted: #78694f;
+  --rc-canvas-line: #cdbf9f;
+  --rc-canvas-accent: #a77d36;
   /* The hand pointer and what it points at. */
   --rc-hand: var(--rc-green);
   --rc-font: Manrope, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;

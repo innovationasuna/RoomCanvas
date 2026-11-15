@@ -139,7 +139,9 @@ h1 {margin:0;font-size:28px;line-height:1.4;font-weight:500;letter-spacing:-.5px
 .scan-upload.dragging {outline:2px solid var(--rc-green)}
 .scan-upload input {max-width:100%;font:inherit;color:var(--rc-muted)}
 .scan-upload input::file-selector-button {padding:8px 12px;margin-right:12px;background:var(--rc-field);color:var(--rc-text);border:1px solid var(--rc-control);border-radius:4px;cursor:pointer;font:inherit}
-.scan-upload p {margin:12px 0 0;font-size:13px;overflow-wrap:anywhere}
+.scan-selection {display:flex;align-items:center;gap:12px;margin-top:12px}
+.scan-selection p {flex:1;min-width:0;margin:0;font-size:13px;overflow-wrap:anywhere}
+.scan-selection button {flex-shrink:0}
 .scan-help,.scan-guide {font-size:13px;color:var(--rc-muted);line-height:1.8}
 .scan-guide summary {cursor:pointer;color:var(--rc-text)}
 .scan-guide ol {padding-left:20px}

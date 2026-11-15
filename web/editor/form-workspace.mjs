@@ -293,11 +293,12 @@ function createWorkspace() {
   search.querySelector('input').addEventListener('input', filterLibrary);
   clearFilter.onclick = () => {$('#search').value = ''; filterLibrary(); $('#search').focus();};
 
-  // Rail panels dock to the scene; project and import menus stay anchored to their buttons.
+  // Rail panels dock to the scene; imports expand inside the library footer.
   const menus = [...root.querySelectorAll('details.rc-menu')];
   // Closing surfaces stop accepting focus immediately, even while their visual exit finishes.
   function syncPanelInput() {
     const editing = root.dataset.mode === 'edit';
+    if (library.hidden || !editing || importMenu.hidden) importMenu.open = false;
     library.inert = library.hidden || !editing;
     gestureCard.inert = gestureCard.hidden;
     inspector.inert = inspector.hidden || !editing || (!library.hidden && (root.dataset.density === 'simple' || innerWidth <= 1100));
@@ -305,15 +306,17 @@ function createWorkspace() {
       const panel = menu.querySelector(':scope > .rc-menu-panel');
       if (panel) panel.inert = !menu.open;
     }
+    importMenu.querySelector('summary').setAttribute('aria-expanded', String(importMenu.open));
   }
   const inputObserver = new MutationObserver(syncPanelInput);
   inputObserver.observe(root, {attributes:true, attributeFilter:['data-mode','data-density']});
   for (const panel of [library, gestureCard, inspector]) inputObserver.observe(panel, {attributes:true, attributeFilter:['hidden']});
+  inputObserver.observe(importMenu, {attributes:true, attributeFilter:['hidden']});
   syncPanelInput();
   function positionMenus() {
     for (const menu of menus.filter(menu => menu.open)) {
       const panel = menu.querySelector(':scope > .rc-menu-panel'); if (!panel) continue;
-      if (menu.closest('.rc-environment-extra')) continue;
+      if (menu === importMenu || menu.closest('.rc-environment-extra')) continue;
       const inRail = !!menu.closest('.rc-sidebar');
       if (inRail) {
         // Match the library's edges without taking space away from the WebGL viewport.
@@ -340,8 +343,8 @@ function createWorkspace() {
       if (menu.id === 'light-menu') panels.setOpen('environment', menu.open);
       if (menu.id === 'tools-menu') panels.setOpen('tools', menu.open);
       if (menu.open) for (const other of menus) if (other !== menu && !other.contains(menu) && !menu.contains(other)) other.open = false;
-      positionMenus();
       syncPanelInput();
+      positionMenus();
     });
     menu.addEventListener('keydown', event => {
       event.stopPropagation();

@@ -6,6 +6,7 @@ Only loopback is exposed; use SSH forwarding to access a remote worker.
 """
 import argparse
 import fcntl
+import gzip
 import json
 import mimetypes
 import os
@@ -22,6 +23,7 @@ import threading
 import time
 import uuid
 import zipfile
+import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_replay  # noqa: E402
@@ -32,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PREFIX = '/room-reconstruction'
 MAX_UPLOAD = 2 * 1024**3
 MAX_EXPANDED = 8 * 1024**3
+MAX_ENTRIES = 50000
 STAGES = ['ingest', 'reconstruct', 'seed', 'author', 'publish']
 ASSETS = {'Room.glb', 'room_objects.json', 'thumbnail.jpg'}
 ID = r'[0-9a-f]{32}'
@@ -39,25 +42,21 @@ PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回�
 
 
 SCAN_SUFFIXES = {'.usdz', '.jpg', '.jpeg', '.png', '.json', '.mp4', '.obj', '.mtl', '.txt', '.ply', '.pcd', '.heic'}
-UNSAFE = '扫描包包含不安全的路径、链接或加密文件'
+UNSAFE = '扫描包包含不安全的路径、链接、特殊文件或加密文件'
 
 
 def _scan_entries(bundle):
-    """(name, size, open) for every file of a ZIP or tar (also .tar.gz) scan; links, devices and
-    encrypted entries are refused. Directories are skipped."""
-    if isinstance(bundle, zipfile.ZipFile):
-        for item in bundle.infolist():
+    """Yield bounded scan entries lazily. A directory has no opener; links and devices are refused."""
+    is_zip = isinstance(bundle, zipfile.ZipFile)
+    for item in bundle.infolist() if is_zip else bundle:
+        if is_zip:
             if stat.S_ISLNK(item.external_attr >> 16) or item.flag_bits & 1:
                 raise ValueError(UNSAFE)
-            if not item.is_dir():
-                yield item.filename, item.file_size, lambda item=item: bundle.open(item)
-        return
-    for item in bundle.getmembers():
-        if item.isdir():
-            continue
-        if not item.isfile():  # symlinks, hard links, devices, fifos
-            raise ValueError(UNSAFE)
-        yield item.name, item.size, lambda item=item: bundle.extractfile(item)
+            yield item.filename, item.file_size, None if item.is_dir() else lambda item=item: bundle.open(item)
+        else:
+            if not (item.isfile() or item.isdir()):
+                raise ValueError(UNSAFE)
+            yield item.name, item.size, None if item.isdir() else lambda item=item: bundle.extractfile(item)
 
 
 def _open_scan(archive):
@@ -77,15 +76,15 @@ def _open_scan(archive):
 def extract_scan(archive, destination):
     """Extract bounded data only from a ZIP or tar; reject links, traversal, duplicates and multiple captures."""
     with _open_scan(archive) as bundle:
-        entries = list(_scan_entries(bundle))
-        if len(entries) > 50000 or sum(size for _, size, _ in entries) > MAX_EXPANDED:
-            raise ValueError('扫描包解压后过大（上限 8 GB / 50,000 个文件）')
-        names = set()
-        for name, _, open_entry in entries:
+        names, expanded = set(), 0
+        for count, (name, size, open_entry) in enumerate(_scan_entries(bundle), 1):
+            expanded += size
+            if count > MAX_ENTRIES or size < 0 or expanded > MAX_EXPANDED:
+                raise ValueError('扫描包解压后过大（上限 8 GB / 50,000 个文件）')
             path = PurePosixPath(name)
             if path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name:
                 raise ValueError(UNSAFE)
-            if '__MACOSX' in path.parts or path.name.startswith('.'):
+            if open_entry is None or '__MACOSX' in path.parts or path.name.startswith('.'):
                 continue
             path = PurePosixPath(*[part for part in path.parts if part != '.'])  # tar names may start with ./
             if path.suffix.lower() not in SCAN_SUFFIXES:
@@ -420,7 +419,9 @@ class Handler(BaseHTTPRequestHandler):
                 archive.seek(0)
                 result = self.jobs.add(identifier, name, archive)
             self.respond(202, result)
-        except (ValueError, zipfile.BadZipFile, tarfile.TarError, NotImplementedError) as error:
+        except (tarfile.TarError, EOFError, gzip.BadGzipFile, zlib.error):
+            self.respond(400, {'error': '扫描包已损坏或不完整，请重新导出后上传'})
+        except (ValueError, zipfile.BadZipFile, NotImplementedError) as error:
             self.respond(400, {'error': str(error)})
         except (OSError, RuntimeError):
             self.respond(500, {'error': '扫描包未保存，请检查服务器磁盘和文件权限后重试'})

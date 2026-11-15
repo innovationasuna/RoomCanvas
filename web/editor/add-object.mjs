@@ -28,9 +28,6 @@ export function duration(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// A phone photo the server cannot read (HEIC and the like) is redrawn as JPEG when the browser can decode it.
-export const readable = (file) => file.type === 'image/jpeg' || file.type === 'image/png';
-
 async function reply(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `服务器出错（${response.status}）`);
