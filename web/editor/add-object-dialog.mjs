@@ -6,12 +6,13 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, readable, createObject, captureObject,
+import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, createObject, captureObject,
   startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest} from './add-object.mjs';
 import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs';
 import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs';
 import {createImportMaterials} from './import-materials.mjs';
 import {createEnvironmentLighting} from './environment-lighting.mjs';
+import {preparePhoto} from './object-photos.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const KEY = 'roomcanvas:add-object';
@@ -19,22 +20,10 @@ const remember = (value) => {try {value ? localStorage.setItem(KEY, JSON.stringi
 const recall = () => {try {return JSON.parse(localStorage.getItem(KEY) || 'null');} catch {return null;}};
 const sizeText = (size) => `宽 ${size[0].toFixed(2)} × 深 ${size[2].toFixed(2)} × 高 ${size[1].toFixed(2)} 米`;
 
-// HEIC and other formats the server does not take: redraw as JPEG if this browser can decode them.
-async function asJPEG(file) {
-  if (readable(file)) return file;
-  const bitmap = await createImageBitmap(file);
-  const canvas = Object.assign(document.createElement('canvas'), {width: bitmap.width, height: bitmap.height});
-  canvas.getContext('2d').drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', .92));
-  if (!blob) throw new Error('decode');
-  return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', {type: 'image/jpeg'});
-}
-
 export function mountAddObject({onReady, toast}) {
   const dialog = $('#add-object-dialog'), card = $('#add-object');
   // step: photos → masks → build → size. files: [{file, url}] before upload.
-  let state = {step: 'photos', files: []}, viewer = null;
+  let state = {step: 'photos', files: []}, viewer = null, preparing = false, uploading = false;
 
   function show(step) {
     state.step = step;
@@ -48,47 +37,76 @@ export function mountAddObject({onReady, toast}) {
     }
     if (step !== 'size') closeViewer();
   }
-  function cardState(text) {$('#add-object-state').textContent = text;}
+  function cardState(text, title = '添加物品') {
+    $('#add-object-label').textContent = title;
+    $('#add-object-state').textContent = text;
+  }
 
   // 1. Name and photos.
   function renderPhotos() {
     const grid = $('#add-photos');
+    grid.setAttribute('aria-busy', String(preparing));
     grid.replaceChildren(...state.files.map((entry, index) => {
       const cell = document.createElement('figure');
       cell.innerHTML = `<img alt=""><button type="button" class="rc-photo-remove" aria-label="去掉这张">×</button>`;
       cell.querySelector('img').src = entry.url;
+      cell.querySelector('img').alt = entry.file.name;
+      cell.querySelector('button').disabled = uploading;
       cell.querySelector('button').onclick = () => {URL.revokeObjectURL(entry.url); state.files.splice(index, 1); renderPhotos();};
       return cell;
     }));
     const count = state.files.length, name = state.parent ? state.object : objectName($('#add-name').value);
+    $('#add-drop').hidden = count > 0;
+    $('#add-more-photos').hidden = count === 0;
+    $('#add-more-photos').disabled = preparing || uploading;
     $('#add-name-field').hidden = !!state.parent;
     $('#add-capture-intro').hidden = $('#add-capture-cancel').hidden = !state.parent;
     if (state.parent) $('#add-capture-intro').textContent = `给「${state.object || state.parent}」补拍：原来的照片都保留，再加几张新角度（照着尺寸那一步的橙色箭头拍）。`;
-    $('#add-photos-note').textContent = count ? `${count} 张${count > MAX_PHOTOS ? `，最多 ${MAX_PHOTOS} 张` : ''}` : '';
-    $('#add-upload').disabled = !name || count < MIN_PHOTOS || count > MAX_PHOTOS;
+    $('#add-photos-note').textContent = [count ? `${count} 张${count > MAX_PHOTOS ? `，最多 ${MAX_PHOTOS} 张` : ''}` : '',
+      state.photoProgress, !name && count && !preparing && !uploading ? '请先填写物品名称，再上传并抠图。' : '', ...(state.photoErrors || [])].filter(Boolean).join('；');
+    $('#add-upload').disabled = preparing || uploading || !name || count < MIN_PHOTOS || count > MAX_PHOTOS;
+    $('#add-files').disabled = preparing || uploading;
   }
   async function addFiles(list) {
-    let refused = 0;
-    for (const file of list) {
-      if (!file.type.startsWith('image/') && !/\.hei[cf]$/i.test(file.name)) continue;
-      try {
-        const photo = await asJPEG(file);
-        state.files.push({file: photo, url: URL.createObjectURL(photo)});
-      } catch {refused++;}
+    if (preparing || uploading || !list.length) return;
+    const session = state;
+    preparing = true; session.photoErrors = [];
+    try {
+      for (const [index, file] of list.entries()) {
+        session.photoProgress = `正在读取照片 ${index + 1}/${list.length}…`;
+        renderPhotos();
+        try {
+          const entry = await preparePhoto(file, () => {
+            if (state !== session) return;
+            session.photoProgress = `照片 ${index + 1}/${list.length}：识别为 HEIC / HEIF，正在自动转换为 JPEG…`;
+            renderPhotos();
+          });
+          if (state !== session) {URL.revokeObjectURL(entry.url); return;}
+          session.files.push(entry);
+        } catch (error) {
+          if (state !== session) return;
+          session.photoErrors.push(error.message);
+        }
+      }
+    } finally {
+      preparing = false; session.photoProgress = '';
+      renderPhotos();
     }
-    renderPhotos();
-    if (refused) $('#add-photos-note').textContent = `${refused} 张读不了，请换成 JPEG 或 PNG`;
   }
   $('#add-files').onchange = () => {void addFiles([...$('#add-files').files]); $('#add-files').value = '';};
-  const drop = $('#add-drop');
-  drop.ondragover = (event) => {event.preventDefault(); drop.dataset.over = 'true';};
-  drop.ondragleave = () => {drop.dataset.over = 'false';};
-  drop.ondrop = (event) => {event.preventDefault(); drop.dataset.over = 'false'; void addFiles([...event.dataTransfer.files]);};
+  $('#add-more-photos').onclick = () => {if (!preparing && !uploading) $('#add-files').click();};
+  const drop = $('#add-drop'), photoPanel = dialog.querySelector('[data-panel="photos"]');
+  const dragState = value => {drop.dataset.over = $('#add-photos').dataset.over = String(value);};
+  // Keep accepting extra drops on the photo grid after the empty-state prompt is hidden.
+  photoPanel.ondragover = (event) => {event.preventDefault(); if (!preparing && !uploading) dragState(true);};
+  photoPanel.ondragleave = (event) => {if (!photoPanel.contains(event.relatedTarget)) dragState(false);};
+  photoPanel.ondrop = (event) => {event.preventDefault(); dragState(false); void addFiles([...event.dataTransfer.files]);};
   $('#add-name').oninput = renderPhotos;
   $('#add-upload').onclick = async () => {
+    if (preparing || uploading || $('#add-upload').disabled) return;
     const name = objectName($('#add-name').value), files = state.files.map((entry) => entry.file);
     const progress = (part) => {$('#add-photos-note').textContent = part < 1 ? `正在上传 ${Math.round(part * 100)}%` : '正在保存照片…';};
-    $('#add-upload').disabled = true;
+    uploading = true; renderPhotos();
     try {
       const created = state.parent ? await captureObject(state.parent, files, progress) : await createObject(name, files, progress);
       state.files.forEach((entry) => URL.revokeObjectURL(entry.url));
@@ -96,9 +114,9 @@ export function mountAddObject({onReady, toast}) {
         parent: created.parent || null, kept: new Set(created.kept || [])};
       await runMasks();
     } catch (error) {
+      uploading = false; renderPhotos();
       $('#add-photos-note').textContent = error.message;
-      $('#add-upload').disabled = false;
-    }
+    } finally {uploading = false; $('#add-files').disabled = preparing;}
   };
 
   // 2. Mask previews: the object is tinted green; click a photo to leave it out.
@@ -165,6 +183,7 @@ export function mountAddObject({onReady, toast}) {
   // 3. Reconstruction, followed on the server (a few minutes).
   async function runBuild() {
     show('build');
+    cardState('正在读取重建进度…', '重建物品中');
     $('#add-build-error').hidden = $('#add-build-again').hidden = true;
     const list = $('#add-stages');
     list.replaceChildren(...STAGES.map(([id, label]) => Object.assign(document.createElement('li'), {textContent: label, id: `add-stage-${id}`})));
@@ -173,17 +192,17 @@ export function mountAddObject({onReady, toast}) {
         const at = update.status === 'queued' ? 0 : Math.max(1, STAGES.findIndex(([id]) => id === update.stage));
         STAGES.forEach(([id], index) => {$(`#add-stage-${id}`).dataset.state = index < at ? 'done' : index === at ? 'current' : '';});
         $('#add-build-note').textContent = `${stageLabel(update)} · 已用时 ${duration(update.elapsed_seconds)}`;
-        cardState(`${stageLabel(update)} · ${duration(update.elapsed_seconds)}`);
+        cardState(`${stageLabel(update)} · ${duration(update.elapsed_seconds)}`, '重建物品中');
       });
       state.run = job.run;
       remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
-      cardState('重建好了，填尺寸');
-      if (!dialog.open) toast(`${state.object} 重建好了：点物品库里的“添加物品”填尺寸`);
+      cardState('重建好了，填尺寸', '物品重建完成');
+      if (!dialog.open) toast(`${state.object} 重建好了：点物品库里的“物品重建完成”填尺寸`);
       await openSize();
     } catch (error) {
       $('#add-build-error').hidden = $('#add-build-again').hidden = false;
       $('#add-build-error').textContent = `重建没完成：${error.message}`;
-      cardState('重建失败');
+      cardState('重建失败', '物品重建失败');
       remember(null);
     }
   }
@@ -368,7 +387,7 @@ export function mountAddObject({onReady, toast}) {
     if (!back) {reset(); return;}
     state.files.forEach((entry) => URL.revokeObjectURL(entry.url));
     state = {step: 'size', files: [], ...back};
-    cardState('重建好了，填尺寸');
+    cardState('重建好了，填尺寸', '物品重建完成');
     void openSize();
   };
 
@@ -395,7 +414,7 @@ export function mountAddObject({onReady, toast}) {
   const saved = recall();
   if (saved?.build) {
     state = {step: 'build', files: [], object: saved.object, build: saved.build, run: saved.run, parent: saved.parent || null};
-    if (saved.run) {cardState('重建好了，填尺寸'); show('size');}
+    if (saved.run) {cardState('重建好了，填尺寸', '物品重建完成'); show('size');}
     else void runBuild();
   }
   return {capture};
