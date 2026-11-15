@@ -93,7 +93,7 @@ const entities = new Map();
 const ceilingObjects = [], selectedMeshes = [];
 const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#c4c9ba');
+scene.background = new THREE.Color(getComputedStyle(host).getPropertyValue('--rc-canvas').trim());
 const orbitCamera = new THREE.PerspectiveCamera(45, 1, .02, 3000);
 const planCamera = new THREE.OrthographicCamera(-5, 5, 4, -4, .02, 3000);
 let camera = orbitCamera;

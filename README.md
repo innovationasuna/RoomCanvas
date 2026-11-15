@@ -116,7 +116,7 @@
 - 房间重建还需要已登录的 Codex CLI，并在 `.env` 填写 API 密钥。
 
 ```bash
-git clone https://github.com/innovationasuna/RoomCanvas.git
+GIT_TRACE=1 GIT_TRANSFER_TRACE=1 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
 sh scripts/setup_server.sh            # 可先加 --dry-run 只看步骤；已装好的部分会跳过
 ```
@@ -128,7 +128,7 @@ SAM 3D、TRELLIS.2、DA3 等模型默认从 ModelScope 下载（`MODEL_SOURCE=mo
 **本机**：克隆仓库，一条命令启动网页并连上服务器。
 
 ```bash
-git clone https://github.com/innovationasuna/RoomCanvas.git
+GIT_TRACE=1 GIT_TRANSFER_TRACE=1 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```

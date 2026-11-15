@@ -14,7 +14,8 @@
   html, body {margin: 0; height: 100%;}
   body {display: grid; grid-template-rows: 64px minmax(0, 1fr) 74px; height: 100vh; overflow: hidden; font-size: 14px; line-height: 1.5;}
   button {font: inherit; color: var(--rc-text); cursor: pointer; border: 1px solid var(--rc-line); background: var(--rc-raised); border-radius: 8px; padding: 4px 10px;}
-  button:hover {border-color: var(--rc-control);}
+  button:is(:hover, :focus-visible, :active) {border-color: var(--rc-green); color: var(--rc-green); background: var(--rc-active);}
+  :is(a, button):focus-visible {outline: 2px solid var(--rc-green); outline-offset: 4px;}
   svg {width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;}
   /* Header: same height, padding, icon and type as the room list (web/home.css .home-header). */
   header {display: flex; align-items: center; gap: 24px; padding: 0 24px; background: var(--rc-bg); border-bottom: 1px solid var(--rc-line); min-width: 0;}
@@ -28,6 +29,7 @@
   [hidden] {display: none !important;}
   header .result {margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 13px;}
   header .back {font-size: 13px; color: var(--rc-muted); text-decoration: none; white-space: nowrap;}
+  header .back:is(:hover, :focus-visible, :active) {color: var(--rc-green);}
   .tag {display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 99px;}
   .tag.warn {background: #3d2f2a; color: var(--rc-warn);}
   .tag.ok {background: var(--rc-active); color: var(--rc-green);}
@@ -45,7 +47,8 @@
   .chip .app {font-size: 11px; color: var(--rc-muted); background: var(--rc-raised); border: 1px solid var(--rc-line); border-radius: 5px; padding: 0 6px; white-space: nowrap;}
   .chip.err {background: #3a2b27; border-color: #6b4a42;}
   .chip:hover {border-color: var(--rc-control);}
-  .chip.now {border-color: #75674b; background: var(--rc-active);}
+  .chip.now {border-color: var(--rc-green); background: var(--rc-active); color: var(--rc-green);}
+  .chip.now .app {color: var(--rc-green);}
   .stage-h {font-size: 12px; color: var(--rc-muted); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px;}
   .stage-h::after {content: ''; flex: 1; border-top: 1px solid var(--rc-line);}
   .pending {font-size: 13px; color: var(--rc-muted);}
@@ -63,7 +66,7 @@
   .plan .name.fail {color: var(--rc-warn);}
   .plan .desc {font-size: 12.5px; color: var(--rc-muted);}
   .stagewrap {position: relative; min-width: 0; min-height: 0;}
-  .view {position: absolute; inset: 0; background: #c4c9ba; overflow: hidden;}
+  .view {position: absolute; inset: 0; background: var(--rc-canvas); overflow: hidden;}
   .view > canvas {width: 100%; height: 100%;}
   .loading {position: absolute; inset: 0; display: grid; place-items: center; color: #47513f; font-size: 13px; z-index: 1;}
   .loading.error {color: #8a3d33;}
@@ -85,8 +88,8 @@
   .btns button {width: 36px; height: 32px; padding: 0; display: grid; place-items: center;}
   .btns svg {pointer-events: none;}
   .btns #play {background: var(--rc-green); border-color: var(--rc-green); color: var(--rc-bg);}
-  .track {position: relative; height: 40px; cursor: pointer; touch-action: none;}
-  .track .seg {position: absolute; top: 9px; height: 8px; border-radius: 3px; background: var(--rc-line);}
+  .track {--track-center: 13px; position: relative; height: 40px; cursor: pointer; touch-action: none; user-select: none;}
+  .track .seg {position: absolute; top: calc(var(--track-center) - 4px); height: 8px; border-radius: 3px; background: var(--rc-line);}
   .track .seg .fill {position: absolute; inset: 0; right: auto; border-radius: 3px; background: var(--rc-fill);}
   .track .lab {position: absolute; top: 22px; font-size: 11.5px; color: var(--rc-muted); white-space: nowrap;}
   .track .lab.now {color: var(--rc-green); font-weight: 600; z-index: 1; background: var(--rc-bg); padding-right: 6px;}
@@ -94,7 +97,7 @@
   .track .lab.tight {visibility: hidden;}
   .track .lab.now.tight {visibility: visible;}
   .track .lab.covered {visibility: hidden;}
-  .track .head {position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--rc-green); border: 2px solid var(--rc-bg); box-shadow: 0 0 0 1px var(--rc-green); pointer-events: none;}
+  .track .head {position: absolute; top: var(--track-center); width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--rc-green); border: 2px solid var(--rc-bg); box-shadow: 0 0 0 1px var(--rc-green); pointer-events: none;}
   .track .mk {position: absolute; top: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; pointer-events: none;}
   .track .mk.v {background: var(--rc-text);}
   .track .mk.r {background: var(--rc-amber);}
