@@ -125,8 +125,9 @@ export class Materializer {
     this.spare = [];              // {points, wireMats} of finished effects
   }
 
-  // held: the object stays hidden until release(), e.g. while the camera moves in.
-  start(node, {held = false} = {}) {
+  // held: the object stays hidden until release(), e.g. while the camera moves in. delay: seconds it stays hidden
+  // after that, so a group taking shape together forms one after another (its points are sampled only then).
+  start(node, {held = false, delay = 0} = {}) {
     this.finish(node);
     node.updateWorldMatrix(true, true);
     const meshes = [];
@@ -134,22 +135,7 @@ export class Materializer {
     const box = new THREE.Box3();
     meshes.forEach((o) => box.expandByObject(o));
     if (!meshes.length || box.isEmpty()) return;
-    const {points: target, colors, triangles} = surface(meshes);
-    const n = target.length / 3;
-    if (!n) return;
     const size = box.getSize(new THREE.Vector3()), reach = Math.max(size.x, size.y, size.z);
-
-    // The object's own colour; some points lighter so the cloud sparkles. Sampling order is random, so drawing
-    // the first k points lights them up scattered over the whole shape.
-    const col = new Float32Array(n * 3), tmp = new THREE.Color(), white = new THREE.Color(1, 1, 1);
-    for (let k = 0; k < n; k++) {
-      tmp.fromArray(colors, k * 3).multiplyScalar(1.15);
-      if (Math.random() < 0.15) tmp.lerp(white, 0.45);
-      tmp.toArray(col, k * 3);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(target, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const lo = box.min.y - 0.01, hi = box.max.y + 0.01;
     const wireTop = new THREE.Plane(new THREE.Vector3(0, -1, 0), lo);      // keeps y <= cut
     const wireAbove = new THREE.Plane(new THREE.Vector3(0, 1, 0), -lo);    // keeps y >= cut (points above the wire)
@@ -157,22 +143,10 @@ export class Materializer {
     const solidAbove = new THREE.Plane(new THREE.Vector3(0, 1, 0), -lo);
     // Fine points, sized to the object: a chair's are about a centimetre and a half across.
     const dotSize = THREE.MathUtils.clamp(reach * 0.014, 0.012, 0.03);
-    // Points and wires sit on surfaces that may already show (a panel on a wall, a rug on the floor): drawn a
-    // little towards the camera, so they do not flicker against them.
-    const ahead = {polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8};
-    const kit = this.spare.pop() || {
-      points: lifted(new THREE.PointsMaterial({map: dot(), vertexColors: true, transparent: true, depthWrite: false})),
-      wireMats: [
-        new THREE.MeshBasicMaterial({color: this.wire, wireframe: true, transparent: true, opacity: 0.7, depthWrite: false, ...ahead}),
-        new THREE.MeshBasicMaterial({color: this.wire, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide, ...ahead}),
-      ],
-    };
+    const kit = this.spare.pop() || this.kit();
     kit.points.size = dotSize;
     kit.points.clippingPlanes = [wireAbove];
     kit.wireMats.forEach((m) => (m.clippingPlanes = [wireTop, solidAbove]));
-    const cloud = new THREE.Points(geo, kit.points);
-    cloud.frustumCulled = false;
-    this.scene.add(cloud);
 
     // Wireframe and a faint fill between the surface front and the wire front.
     const wireMats = kit.wireMats;
@@ -180,8 +154,7 @@ export class Materializer {
     for (const o of meshes) {
       const orig = o.material, list = [orig].flat();
       const clones = list.map((m) => {
-        let c = this.clones.get(m);
-        if (!c || this.busy.has(c)) {c = m.clone(); this.clones.set(m, c);}
+        const c = this.busy.has(this.clones.get(m)) ? this.clipped(m, true) : this.clipped(m);
         this.busy.add(c);
         c.clippingPlanes = [solidTop];
         return c;
@@ -196,10 +169,46 @@ export class Materializer {
         extras.push(w);
       }
     }
-    const e = {node, t: 0, held, n, cloud, kit, swaps, extras, triangles, lo, hi,
+    const e = {node, t: -delay, held, meshes, n: 0, cloud: null, kit, swaps, extras, triangles: 0, lo, hi,
       planes: {wireTop, wireAbove, solidTop, solidAbove}};
     this.active.set(node, e);
     this.place(e);
+  }
+
+  // The clipped copy of a material an object shows while it takes shape (fresh: a second one).
+  clipped(m, fresh = false) {
+    let c = this.clones.get(m);
+    if (!c || fresh) {
+      c = m.clone();
+      c.clippingPlanes = [new THREE.Plane()];
+      this.clones.set(m, c);
+    }
+    return c;
+  }
+
+  // Stand-ins drawn with the points' and wires' materials, for the room view to compile ahead with the clipped
+  // copies: a shader is compiled the first time it is drawn with a given number of clipping planes, which
+  // stalls the page for about a second.
+  standIns() {
+    const kit = this.spare.at(-1) || this.spare[this.spare.push(this.kit()) - 1];
+    const plane = new THREE.Plane(), geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    kit.points.clippingPlanes = [plane];
+    kit.wireMats.forEach((m) => (m.clippingPlanes = [plane, plane]));
+    return [new THREE.Points(geo, kit.points), ...kit.wireMats.map((m) => new THREE.Mesh(geo, m))];
+  }
+
+  kit() {
+    // Points and wires sit on surfaces that may already show (a panel on a wall, a rug on the floor): drawn a
+    // little towards the camera, so they do not flicker against them.
+    const ahead = {polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8};
+    return {
+      points: lifted(new THREE.PointsMaterial({map: dot(), vertexColors: true, transparent: true, depthWrite: false})),
+      wireMats: [
+        new THREE.MeshBasicMaterial({color: this.wire, wireframe: true, transparent: true, opacity: 0.7, depthWrite: false, ...ahead}),
+        new THREE.MeshBasicMaterial({color: this.wire, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide, ...ahead}),
+      ],
+    };
   }
 
   // Let held objects take shape.
@@ -214,9 +223,30 @@ export class Materializer {
     }
   }
 
+  // The points on the object's surface, in its own colour; some lighter so the cloud sparkles. Sampling order is
+  // random, so drawing the first k points lights them up scattered over the whole shape.
+  sample(e) {
+    const {points: target, colors, triangles} = surface(e.meshes);
+    const n = target.length / 3;
+    const col = new Float32Array(n * 3), tmp = new THREE.Color(), white = new THREE.Color(1, 1, 1);
+    for (let k = 0; k < n; k++) {
+      tmp.fromArray(colors, k * 3).multiplyScalar(1.15);
+      if (Math.random() < 0.15) tmp.lerp(white, 0.45);
+      tmp.toArray(col, k * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(target, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    e.cloud = new THREE.Points(geo, e.kit.points);
+    e.cloud.frustumCulled = false;
+    this.scene.add(e.cloud);
+    Object.assign(e, {n, triangles});
+  }
+
   place(e) {
-    const {t, n} = e;
-    e.cloud.geometry.setDrawRange(0, Math.round(n * span(t, APPEAR)));
+    const {t} = e;
+    if (!e.cloud && t >= 0) this.sample(e);
+    e.cloud?.geometry.setDrawRange(0, Math.round(e.n * span(t, APPEAR)));
     const wire = e.lo + (e.hi - e.lo) * span(t, WIRE), solid = e.lo + (e.hi - e.lo) * span(t, SOLID);
     e.planes.wireTop.constant = wire; e.planes.wireAbove.constant = -wire;
     e.planes.solidTop.constant = solid; e.planes.solidAbove.constant = -solid;
@@ -241,8 +271,8 @@ export class Materializer {
     this.active.delete(node);
     for (const s of e.swaps) {s.o.material = s.orig; s.clones.forEach((c) => this.busy.delete(c));}
     e.extras.forEach((w) => w.removeFromParent());
-    e.cloud.removeFromParent();
-    e.cloud.geometry.dispose();
+    e.cloud?.removeFromParent();
+    e.cloud?.geometry.dispose();
     this.spare.push(e.kit);
   }
 

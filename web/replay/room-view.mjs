@@ -26,7 +26,10 @@ const WALLISH = /^(Wall\d|Door\d|Window\d)|Drape|Sheer|Curtain|Panorama|Bulkhead
 const HIDDEN = /^Ceiling/i;
 const SHELL = /^(Floor|Wall)\d+$/;
 const CLOSE_POLAR = 1.0;  // rad from straight down: looking at an object a little from above
+const HIGH_POLAR = 0.7;   // a steeper look, over what stands in front
 const MAX_WAIT = 2200;    // ms an object waits for the camera before taking shape anyway
+const MAX_GROUP = 40;     // more objects appearing at once than this is the whole model being shown: no forming
+const CASCADE_STEP = 0.25, CASCADE_SECONDS = 4;  // objects appearing together start this far apart, all within
 
 // Pipeline object ids -> nodes of the assembled room: Bed0 stays Bed0; the k-th door / window becomes Door<k> /
 // Window<k>; a chair cluster stands for every Chair node.
@@ -38,6 +41,13 @@ function nodesFor(root, id) {
   const opening = id.match(/_(Door|Window)_\d+$/);
   if (opening) return top.filter((o) => o.name === opening[1] + Math.max(root.userData.openings?.[opening[1]]?.indexOf(id) ?? 0, 0));
   return [];
+}
+
+// A model node by its name, or the room objects a pipeline id stands for (a chair cluster's chairs, a door).
+function partsOf(root, key) {
+  if (!root) return [];
+  const node = root.getObjectByName(key);
+  return node ? [node] : nodesFor(root, key);
 }
 
 export class RoomView {
@@ -286,28 +296,38 @@ export class RoomView {
     return root;
   }
 
-  // Compile, in the background, the shaders of every object, and upload its textures: objects stay hidden
-  // until built, and would otherwise do both when they appear, stalling the page. The proxies stay alive:
-  // disposing them would drop the compiled programs.
-  warm(root) {
-    const group = new THREE.Group(), seen = new Set(), textures = new Set();
+  // Compile, in the background, the shaders of every object (also of the clipped copies it takes shape with),
+  // and upload its textures, a few per frame: objects stay hidden until built, and would otherwise do both
+  // when they appear, stalling the page. The proxies stay alive: disposing them would drop the compiled programs.
+  async warm(root) {
+    const group = new THREE.Group(), seen = new Map(), textures = new Set();
     root.updateWorldMatrix(true, true);
     root.traverse((o) => {
       if (!o.isMesh || o.userData.mask) return;
       for (const m of [o.material].flat()) {
         if (seen.has(m)) continue;
-        seen.add(m);
+        seen.set(m, o);
         for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) if (m[k]) textures.add(m[k]);
-        const proxy = new THREE.Mesh(o.geometry, m);
-        proxy.matrixAutoUpdate = false;
-        proxy.matrix.copy(o.matrixWorld);
-        group.add(proxy);
       }
     });
-    textures.forEach((t) => this.renderer.initTexture(t));
+    const add = (proxy, o) => {
+      proxy.matrixAutoUpdate = false;
+      if (o) proxy.matrix.copy(o.matrixWorld);
+      group.add(proxy);
+    };
+    for (const [m, o] of seen) {
+      add(new THREE.Mesh(o.geometry, m), o);
+      add(new THREE.Mesh(o.geometry, this.forming.clipped(m)), o);
+    }
+    this.forming.standIns().forEach((x) => add(x));
     root.userData.warm = group;
     group.updateMatrixWorld(true);
     this.renderer.compileAsync(group, this.camera, this.scene).catch(() => {});
+    let k = 0;
+    for (const t of textures) {
+      this.renderer.initTexture(t);
+      if (++k % 4 === 0) await new Promise((r) => requestAnimationFrame(r));
+    }
   }
 
   setFade(root, f) {
@@ -340,8 +360,9 @@ export class RoomView {
       entry.root.visible = true;
       this.setFade(entry.root, 0);
     }
-    // The state was applied while the model was loading (e.g. after a seek while paused): apply it again now.
-    if (this.state) this.apply(this.state, {...this.lastOptions, quiet: true});
+    // The state was applied while the model was loading (e.g. after a seek while paused): apply it again now,
+    // as quietly as it was asked for (while playing, what appears with the model takes shape).
+    if (this.state) this.apply(this.state, {...this.lastOptions, quiet});
   }
 
   // The finished room, lit like the editor's 物理光照: the editor's own rig (../editor/time-lighting.mjs), so
@@ -440,8 +461,9 @@ export class RoomView {
     }
     if (quiet) this.forming.finishAll();
     const {shown: placed, appeared} = this.revealed(partial, state.built, openings);
-    // A finished object takes shape in the room (not when many appear at once, e.g. the whole model is saved).
-    if (!quiet && this.current === 'seed' && appeared.length <= 12) appeared.forEach((node) => this.materialize(node));
+    // A finished object takes shape in the room; several at once (a set of chairs) one after another. Not when
+    // the whole model appears at once.
+    if (!quiet && (this.current === 'seed' || this.incoming === 'seed') && appeared.length <= MAX_GROUP) this.materialize(appeared);
     this.reveal(state.model === 'final' ? state.added : null, quiet);
     for (const [id, group] of Object.entries(this.boxes)) {
       const done = state.built.has(id);
@@ -460,23 +482,32 @@ export class RoomView {
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
   // while playing fades in; after a seek it is simply there.
   reveal(added, quiet) {
-    const root = this.models.final?.root, all = this.lastOptions?.addedAll;
+    const root = this.models.final?.root, all = this.lastOptions?.addedAll, appeared = [];
     if (!root || !all) return;
+    const inView = this.current === 'final' || this.incoming === 'final';
+    // The parts already there when the final model comes in take shape too, rather than fade in with it.
+    const fresh = added && inView && this.partsShown !== root;
+    if (inView) this.partsShown = added ? root : null;
     for (const name of all) {
       const node = root.getObjectByName(name);
       if (!node) continue;
       const show = !HIDDEN.test(name) && (!added || added.has(name));  // the ceiling stays hidden
-      const appears = show && !node.visible;
+      const appears = show && (!node.visible || fresh);
       node.visible = show;
-      if (appears && !quiet && this.current === 'final') this.materialize(node);
+      if (appears && !quiet && inView) appeared.push(node);
     }
+    this.materialize(appeared);
   }
 
-  // The object waits (hidden) until the camera has moved in, then takes shape.
-  materialize(node) {
-    if (this.calm.matches) return;
+  // The objects wait (hidden) until the camera has moved in, then take shape: from the floor up, one after
+  // another within a few seconds.
+  materialize(nodes) {
+    if (this.calm.matches || !nodes.length) return;
     if (!this.forming.waiting()) this.heldSince = performance.now();
-    this.forming.start(node, {held: !this.userHeld});
+    const low = (o) => new THREE.Box3().setFromObject(o).min;
+    const order = nodes.map((o) => [o, low(o)]).sort(([, a], [, b]) => Math.round(a.y * 5) - Math.round(b.y * 5) || a.x + a.z - b.x - b.z);
+    const step = Math.min(CASCADE_STEP, CASCADE_SECONDS / nodes.length);
+    order.forEach(([node], k) => this.forming.start(node, {held: !this.userHeld, delay: k * step}));
   }
 
   // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown and the
@@ -499,8 +530,9 @@ export class RoomView {
   boundsOf(key) {
     const box = new THREE.Box3();
     const root = this.current && this.models[this.current]?.root;
-    const node = root?.getObjectByName(key) || this.models.final?.root?.getObjectByName(key);
-    if (node) box.expandByObject(node);
+    const nodes = partsOf(root, key);
+    if (!nodes.length) nodes.push(...partsOf(this.models.final?.root, key));
+    if (nodes.length) nodes.forEach((n) => box.expandByObject(n));
     else if (this.boxes[key]) box.setFromObject(this.boxes[key]);
     return box;
   }
@@ -521,42 +553,77 @@ export class RoomView {
       this.aimTo = {az, polar: null, dist: null, target: this.center.clone().lerp(o, 0.4), at: 0};
       return true;
     }
+    // Already in clear view from where the camera is: stay, rather than moving for every object.
+    if (this.wellSeen(keys, box)) return false;
     // Close: the object fills most of the view, seen from where nothing stands in front of it.
-    const dist = THREE.MathUtils.clamp(size / 2 * 3.2, 2.2, this.defaultDist * 0.7), polar = CLOSE_POLAR;
-    this.aimTo = {az: this.clearView(keys, box, az, dist, polar), polar, dist, target: o, at: 0, close: true};
+    const dist = THREE.MathUtils.clamp(size / 2 * 3.2, 2.2, this.defaultDist * 0.7);
+    const {az: best, polar} = this.clearView(keys, box, az, dist);
+    this.aimTo = {az: best, polar, dist, target: o, at: 0, close: true};
     return true;
   }
 
-  // The direction (azimuth) to look at a box from: least hidden by other objects, inside the room, little turning.
-  clearView(keys, box, preferred, dist, polar) {
+  // What could stand between the camera and the given objects: furniture, and (counted less, as near walls
+  // fade) walls, pillars and openings.
+  blockers(keys) {
     const root = this.models[this.incoming || this.current]?.root, mine = new Set();
-    for (const k of keys) root?.getObjectByName(k)?.traverse((o) => mine.add(o));
-    const blockers = [];
+    for (const k of keys) partsOf(root, k).forEach((n) => n.traverse((o) => mine.add(o)));
+    const things = [], walls = [];
     root?.traverse((o) => {
-      if (!o.isMesh || o.userData.mask || mine.has(o) || !visibleFrom(o, root)) return;
-      for (let p = o; p && p !== root; p = p.parent) if (WALLISH.test(p.name) || SHELL.test(p.name)) return;  // walls fade
-      blockers.push(o);
+      if (!o.isMesh || o.userData.mask || mine.has(o) || !visibleFrom(o, root) || /^Floor/.test(o.name)) return;
+      let wall = false;
+      for (let p = o; p && p !== root; p = p.parent) if (WALLISH.test(p.name) || SHELL.test(p.name)) wall = true;
+      (wall ? walls : things).push(o);
     });
+    return {things, walls};
+  }
+
+  // Points of a box to keep in sight: its middle and four upper corners pulled in.
+  static marks(box) {
     const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3()).multiplyScalar(0.35);
-    const marks = [c, ...[[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([x, z]) => c.clone().add(new THREE.Vector3(x * s.x, s.y, z * s.z)))];
+    return [c, ...[[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([x, z]) => c.clone().add(new THREE.Vector3(x * s.x, s.y, z * s.z)))];
+  }
+
+  // Share of the marks hidden from cam (0..1; a wall in front counts less).
+  static hidden(cam, marks, {things, walls}) {
+    const ray = new THREE.Raycaster(), d = new THREE.Vector3();
+    let hidden = 0;
+    for (const m of marks) {
+      d.subVectors(m, cam);
+      ray.set(cam, d.clone().normalize());
+      ray.far = d.length() - 0.05;
+      hidden += ray.intersectObjects(things, false).length ? 1 : ray.intersectObjects(walls, false).length ? 0.5 : 0;
+    }
+    return hidden / marks.length;
+  }
+
+  // The objects fill a fair part of the view, inside it, and nothing hides them.
+  wellSeen(keys, box) {
+    if (this.aimTo && !this.aimTo.close) return false;
+    const cam = this.camera, pts = [];
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) pts.push(new THREE.Vector3(x, y, z).project(cam));
+    if (pts.some((q) => Math.abs(q.x) > 0.8 || Math.abs(q.y) > 0.8 || q.z > 1)) return false;
+    const reach = Math.max(...pts.map((q) => q.x)) - Math.min(...pts.map((q) => q.x)), tall = Math.max(...pts.map((q) => q.y)) - Math.min(...pts.map((q) => q.y));
+    if (Math.max(reach, tall) < 0.45) return false;
+    return RoomView.hidden(cam.position, RoomView.marks(box), this.blockers(keys)) === 0;
+  }
+
+  // Where to look at a box from (azimuth, polar): least hidden, inside the room and clear of its walls, little
+  // turning; a higher view when the usual one is blocked.
+  clearView(keys, box, preferred, dist) {
+    const blockers = this.blockers(keys), marks = RoomView.marks(box), c = box.getCenter(new THREE.Vector3());
     const now = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target)).theta;
-    const ray = new THREE.Raycaster(), cam = new THREE.Vector3(), d = new THREE.Vector3();
-    const inside = this.room?.clone().expandByScalar(-0.15);
-    let best = preferred, bestScore = Infinity;
-    for (const step of [0, 1, -1, 2, -2, 3, -3, 4, -4, 6]) {
-      const az = preferred + step * Math.PI / 6;
-      cam.copy(c).add(new THREE.Vector3().setFromSphericalCoords(dist, polar, az));
-      let hidden = 0;
-      for (const m of marks) {
-        d.subVectors(m, cam);
-        ray.set(cam, d.clone().normalize());
-        ray.far = d.length() - 0.05;
-        if (ray.intersectObjects(blockers, false).length) hidden++;
+    const cam = new THREE.Vector3();
+    const inside = this.room?.clone().expandByScalar(-0.4);
+    let best = {az: preferred, polar: CLOSE_POLAR}, bestScore = Infinity;
+    for (const [polar, cost] of [[CLOSE_POLAR, 0], [HIGH_POLAR, 0.25]]) {
+      for (const step of [0, 1, -1, 2, -2, 3, -3, 4, -4, 6]) {
+        const az = preferred + step * Math.PI / 6;
+        cam.copy(c).add(new THREE.Vector3().setFromSphericalCoords(dist, polar, az));
+        const outside = inside && !inside.isEmpty() && !inside.containsPoint(new THREE.Vector3(cam.x, inside.min.y, cam.z)) ? 1 : 0;
+        const turn = Math.abs(Math.atan2(Math.sin(az - now), Math.cos(az - now)));
+        const score = RoomView.hidden(cam, marks, blockers) * 3 + outside * 1.5 + turn * 0.15 + cost;
+        if (score < bestScore) {bestScore = score; best = {az, polar};}
       }
-      const outside = inside && !inside.isEmpty() && !inside.containsPoint(new THREE.Vector3(cam.x, inside.min.y, cam.z)) ? 1 : 0;
-      const turn = Math.abs(Math.atan2(Math.sin(az - now), Math.cos(az - now)));
-      const score = hidden / marks.length * 3 + outside * 1.5 + turn * 0.15;
-      if (score < bestScore) {bestScore = score; best = az;}
     }
     return best;
   }
@@ -593,7 +660,7 @@ export class RoomView {
       if (a) {
         const dTheta = a.az == null ? 0 : Math.atan2(Math.sin(a.az - sph.theta), Math.cos(a.az - sph.theta));
         // Moving in close to watch an object is quicker, so the camera is there when it takes shape.
-        const time = a.close ? 0.55 : 1.1, fast = a.close ? 2.5 : 1;
+        const time = a.close ? 0.9 : 1.3, fast = a.close ? 1.6 : 1;
         if (a.az == null) {v.theta *= Math.exp(-dt * 4); sph.theta += v.theta * dt;}
         else {const [o, nv] = smoothDamp(0, dTheta, v.theta, time, 0.9 * fast, dt); sph.theta += o; v.theta = nv;}
         if (a.polar != null) {const [o, nv] = smoothDamp(sph.phi, a.polar, v.phi, time, 0.6 * fast, dt); sph.phi = o; v.phi = nv;}
