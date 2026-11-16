@@ -1,5 +1,5 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
-import {buildTimeline, clock, sceneAt, outcome, withoutScores, DURATION} from './timeline.mjs';
+import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DURATION} from './timeline.mjs';
 
 // Playback length: set by the timeline (longer when many objects take shape).
 const span = () => tl?.duration ?? DURATION;
@@ -10,9 +10,11 @@ const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
 const api = `/room-reconstruction/jobs/${job}/replay`;
 const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
-const KIND = {tool: '操作', image: '图片', result: '检查', error: '出错'};
+const KIND = {tool: '操作', image: '图片', result: '检查'};
 const POLL = 5000;
-const WATCH = 3400;  // ms the camera stays on an object once there: it takes shape in 3 s
+// ms the camera stays on an object once there (it takes shape in 3 s); long enough that it goes on to the
+// next object rather than backing out in between.
+const WATCH = 6000;
 
 let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
@@ -44,7 +46,9 @@ async function choose() {
 async function fetchData() {
   const response = await fetch(api, {cache: 'no-store'});
   if (!response.ok) throw new Error(response.status === 404 ? '没有找到这个重建任务' : '房间重建服务未连接');
-  return response.json();
+  const data = await response.json();
+  data.events = withoutErrors(data.events || []);
+  return data;
 }
 
 async function start() {
@@ -116,7 +120,7 @@ function rebuild() {
 
 // ---------- left: the record, newest at the bottom ----------
 const talk = (e) => `<p class="say ${e.kind === 'milestone' ? 'ms' : e.kind === 'review' ? 'rv' : ''}" data-i="${e.i}">${esc(withoutScores(e.say))}</p>`;
-const chip = (e) => `<div class="chip ${e.kind === 'error' ? 'err' : ''}" data-i="${e.i}"><span class="app">${KIND[e.kind] || '操作'}</span><span>${esc(withoutScores(e.say))}</span></div>`;
+const chip = (e) => `<div class="chip" data-i="${e.i}"><span class="app">${KIND[e.kind] || '操作'}</span><span>${esc(withoutScores(e.say))}</span></div>`;
 const shot = (e) => e.img ? `<div class="shot" data-z="${e.i}"><img src="${files(e.img)}" alt="" loading="lazy"></div>` : '';
 function renderLog(idx) {
   if (idx < shownTo) {
@@ -251,9 +255,9 @@ function render(t, p, force = false) {
     // A job that stopped after an acceptance review ends with that verdict, not as a crash.
     const failed = data.status === 'failed' && done && !result;
     $('planN').textContent = data.live ? `进行中 · 第 ${si + 1} 步 / 共 ${data.stages.length} 步` : done ? '重建结束' : `第 ${si + 1} 步 / 共 ${data.stages.length} 步`;
-    $('planName').textContent = failed ? '重建中途出错' : result ? (result.repaired ? '已修复' : result.passed ? '检查通过' : '没有通过检查') : st?.name || '等待开始';
-    $('planName').classList.toggle('fail', failed || (result && !result.passed));
-    $('planDesc').textContent = failed ? '服务器上的重建没有完成，可以在任务列表里重试。' : result ? result.text : st?.desc || '';
+    $('planName').textContent = failed ? '重建还没完成' : result ? (result.repaired ? '已修复' : result.passed ? '检查通过' : '没有通过检查') : st?.name || '等待开始';
+    $('planName').classList.toggle('fail', !!(result && !result.passed));
+    $('planDesc').textContent = failed ? '这次停在了中途，在任务列表里点“重试”，会接着已做好的部分继续。' : result ? result.text : st?.desc || '';
     $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.repaired ? '已修复' : result.passed ? '检查通过' : '没通过检查 · 没有发布'}</span>` : '';
   }
   const scene = sceneAt(tl, t);
@@ -272,5 +276,13 @@ function render(t, p, force = false) {
   if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   renderLog(idx);
 }
+
+// A picture squeezed into a thin strip (a narrow wall's stitch or mask) shows as a dark bar: leave it out.
+$('log').addEventListener('load', (event) => {
+  const img = event.target;
+  if (img.tagName !== 'IMG' || !img.naturalHeight) return;
+  const ratio = img.naturalWidth / img.naturalHeight;
+  if (ratio < 0.4 || ratio > 4) img.closest('.shot')?.remove();
+}, true);
 
 start();
