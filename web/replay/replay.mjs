@@ -12,7 +12,9 @@ const api = `/room-reconstruction/jobs/${job}/replay`;
 const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
 const KIND = {tool: '操作', image: '图片', result: '检查'};
 const POLL = 5000;
-const WATCH = 3400;  // ms the camera stays on an object once there: it takes shape in 3 s
+// ms the camera stays on an object once there (it takes shape in 3 s); long enough that it goes on to the
+// next object rather than backing out in between.
+const WATCH = 6000;
 
 let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
