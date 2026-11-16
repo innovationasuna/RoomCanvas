@@ -1,0 +1,2 @@
+timestamp,label,preset,shadow,width,height,frames,skipped,wall_s,avg_fps,interval_p50_ms,interval_p95_ms,interval_p99_ms,cpu_p50_ms,cpu_p95_ms,cpu_p99_ms,gpu_avg_ms,gpu_p50_ms,gpu_p95_ms,gpu_p99_ms,gpu_samples
+2026-11-08T23:48:28,pc04_long,p4,pcss,2640,1200,35684,4,594.927,59.9792,15.7373,28.7081,29.6184,0.8945,2.8564,3.5055,13.4297,13.6514,14.5521,14.7312,35684

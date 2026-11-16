@@ -10,16 +10,13 @@ import io.github.sceneview.SceneView
 import io.github.sceneview.node.ModelNode
 
 /**
- * RoomCanvas physical 配方的实时移动端版本：IBL + 日光 + 顶灯 + 窗户入光。
- * Blender 的 Nishita/面积光/路径追踪在这里分别由 HDR IBL、聚光/点光与 PCSS 近似。
+ * RoomCanvas 物理配方的实时移动端版本：IBL + 顶灯 + 窗户入光。
+ * 不使用日光与实时阴影；接触暗部由 SSAO 提供。
  */
 class PhysicalRoomLighting(private val sceneView: SceneView) {
     companion object {
         const val ENVIRONMENT_INTENSITY = 0.25f
         private const val TAG = "PhysicalRoomLighting"
-        private const val SUN_INTENSITY_LUX = 2500f
-        private const val SUN_TEMPERATURE_K = 6500f
-        private const val LOCAL_SHADOW_MAP_SIZE = 512
     }
 
     private val lightEntities = mutableListOf<Int>()
@@ -27,11 +24,11 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
     var quality = RoomRenderQuality.BASELINE
         private set
 
-    var debugLightSummary = "lights=0 shadowRequests=0"
+    var debugLightSummary = "lights=0"
         private set
 
     init {
-        // 禁用 SceneView 默认的 100000 lux 主光，避免材质被照成一片白色。
+        // 不使用 SceneView 默认主光；房间照明由局部灯 + IBL 提供。
         sceneView.mainLightNode = null
         sceneView.cameraNode.setExposure(0.7f, 1.0f / 125.0f, 100.0f)
         applyQuality(RoomRenderQuality.BASELINE)
@@ -40,18 +37,8 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
     fun applyQuality(value: RoomRenderQuality) {
         quality = value
         sceneView.view.apply {
-            setShadowingEnabled(value.shadowsEnabled)
-            setShadowType(
-                when (value.shadowFilter) {
-                    ShadowFilter.PCSS -> View.ShadowType.PCSS
-                    ShadowFilter.DPCF -> View.ShadowType.DPCF
-                    ShadowFilter.PCF -> View.ShadowType.PCF
-                }
-            )
-            softShadowOptions = View.SoftShadowOptions().apply {
-                penumbraScale = 1.0f
-                penumbraRatioScale = 1.0f
-            }
+            // 产品不使用实时阴影：全局关闭，材质与灯光均不参与阴影 pass。
+            setShadowingEnabled(false)
             toneMapping = View.ToneMapping.ACES
             setAmbientOcclusion(View.AmbientOcclusion.SSAO)
             ambientOcclusionOptions = ambientOcclusionOptions.apply {
@@ -75,54 +62,28 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
 
     fun applyTo(modelNode: ModelNode) {
         clearLights()
-        modelNode.isShadowCaster = true
-        modelNode.isShadowReceiver = true
+        modelNode.isShadowCaster = false
+        modelNode.isShadowReceiver = false
 
-        // 与参考实现一致：glTF 已包含灯具时优先使用，不再叠加自动灯光。
+        // glTF 自带灯具时优先使用，不再叠加自动灯光。
         if (modelNode.lightNodes.isNotEmpty()) {
-            val lightManager = sceneView.engine.lightManager
-            var retainedWindowShadow = false
-            modelNode.lightNodes.forEach { light ->
-                val instance = lightManager.getInstance(light.entity)
-                val type = if (instance != 0) lightManager.getType(instance) else null
-                val isSpot = type == LightManager.Type.SPOT || type == LightManager.Type.FOCUSED_SPOT
-                val castShadows = if (quality.singleWindowShadowOnly) {
-                    isSpot && !retainedWindowShadow
-                } else {
-                    true
-                }
-                if (castShadows && isSpot) retainedWindowShadow = true
-                light.isShadowCaster = castShadows
-            }
-            debugLightSummary = "lights=${modelNode.lightNodes.size} " +
-                "shadowRequests=${modelNode.lightNodes.count { it.isShadowCaster }} gltfLights=true"
-            Log.i(TAG, "物理光影：使用模型自带的 ${modelNode.lightNodes.size} 盏灯")
+            modelNode.lightNodes.forEach { it.isShadowCaster = false }
+            debugLightSummary = "lights=${modelNode.lightNodes.size} gltfLights=true"
+            Log.i(TAG, "物理光影：使用模型自带的 ${modelNode.lightNodes.size} 盏灯（无实时阴影）")
             return
         }
 
         val parts = collectNamedBounds(modelNode)
         val room = RoomLightLayout.shellBounds(parts, modelNode.boundingBox.toRoomBounds())
-        createSun()
         val localLights = RoomLightLayout.plan(room, parts)
-        var retainedWindowShadow = false
-        var shadowRequests = 1
-        localLights.forEach { spec ->
-            val castShadows = if (quality.singleWindowShadowOnly) {
-                spec.kind == RoomLightKind.WINDOW && !retainedWindowShadow
-            } else {
-                true
-            }
-            if (castShadows && spec.kind == RoomLightKind.WINDOW) retainedWindowShadow = true
-            if (castShadows) shadowRequests++
-            createLocalLight(spec, castShadows)
-        }
-        debugLightSummary = "lights=${lightEntities.size} shadowRequests=$shadowRequests " +
+        localLights.forEach(::createLocalLight)
+        debugLightSummary = "lights=${lightEntities.size} " +
             "ceiling=${localLights.count { it.kind == RoomLightKind.CEILING }} " +
             "window=${localLights.count { it.kind == RoomLightKind.WINDOW }} gltfLights=false"
         Log.i(
             TAG,
-            "物理光影：日光 2500 lux，局部灯 ${localLights.size} 盏，" +
-                "$debugLightSummary，ACES + ${quality.shadowFilter} + SSAO=${quality.ssaoEnabled}"
+            "物理光影：局部灯 ${localLights.size} 盏，$debugLightSummary，" +
+                "ACES + SSAO=${quality.ssaoEnabled}"
         )
     }
 
@@ -135,34 +96,8 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         lightEntities.clear()
     }
 
-    private fun createSun() {
-        val direction = RoomLightLayout.sunDirection()
-        val color = Colors.illuminantD(SUN_TEMPERATURE_K)
-        val shadow = LightManager.ShadowOptions().apply {
-            mapSize = quality.sunShadowMapSize
-            shadowCascades = quality.sunCascadeCount
-            stable = true
-        }
-        val entity = EntityManager.get().create()
-        LightManager.Builder(LightManager.Type.SUN)
-            .direction(direction.x, direction.y, direction.z)
-            .color(color[0], color[1], color[2])
-            .intensity(SUN_INTENSITY_LUX)
-            .sunAngularRadius(Math.toRadians(1.5).toFloat())
-            .castShadows(true)
-            .shadowOptions(shadow)
-            .build(sceneView.engine, entity)
-        sceneView.scene.addEntity(entity)
-        lightEntities += entity
-    }
-
-    private fun createLocalLight(spec: RoomLightSpec, castShadows: Boolean) {
+    private fun createLocalLight(spec: RoomLightSpec) {
         val color = Colors.illuminantD(spec.temperatureKelvin)
-        val shadow = LightManager.ShadowOptions().apply {
-            mapSize = LOCAL_SHADOW_MAP_SIZE
-            shadowFar = spec.falloff
-            shadowBulbRadius = spec.bulbRadius
-        }
         val builder = LightManager.Builder(
             if (spec.kind == RoomLightKind.WINDOW) {
                 LightManager.Type.FOCUSED_SPOT
@@ -174,8 +109,7 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
             .color(color[0], color[1], color[2])
             .intensity(spec.watts, LightManager.EFFICIENCY_LED)
             .falloff(spec.falloff)
-            .castShadows(castShadows)
-            .shadowOptions(shadow)
+            .castShadows(false)
 
         spec.direction?.let {
             builder.direction(it.x, it.y, it.z)

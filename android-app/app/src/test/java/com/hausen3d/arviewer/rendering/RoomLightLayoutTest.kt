@@ -80,20 +80,14 @@ class RoomLightLayoutTest {
     }
 
     @Test
-    fun `local light budget is respected and sun points downward`() {
+    fun `local light budget is respected`() {
         val parts = (0 until 6).map {
             NamedRoomBounds("Ceiling$it", bounds(it.toFloat(), 1.1f, 0f, it + 1f, 1.2f, 1f))
         }
 
         assertEquals(3, RoomLightLayout.plan(room, parts, maxLocalLights = 3).size)
         assertTrue(RoomLightLayout.plan(room, parts, maxLocalLights = 0).isEmpty())
-        val sun = RoomLightLayout.sunDirection()
-        assertTrue(sun.y < 0f)
-        assertEquals(1f, sun.length(), 1e-5f)
-        assertEquals(-sqrt(1f - cos40() * cos40()), sun.y, 1e-5f)
     }
-
-    private fun cos40() = kotlin.math.cos(Math.toRadians(40.0)).toFloat()
 
     private fun assertVecEquals(expected: Vec3, actual: Vec3) {
         assertEquals(expected.x, actual.x, 1e-5f)

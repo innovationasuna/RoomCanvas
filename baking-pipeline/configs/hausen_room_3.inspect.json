@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "roomId": "hausen_room_3",
+  "sourceModel": "../.tmp_room_model.glb",
+  "expectedSha256": "486a1f024b2366c0ca83103f0a2bd26bc661e075d0bc2edfb01c4fcc128779d7",
+  "sourceProvenance": {
+    "deviceSerial": "MDX0220B11015404",
+    "deviceModel": "ELS-AN00",
+    "displayName": "Hausen_Room_3.glb",
+    "originalDevicePath": "/sdcard/Download/Hausen_Room_3.glb",
+    "importedDevicePath": "/data/user/0/com.hausen3d.arviewer/files/models/current/Hausen_Room_3-1793549601499.glb",
+    "verifiedOn": "2026-11-01",
+    "note": "Workspace .tmp_room_model.glb is the same file as the phone's Hausen_Room_3.glb (size and SHA-256 match). It is the model used by the Stage 0 A0-A7 performance rows."
+  },
+  "classification": {
+    "animatedNodePolicy": "Exclude every animated target and all descendants.",
+    "transparentMaterialPolicy": "Exclude meshes using transmission or non-opaque alpha materials.",
+    "excludedNodePatterns": [],
+    "exclusionReason": "Shadow proxy candidates keep the same conservative policy: no animated subtree, no transparent/transmissive material."
+  }
+}

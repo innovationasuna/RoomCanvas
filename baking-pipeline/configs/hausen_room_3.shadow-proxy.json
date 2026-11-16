@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "roomId": "hausen_room_3",
+  "sourceModel": "../.tmp_room_model.glb",
+  "expectedSha256": "486a1f024b2366c0ca83103f0a2bd26bc661e075d0bc2edfb01c4fcc128779d7",
+  "sourceInspection": "output/hausen_room_3/b0/source-inspection.json",
+  "proxy": {
+    "role": "static_bake",
+    "minSourceTriangles": 2000,
+    "decimateRatio": 0.05,
+    "minOutputTriangles": 500,
+    "excludeNodePatterns": ["^Loose_score_pages"],
+    "materialName": "ShadowProxyOpaque",
+    "material": {
+      "baseColor": [0.5, 0.5, 0.5, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "note": "Static opaque meshes only. Dynamic animated nodes and transmissive/backdrop meshes keep the original real-time geometry and casting."
+  },
+  "output": {
+    "glb": "output/hausen_room_3/shadow-proxy/hausen_room_3.shadowproxy.glb",
+    "report": "output/hausen_room_3/shadow-proxy/shadow-proxy-report.json",
+    "validation": "output/hausen_room_3/shadow-proxy/validation-report.json"
+  },
+  "validation": {
+    "maxTotalTrianglePercent": 10.0,
+    "maxBoundsDeltaMeters": 0.02,
+    "reportBoundsDeltaToleranceMeters": 0.005,
+    "triangleCountTolerance": 2
+  },
+  "androidAsset": "../AndroidApp/app/src/main/assets/shadow_proxies/hausen_room_3.shadowproxy.glb"
+}

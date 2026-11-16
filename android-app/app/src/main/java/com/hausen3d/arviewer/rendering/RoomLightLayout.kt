@@ -1,7 +1,5 @@
 package com.hausen3d.arviewer.rendering
 
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 data class Vec3(val x: Float, val y: Float, val z: Float)
@@ -60,20 +58,8 @@ object RoomLightLayout {
     const val WINDOW_TEMPERATURE_K = 6500f
     const val WINDOW_INSET_M = 0.08f
     const val WINDOW_BULB_RADIUS_M = 0.20f
-    const val SUN_ELEVATION_DEGREES = 40f
-    const val SUN_ROTATION_DEGREES = 35f
 
     private val windowGroup = Regex("^window(?:[_-]?\\d+)?", RegexOption.IGNORE_CASE)
-
-    fun sunDirection(): Vec3 {
-        val elevation = Math.toRadians(SUN_ELEVATION_DEGREES.toDouble())
-        val rotation = Math.toRadians(SUN_ROTATION_DEGREES.toDouble())
-        return Vec3(
-            (-cos(elevation) * sin(rotation)).toFloat(),
-            (-sin(elevation)).toFloat(),
-            (-cos(elevation) * cos(rotation)).toFloat()
-        )
-    }
 
     fun shellBounds(parts: List<NamedRoomBounds>, fallback: RoomBounds): RoomBounds {
         return parts.filter {

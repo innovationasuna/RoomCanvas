@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import subprocess
 import time
 from datetime import datetime
+from pathlib import Path
 
-from run_stage0_device import ADB, ENV, EXPERIMENTS, OUTPUT, adb, battery_state
+from run_stage0_device import ADB, ENV, EXPERIMENTS, OUTPUT as STAGE0_ROOT, adb, battery_state
 
 VIEWS = (("entry", "02-entry.png"), ("piano", "01-piano.png"))
+
+
+def resolve_output(value):
+    """--output-dir 相对路径按阶段0根目录解析，与采样脚本保持一致。"""
+    path = STAGE0_ROOT if not value else Path(value)
+    if value and not path.is_absolute():
+        path = STAGE0_ROOT / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def capture(path):
@@ -23,8 +34,16 @@ def capture(path):
     path.write_bytes(result.stdout)
 
 
-def capture_view(experiment, view, output_name):
-    directory = OUTPUT / "visual" / experiment
+def validate_tag(tag):
+    if tag is None:
+        return
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", tag) or tag in (".", ".."):
+        raise ValueError(f"Unsafe --tag value: {tag!r}")
+
+
+def capture_view(experiment, view, output_name, output, tag=None):
+    directory_name = experiment if not tag else f"{experiment}-{tag}"
+    directory = output / "visual" / directory_name
     directory.mkdir(parents=True, exist_ok=True)
     log_path = directory / f"capture-{view}.log"
     adb("logcat", "-c")
@@ -67,11 +86,19 @@ def capture_view(experiment, view, output_name):
 def main():
     parser = argparse.ArgumentParser(description="Capture exact fixed-pose visual A/B images")
     parser.add_argument("--experiment", choices=EXPERIMENTS, required=True)
+    parser.add_argument("--tag")
+    parser.add_argument(
+        "--output-dir",
+        help="输出目录；相对路径按“阶段0”根目录解析，默认阶段0根目录",
+    )
     args = parser.parse_args()
+    validate_tag(args.tag)
+    output = resolve_output(args.output_dir)
     battery_before = battery_state()
     for view, output_name in VIEWS:
-        capture_view(args.experiment, view, output_name)
-        print(f"Saved {OUTPUT / 'visual' / args.experiment / output_name}")
+        capture_view(args.experiment, view, output_name, output, args.tag)
+        directory_name = args.experiment if not args.tag else f"{args.experiment}-{args.tag}"
+        print(f"Saved {output / 'visual' / directory_name / output_name}")
     metadata = {
         "experiment": args.experiment,
         "capturedAt": datetime.now().astimezone().isoformat(),
@@ -79,7 +106,8 @@ def main():
         "batteryAfter": battery_state(),
         "note": "Exact controller poses are set through the debug-only capture intent. These visual captures are independent of performance runs.",
     }
-    directory = OUTPUT / "visual" / args.experiment
+    directory_name = args.experiment if not args.tag else f"{args.experiment}-{args.tag}"
+    directory = output / "visual" / directory_name
     (directory / "capture-meta.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

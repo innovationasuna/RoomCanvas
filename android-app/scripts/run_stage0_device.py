@@ -10,21 +10,24 @@ from pathlib import Path
 
 EXPERIMENTS = [
     "A0",
-    "A1_DPCF",
-    "A1_PCF",
     "A2",
     "A3_090",
     "A3_075",
-    "A4_CASCADE2",
-    "A4_MAP512",
-    "A5",
-    "A6",
     "A7",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "项目文档/手机端软件开发/光影渲染性能基线/阶段0"
 ADB = os.environ.get("ADB", r"D:\Android\AndroidSDK\platform-tools\adb.exe")
 ENV = dict(os.environ, MSYS_NO_PATHCONV="1")
+
+
+def resolve_output(value: str | None) -> Path:
+    """--output-dir 相对路径按阶段0根目录解析，绝对路径原样使用。"""
+    path = OUTPUT if not value else Path(value)
+    if value and not path.is_absolute():
+        path = OUTPUT / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def adb(*args, capture=False, check=True, cwd=None):
@@ -87,12 +90,12 @@ def read_summary(log_path):
     return None
 
 
-def start_perfetto(experiment, run_number):
+def start_perfetto(experiment, run_number, output):
     trace_name = f"{experiment}-run{run_number}.pftrace"
     remote_trace = f"/data/misc/perfetto-traces/{trace_name}"
-    local_trace = OUTPUT / trace_name
-    console_log = (OUTPUT / f"{experiment}-run{run_number}-perfetto.log").open("wb")
-    with (OUTPUT / "perfetto-config.pbtxt").open("rb") as config:
+    local_trace = output / trace_name
+    console_log = (output / f"{experiment}-run{run_number}-perfetto.log").open("wb")
+    with (output / "perfetto-config.pbtxt").open("rb") as config:
         process = subprocess.Popen(
             [ADB, "shell", "perfetto", "-c", "-", "--txt", "-o", remote_trace],
             env=ENV,
@@ -103,9 +106,16 @@ def start_perfetto(experiment, run_number):
     return process, console_log, remote_trace, local_trace
 
 
-def run_one(experiment, run_number, with_perfetto, cool_below_tenths=None, max_cooldown_seconds=900):
-    log_path = OUTPUT / f"{experiment}-run{run_number}.log"
-    meta_path = OUTPUT / f"{experiment}-run{run_number}-meta.json"
+def run_one(
+    experiment,
+    run_number,
+    with_perfetto,
+    output,
+    cool_below_tenths=None,
+    max_cooldown_seconds=900,
+):
+    log_path = output / f"{experiment}-run{run_number}.log"
+    meta_path = output / f"{experiment}-run{run_number}-meta.json"
     existing = read_summary(log_path)
     if existing:
         print(f"SKIP {experiment} run {run_number}: summary already exists", flush=True)
@@ -172,7 +182,7 @@ def run_one(experiment, run_number, with_perfetto, cool_below_tenths=None, max_c
         if with_perfetto:
             time.sleep(max(0, 20 - (time.monotonic() - started_monotonic)))
             trace_process, trace_console, remote_trace, local_trace = start_perfetto(
-                experiment, run_number
+                experiment, run_number, output
             )
 
         time.sleep(max(0, 85 - (time.monotonic() - started_monotonic)))
@@ -241,21 +251,63 @@ def main():
     parser = argparse.ArgumentParser(description="Run repeatable Stage 0 A/B sampling on the connected P40 Pro")
     parser.add_argument("--experiment", choices=EXPERIMENTS)
     parser.add_argument("--all", action="store_true")
+    parser.add_argument(
+        "--sequence",
+        help="逗号分隔的实验按轮次交替执行（如 A0,L0）；每轮内顺序固定，run 号即配对号",
+    )
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--run-number", type=int)
+    parser.add_argument(
+        "--run-offset",
+        type=int,
+        default=0,
+        help="序列模式的 run 号偏移；同目录追加阶段 B 时用它避免覆盖已有证据",
+    )
     parser.add_argument("--perfetto-first", action="store_true")
     parser.add_argument("--perfetto", action="store_true")
     parser.add_argument("--cool-below-tenths", type=int)
     parser.add_argument("--max-cooldown-seconds", type=int, default=900)
+    parser.add_argument(
+        "--output-dir",
+        help="输出目录；相对路径按“阶段0”根目录解析，默认直接写阶段0根目录",
+    )
     args = parser.parse_args()
-    if not args.all and not args.experiment:
-        parser.error("Specify --experiment or --all")
+    sequence = []
+    if args.sequence:
+        sequence = [item.strip() for item in args.sequence.split(",") if item.strip()]
+        invalid = [item for item in sequence if item not in EXPERIMENTS]
+        if invalid:
+            parser.error(f"Unknown experiments in --sequence: {invalid}")
+        if args.all or args.experiment or args.run_number is not None:
+            parser.error("--sequence cannot be combined with --experiment/--all/--run-number")
+    elif not args.all and not args.experiment:
+        parser.error("Specify --experiment, --all or --sequence")
     if args.repeats < 1 or (args.run_number is not None and not 1 <= args.run_number <= args.repeats):
         parser.error("Invalid repeat/run number")
+    if args.run_offset < 0:
+        parser.error("Invalid --run-offset")
 
     devices = adb("devices", capture=True)
     if "ELS-AN00" not in devices and "\tdevice" not in devices:
         raise RuntimeError(f"No authorized Android device:\n{devices}")
+
+    output = resolve_output(args.output_dir)
+    print(f"OUTPUT {output}", flush=True)
+
+    if sequence:
+        # 同一个 run 号内按 sequence 顺序执行，保证 A0/L0 成对且热状态相邻。
+        for run_number in range(args.run_offset + 1, args.run_offset + args.repeats + 1):
+            for experiment in sequence:
+                run_one(
+                    experiment,
+                    run_number,
+                    with_perfetto=args.perfetto
+                    or (args.perfetto_first and run_number == 1),
+                    output=output,
+                    cool_below_tenths=args.cool_below_tenths,
+                    max_cooldown_seconds=args.max_cooldown_seconds,
+                )
+        return
 
     targets = EXPERIMENTS if args.all else [args.experiment]
     for experiment in targets:
@@ -265,6 +317,7 @@ def main():
                 experiment,
                 run_number,
                 with_perfetto=args.perfetto or (args.perfetto_first and run_number == 1),
+                output=output,
                 cool_below_tenths=args.cool_below_tenths,
                 max_cooldown_seconds=args.max_cooldown_seconds,
             )

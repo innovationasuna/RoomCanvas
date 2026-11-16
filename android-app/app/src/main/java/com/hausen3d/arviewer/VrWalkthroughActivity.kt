@@ -804,6 +804,10 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 }
 
                 applyRenderExperiment(experiment)
+                if (currentExperiment != experiment) {
+                    Log.w(TAG, "诊断实验未启用：${experiment.name}")
+                    return
+                }
                 if (!started) startWalkthrough()
                 if (!started) {
                     Log.w(TAG, "诊断实验无法进入漫游：${experiment.name}")
@@ -844,6 +848,10 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 }
 
                 applyRenderExperiment(experiment)
+                if (currentExperiment != experiment) {
+                    Log.w(TAG, "视觉对照实验未启用：${experiment.name}")
+                    return
+                }
                 perfMonitor.cancelRun()
                 debugCameraTrackRunning = false
                 debugFreezeArPose = true

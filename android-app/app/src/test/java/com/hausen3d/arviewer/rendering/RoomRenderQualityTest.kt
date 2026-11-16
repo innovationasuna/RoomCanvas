@@ -1,18 +1,13 @@
 package com.hausen3d.arviewer.rendering
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomRenderQualityTest {
     private val baselineFields = listOf<(RoomRenderQuality) -> Any>(
-        { it.shadowFilter },
         { it.ssaoEnabled },
         { it.resolutionScale },
-        { it.sunCascadeCount },
-        { it.sunShadowMapSize },
-        { it.singleWindowShadowOnly },
-        { it.shadowsEnabled },
         { it.arEnabled }
     )
 
@@ -20,7 +15,7 @@ class RoomRenderQualityTest {
     fun everySupportedExperimentChangesExactlyOneVariable() {
         val baseline = RoomRenderQuality.BASELINE
         val experiments = RenderExperiment.values()
-            .filter { it.isSupported && it != RenderExperiment.A0 }
+            .filter { it.isSupported && it.quality != baseline }
 
         for (experiment in experiments) {
             val changedFields = baselineFields.count { field ->
@@ -34,19 +29,15 @@ class RoomRenderQualityTest {
     fun baselineRetainsAcceptedVisualConfiguration() {
         val quality = RoomRenderQuality.BASELINE
 
-        assertEquals(ShadowFilter.PCSS, quality.shadowFilter)
-        assertEquals(true, quality.ssaoEnabled)
+        assertTrue(quality.ssaoEnabled)
         assertEquals(1.0f, quality.resolutionScale)
-        assertEquals(4, quality.sunCascadeCount)
-        assertEquals(1024, quality.sunShadowMapSize)
-        assertEquals(false, quality.singleWindowShadowOnly)
-        assertEquals(true, quality.shadowsEnabled)
-        assertEquals(true, quality.arEnabled)
+        assertTrue(quality.arEnabled)
     }
 
     @Test
-    fun a8CannotRunWithoutShadowProxy() {
-        assertFalse(RenderExperiment.A8.isSupported)
-        assertEquals(RoomRenderQuality.BASELINE, RenderExperiment.A8.quality)
+    fun remainingExperimentsAreSupported() {
+        for (experiment in RenderExperiment.values()) {
+            assertTrue(experiment.name, experiment.isSupported)
+        }
     }
 }

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "roomId": "example_room_2",
+  "sourceModel": "../测试模型/Example_Room_2.glb",
+  "expectedSha256": "812c8efe501630f3e2a0e5e72560178099f2c88658e38b83843e80ea778ced9a",
+  "sourceInspection": "output/example_room_2/b0/source-inspection.json",
+  "proxy": {
+    "role": "static_bake",
+    "minSourceTriangles": 2000,
+    "decimateRatio": 0.05,
+    "minOutputTriangles": 500,
+    "materialName": "ShadowProxyOpaque",
+    "material": {
+      "baseColor": [0.5, 0.5, 0.5, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "note": "Static opaque meshes only. Dynamic animated nodes and transmissive/backdrop meshes keep the original real-time geometry and casting."
+  },
+  "output": {
+    "glb": "output/example_room_2/shadow-proxy/example_room_2.shadowproxy.glb",
+    "report": "output/example_room_2/shadow-proxy/shadow-proxy-report.json",
+    "validation": "output/example_room_2/shadow-proxy/validation-report.json"
+  },
+  "validation": {
+    "maxTotalTrianglePercent": 10.0,
+    "maxBoundsDeltaMeters": 0.02,
+    "reportBoundsDeltaToleranceMeters": 0.005,
+    "triangleCountTolerance": 2
+  },
+  "androidAsset": "../AndroidApp/app/src/main/assets/shadow_proxies/example_room_2.shadowproxy.glb"
+}
