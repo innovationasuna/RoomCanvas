@@ -12,7 +12,7 @@
 
 </div>
 
-![RoomCanvas 编辑器：示例办公室](docs/images/editor-office-9942e734.jpg)
+![RoomCanvas 编辑器：Room_3934 场景总览，展示长桌、会客区、书柜与照片墙](docs/images/room-3934-2026-11-16/overview.png)
 
 用 iPhone（LiDAR + RoomPlan）扫一遍房间，RoomCanvas 把它重建成带纹理、尺寸真实的三维模型，每件家具都是独立、可以挪动的物体。想买的新东西拍几张照片就能按真实大小加进来；用鼠标或摄像头手势摆放，碰撞和是否放稳实时检查，看放不放得下、好不好看。
 
@@ -89,16 +89,16 @@
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/office-placement-9c254315.jpg" alt="摆放家具"><br><sub><b>摆放</b>：选中办公椅，查看尺寸与位置，用摇杆、转盘和升降拉杆调整</sub></td>
-<td width="50%"><img src="docs/images/office-preview-9a75c444.jpg" alt="体验模式"><br><sub><b>体验</b>：查看房间，可点击可动部件或“走进房间”漫游</sub></td>
+<td width="50%"><img src="docs/images/room-3934-2026-11-16/placement.png" alt="选中长桌，右侧显示尺寸、位置和移动、旋转、升降工具"><br><sub><b>摆放</b>：选中长桌，查看尺寸与位置，通过移动、旋转和升降工具调整摆放</sub></td>
+<td width="50%"><img src="docs/images/room-3934-2026-11-16/experience.png" alt="Room_3934 体验模式与走进房间入口"><br><sub><b>体验</b>：收起物品编辑面板，查看长桌、会客区与书柜布局，点击“走进房间”进入漫游</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/office-night-98cf7a26.jpg" alt="夜间光照"><br><sub><b>夜间</b>：日光关掉，中央顶灯照亮房间</sub></td>
-<td><img src="docs/images/add-object-c5609fc2.jpg" alt="添加物品"><br><sub><b>添加物品</b>：选择照片 → 确认范围 → 生成模型 → 确认尺寸</sub></td>
+<td><img src="docs/images/room-3934-2026-11-16/night-lighting.png" alt="环境面板选择夜间时段，中央顶灯照亮长桌与照片墙"><br><sub><b>夜间</b>：在环境面板切换夜间时段，开启中央顶灯，查看家具与墙面的照明和阴影</sub></td>
+<td><img src="docs/images/room-3934-2026-11-16/add-object.png" alt="通过照片添加物品对话框，展示名称输入和照片选择区域"><br><sub><b>添加物品</b>：从物品库打开照片添加入口，填写名称并选择照片；后续依次确认范围、生成模型和确认尺寸</sub></td>
 </tr>
 </table>
 
-截图均来自示例房间 `office`。
+当前展示为 2026-11-16 更新的重建场景 `Room_3934`，五张截图保存在 [`docs/images/room-3934-2026-11-16/`](docs/images/room-3934-2026-11-16/)。旧版 `office` 场景展示保留在 [`docs/images/office-v1/`](docs/images/office-v1/)。
 
 ## 快速开始
 
