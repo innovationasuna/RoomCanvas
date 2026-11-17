@@ -1,16 +1,17 @@
-// Playback clock: play, pause, seek. The page subscribes to t (seconds).
+// Playback clock: play, pause, seek, at a chosen speed. The page subscribes to t (seconds).
 export class Player {
   constructor(duration) {
     this.duration = duration;
     this.t = 0;
     this.playing = false;
+    this.rate = 1;          // replay seconds per real second
     this.subs = [];
     let last = performance.now();
     const loop = (now) => {
       const dt = (now - last) / 1000;
       last = now;
       if (this.playing) {
-        this.t = Math.min(this.t + dt, this.duration);
+        this.t = Math.min(this.t + dt * this.rate, this.duration);
         if (this.t >= this.duration) this.playing = false;
         this.emit();
       }
