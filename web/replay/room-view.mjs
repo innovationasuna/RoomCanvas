@@ -95,6 +95,9 @@ export class RoomView {
     c.addEventListener('start', () => {this.userHeld = true; this.aimTo = null; this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};});
     this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};
     this.wantSpin = false;
+    this.speed = 1;         // playback speed the viewer chose
+    this.rate = 1;          // the speed right now: sped up, the replay still slows down for what is worth watching
+    this.time = 1;          // ms on the view's own clock, which runs at that speed
     this.userHeld = false;
     this.aimTo = null;
     this.focusTo = null;
@@ -503,7 +506,7 @@ export class RoomView {
   // another within a few seconds.
   materialize(nodes) {
     if (this.calm.matches || !nodes.length) return;
-    if (!this.forming.waiting()) this.heldSince = performance.now();
+    if (!this.forming.waiting()) this.heldSince = this.time;
     const low = (o) => new THREE.Box3().setFromObject(o).min;
     const order = nodes.map((o) => [o, low(o)]).sort(([, a], [, b]) => Math.round(a.y * 5) - Math.round(b.y * 5) || a.x + a.z - b.x - b.z);
     const step = Math.min(CASCADE_STEP, CASCADE_SECONDS / nodes.length);
@@ -553,8 +556,12 @@ export class RoomView {
       this.aimTo = {az, polar: null, dist: null, target: this.center.clone().lerp(o, 0.4), at: 0};
       return true;
     }
-    // Already in clear view from where the camera is: stay, rather than moving for every object.
-    if (this.wellSeen(keys, box)) return false;
+    // Already in clear view from where the camera is: stay (and go on watching from here), rather than
+    // moving for every object.
+    if (this.wellSeen(keys, box)) {
+      if (this.aimTo?.at) this.aimTo.at = this.time;
+      return false;
+    }
     // Close: the object fills most of the view, seen from where nothing stands in front of it.
     const dist = THREE.MathUtils.clamp(size / 2 * 3.2, 2.2, this.defaultDist * 0.7);
     const {az: best, polar} = this.clearView(keys, box, az, dist);
@@ -628,7 +635,13 @@ export class RoomView {
     return best;
   }
   pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center.clone(), at: 0};}
-  settledFor() {return this.aimTo?.at ? performance.now() - this.aimTo.at : 0;}
+  settledFor() {return this.aimTo?.at ? this.time - this.aimTo.at : 0;}
+  // What is going on that is worth watching: the camera is on its way to an object ('move'), or an object
+  // takes shape or a new model fades in ('form').
+  showing() {
+    if (this.aimTo && !this.aimTo.at && !this.userHeld) return 'move';
+    return this.incoming || this.forming.active.size ? 'form' : null;
+  }
   clearAim() {
     if (!this.aimTo) return;
     this.aimTo = null;
@@ -638,16 +651,22 @@ export class RoomView {
   tick() {
     const now = performance.now();
     const elapsed = (now - (this.lastTick ?? now)) / 1000;
-    const dt = Math.min(elapsed, 0.05);      // camera motion: small steps even after a slow frame
-    const fdt = Math.min(elapsed, 0.25);     // fades follow real time, so they finish on time at low frame rates
+    // Sped up, the replay still runs at normal speed while the camera moves in, only a little faster while
+    // an object takes shape, and fast in between: the camera work is that of normal speed (the camera itself
+    // never moves faster, it would whip round the room).
+    const showing = this.speed > 1 && this.showing();
+    this.rate = showing === 'move' ? 1 : showing ? Math.sqrt(this.speed) : this.speed;
+    const dt = Math.min(elapsed, 0.05) * Math.min(this.rate, 1);  // camera motion: small steps even after a slow frame
+    const fdt = Math.min(elapsed, 0.25) * this.rate;     // fades follow the clock, so they finish on time at low frame rates
     this.lastTick = now;
+    this.time += elapsed * 1000 * this.rate;
     if (this.incoming && fdt > 0) {
       this.mix = Math.min(this.mix + fdt / FADE_SECONDS, 1);
       this.setFade(this.models[this.incoming].root, this.mix);
       if (this.mix >= 1) this.swap(this.incoming);
     }
     // Held objects take shape once the camera has arrived (or the user moves it, or it takes too long).
-    if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || now - this.heldSince > MAX_WAIT)) this.forming.release();
+    if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || this.time - this.heldSince > MAX_WAIT)) this.forming.release();
     this.forming.update(fdt);
     if (this.wantPhysical !== !!this.rig) this.physical(this.wantPhysical);
     const tris = this.forming.triangles();
@@ -669,7 +688,7 @@ export class RoomView {
         // Arrived once what is left of the move cannot be seen (a close look starts its object then).
         const near = a.close ? {turn: 0.05, dist: 0.04 * a.dist, move: 0.05, spin: 0.08} : {turn: 0.02, dist: 0.05, move: 0.02, spin: 0.03};
         const still = Math.abs(v.theta) < near.spin && Math.abs(v.phi) < near.spin;
-        if (!a.at && Math.abs(dTheta) < near.turn && (a.polar == null || Math.abs(a.polar - sph.phi) < near.turn) && (a.dist == null || Math.abs(a.dist - sph.radius) < near.dist) && tgt.distanceTo(a.target) < near.move && still) a.at = now;
+        if (!a.at && Math.abs(dTheta) < near.turn && (a.polar == null || Math.abs(a.polar - sph.phi) < near.turn) && (a.dist == null || Math.abs(a.dist - sph.radius) < near.dist) && tgt.distanceTo(a.target) < near.move && still) a.at = this.time;
       } else {
         v.theta += ((this.wantSpin ? SPIN : 0) - v.theta) * (1 - Math.exp(-dt * 1.2));
         sph.theta += v.theta * dt;
