@@ -1,0 +1,9266 @@
+{
+ "format": "roomcanvas-room-objects",
+ "version": 1,
+ "scene": "capture",
+ "frame": {
+  "up": "Y",
+  "units": "meters",
+  "from": "room_layout.json Z-up via (x, y, z) -> (x, z, -y)"
+ },
+ "floor": "Floor0",
+ "walls": [
+  "Wall0",
+  "Wall1",
+  "Wall10",
+  "Wall11",
+  "Wall12",
+  "Wall13",
+  "Wall2",
+  "Wall3",
+  "Wall4",
+  "Wall5",
+  "Wall6",
+  "Wall7",
+  "Wall8",
+  "Wall9"
+ ],
+ "ceiling": [
+  "Ceiling0"
+ ],
+ "openings": {
+  "Wall3": [
+   "Door0"
+  ],
+  "Wall4": [
+   "Door1"
+  ],
+  "Wall8": [
+   "Door2",
+   "WindowLeft",
+   "WindowRight"
+  ]
+ },
+ "groups": [
+  {
+   "id": "BotanicalArtwork",
+   "category": "wall_art",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "BotanicalArtwork"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "CabinetWallBracket",
+   "category": "mounting",
+   "mount": "wall",
+   "wall": "Wall1",
+   "members": [
+    "CabinetWallBracket",
+    "ShelfBook_0_0_00",
+    "ShelfBook_0_0_01",
+    "ShelfBook_0_0_02",
+    "ShelfBook_0_0_03",
+    "ShelfBook_0_0_04",
+    "ShelfBook_0_0_05",
+    "ShelfBook_0_0_06",
+    "ShelfBook_0_0_07",
+    "ShelfBook_0_0_08",
+    "ShelfBook_0_0_09",
+    "ShelfBook_0_0_10",
+    "ShelfBook_0_0_11",
+    "ShelfBook_0_0_12",
+    "ShelfBook_0_0_13",
+    "ShelfBook_0_0_14",
+    "ShelfBook_0_0_15",
+    "ShelfBook_0_0_16",
+    "ShelfBook_0_0_17",
+    "ShelfBook_0_1_00",
+    "ShelfBook_0_1_01",
+    "ShelfBook_0_1_02",
+    "ShelfBook_0_1_03",
+    "ShelfBook_0_1_04",
+    "ShelfBook_0_1_05",
+    "ShelfBook_0_1_06",
+    "ShelfBook_0_1_07",
+    "ShelfBook_0_1_08",
+    "ShelfBook_0_1_09",
+    "ShelfBook_0_1_10",
+    "ShelfBook_0_1_11",
+    "ShelfBook_1_0_00",
+    "ShelfBook_1_0_01",
+    "ShelfBook_1_0_02",
+    "ShelfBook_1_0_03",
+    "ShelfBook_1_0_04",
+    "ShelfBook_1_0_05",
+    "ShelfBook_1_0_06",
+    "ShelfBook_1_0_07",
+    "ShelfBook_1_0_08",
+    "ShelfBook_1_0_09",
+    "ShelfBook_1_0_10",
+    "ShelfBook_1_0_11",
+    "ShelfBook_1_0_12",
+    "ShelfBook_1_0_13",
+    "ShelfBook_1_0_14",
+    "ShelfBook_1_0_15",
+    "ShelfBook_1_0_16",
+    "ShelfBook_1_0_17",
+    "ShelfBook_1_0_18",
+    "ShelfBook_1_0_19",
+    "ShelfBook_1_0_20",
+    "ShelfBook_1_0_21",
+    "ShelfBook_1_0_22",
+    "ShelfBook_1_1_00",
+    "ShelfBook_1_1_01",
+    "ShelfBook_1_1_02",
+    "ShelfBook_1_1_03",
+    "ShelfBook_1_1_04",
+    "ShelfBook_1_1_05",
+    "ShelfBook_1_1_06",
+    "ShelfBook_1_1_07",
+    "ShelfBook_1_1_08",
+    "ShelfBook_1_1_09",
+    "ShelfBook_1_1_10",
+    "ShelfBook_1_1_11",
+    "ShelfBook_1_3_00",
+    "ShelfBook_1_3_01",
+    "ShelfBook_1_3_02",
+    "ShelfBook_1_3_03",
+    "ShelfBook_1_3_04",
+    "ShelfBook_1_3_05",
+    "ShelfBook_1_3_06",
+    "ShelfBook_1_3_07",
+    "ShelfBook_1_3_08",
+    "ShelfBook_1_3_09",
+    "ShelfBook_1_3_10",
+    "ShelfBook_2_0_00",
+    "ShelfBook_2_0_01",
+    "ShelfBook_2_0_02",
+    "ShelfBook_2_0_03",
+    "ShelfBook_2_0_04",
+    "ShelfBook_2_0_05",
+    "ShelfBook_2_0_06",
+    "ShelfBook_2_0_07",
+    "ShelfBook_2_0_08",
+    "ShelfBook_2_0_09",
+    "ShelfBook_2_0_10",
+    "ShelfBook_2_0_11",
+    "ShelfBook_2_0_12",
+    "ShelfBook_2_0_13",
+    "ShelfBook_2_0_14",
+    "ShelfBook_2_0_15",
+    "ShelfBook_2_0_16",
+    "ShelfBook_2_0_17",
+    "ShelfBook_2_1_00",
+    "ShelfBook_2_1_01",
+    "ShelfBook_2_1_02",
+    "ShelfBook_2_1_03",
+    "ShelfBook_2_1_04",
+    "ShelfBook_2_1_05",
+    "ShelfBook_2_1_06",
+    "ShelfBook_2_1_07",
+    "ShelfBook_2_1_08",
+    "ShelfBook_2_1_09",
+    "ShelfBook_2_1_10",
+    "ShelfBook_2_1_11",
+    "ShelfBook_2_3_00",
+    "ShelfBook_2_3_01",
+    "ShelfBook_2_3_02",
+    "ShelfBook_2_3_03",
+    "ShelfBook_2_3_04",
+    "ShelfBook_2_3_05",
+    "ShelfBook_2_3_06",
+    "ShelfBook_2_3_07",
+    "ShelfBook_2_3_08",
+    "ShelfBook_2_3_09",
+    "ShelfBook_2_3_10",
+    "ShelfBook_3_0_00",
+    "ShelfBook_3_0_01",
+    "ShelfBook_3_0_02",
+    "ShelfBook_3_0_03",
+    "ShelfBook_3_0_04",
+    "ShelfBook_3_0_05",
+    "ShelfBook_3_0_06",
+    "ShelfBook_3_0_07",
+    "ShelfBook_3_0_08",
+    "ShelfBook_3_0_09",
+    "ShelfBook_3_0_10",
+    "ShelfBook_3_0_11",
+    "ShelfBook_3_0_12",
+    "ShelfBook_3_0_13",
+    "ShelfBook_3_0_14",
+    "ShelfBook_3_0_15",
+    "ShelfBook_3_0_16",
+    "ShelfBook_3_0_17",
+    "ShelfBook_3_0_18",
+    "ShelfBook_3_0_19",
+    "ShelfBook_3_0_20",
+    "ShelfBook_3_0_21",
+    "ShelfBook_3_0_22",
+    "ShelfBook_3_1_00",
+    "ShelfBook_3_1_01",
+    "ShelfBook_3_1_02",
+    "ShelfBook_3_1_03",
+    "ShelfBook_3_1_04",
+    "ShelfBook_3_1_05",
+    "ShelfBook_3_1_06",
+    "ShelfBook_3_1_07",
+    "ShelfBook_3_1_08",
+    "ShelfBook_3_1_09",
+    "ShelfBook_3_1_10",
+    "ShelfBook_3_1_11",
+    "ShelfBook_3_3_00",
+    "ShelfBook_3_3_01",
+    "ShelfBook_3_3_02",
+    "ShelfBook_4_0_00",
+    "ShelfBook_4_0_01",
+    "ShelfBook_4_0_02",
+    "ShelfBook_4_0_03",
+    "ShelfBook_4_0_04",
+    "ShelfBook_4_0_05",
+    "ShelfBook_4_0_06",
+    "ShelfBook_4_0_07",
+    "ShelfBook_4_0_08",
+    "ShelfBook_4_0_09",
+    "ShelfBook_4_0_10",
+    "ShelfBook_4_0_11",
+    "ShelfBook_4_0_12",
+    "ShelfBook_4_0_13",
+    "ShelfBook_4_0_14",
+    "ShelfBook_4_0_15",
+    "ShelfBook_4_0_16",
+    "ShelfBook_4_0_17",
+    "ShelfBook_4_0_18",
+    "ShelfBook_4_0_19",
+    "ShelfBook_4_0_20",
+    "ShelfBook_4_0_21",
+    "ShelfBook_4_0_22",
+    "ShelfBook_4_1_00",
+    "ShelfBook_4_1_01",
+    "ShelfBook_4_1_02",
+    "ShelfBook_4_1_03",
+    "ShelfBook_4_1_04",
+    "ShelfBook_4_1_05",
+    "ShelfBook_4_1_06",
+    "ShelfBook_4_1_07",
+    "ShelfBook_4_1_08",
+    "ShelfBook_4_1_09",
+    "ShelfBook_4_1_10",
+    "ShelfBook_4_1_11",
+    "ShelfBook_4_1_12",
+    "ShelfBook_4_1_13",
+    "ShelfBook_4_1_14",
+    "ShelfBook_4_1_15",
+    "ShelfBook_4_1_16",
+    "ShelfBook_4_1_17",
+    "ShelfBook_4_1_18",
+    "ShelfBook_4_1_19",
+    "ShelfBook_4_1_20",
+    "ShelfBook_4_1_21",
+    "ShelfBook_4_2_00",
+    "ShelfBook_4_2_01",
+    "ShelfBook_4_2_02",
+    "ShelfBook_4_2_03",
+    "ShelfBook_4_2_04",
+    "ShelfBook_4_2_05",
+    "ShelfBook_4_2_06",
+    "ShelfBook_4_2_07",
+    "ShelfBook_4_2_08",
+    "ShelfBook_4_2_09",
+    "ShelfBook_4_3_00",
+    "ShelfBook_4_3_01",
+    "ShelfBook_4_3_02",
+    "ShelfBook_4_3_03",
+    "ShelfBook_4_3_04",
+    "ShelfBook_4_3_05",
+    "ShelfBook_4_3_06",
+    "ShelfBook_4_3_07",
+    "ShelfBook_4_3_08",
+    "ShelfBook_4_3_09",
+    "ShelfBook_4_3_10",
+    "ShelfCeramic0",
+    "ShelfCeramic1",
+    "ShelfFrame0",
+    "ShelfFrame1",
+    "ShelfMiniEasel",
+    "ShelfPlant0",
+    "ShelfPlant1",
+    "ShelfPlant2",
+    "ShelfPlant3",
+    "ShelfPlant4",
+    "ShelfRemote",
+    "ShelfSteelFlask",
+    "ShelfWaterBottle0",
+    "ShelfWaterBottle1",
+    "ShelfWaterBottle2",
+    "ShelfWovenBasket",
+    "Storage0"
+   ],
+   "support_parts": [
+    "Storage_Carcass"
+   ]
+  },
+  {
+   "id": "CanvasTote",
+   "category": "textile",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "CanvasTote"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair0",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair1",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair1"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair10",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair10"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair11",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair11"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair12",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair12"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair13",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair13"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair14",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair14"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair15",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair15"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair16",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair16"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair17",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair17"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair18",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair18"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair19",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair19"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair2",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair2"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair3",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair3"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair4",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair4"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair5",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair5"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair6",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair6"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair7",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair7"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair8",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair8"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Chair9",
+   "category": "chair",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Chair9"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "CircleArtwork",
+   "category": "wall_art",
+   "mount": "wall",
+   "wall": "Wall13",
+   "members": [
+    "CircleArtwork"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Conduit_Wall0",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "Conduit_Wall0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Conduit_Wall12",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall12",
+   "members": [
+    "Conduit_Wall12"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Conduit_Wall13",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall13",
+   "members": [
+    "Conduit_Wall13"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Conduit_Wall2",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "Conduit_Wall2"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "DisplayTrolley",
+   "category": "stand",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "DisplayPowerLead",
+    "DisplayTrolley",
+    "Television0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "DistributionPanel",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "DistributionPanel"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "HighWallDevice",
+   "category": "wall_fixture",
+   "mount": "wall",
+   "wall": "Wall1",
+   "members": [
+    "HighWallDevice"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "NightGlazingBacking",
+   "category": "architectural_panel",
+   "mount": "wall",
+   "wall": "Wall8",
+   "members": [
+    "NightGlazingBacking"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "PhotoCollage",
+   "category": "wall_art",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "PhotoCollage"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "ReadingPosterEasel",
+   "category": "display",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "ReadingPosterEasel"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "RoomController",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "RoomController"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "RulesNotices",
+   "category": "wall_art",
+   "mount": "wall",
+   "wall": "Wall12",
+   "members": [
+    "RulesNotices"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket0",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "Socket0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket1",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "Socket1"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket2",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall0",
+   "members": [
+    "Socket2"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket3",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall12",
+   "members": [
+    "Socket3"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket4",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall12",
+   "members": [
+    "Socket4"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket5",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall13",
+   "members": [
+    "Socket5"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket6",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall2",
+   "members": [
+    "Socket6"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Socket7",
+   "category": "electrical",
+   "mount": "wall",
+   "wall": "Wall3",
+   "members": [
+    "Socket7"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Sofa0",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Sofa0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "SofaModule0",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "SofaModule0"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "SofaModule1",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "SofaModule1"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "SofaModule2",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "SofaModule2"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "SofaModule3",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "SofaModule3"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "SofaModule4",
+   "category": "sofa",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "SofaModule4"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Storage1",
+   "category": "storage",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Storage1"
+   ],
+   "support_parts": [
+    "Storage1"
+   ]
+  },
+  {
+   "id": "StoredDisplayPanel",
+   "category": "display",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "StoredDisplayPanel"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "Table0",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "PlantOnTable0",
+    "Table0"
+   ],
+   "support_parts": [
+    "Table0"
+   ]
+  },
+  {
+   "id": "Table1",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "PlantOnTable1",
+    "Table1"
+   ],
+   "support_parts": [
+    "Table1"
+   ]
+  },
+  {
+   "id": "Table2",
+   "category": "table",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "Table2"
+   ],
+   "support_parts": [
+    "Table2"
+   ]
+  },
+  {
+   "id": "TallSnakePlant",
+   "category": "plant",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "TallSnakePlant"
+   ],
+   "support_parts": []
+  },
+  {
+   "id": "TrainingPosterEasel",
+   "category": "display",
+   "mount": "floor",
+   "wall": null,
+   "members": [
+    "TrainingPosterEasel"
+   ],
+   "support_parts": []
+  }
+ ],
+ "objects": [
+  {
+   "id": "BotanicalArtwork",
+   "node": "BotanicalArtwork",
+   "category": "wall_art",
+   "role": "furniture",
+   "group": "BotanicalArtwork",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.0633,
+    -0.139,
+    -0.577
+   ],
+   "bbox_max": [
+    -8.5013,
+    0.691,
+    -0.0007
+   ]
+  },
+  {
+   "id": "CabinetWallBracket",
+   "node": "CabinetWallBracket",
+   "category": "mounting",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1414,
+    -0.0465,
+    -4.9562
+   ],
+   "bbox_max": [
+    1.9739,
+    -0.0015,
+    -1.9202
+   ]
+  },
+  {
+   "id": "CanvasTote",
+   "node": "CanvasTote",
+   "category": "textile",
+   "role": "furniture",
+   "group": "CanvasTote",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.9669,
+    -1.594,
+    -4.8894
+   ],
+   "bbox_max": [
+    -1.7254,
+    -1.177,
+    -4.6502
+   ]
+  },
+  {
+   "id": "Ceiling0",
+   "node": "Ceiling0",
+   "category": "ceiling",
+   "role": "structure",
+   "group": "Ceiling0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.4609,
+    1.756,
+    -6.0847
+   ],
+   "bbox_max": [
+    2.7998,
+    1.756,
+    6.0298
+   ]
+  },
+  {
+   "id": "CeilingVent0",
+   "node": "CeilingVent0",
+   "category": "vent",
+   "role": "fixture",
+   "group": "CeilingVent0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.9024,
+    1.7205,
+    -4.2918
+   ],
+   "bbox_max": [
+    0.9226,
+    1.756,
+    0.4142
+   ]
+  },
+  {
+   "id": "CeilingVent1",
+   "node": "CeilingVent1",
+   "category": "vent",
+   "role": "fixture",
+   "group": "CeilingVent1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.6114,
+    1.7205,
+    -2.5363
+   ],
+   "bbox_max": [
+    -0.7864,
+    1.756,
+    2.1697
+   ]
+  },
+  {
+   "id": "CeilingVent2",
+   "node": "CeilingVent2",
+   "category": "vent",
+   "role": "fixture",
+   "group": "CeilingVent2",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.3552,
+    1.7205,
+    -0.7449
+   ],
+   "bbox_max": [
+    -2.5302,
+    1.756,
+    3.9611
+   ]
+  },
+  {
+   "id": "Chair0",
+   "node": "Chair0",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.1403,
+    -1.5941,
+    -0.9916
+   ],
+   "bbox_max": [
+    -1.2815,
+    -0.8355,
+    -0.1332
+   ]
+  },
+  {
+   "id": "Chair1",
+   "node": "Chair1",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.7496,
+    -1.594,
+    -3.7221
+   ],
+   "bbox_max": [
+    -4.8912,
+    -0.8356,
+    -2.8634
+   ]
+  },
+  {
+   "id": "Chair10",
+   "node": "Chair10",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair10",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.6902,
+    -1.5941,
+    -2.5124
+   ],
+   "bbox_max": [
+    -2.8315,
+    -0.8355,
+    -1.654
+   ]
+  },
+  {
+   "id": "Chair11",
+   "node": "Chair11",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair11",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.1253,
+    -1.5941,
+    -2.3078
+   ],
+   "bbox_max": [
+    -4.2665,
+    -0.8355,
+    -1.4494
+   ]
+  },
+  {
+   "id": "Chair12",
+   "node": "Chair12",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair12",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9615,
+    -1.5941,
+    3.8974
+   ],
+   "bbox_max": [
+    -2.1505,
+    -0.8302,
+    4.7342
+   ]
+  },
+  {
+   "id": "Chair13",
+   "node": "Chair13",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair13",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.6947,
+    -1.5941,
+    -3.5216
+   ],
+   "bbox_max": [
+    -3.8359,
+    -0.8355,
+    -2.6632
+   ]
+  },
+  {
+   "id": "Chair14",
+   "node": "Chair14",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair14",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.1506,
+    -1.594,
+    -0.648
+   ],
+   "bbox_max": [
+    -5.2878,
+    -0.8444,
+    0.2
+   ]
+  },
+  {
+   "id": "Chair15",
+   "node": "Chair15",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair15",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.5894,
+    -1.5941,
+    -1.7433
+   ],
+   "bbox_max": [
+    -3.7306,
+    -0.8355,
+    -0.8849
+   ]
+  },
+  {
+   "id": "Chair16",
+   "node": "Chair16",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair16",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0707,
+    -1.5941,
+    -1.7055
+   ],
+   "bbox_max": [
+    -2.212,
+    -0.8355,
+    -0.8471
+   ]
+  },
+  {
+   "id": "Chair17",
+   "node": "Chair17",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair17",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.4784,
+    -1.5941,
+    -0.3421
+   ],
+   "bbox_max": [
+    -6.8226,
+    -0.8412,
+    0.3113
+   ]
+  },
+  {
+   "id": "Chair18",
+   "node": "Chair18",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair18",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0966,
+    -1.594,
+    -3.149
+   ],
+   "bbox_max": [
+    -3.2795,
+    -0.8355,
+    -2.3344
+   ]
+  },
+  {
+   "id": "Chair19",
+   "node": "Chair19",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair19",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.5623,
+    -1.594,
+    -1.3031
+   ],
+   "bbox_max": [
+    -1.7617,
+    -0.8356,
+    -0.5059
+   ]
+  },
+  {
+   "id": "Chair2",
+   "node": "Chair2",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair2",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.2116,
+    -1.594,
+    0.1821
+   ],
+   "bbox_max": [
+    -2.3528,
+    -0.8355,
+    1.0405
+   ]
+  },
+  {
+   "id": "Chair3",
+   "node": "Chair3",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair3",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.7963,
+    -1.594,
+    2.7436
+   ],
+   "bbox_max": [
+    -2.9513,
+    -0.7874,
+    3.5951
+   ]
+  },
+  {
+   "id": "Chair4",
+   "node": "Chair4",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair4",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.2839,
+    -1.5939,
+    0.403
+   ],
+   "bbox_max": [
+    -5.4219,
+    -0.8048,
+    1.2634
+   ]
+  },
+  {
+   "id": "Chair5",
+   "node": "Chair5",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair5",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7237,
+    -1.594,
+    2.8212
+   ],
+   "bbox_max": [
+    -1.9704,
+    -0.846,
+    3.5984
+   ]
+  },
+  {
+   "id": "Chair6",
+   "node": "Chair6",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair6",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.7167,
+    -1.594,
+    -2.8196
+   ],
+   "bbox_max": [
+    -4.8579,
+    -0.8356,
+    -1.9612
+   ]
+  },
+  {
+   "id": "Chair7",
+   "node": "Chair7",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair7",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.3881,
+    -1.594,
+    -0.203
+   ],
+   "bbox_max": [
+    -1.5297,
+    -0.8356,
+    0.6558
+   ]
+  },
+  {
+   "id": "Chair8",
+   "node": "Chair8",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair8",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.5175,
+    -1.594,
+    -0.6142
+   ],
+   "bbox_max": [
+    -2.6587,
+    -0.8356,
+    0.2442
+   ]
+  },
+  {
+   "id": "Chair9",
+   "node": "Chair9",
+   "category": "chair",
+   "role": "furniture",
+   "group": "Chair9",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0534,
+    -1.594,
+    -1.1787
+   ],
+   "bbox_max": [
+    -3.1946,
+    -0.8356,
+    -0.3203
+   ]
+  },
+  {
+   "id": "CircleArtwork",
+   "node": "CircleArtwork",
+   "category": "wall_art",
+   "role": "furniture",
+   "group": "CircleArtwork",
+   "mount": "wall",
+   "wall": "Wall13",
+   "rests_on": null,
+   "attached_to": "Wall13",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3921,
+    -0.119,
+    5.1445
+   ],
+   "bbox_max": [
+    -2.8231,
+    0.691,
+    5.728
+   ]
+  },
+  {
+   "id": "Conduit_Wall0",
+   "node": "Conduit_Wall0",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Conduit_Wall0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0182,
+    -1.492,
+    -5.9482
+   ],
+   "bbox_max": [
+    -2.9877,
+    0.806,
+    -5.9179
+   ]
+  },
+  {
+   "id": "Conduit_Wall12",
+   "node": "Conduit_Wall12",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Conduit_Wall12",
+   "mount": "wall",
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": "Wall12",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    2.6666,
+    -1.492,
+    -0.3754
+   ],
+   "bbox_max": [
+    2.6969,
+    0.806,
+    -0.3449
+   ]
+  },
+  {
+   "id": "Conduit_Wall13",
+   "node": "Conduit_Wall13",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Conduit_Wall13",
+   "mount": "wall",
+   "wall": "Wall13",
+   "rests_on": null,
+   "attached_to": "Wall13",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.5737,
+    -1.492,
+    5.8892
+   ],
+   "bbox_max": [
+    -3.5434,
+    0.806,
+    5.9197
+   ]
+  },
+  {
+   "id": "Conduit_Wall2",
+   "node": "Conduit_Wall2",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Conduit_Wall2",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.9839,
+    -1.492,
+    -1.1449
+   ],
+   "bbox_max": [
+    -7.9535,
+    0.806,
+    -1.1144
+   ]
+  },
+  {
+   "id": "Curtain0",
+   "node": "Curtain0",
+   "category": "textile",
+   "role": "fixture",
+   "group": "Curtain0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.2664,
+    -1.544,
+    0.2434
+   ],
+   "bbox_max": [
+    -8.8606,
+    1.756,
+    0.6437
+   ]
+  },
+  {
+   "id": "Curtain1",
+   "node": "Curtain1",
+   "category": "textile",
+   "role": "fixture",
+   "group": "Curtain1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.514,
+    -1.544,
+    0.9759
+   ],
+   "bbox_max": [
+    -7.8073,
+    1.756,
+    1.6691
+   ]
+  },
+  {
+   "id": "Curtain2",
+   "node": "Curtain2",
+   "category": "textile",
+   "role": "fixture",
+   "group": "Curtain2",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.346,
+    -1.544,
+    2.1129
+   ],
+   "bbox_max": [
+    -5.5,
+    1.756,
+    3.9152
+   ]
+  },
+  {
+   "id": "Curtain3",
+   "node": "Curtain3",
+   "category": "textile",
+   "role": "fixture",
+   "group": "Curtain3",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.0531,
+    -1.544,
+    4.345
+   ],
+   "bbox_max": [
+    -4.4539,
+    1.756,
+    4.9336
+   ]
+  },
+  {
+   "id": "Curtain4",
+   "node": "Curtain4",
+   "category": "textile",
+   "role": "fixture",
+   "group": "Curtain4",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0714,
+    -1.544,
+    5.3006
+   ],
+   "bbox_max": [
+    -3.5438,
+    1.756,
+    5.8195
+   ]
+  },
+  {
+   "id": "DisplayPowerLead",
+   "node": "DisplayPowerLead",
+   "category": "cable",
+   "role": "furniture",
+   "group": "DisplayTrolley",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "DisplayTrolley",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.079,
+    -1.494,
+    1.8296
+   ],
+   "bbox_max": [
+    0.087,
+    -0.744,
+    1.8376
+   ]
+  },
+  {
+   "id": "DisplayTrolley",
+   "node": "DisplayTrolley",
+   "category": "stand",
+   "role": "furniture",
+   "group": "DisplayTrolley",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5624,
+    -1.589,
+    1.0418
+   ],
+   "bbox_max": [
+    0.7532,
+    -0.6932,
+    2.3705
+   ]
+  },
+  {
+   "id": "DistributionPanel",
+   "node": "DistributionPanel",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "DistributionPanel",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3319,
+    0.216,
+    -5.8329
+   ],
+   "bbox_max": [
+    -3.1057,
+    0.416,
+    -5.6165
+   ]
+  },
+  {
+   "id": "Door0",
+   "node": "Door0",
+   "category": "door",
+   "role": "opening",
+   "group": "Door0",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6717,
+    -1.594,
+    -6.0684
+   ],
+   "bbox_max": [
+    -1.81,
+    0.917,
+    -5.2236
+   ]
+  },
+  {
+   "id": "Door1",
+   "node": "Door1",
+   "category": "door",
+   "role": "opening",
+   "group": "Door1",
+   "mount": "wall",
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": "Wall4",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.8904,
+    -1.594,
+    -1.3615
+   ],
+   "bbox_max": [
+    2.751,
+    0.917,
+    -0.5177
+   ]
+  },
+  {
+   "id": "Door2",
+   "node": "Door2",
+   "category": "door",
+   "role": "opening",
+   "group": "Door2",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.656,
+    -1.594,
+    2.1446
+   ],
+   "bbox_max": [
+    -5.5634,
+    1.7871,
+    4.1874
+   ]
+  },
+  {
+   "id": "Floor0",
+   "node": "Floor0",
+   "category": "floor",
+   "role": "structure",
+   "group": "Floor0",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.4609,
+    -1.5941,
+    -6.0847
+   ],
+   "bbox_max": [
+    2.7998,
+    -1.594,
+    6.0298
+   ]
+  },
+  {
+   "id": "HighWallDevice",
+   "node": "HighWallDevice",
+   "category": "wall_fixture",
+   "role": "furniture",
+   "group": "HighWallDevice",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1433,
+    1.386,
+    -4.9716
+   ],
+   "bbox_max": [
+    -0.7863,
+    1.666,
+    -4.6215
+   ]
+  },
+  {
+   "id": "LinearLight0",
+   "node": "LinearLight0",
+   "category": "luminaire",
+   "role": "fixture",
+   "group": "LinearLight0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.0075,
+    1.723,
+    -5.2327
+   ],
+   "bbox_max": [
+    1.8413,
+    1.756,
+    -0.508
+   ]
+  },
+  {
+   "id": "LinearLight1",
+   "node": "LinearLight1",
+   "category": "luminaire",
+   "role": "fixture",
+   "group": "LinearLight1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.7513,
+    1.723,
+    -3.4413
+   ],
+   "bbox_max": [
+    0.0974,
+    1.756,
+    1.2833
+   ]
+  },
+  {
+   "id": "LinearLight2",
+   "node": "LinearLight2",
+   "category": "luminaire",
+   "role": "fixture",
+   "group": "LinearLight2",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.4952,
+    1.723,
+    -1.6499
+   ],
+   "bbox_max": [
+    -1.6464,
+    1.756,
+    3.0747
+   ]
+  },
+  {
+   "id": "LinearLight3",
+   "node": "LinearLight3",
+   "category": "luminaire",
+   "role": "fixture",
+   "group": "LinearLight3",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.239,
+    1.723,
+    0.1414
+   ],
+   "bbox_max": [
+    -3.3903,
+    1.756,
+    4.8661
+   ]
+  },
+  {
+   "id": "NightGlazingBacking",
+   "node": "NightGlazingBacking",
+   "category": "architectural_panel",
+   "role": "furniture",
+   "group": "NightGlazingBacking",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": "Wall8",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.6105,
+    -1.594,
+    0.346
+   ],
+   "bbox_max": [
+    -3.6177,
+    1.786,
+    6.1892
+   ]
+  },
+  {
+   "id": "PhotoCollage",
+   "node": "PhotoCollage",
+   "category": "wall_art",
+   "role": "furniture",
+   "group": "PhotoCollage",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.7712,
+    -0.874,
+    -5.4548
+   ],
+   "bbox_max": [
+    -3.514,
+    0.776,
+    -1.4133
+   ]
+  },
+  {
+   "id": "PlantOnTable0",
+   "node": "PlantOnTable0",
+   "category": "plant",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.101,
+    -1.104,
+    3.599
+   ],
+   "bbox_max": [
+    -2.8089,
+    -0.7689,
+    3.8778
+   ]
+  },
+  {
+   "id": "PlantOnTable1",
+   "node": "PlantOnTable1",
+   "category": "plant",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": null,
+   "wall": null,
+   "rests_on": "Table1",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.4504,
+    -1.094,
+    0.0054
+   ],
+   "bbox_max": [
+    -6.1588,
+    -0.745,
+    0.2804
+   ]
+  },
+  {
+   "id": "ReadingPosterEasel",
+   "node": "ReadingPosterEasel",
+   "category": "display",
+   "role": "furniture",
+   "group": "ReadingPosterEasel",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.628,
+    -1.594,
+    4.2622
+   ],
+   "bbox_max": [
+    -2.9862,
+    -0.0223,
+    4.9337
+   ]
+  },
+  {
+   "id": "RoomController",
+   "node": "RoomController",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "RoomController",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.4044,
+    -0.1965,
+    -5.7365
+   ],
+   "bbox_max": [
+    -3.2072,
+    -0.1115,
+    -5.5477
+   ]
+  },
+  {
+   "id": "RulesNotices",
+   "node": "RulesNotices",
+   "category": "wall_art",
+   "role": "furniture",
+   "group": "RulesNotices",
+   "mount": "wall",
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": "Wall12",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3986,
+    -0.229,
+    0.0867
+   ],
+   "bbox_max": [
+    2.2512,
+    0.561,
+    0.962
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_00",
+   "node": "ShelfBook_0_0_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.3123,
+    -0.745,
+    -4.7642
+   ],
+   "bbox_max": [
+    -1.1723,
+    -0.4685,
+    -4.6233
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_01",
+   "node": "ShelfBook_0_0_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2984,
+    -0.745,
+    -4.7404
+   ],
+   "bbox_max": [
+    -1.1587,
+    -0.5089,
+    -4.6003
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_02",
+   "node": "ShelfBook_0_0_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2863,
+    -0.745,
+    -4.7157
+   ],
+   "bbox_max": [
+    -1.1444,
+    -0.4901,
+    -4.5704
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_03",
+   "node": "ShelfBook_0_0_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2533,
+    -0.745,
+    -4.7051
+   ],
+   "bbox_max": [
+    -1.1117,
+    -0.4647,
+    -4.5597
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_04",
+   "node": "ShelfBook_0_0_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2418,
+    -0.745,
+    -4.6726
+   ],
+   "bbox_max": [
+    -1.0983,
+    -0.4816,
+    -4.5256
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_05",
+   "node": "ShelfBook_0_0_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2065,
+    -0.745,
+    -4.6612
+   ],
+   "bbox_max": [
+    -1.0669,
+    -0.489,
+    -4.5211
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_06",
+   "node": "ShelfBook_0_0_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1969,
+    -0.745,
+    -4.6339
+   ],
+   "bbox_max": [
+    -1.0536,
+    -0.4984,
+    -4.4852
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_07",
+   "node": "ShelfBook_0_0_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.175,
+    -0.745,
+    -4.6073
+   ],
+   "bbox_max": [
+    -1.0332,
+    -0.4513,
+    -4.4634
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_08",
+   "node": "ShelfBook_0_0_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1408,
+    -0.745,
+    -4.5993
+   ],
+   "bbox_max": [
+    -1.0037,
+    -0.5223,
+    -4.4582
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_09",
+   "node": "ShelfBook_0_0_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1302,
+    -0.745,
+    -4.5748
+   ],
+   "bbox_max": [
+    -0.9887,
+    -0.4605,
+    -4.4303
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_10",
+   "node": "ShelfBook_0_0_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1059,
+    -0.745,
+    -4.5564
+   ],
+   "bbox_max": [
+    -0.962,
+    -0.4993,
+    -4.4096
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_11",
+   "node": "ShelfBook_0_0_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0797,
+    -0.745,
+    -4.5351
+   ],
+   "bbox_max": [
+    -0.9387,
+    -0.5486,
+    -4.3904
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_12",
+   "node": "ShelfBook_0_0_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0647,
+    -0.745,
+    -4.5075
+   ],
+   "bbox_max": [
+    -0.9268,
+    -0.5257,
+    -4.3649
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_13",
+   "node": "ShelfBook_0_0_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0383,
+    -0.745,
+    -4.4971
+   ],
+   "bbox_max": [
+    -0.8989,
+    -0.5426,
+    -4.3551
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_14",
+   "node": "ShelfBook_0_0_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0204,
+    -0.745,
+    -4.4767
+   ],
+   "bbox_max": [
+    -0.8801,
+    -0.5387,
+    -4.3316
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_15",
+   "node": "ShelfBook_0_0_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9971,
+    -0.745,
+    -4.4579
+   ],
+   "bbox_max": [
+    -0.8542,
+    -0.5307,
+    -4.3115
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_16",
+   "node": "ShelfBook_0_0_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9808,
+    -0.745,
+    -4.4281
+   ],
+   "bbox_max": [
+    -0.8364,
+    -0.5427,
+    -4.2828
+   ]
+  },
+  {
+   "id": "ShelfBook_0_0_17",
+   "node": "ShelfBook_0_0_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9527,
+    -0.745,
+    -4.4101
+   ],
+   "bbox_max": [
+    -0.8127,
+    -0.5349,
+    -4.27
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_00",
+   "node": "ShelfBook_0_1_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.3194,
+    -0.365,
+    -4.7568
+   ],
+   "bbox_max": [
+    -1.1749,
+    -0.0828,
+    -4.6093
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_01",
+   "node": "ShelfBook_0_1_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2929,
+    -0.365,
+    -4.7348
+   ],
+   "bbox_max": [
+    -1.1488,
+    -0.0995,
+    -4.5903
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_02",
+   "node": "ShelfBook_0_1_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2652,
+    -0.365,
+    -4.7172
+   ],
+   "bbox_max": [
+    -1.1276,
+    -0.1302,
+    -4.5754
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_03",
+   "node": "ShelfBook_0_1_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2544,
+    -0.365,
+    -4.6919
+   ],
+   "bbox_max": [
+    -1.1149,
+    -0.1397,
+    -4.5512
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_04",
+   "node": "ShelfBook_0_1_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2386,
+    -0.365,
+    -4.6707
+   ],
+   "bbox_max": [
+    -1.0948,
+    -0.15,
+    -4.5248
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_05",
+   "node": "ShelfBook_0_1_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2032,
+    -0.365,
+    -4.6599
+   ],
+   "bbox_max": [
+    -1.0578,
+    -0.1025,
+    -4.5121
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_06",
+   "node": "ShelfBook_0_1_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9872,
+    -0.365,
+    -4.4386
+   ],
+   "bbox_max": [
+    -0.849,
+    -0.0706,
+    -4.2957
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_07",
+   "node": "ShelfBook_0_1_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9694,
+    -0.365,
+    -4.4186
+   ],
+   "bbox_max": [
+    -0.825,
+    -0.1115,
+    -4.2715
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_08",
+   "node": "ShelfBook_0_1_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9365,
+    -0.365,
+    -4.4034
+   ],
+   "bbox_max": [
+    -0.7936,
+    -0.0783,
+    -4.2577
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_09",
+   "node": "ShelfBook_0_1_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9172,
+    -0.365,
+    -4.3772
+   ],
+   "bbox_max": [
+    -0.7786,
+    -0.1167,
+    -4.2341
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_10",
+   "node": "ShelfBook_0_1_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.905,
+    -0.365,
+    -4.3509
+   ],
+   "bbox_max": [
+    -0.7625,
+    -0.162,
+    -4.2063
+   ]
+  },
+  {
+   "id": "ShelfBook_0_1_11",
+   "node": "ShelfBook_0_1_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.8744,
+    -0.365,
+    -4.3379
+   ],
+   "bbox_max": [
+    -0.7335,
+    -0.0743,
+    -4.1953
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_00",
+   "node": "ShelfBook_1_0_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7662,
+    -0.745,
+    -4.2357
+   ],
+   "bbox_max": [
+    -0.6224,
+    -0.4772,
+    -4.0901
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_01",
+   "node": "ShelfBook_1_0_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7522,
+    -0.745,
+    -4.2032
+   ],
+   "bbox_max": [
+    -0.6138,
+    -0.5224,
+    -4.0594
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_02",
+   "node": "ShelfBook_1_0_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7377,
+    -0.745,
+    -4.1788
+   ],
+   "bbox_max": [
+    -0.5999,
+    -0.5408,
+    -4.039
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_03",
+   "node": "ShelfBook_1_0_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7193,
+    -0.745,
+    -4.163
+   ],
+   "bbox_max": [
+    -0.5804,
+    -0.4827,
+    -4.0224
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_04",
+   "node": "ShelfBook_1_0_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6995,
+    -0.745,
+    -4.1465
+   ],
+   "bbox_max": [
+    -0.5586,
+    -0.5465,
+    -4.0021
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_05",
+   "node": "ShelfBook_1_0_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.676,
+    -0.745,
+    -4.1283
+   ],
+   "bbox_max": [
+    -0.5367,
+    -0.5416,
+    -3.9884
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_06",
+   "node": "ShelfBook_1_0_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6537,
+    -0.745,
+    -4.1148
+   ],
+   "bbox_max": [
+    -0.5147,
+    -0.4661,
+    -3.9736
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_07",
+   "node": "ShelfBook_1_0_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6354,
+    -0.745,
+    -4.0963
+   ],
+   "bbox_max": [
+    -0.4904,
+    -0.4563,
+    -3.9499
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_08",
+   "node": "ShelfBook_1_0_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6146,
+    -0.745,
+    -4.0687
+   ],
+   "bbox_max": [
+    -0.4703,
+    -0.5361,
+    -3.9197
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_09",
+   "node": "ShelfBook_1_0_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5934,
+    -0.745,
+    -4.0399
+   ],
+   "bbox_max": [
+    -0.4516,
+    -0.5337,
+    -3.8943
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_10",
+   "node": "ShelfBook_1_0_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5631,
+    -0.745,
+    -4.0264
+   ],
+   "bbox_max": [
+    -0.4223,
+    -0.4852,
+    -3.8844
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_11",
+   "node": "ShelfBook_1_0_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5438,
+    -0.745,
+    -4.006
+   ],
+   "bbox_max": [
+    -0.4039,
+    -0.4524,
+    -3.8626
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_12",
+   "node": "ShelfBook_1_0_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5284,
+    -0.745,
+    -3.9814
+   ],
+   "bbox_max": [
+    -0.3866,
+    -0.4589,
+    -3.8391
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_13",
+   "node": "ShelfBook_1_0_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4995,
+    -0.745,
+    -3.9696
+   ],
+   "bbox_max": [
+    -0.3561,
+    -0.4945,
+    -3.8224
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_14",
+   "node": "ShelfBook_1_0_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4831,
+    -0.745,
+    -3.9385
+   ],
+   "bbox_max": [
+    -0.3422,
+    -0.4608,
+    -3.7945
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_15",
+   "node": "ShelfBook_1_0_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4487,
+    -0.745,
+    -3.9315
+   ],
+   "bbox_max": [
+    -0.3049,
+    -0.5323,
+    -3.7823
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_16",
+   "node": "ShelfBook_1_0_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4399,
+    -0.745,
+    -3.8903
+   ],
+   "bbox_max": [
+    -0.2987,
+    -0.5205,
+    -3.746
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_17",
+   "node": "ShelfBook_1_0_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.4041,
+    -0.745,
+    -3.8843
+   ],
+   "bbox_max": [
+    -0.2589,
+    -0.5498,
+    -3.7374
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_18",
+   "node": "ShelfBook_1_0_18",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3925,
+    -0.745,
+    -3.8466
+   ],
+   "bbox_max": [
+    -0.2496,
+    -0.4698,
+    -3.7018
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_19",
+   "node": "ShelfBook_1_0_19",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3611,
+    -0.745,
+    -3.8337
+   ],
+   "bbox_max": [
+    -0.2198,
+    -0.5183,
+    -3.6885
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_20",
+   "node": "ShelfBook_1_0_20",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.343,
+    -0.745,
+    -3.8084
+   ],
+   "bbox_max": [
+    -0.1992,
+    -0.4699,
+    -3.6606
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_21",
+   "node": "ShelfBook_1_0_21",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3125,
+    -0.745,
+    -3.7908
+   ],
+   "bbox_max": [
+    -0.1744,
+    -0.4701,
+    -3.6501
+   ]
+  },
+  {
+   "id": "ShelfBook_1_0_22",
+   "node": "ShelfBook_1_0_22",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.2912,
+    -0.745,
+    -3.7767
+   ],
+   "bbox_max": [
+    -0.1461,
+    -0.5242,
+    -3.6295
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_00",
+   "node": "ShelfBook_1_1_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7739,
+    -0.365,
+    -4.2279
+   ],
+   "bbox_max": [
+    -0.6305,
+    -0.1275,
+    -4.0841
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_01",
+   "node": "ShelfBook_1_1_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7575,
+    -0.365,
+    -4.2003
+   ],
+   "bbox_max": [
+    -0.6116,
+    -0.1508,
+    -4.0529
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_02",
+   "node": "ShelfBook_1_1_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7327,
+    -0.365,
+    -4.1753
+   ],
+   "bbox_max": [
+    -0.5857,
+    -0.0944,
+    -4.028
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_03",
+   "node": "ShelfBook_1_1_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6936,
+    -0.365,
+    -4.1637
+   ],
+   "bbox_max": [
+    -0.5512,
+    -0.0704,
+    -4.0177
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_04",
+   "node": "ShelfBook_1_1_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6757,
+    -0.365,
+    -4.1366
+   ],
+   "bbox_max": [
+    -0.5343,
+    -0.1245,
+    -3.9941
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_05",
+   "node": "ShelfBook_1_1_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6524,
+    -0.365,
+    -4.1194
+   ],
+   "bbox_max": [
+    -0.5069,
+    -0.0854,
+    -3.9711
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_06",
+   "node": "ShelfBook_1_1_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3734,
+    -0.365,
+    -3.8362
+   ],
+   "bbox_max": [
+    -0.2327,
+    -0.0956,
+    -3.6916
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_07",
+   "node": "ShelfBook_1_1_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3551,
+    -0.365,
+    -3.8123
+   ],
+   "bbox_max": [
+    -0.2169,
+    -0.1468,
+    -3.6692
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_08",
+   "node": "ShelfBook_1_1_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3252,
+    -0.365,
+    -3.8047
+   ],
+   "bbox_max": [
+    -0.1823,
+    -0.0852,
+    -3.6605
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_09",
+   "node": "ShelfBook_1_1_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.3023,
+    -0.365,
+    -3.784
+   ],
+   "bbox_max": [
+    -0.1597,
+    -0.0747,
+    -3.6406
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_10",
+   "node": "ShelfBook_1_1_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.2901,
+    -0.365,
+    -3.7532
+   ],
+   "bbox_max": [
+    -0.1464,
+    -0.1567,
+    -3.6062
+   ]
+  },
+  {
+   "id": "ShelfBook_1_1_11",
+   "node": "ShelfBook_1_1_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.2552,
+    -0.365,
+    -3.7409
+   ],
+   "bbox_max": [
+    -0.1134,
+    -0.1305,
+    -3.5935
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_00",
+   "node": "ShelfBook_1_3_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7659,
+    0.454,
+    -4.236
+   ],
+   "bbox_max": [
+    -0.6271,
+    0.6747,
+    -4.0965
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_01",
+   "node": "ShelfBook_1_3_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7501,
+    0.454,
+    -4.2167
+   ],
+   "bbox_max": [
+    -0.6062,
+    0.7272,
+    -4.0695
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_02",
+   "node": "ShelfBook_1_3_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7296,
+    0.454,
+    -4.1893
+   ],
+   "bbox_max": [
+    -0.5862,
+    0.7186,
+    -4.0422
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_03",
+   "node": "ShelfBook_1_3_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.7108,
+    0.454,
+    -4.1607
+   ],
+   "bbox_max": [
+    -0.5693,
+    0.6734,
+    -4.0154
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_04",
+   "node": "ShelfBook_1_3_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.677,
+    0.454,
+    -4.1514
+   ],
+   "bbox_max": [
+    -0.5356,
+    0.6665,
+    -4.0074
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_05",
+   "node": "ShelfBook_1_3_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6627,
+    0.454,
+    -4.1234
+   ],
+   "bbox_max": [
+    -0.5251,
+    0.6879,
+    -3.9804
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_06",
+   "node": "ShelfBook_1_3_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6375,
+    0.454,
+    -4.1118
+   ],
+   "bbox_max": [
+    -0.4976,
+    0.673,
+    -3.9706
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_07",
+   "node": "ShelfBook_1_3_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.6258,
+    0.454,
+    -4.0854
+   ],
+   "bbox_max": [
+    -0.4809,
+    0.6701,
+    -3.937
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_08",
+   "node": "ShelfBook_1_3_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.595,
+    0.454,
+    -4.0665
+   ],
+   "bbox_max": [
+    -0.4505,
+    0.6761,
+    -3.921
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_09",
+   "node": "ShelfBook_1_3_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5763,
+    0.454,
+    -4.0385
+   ],
+   "bbox_max": [
+    -0.436,
+    0.6613,
+    -3.8972
+   ]
+  },
+  {
+   "id": "ShelfBook_1_3_10",
+   "node": "ShelfBook_1_3_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5645,
+    0.454,
+    -4.0119
+   ],
+   "bbox_max": [
+    -0.4211,
+    0.6545,
+    -3.8679
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_00",
+   "node": "ShelfBook_2_0_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1506,
+    -0.745,
+    -3.635
+   ],
+   "bbox_max": [
+    -0.0084,
+    -0.541,
+    -3.4893
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_01",
+   "node": "ShelfBook_2_0_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1313,
+    -0.745,
+    -3.6098
+   ],
+   "bbox_max": [
+    0.0107,
+    -0.528,
+    -3.4676
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_02",
+   "node": "ShelfBook_2_0_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1066,
+    -0.745,
+    -3.5935
+   ],
+   "bbox_max": [
+    0.0346,
+    -0.4929,
+    -3.4468
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_03",
+   "node": "ShelfBook_2_0_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0847,
+    -0.745,
+    -3.5709
+   ],
+   "bbox_max": [
+    0.0569,
+    -0.5463,
+    -3.4246
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_04",
+   "node": "ShelfBook_2_0_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0718,
+    -0.745,
+    -3.5392
+   ],
+   "bbox_max": [
+    0.0746,
+    -0.4929,
+    -3.3914
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_05",
+   "node": "ShelfBook_2_0_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0374,
+    -0.745,
+    -3.5229
+   ],
+   "bbox_max": [
+    0.1014,
+    -0.5158,
+    -3.3806
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_06",
+   "node": "ShelfBook_2_0_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.017,
+    -0.745,
+    -3.5055
+   ],
+   "bbox_max": [
+    0.1209,
+    -0.4626,
+    -3.3638
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_07",
+   "node": "ShelfBook_2_0_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0092,
+    -0.745,
+    -3.4767
+   ],
+   "bbox_max": [
+    0.1293,
+    -0.5318,
+    -3.3328
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_08",
+   "node": "ShelfBook_2_0_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0185,
+    -0.745,
+    -3.4657
+   ],
+   "bbox_max": [
+    0.164,
+    -0.4553,
+    -3.318
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_09",
+   "node": "ShelfBook_2_0_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0413,
+    -0.745,
+    -3.4384
+   ],
+   "bbox_max": [
+    0.1808,
+    -0.4915,
+    -3.2944
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_10",
+   "node": "ShelfBook_2_0_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0525,
+    -0.745,
+    -3.4095
+   ],
+   "bbox_max": [
+    0.1996,
+    -0.4923,
+    -3.2624
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_11",
+   "node": "ShelfBook_2_0_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0931,
+    -0.745,
+    -3.3995
+   ],
+   "bbox_max": [
+    0.2355,
+    -0.5237,
+    -3.2528
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_12",
+   "node": "ShelfBook_2_0_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1157,
+    -0.745,
+    -3.3765
+   ],
+   "bbox_max": [
+    0.2561,
+    -0.4747,
+    -3.2353
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_13",
+   "node": "ShelfBook_2_0_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1373,
+    -0.745,
+    -3.3597
+   ],
+   "bbox_max": [
+    0.2749,
+    -0.5199,
+    -3.2164
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_14",
+   "node": "ShelfBook_2_0_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1502,
+    -0.745,
+    -3.3349
+   ],
+   "bbox_max": [
+    0.2866,
+    -0.5112,
+    -3.193
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_15",
+   "node": "ShelfBook_2_0_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1673,
+    -0.745,
+    -3.3171
+   ],
+   "bbox_max": [
+    0.311,
+    -0.5107,
+    -3.1718
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_16",
+   "node": "ShelfBook_2_0_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1835,
+    -0.745,
+    -3.2873
+   ],
+   "bbox_max": [
+    0.3252,
+    -0.5122,
+    -3.1417
+   ]
+  },
+  {
+   "id": "ShelfBook_2_0_17",
+   "node": "ShelfBook_2_0_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.2163,
+    -0.745,
+    -3.2766
+   ],
+   "bbox_max": [
+    0.3556,
+    -0.4899,
+    -3.1357
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_00",
+   "node": "ShelfBook_2_1_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1608,
+    -0.365,
+    -3.6245
+   ],
+   "bbox_max": [
+    -0.023,
+    -0.1472,
+    -3.4835
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_01",
+   "node": "ShelfBook_2_1_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1309,
+    -0.365,
+    -3.6191
+   ],
+   "bbox_max": [
+    0.0126,
+    -0.1398,
+    -3.4709
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_02",
+   "node": "ShelfBook_2_1_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1158,
+    -0.365,
+    -3.5857
+   ],
+   "bbox_max": [
+    0.0249,
+    -0.1359,
+    -3.4426
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_03",
+   "node": "ShelfBook_2_1_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0955,
+    -0.365,
+    -3.5654
+   ],
+   "bbox_max": [
+    0.042,
+    -0.096,
+    -3.423
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_04",
+   "node": "ShelfBook_2_1_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0824,
+    -0.365,
+    -3.5419
+   ],
+   "bbox_max": [
+    0.0567,
+    -0.1413,
+    -3.4025
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_05",
+   "node": "ShelfBook_2_1_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0638,
+    -0.365,
+    -3.5252
+   ],
+   "bbox_max": [
+    0.0757,
+    -0.1413,
+    -3.3809
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_06",
+   "node": "ShelfBook_2_1_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1314,
+    -0.365,
+    -3.3656
+   ],
+   "bbox_max": [
+    0.2736,
+    -0.0946,
+    -3.2207
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_07",
+   "node": "ShelfBook_2_1_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.143,
+    -0.365,
+    -3.3332
+   ],
+   "bbox_max": [
+    0.2843,
+    -0.1102,
+    -3.1914
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_08",
+   "node": "ShelfBook_2_1_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1673,
+    -0.365,
+    -3.3178
+   ],
+   "bbox_max": [
+    0.3071,
+    -0.1604,
+    -3.1753
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_09",
+   "node": "ShelfBook_2_1_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.1838,
+    -0.365,
+    -3.2951
+   ],
+   "bbox_max": [
+    0.3269,
+    -0.1358,
+    -3.1472
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_10",
+   "node": "ShelfBook_2_1_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.2157,
+    -0.365,
+    -3.2796
+   ],
+   "bbox_max": [
+    0.3549,
+    -0.0726,
+    -3.138
+   ]
+  },
+  {
+   "id": "ShelfBook_2_1_11",
+   "node": "ShelfBook_2_1_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.2308,
+    -0.365,
+    -3.2569
+   ],
+   "bbox_max": [
+    0.3723,
+    -0.0834,
+    -3.1114
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_00",
+   "node": "ShelfBook_2_3_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1561,
+    0.454,
+    -3.6294
+   ],
+   "bbox_max": [
+    -0.0127,
+    0.7423,
+    -3.4838
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_01",
+   "node": "ShelfBook_2_3_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1271,
+    0.454,
+    -3.6128
+   ],
+   "bbox_max": [
+    0.0121,
+    0.7455,
+    -3.4699
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_02",
+   "node": "ShelfBook_2_3_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.1064,
+    0.454,
+    -3.5947
+   ],
+   "bbox_max": [
+    0.0367,
+    0.655,
+    -3.4476
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_03",
+   "node": "ShelfBook_2_3_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0822,
+    0.454,
+    -3.5721
+   ],
+   "bbox_max": [
+    0.0557,
+    0.6841,
+    -3.4323
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_04",
+   "node": "ShelfBook_2_3_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0662,
+    0.454,
+    -3.5537
+   ],
+   "bbox_max": [
+    0.0765,
+    0.6567,
+    -3.409
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_05",
+   "node": "ShelfBook_2_3_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.046,
+    0.454,
+    -3.5299
+   ],
+   "bbox_max": [
+    0.0975,
+    0.738,
+    -3.3853
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_06",
+   "node": "ShelfBook_2_3_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0263,
+    0.454,
+    -3.5047
+   ],
+   "bbox_max": [
+    0.1173,
+    0.6849,
+    -3.3592
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_07",
+   "node": "ShelfBook_2_3_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0007,
+    0.454,
+    -3.4845
+   ],
+   "bbox_max": [
+    0.1399,
+    0.7487,
+    -3.3397
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_08",
+   "node": "ShelfBook_2_3_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0212,
+    0.454,
+    -3.4643
+   ],
+   "bbox_max": [
+    0.1658,
+    0.7,
+    -3.316
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_09",
+   "node": "ShelfBook_2_3_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0483,
+    0.454,
+    -3.4419
+   ],
+   "bbox_max": [
+    0.1907,
+    0.7297,
+    -3.2953
+   ]
+  },
+  {
+   "id": "ShelfBook_2_3_10",
+   "node": "ShelfBook_2_3_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0691,
+    0.454,
+    -3.4171
+   ],
+   "bbox_max": [
+    0.208,
+    0.7247,
+    -3.276
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_00",
+   "node": "ShelfBook_3_0_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3419,
+    -0.745,
+    -3.1517
+   ],
+   "bbox_max": [
+    0.4823,
+    -0.5147,
+    -3.0069
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_01",
+   "node": "ShelfBook_3_0_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3622,
+    -0.745,
+    -3.1303
+   ],
+   "bbox_max": [
+    0.5063,
+    -0.4804,
+    -2.9858
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_02",
+   "node": "ShelfBook_3_0_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3778,
+    -0.745,
+    -3.1005
+   ],
+   "bbox_max": [
+    0.5221,
+    -0.472,
+    -2.9559
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_03",
+   "node": "ShelfBook_3_0_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4055,
+    -0.745,
+    -3.0828
+   ],
+   "bbox_max": [
+    0.5469,
+    -0.5092,
+    -2.9413
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_04",
+   "node": "ShelfBook_3_0_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4172,
+    -0.745,
+    -3.0548
+   ],
+   "bbox_max": [
+    0.5631,
+    -0.4744,
+    -2.907
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_05",
+   "node": "ShelfBook_3_0_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4456,
+    -0.745,
+    -3.0327
+   ],
+   "bbox_max": [
+    0.5863,
+    -0.5164,
+    -2.8872
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_06",
+   "node": "ShelfBook_3_0_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4766,
+    -0.745,
+    -3.0211
+   ],
+   "bbox_max": [
+    0.6215,
+    -0.4511,
+    -2.872
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_07",
+   "node": "ShelfBook_3_0_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4976,
+    -0.745,
+    -2.9912
+   ],
+   "bbox_max": [
+    0.6407,
+    -0.5049,
+    -2.8442
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_08",
+   "node": "ShelfBook_3_0_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5264,
+    -0.745,
+    -2.9735
+   ],
+   "bbox_max": [
+    0.6645,
+    -0.5286,
+    -2.833
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_09",
+   "node": "ShelfBook_3_0_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.544,
+    -0.745,
+    -2.9558
+   ],
+   "bbox_max": [
+    0.6895,
+    -0.523,
+    -2.809
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_10",
+   "node": "ShelfBook_3_0_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5597,
+    -0.745,
+    -2.9225
+   ],
+   "bbox_max": [
+    0.7062,
+    -0.4593,
+    -2.7755
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_11",
+   "node": "ShelfBook_3_0_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5823,
+    -0.745,
+    -2.8948
+   ],
+   "bbox_max": [
+    0.723,
+    -0.4746,
+    -2.7495
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_12",
+   "node": "ShelfBook_3_0_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6146,
+    -0.745,
+    -2.8847
+   ],
+   "bbox_max": [
+    0.7548,
+    -0.5129,
+    -2.7407
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_13",
+   "node": "ShelfBook_3_0_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6252,
+    -0.745,
+    -2.8542
+   ],
+   "bbox_max": [
+    0.7638,
+    -0.5432,
+    -2.7128
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_14",
+   "node": "ShelfBook_3_0_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.649,
+    -0.745,
+    -2.8414
+   ],
+   "bbox_max": [
+    0.7945,
+    -0.5246,
+    -2.6936
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_15",
+   "node": "ShelfBook_3_0_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6807,
+    -0.745,
+    -2.8235
+   ],
+   "bbox_max": [
+    0.8265,
+    -0.4744,
+    -2.6774
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_16",
+   "node": "ShelfBook_3_0_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6952,
+    -0.745,
+    -2.789
+   ],
+   "bbox_max": [
+    0.8386,
+    -0.5345,
+    -2.6417
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_17",
+   "node": "ShelfBook_3_0_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7182,
+    -0.745,
+    -2.7646
+   ],
+   "bbox_max": [
+    0.8631,
+    -0.5148,
+    -2.6179
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_18",
+   "node": "ShelfBook_3_0_18",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7538,
+    -0.745,
+    -2.7521
+   ],
+   "bbox_max": [
+    0.8925,
+    -0.4504,
+    -2.6093
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_19",
+   "node": "ShelfBook_3_0_19",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.775,
+    -0.745,
+    -2.7351
+   ],
+   "bbox_max": [
+    0.9195,
+    -0.5348,
+    -2.5858
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_20",
+   "node": "ShelfBook_3_0_20",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7921,
+    -0.745,
+    -2.7016
+   ],
+   "bbox_max": [
+    0.9305,
+    -0.48,
+    -2.5617
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_21",
+   "node": "ShelfBook_3_0_21",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8177,
+    -0.745,
+    -2.6926
+   ],
+   "bbox_max": [
+    0.9619,
+    -0.4918,
+    -2.5472
+   ]
+  },
+  {
+   "id": "ShelfBook_3_0_22",
+   "node": "ShelfBook_3_0_22",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8295,
+    -0.745,
+    -2.6579
+   ],
+   "bbox_max": [
+    0.9724,
+    -0.5112,
+    -2.5135
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_00",
+   "node": "ShelfBook_3_1_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3464,
+    -0.365,
+    -3.1562
+   ],
+   "bbox_max": [
+    0.4869,
+    -0.0902,
+    -3.0104
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_01",
+   "node": "ShelfBook_3_1_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3576,
+    -0.365,
+    -3.1243
+   ],
+   "bbox_max": [
+    0.4986,
+    -0.1129,
+    -2.9818
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_02",
+   "node": "ShelfBook_3_1_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.372,
+    -0.365,
+    -3.0985
+   ],
+   "bbox_max": [
+    0.5181,
+    -0.0745,
+    -2.9508
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_03",
+   "node": "ShelfBook_3_1_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4101,
+    -0.365,
+    -3.0865
+   ],
+   "bbox_max": [
+    0.554,
+    -0.1346,
+    -2.9396
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_04",
+   "node": "ShelfBook_3_1_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4284,
+    -0.365,
+    -3.0571
+   ],
+   "bbox_max": [
+    0.569,
+    -0.1512,
+    -2.9116
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_05",
+   "node": "ShelfBook_3_1_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4525,
+    -0.365,
+    -3.0386
+   ],
+   "bbox_max": [
+    0.5976,
+    -0.1239,
+    -2.8907
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_06",
+   "node": "ShelfBook_3_1_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8113,
+    -0.365,
+    -2.7023
+   ],
+   "bbox_max": [
+    0.9509,
+    -0.1392,
+    -2.5625
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_07",
+   "node": "ShelfBook_3_1_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8308,
+    -0.365,
+    -2.6856
+   ],
+   "bbox_max": [
+    0.968,
+    -0.1641,
+    -2.5439
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_08",
+   "node": "ShelfBook_3_1_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8352,
+    -0.365,
+    -2.6541
+   ],
+   "bbox_max": [
+    0.9767,
+    -0.1549,
+    -2.5102
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_09",
+   "node": "ShelfBook_3_1_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8614,
+    -0.365,
+    -2.6383
+   ],
+   "bbox_max": [
+    1.0046,
+    -0.1148,
+    -2.4925
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_10",
+   "node": "ShelfBook_3_1_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8864,
+    -0.365,
+    -2.6176
+   ],
+   "bbox_max": [
+    1.0307,
+    -0.1429,
+    -2.4719
+   ]
+  },
+  {
+   "id": "ShelfBook_3_1_11",
+   "node": "ShelfBook_3_1_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.9152,
+    -0.365,
+    -2.5999
+   ],
+   "bbox_max": [
+    1.0545,
+    -0.1605,
+    -2.4587
+   ]
+  },
+  {
+   "id": "ShelfBook_3_3_00",
+   "node": "ShelfBook_3_3_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.337,
+    0.454,
+    -3.1467
+   ],
+   "bbox_max": [
+    0.4765,
+    0.6818,
+    -3.0023
+   ]
+  },
+  {
+   "id": "ShelfBook_3_3_01",
+   "node": "ShelfBook_3_3_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3555,
+    0.454,
+    -3.1248
+   ],
+   "bbox_max": [
+    0.5003,
+    0.707,
+    -2.9796
+   ]
+  },
+  {
+   "id": "ShelfBook_3_3_02",
+   "node": "ShelfBook_3_3_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.3888,
+    0.454,
+    -3.1117
+   ],
+   "bbox_max": [
+    0.5279,
+    0.7318,
+    -2.9717
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_00",
+   "node": "ShelfBook_4_0_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0229,
+    -0.745,
+    -2.4895
+   ],
+   "bbox_max": [
+    1.1662,
+    -0.481,
+    -2.3451
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_01",
+   "node": "ShelfBook_4_0_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.038,
+    -0.745,
+    -2.4599
+   ],
+   "bbox_max": [
+    1.1817,
+    -0.5155,
+    -2.3141
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_02",
+   "node": "ShelfBook_4_0_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0648,
+    -0.745,
+    -2.4405
+   ],
+   "bbox_max": [
+    1.2071,
+    -0.4971,
+    -2.296
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_03",
+   "node": "ShelfBook_4_0_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0856,
+    -0.745,
+    -2.4178
+   ],
+   "bbox_max": [
+    1.2316,
+    -0.5128,
+    -2.2703
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_04",
+   "node": "ShelfBook_4_0_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1189,
+    -0.745,
+    -2.4011
+   ],
+   "bbox_max": [
+    1.2622,
+    -0.467,
+    -2.2552
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_05",
+   "node": "ShelfBook_4_0_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1326,
+    -0.745,
+    -2.3686
+   ],
+   "bbox_max": [
+    1.2697,
+    -0.4648,
+    -2.2261
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_06",
+   "node": "ShelfBook_4_0_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1543,
+    -0.745,
+    -2.3544
+   ],
+   "bbox_max": [
+    1.2952,
+    -0.5256,
+    -2.2132
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_07",
+   "node": "ShelfBook_4_0_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1711,
+    -0.745,
+    -2.3323
+   ],
+   "bbox_max": [
+    1.3156,
+    -0.4955,
+    -2.1858
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_08",
+   "node": "ShelfBook_4_0_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.203,
+    -0.745,
+    -2.3168
+   ],
+   "bbox_max": [
+    1.3459,
+    -0.4906,
+    -2.1731
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_09",
+   "node": "ShelfBook_4_0_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2171,
+    -0.745,
+    -2.2876
+   ],
+   "bbox_max": [
+    1.3621,
+    -0.4852,
+    -2.1424
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_10",
+   "node": "ShelfBook_4_0_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2449,
+    -0.745,
+    -2.2688
+   ],
+   "bbox_max": [
+    1.3918,
+    -0.4948,
+    -2.1216
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_11",
+   "node": "ShelfBook_4_0_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2701,
+    -0.745,
+    -2.243
+   ],
+   "bbox_max": [
+    1.4105,
+    -0.5272,
+    -2.0988
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_12",
+   "node": "ShelfBook_4_0_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2883,
+    -0.745,
+    -2.2198
+   ],
+   "bbox_max": [
+    1.4298,
+    -0.5018,
+    -2.0734
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_13",
+   "node": "ShelfBook_4_0_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3116,
+    -0.745,
+    -2.1986
+   ],
+   "bbox_max": [
+    1.4523,
+    -0.5281,
+    -2.054
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_14",
+   "node": "ShelfBook_4_0_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3301,
+    -0.745,
+    -2.1753
+   ],
+   "bbox_max": [
+    1.4759,
+    -0.4848,
+    -2.029
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_15",
+   "node": "ShelfBook_4_0_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3642,
+    -0.745,
+    -2.1607
+   ],
+   "bbox_max": [
+    1.5071,
+    -0.539,
+    -2.0148
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_16",
+   "node": "ShelfBook_4_0_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3805,
+    -0.745,
+    -2.1313
+   ],
+   "bbox_max": [
+    1.5226,
+    -0.5464,
+    -1.9862
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_17",
+   "node": "ShelfBook_4_0_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4009,
+    -0.745,
+    -2.1077
+   ],
+   "bbox_max": [
+    1.5395,
+    -0.5463,
+    -1.9663
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_18",
+   "node": "ShelfBook_4_0_18",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4141,
+    -0.745,
+    -2.0841
+   ],
+   "bbox_max": [
+    1.555,
+    -0.5086,
+    -1.9411
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_19",
+   "node": "ShelfBook_4_0_19",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4372,
+    -0.745,
+    -2.0668
+   ],
+   "bbox_max": [
+    1.5803,
+    -0.4625,
+    -1.9227
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_20",
+   "node": "ShelfBook_4_0_20",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4654,
+    -0.745,
+    -2.0514
+   ],
+   "bbox_max": [
+    1.6063,
+    -0.5296,
+    -1.9098
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_21",
+   "node": "ShelfBook_4_0_21",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4899,
+    -0.745,
+    -2.0367
+   ],
+   "bbox_max": [
+    1.6292,
+    -0.4708,
+    -1.895
+   ]
+  },
+  {
+   "id": "ShelfBook_4_0_22",
+   "node": "ShelfBook_4_0_22",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.5012,
+    -0.745,
+    -2.0102
+   ],
+   "bbox_max": [
+    1.6474,
+    -0.5082,
+    -1.8624
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_00",
+   "node": "ShelfBook_4_1_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0186,
+    -0.365,
+    -2.4851
+   ],
+   "bbox_max": [
+    1.1629,
+    -0.1217,
+    -2.3402
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_01",
+   "node": "ShelfBook_4_1_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0373,
+    -0.365,
+    -2.4578
+   ],
+   "bbox_max": [
+    1.1832,
+    -0.1379,
+    -2.3101
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_02",
+   "node": "ShelfBook_4_1_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0742,
+    -0.365,
+    -2.4448
+   ],
+   "bbox_max": [
+    1.2161,
+    -0.1262,
+    -2.3015
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_03",
+   "node": "ShelfBook_4_1_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.093,
+    -0.365,
+    -2.4216
+   ],
+   "bbox_max": [
+    1.2379,
+    -0.0877,
+    -2.2747
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_04",
+   "node": "ShelfBook_4_1_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1069,
+    -0.365,
+    -2.3866
+   ],
+   "bbox_max": [
+    1.2479,
+    -0.1564,
+    -2.2425
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_05",
+   "node": "ShelfBook_4_1_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1374,
+    -0.365,
+    -2.3756
+   ],
+   "bbox_max": [
+    1.2782,
+    -0.0999,
+    -2.2323
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_06",
+   "node": "ShelfBook_4_1_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1544,
+    -0.365,
+    -2.3516
+   ],
+   "bbox_max": [
+    1.2981,
+    -0.1398,
+    -2.205
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_07",
+   "node": "ShelfBook_4_1_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1803,
+    -0.365,
+    -2.3305
+   ],
+   "bbox_max": [
+    1.3244,
+    -0.0734,
+    -2.1823
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_08",
+   "node": "ShelfBook_4_1_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.206,
+    -0.365,
+    -2.3072
+   ],
+   "bbox_max": [
+    1.3439,
+    -0.0739,
+    -2.1648
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_09",
+   "node": "ShelfBook_4_1_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2185,
+    -0.365,
+    -2.2826
+   ],
+   "bbox_max": [
+    1.3571,
+    -0.1186,
+    -2.1415
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_10",
+   "node": "ShelfBook_4_1_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2436,
+    -0.365,
+    -2.2714
+   ],
+   "bbox_max": [
+    1.3858,
+    -0.1499,
+    -2.1253
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_11",
+   "node": "ShelfBook_4_1_11",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2591,
+    -0.365,
+    -2.2417
+   ],
+   "bbox_max": [
+    1.4015,
+    -0.1239,
+    -2.095
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_12",
+   "node": "ShelfBook_4_1_12",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2952,
+    -0.365,
+    -2.2323
+   ],
+   "bbox_max": [
+    1.4336,
+    -0.0944,
+    -2.0905
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_13",
+   "node": "ShelfBook_4_1_13",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3055,
+    -0.365,
+    -2.2054
+   ],
+   "bbox_max": [
+    1.4431,
+    -0.1498,
+    -2.065
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_14",
+   "node": "ShelfBook_4_1_14",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3207,
+    -0.365,
+    -2.1858
+   ],
+   "bbox_max": [
+    1.4658,
+    -0.1582,
+    -2.0371
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_15",
+   "node": "ShelfBook_4_1_15",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3526,
+    -0.365,
+    -2.1675
+   ],
+   "bbox_max": [
+    1.4927,
+    -0.1108,
+    -2.0261
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_16",
+   "node": "ShelfBook_4_1_16",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3669,
+    -0.365,
+    -2.1433
+   ],
+   "bbox_max": [
+    1.5093,
+    -0.111,
+    -1.9965
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_17",
+   "node": "ShelfBook_4_1_17",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.3842,
+    -0.365,
+    -2.1148
+   ],
+   "bbox_max": [
+    1.5254,
+    -0.0817,
+    -1.9718
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_18",
+   "node": "ShelfBook_4_1_18",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4042,
+    -0.365,
+    -2.0942
+   ],
+   "bbox_max": [
+    1.5505,
+    -0.1321,
+    -1.9473
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_19",
+   "node": "ShelfBook_4_1_19",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4347,
+    -0.365,
+    -2.0748
+   ],
+   "bbox_max": [
+    1.5768,
+    -0.0914,
+    -1.9279
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_20",
+   "node": "ShelfBook_4_1_20",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4628,
+    -0.365,
+    -2.0574
+   ],
+   "bbox_max": [
+    1.6027,
+    -0.082,
+    -1.913
+   ]
+  },
+  {
+   "id": "ShelfBook_4_1_21",
+   "node": "ShelfBook_4_1_21",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.4846,
+    -0.365,
+    -2.0382
+   ],
+   "bbox_max": [
+    1.6256,
+    -0.1436,
+    -1.894
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_00",
+   "node": "ShelfBook_4_2_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0196,
+    0.039,
+    -2.486
+   ],
+   "bbox_max": [
+    1.1581,
+    0.3145,
+    -2.345
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_01",
+   "node": "ShelfBook_4_2_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0428,
+    0.039,
+    -2.4732
+   ],
+   "bbox_max": [
+    1.1865,
+    0.3293,
+    -2.3274
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_02",
+   "node": "ShelfBook_4_2_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.069,
+    0.039,
+    -2.4533
+   ],
+   "bbox_max": [
+    1.2135,
+    0.3287,
+    -2.3052
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_03",
+   "node": "ShelfBook_4_2_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0933,
+    0.039,
+    -2.4283
+   ],
+   "bbox_max": [
+    1.2326,
+    0.2973,
+    -2.2863
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_04",
+   "node": "ShelfBook_4_2_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.101,
+    0.039,
+    -2.3977
+   ],
+   "bbox_max": [
+    1.244,
+    0.3228,
+    -2.2504
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_05",
+   "node": "ShelfBook_4_2_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1306,
+    0.039,
+    -2.3804
+   ],
+   "bbox_max": [
+    1.2729,
+    0.2378,
+    -2.2328
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_06",
+   "node": "ShelfBook_4_2_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1507,
+    0.039,
+    -2.3541
+   ],
+   "bbox_max": [
+    1.293,
+    0.3191,
+    -2.2108
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_07",
+   "node": "ShelfBook_4_2_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1665,
+    0.039,
+    -2.3273
+   ],
+   "bbox_max": [
+    1.3047,
+    0.326,
+    -2.1844
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_08",
+   "node": "ShelfBook_4_2_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1954,
+    0.039,
+    -2.3187
+   ],
+   "bbox_max": [
+    1.3318,
+    0.3287,
+    -2.1778
+   ]
+  },
+  {
+   "id": "ShelfBook_4_2_09",
+   "node": "ShelfBook_4_2_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2032,
+    0.039,
+    -2.2922
+   ],
+   "bbox_max": [
+    1.3459,
+    0.3118,
+    -2.1453
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_00",
+   "node": "ShelfBook_4_3_00",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0118,
+    0.454,
+    -2.4781
+   ],
+   "bbox_max": [
+    1.1498,
+    0.6631,
+    -2.3387
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_01",
+   "node": "ShelfBook_4_3_01",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0281,
+    0.454,
+    -2.4602
+   ],
+   "bbox_max": [
+    1.1738,
+    0.7246,
+    -2.3118
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_02",
+   "node": "ShelfBook_4_3_02",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0684,
+    0.454,
+    -2.4502
+   ],
+   "bbox_max": [
+    1.2127,
+    0.7212,
+    -2.3051
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_03",
+   "node": "ShelfBook_4_3_03",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.0895,
+    0.454,
+    -2.4251
+   ],
+   "bbox_max": [
+    1.2303,
+    0.7455,
+    -2.2795
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_04",
+   "node": "ShelfBook_4_3_04",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1035,
+    0.454,
+    -2.3959
+   ],
+   "bbox_max": [
+    1.2476,
+    0.7235,
+    -2.2483
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_05",
+   "node": "ShelfBook_4_3_05",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1342,
+    0.454,
+    -2.3785
+   ],
+   "bbox_max": [
+    1.2751,
+    0.7485,
+    -2.2374
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_06",
+   "node": "ShelfBook_4_3_06",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1538,
+    0.454,
+    -2.3594
+   ],
+   "bbox_max": [
+    1.2935,
+    0.6678,
+    -2.2195
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_07",
+   "node": "ShelfBook_4_3_07",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1735,
+    0.454,
+    -2.3429
+   ],
+   "bbox_max": [
+    1.3176,
+    0.7024,
+    -2.198
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_08",
+   "node": "ShelfBook_4_3_08",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.1858,
+    0.454,
+    -2.3093
+   ],
+   "bbox_max": [
+    1.3301,
+    0.7284,
+    -2.1643
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_09",
+   "node": "ShelfBook_4_3_09",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.2238,
+    0.454,
+    -2.3016
+   ],
+   "bbox_max": [
+    1.3663,
+    0.7144,
+    -2.1563
+   ]
+  },
+  {
+   "id": "ShelfBook_4_3_10",
+   "node": "ShelfBook_4_3_10",
+   "category": "book",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.232,
+    0.454,
+    -2.2649
+   ],
+   "bbox_max": [
+    1.3774,
+    0.7481,
+    -2.1174
+   ]
+  },
+  {
+   "id": "ShelfCeramic0",
+   "node": "ShelfCeramic0",
+   "category": "vase",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.9199,
+    0.039,
+    -4.3723
+   ],
+   "bbox_max": [
+    -0.7799,
+    0.084,
+    -4.2323
+   ]
+  },
+  {
+   "id": "ShelfCeramic1",
+   "node": "ShelfCeramic1",
+   "category": "vase",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0423,
+    0.039,
+    -4.4908
+   ],
+   "bbox_max": [
+    -0.9583,
+    0.229,
+    -4.4068
+   ]
+  },
+  {
+   "id": "ShelfFrame0",
+   "node": "ShelfFrame0",
+   "category": "frame",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.2687,
+    0.039,
+    -4.7108
+   ],
+   "bbox_max": [
+    -1.0759,
+    0.369,
+    -4.5217
+   ]
+  },
+  {
+   "id": "ShelfFrame1",
+   "node": "ShelfFrame1",
+   "category": "frame",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5664,
+    0.039,
+    -4.0272
+   ],
+   "bbox_max": [
+    -0.3164,
+    0.259,
+    -3.7823
+   ]
+  },
+  {
+   "id": "ShelfMiniEasel",
+   "node": "ShelfMiniEasel",
+   "category": "display",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    1.5342,
+    0.039,
+    -2.0068
+   ],
+   "bbox_max": [
+    1.7027,
+    0.2885,
+    -1.8369
+   ]
+  },
+  {
+   "id": "ShelfPlant0",
+   "node": "ShelfPlant0",
+   "category": "plant",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1454,
+    -0.365,
+    -4.5944
+   ],
+   "bbox_max": [
+    -0.8922,
+    -0.0438,
+    -4.3514
+   ]
+  },
+  {
+   "id": "ShelfPlant1",
+   "node": "ShelfPlant1",
+   "category": "plant",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5643,
+    -0.365,
+    -4.031
+   ],
+   "bbox_max": [
+    -0.3065,
+    -0.0424,
+    -3.7868
+   ]
+  },
+  {
+   "id": "ShelfPlant2",
+   "node": "ShelfPlant2",
+   "category": "plant",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.0389,
+    -0.365,
+    -3.4391
+   ],
+   "bbox_max": [
+    0.1899,
+    -0.0436,
+    -3.2891
+   ]
+  },
+  {
+   "id": "ShelfPlant3",
+   "node": "ShelfPlant3",
+   "category": "plant",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.0083,
+    0.039,
+    -3.489
+   ],
+   "bbox_max": [
+    0.248,
+    0.3599,
+    -3.247
+   ]
+  },
+  {
+   "id": "ShelfPlant4",
+   "node": "ShelfPlant4",
+   "category": "plant",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5786,
+    -0.365,
+    -2.917
+   ],
+   "bbox_max": [
+    0.8326,
+    -0.0401,
+    -2.6749
+   ]
+  },
+  {
+   "id": "ShelfRemote",
+   "node": "ShelfRemote",
+   "category": "electronics",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.0769,
+    0.454,
+    -4.5242
+   ],
+   "bbox_max": [
+    -0.9237,
+    0.478,
+    -4.3734
+   ]
+  },
+  {
+   "id": "ShelfSteelFlask",
+   "node": "ShelfSteelFlask",
+   "category": "flask",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.4224,
+    0.039,
+    -3.0648
+   ],
+   "bbox_max": [
+    0.5004,
+    0.285,
+    -2.9868
+   ]
+  },
+  {
+   "id": "ShelfWaterBottle0",
+   "node": "ShelfWaterBottle0",
+   "category": "bottle",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.6757,
+    0.039,
+    -2.804
+   ],
+   "bbox_max": [
+    0.7347,
+    0.2495,
+    -2.745
+   ]
+  },
+  {
+   "id": "ShelfWaterBottle1",
+   "node": "ShelfWaterBottle1",
+   "category": "bottle",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.7546,
+    0.039,
+    -2.7273
+   ],
+   "bbox_max": [
+    0.8136,
+    0.2495,
+    -2.6683
+   ]
+  },
+  {
+   "id": "ShelfWaterBottle2",
+   "node": "ShelfWaterBottle2",
+   "category": "bottle",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.8334,
+    0.039,
+    -2.6506
+   ],
+   "bbox_max": [
+    0.8924,
+    0.2495,
+    -2.5916
+   ]
+  },
+  {
+   "id": "ShelfWovenBasket",
+   "node": "ShelfWovenBasket",
+   "category": "basket",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": "Storage0",
+   "attached_to": null,
+   "support_part": "Storage_Carcass",
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5691,
+    0.454,
+    -2.9529
+   ],
+   "bbox_max": [
+    0.9979,
+    0.641,
+    -2.5275
+   ]
+  },
+  {
+   "id": "Skirting_Wall0_0",
+   "node": "Skirting_Wall0_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall0_0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.9553,
+    -1.594,
+    -6.0166
+   ],
+   "bbox_max": [
+    -2.9197,
+    -1.494,
+    -1.2354
+   ]
+  },
+  {
+   "id": "Skirting_Wall10_0",
+   "node": "Skirting_Wall10_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall10_0",
+   "mount": "wall",
+   "wall": "Wall10",
+   "rests_on": null,
+   "attached_to": "Wall10",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2058,
+    -1.594,
+    4.5192
+   ],
+   "bbox_max": [
+    -2.1246,
+    -1.494,
+    4.5986
+   ]
+  },
+  {
+   "id": "Skirting_Wall11_0",
+   "node": "Skirting_Wall11_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall11_0",
+   "mount": "wall",
+   "wall": "Wall11",
+   "rests_on": null,
+   "attached_to": "Wall11",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9269,
+    -1.594,
+    -6.0073
+   ],
+   "bbox_max": [
+    -2.8369,
+    -1.494,
+    -5.9193
+   ]
+  },
+  {
+   "id": "Skirting_Wall12_0",
+   "node": "Skirting_Wall12_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall12_0",
+   "mount": "wall",
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": "Wall12",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.132,
+    -1.594,
+    -0.4769
+   ],
+   "bbox_max": [
+    2.7998,
+    -1.494,
+    4.5888
+   ]
+  },
+  {
+   "id": "Skirting_Wall13_0",
+   "node": "Skirting_Wall13_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall13_0",
+   "mount": "wall",
+   "wall": "Wall13",
+   "rests_on": null,
+   "attached_to": "Wall13",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.6766,
+    -1.594,
+    4.5194
+   ],
+   "bbox_max": [
+    -2.2058,
+    -1.494,
+    6.0298
+   ]
+  },
+  {
+   "id": "Skirting_Wall1_0",
+   "node": "Skirting_Wall1_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall1_0",
+   "mount": "wall",
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "Wall1",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1709,
+    -1.594,
+    -5.0379
+   ],
+   "bbox_max": [
+    2.0457,
+    -1.494,
+    -1.9061
+   ]
+  },
+  {
+   "id": "Skirting_Wall2_0",
+   "node": "Skirting_Wall2_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall2_0",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.4569,
+    -1.594,
+    -1.2014
+   ],
+   "bbox_max": [
+    -7.9028,
+    -1.494,
+    0.3946
+   ]
+  },
+  {
+   "id": "Skirting_Wall3_0",
+   "node": "Skirting_Wall3_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall3_0",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.7052,
+    -1.594,
+    -6.0847
+   ],
+   "bbox_max": [
+    -2.6187,
+    -1.494,
+    -6.0001
+   ]
+  },
+  {
+   "id": "Skirting_Wall3_1",
+   "node": "Skirting_Wall3_1",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall3_1",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.8764,
+    -1.594,
+    -5.2779
+   ],
+   "bbox_max": [
+    -1.3858,
+    -1.494,
+    -4.7999
+   ]
+  },
+  {
+   "id": "Skirting_Wall4_0",
+   "node": "Skirting_Wall4_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall4_0",
+   "mount": "wall",
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": "Wall4",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.6814,
+    -1.594,
+    -1.5491
+   ],
+   "bbox_max": [
+    1.9409,
+    -1.494,
+    -1.2961
+   ]
+  },
+  {
+   "id": "Skirting_Wall4_1",
+   "node": "Skirting_Wall4_1",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall4_1",
+   "mount": "wall",
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": "Wall4",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    2.6876,
+    -1.594,
+    -0.5696
+   ],
+   "bbox_max": [
+    2.79,
+    -1.494,
+    -0.4695
+   ]
+  },
+  {
+   "id": "Skirting_Wall5_0",
+   "node": "Skirting_Wall5_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall5_0",
+   "mount": "wall",
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": "Wall5",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.6812,
+    -1.594,
+    -1.9132
+   ],
+   "bbox_max": [
+    2.0361,
+    -1.494,
+    -1.5491
+   ]
+  },
+  {
+   "id": "Skirting_Wall6_0",
+   "node": "Skirting_Wall6_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall6_0",
+   "mount": "wall",
+   "wall": "Wall6",
+   "rests_on": null,
+   "attached_to": "Wall6",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.3858,
+    -1.594,
+    -5.0281
+   ],
+   "bbox_max": [
+    -1.1635,
+    -1.494,
+    -4.8001
+   ]
+  },
+  {
+   "id": "Skirting_Wall7_0",
+   "node": "Skirting_Wall7_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall7_0",
+   "mount": "wall",
+   "wall": "Wall7",
+   "rests_on": null,
+   "attached_to": "Wall7",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.9454,
+    -1.594,
+    -1.2431
+   ],
+   "bbox_max": [
+    -7.903,
+    -1.494,
+    -1.2014
+   ]
+  },
+  {
+   "id": "Skirting_Wall9_0",
+   "node": "Skirting_Wall9_0",
+   "category": "trim",
+   "role": "fixture",
+   "group": "Skirting_Wall9_0",
+   "mount": "wall",
+   "wall": "Wall9",
+   "rests_on": null,
+   "attached_to": "Wall9",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9261,
+    -1.594,
+    -6.0837
+   ],
+   "bbox_max": [
+    -2.6968,
+    -1.494,
+    -6.0056
+   ]
+  },
+  {
+   "id": "Socket0",
+   "node": "Socket0",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket0",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.7704,
+    -1.317,
+    -1.4816
+   ],
+   "bbox_max": [
+    -7.6968,
+    -1.231,
+    -1.411
+   ]
+  },
+  {
+   "id": "Socket1",
+   "node": "Socket1",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket1",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.4858,
+    -1.457,
+    -3.6504
+   ],
+   "bbox_max": [
+    -5.4123,
+    -1.371,
+    -3.5797
+   ]
+  },
+  {
+   "id": "Socket2",
+   "node": "Socket2",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket2",
+   "mount": "wall",
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": "Wall0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.3101,
+    -1.427,
+    -5.7158
+   ],
+   "bbox_max": [
+    -3.2366,
+    -1.341,
+    -5.6452
+   ]
+  },
+  {
+   "id": "Socket3",
+   "node": "Socket3",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket3",
+   "mount": "wall",
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": "Wall12",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    2.5505,
+    -1.457,
+    -0.2942
+   ],
+   "bbox_max": [
+    2.6219,
+    -1.371,
+    -0.2213
+   ]
+  },
+  {
+   "id": "Socket4",
+   "node": "Socket4",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket4",
+   "mount": "wall",
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": "Wall12",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.423,
+    -1.477,
+    1.8913
+   ],
+   "bbox_max": [
+    0.4944,
+    -1.391,
+    1.9641
+   ]
+  },
+  {
+   "id": "Socket5",
+   "node": "Socket5",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket5",
+   "mount": "wall",
+   "wall": "Wall13",
+   "rests_on": null,
+   "attached_to": "Wall13",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.4874,
+    -1.287,
+    5.7626
+   ],
+   "bbox_max": [
+    -3.416,
+    -1.201,
+    5.8355
+   ]
+  },
+  {
+   "id": "Socket6",
+   "node": "Socket6",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket6",
+   "mount": "wall",
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": "Wall2",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.1321,
+    -1.307,
+    -1.0392
+   ],
+   "bbox_max": [
+    -8.0607,
+    -1.221,
+    -0.9663
+   ]
+  },
+  {
+   "id": "Socket7",
+   "node": "Socket7",
+   "category": "electrical",
+   "role": "furniture",
+   "group": "Socket7",
+   "mount": "wall",
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": "Wall3",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.6626,
+    -0.497,
+    -5.0698
+   ],
+   "bbox_max": [
+    -1.5897,
+    -0.411,
+    -4.9984
+   ]
+  },
+  {
+   "id": "Sofa0",
+   "node": "Sofa0",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "Sofa0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.5811,
+    -1.594,
+    0.2038
+   ],
+   "bbox_max": [
+    -7.1627,
+    -0.8886,
+    1.6146
+   ]
+  },
+  {
+   "id": "SofaModule0",
+   "node": "SofaModule0",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "SofaModule0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.0563,
+    -1.594,
+    1.1508
+   ],
+   "bbox_max": [
+    -5.9231,
+    -1.174,
+    2.3427
+   ]
+  },
+  {
+   "id": "SofaModule1",
+   "node": "SofaModule1",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "SofaModule1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.0542,
+    -1.594,
+    2.1408
+   ],
+   "bbox_max": [
+    -4.9254,
+    -1.174,
+    3.3442
+   ]
+  },
+  {
+   "id": "SofaModule2",
+   "node": "SofaModule2",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "SofaModule2",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.5449,
+    -1.594,
+    3.2037
+   ],
+   "bbox_max": [
+    -4.9194,
+    -1.174,
+    3.8124
+   ]
+  },
+  {
+   "id": "SofaModule3",
+   "node": "SofaModule3",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "SofaModule3",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.0752,
+    -1.594,
+    3.2023
+   ],
+   "bbox_max": [
+    -3.7388,
+    -0.874,
+    4.6537
+   ]
+  },
+  {
+   "id": "SofaModule4",
+   "node": "SofaModule4",
+   "category": "sofa",
+   "role": "furniture",
+   "group": "SofaModule4",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -7.5573,
+    -1.594,
+    1.0613
+   ],
+   "bbox_max": [
+    -7.0685,
+    -1.174,
+    1.8322
+   ]
+  },
+  {
+   "id": "Sprinkler0",
+   "node": "Sprinkler0",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler0",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9202,
+    1.6985,
+    -4.2392
+   ],
+   "bbox_max": [
+    -2.8502,
+    1.756,
+    -4.1692
+   ]
+  },
+  {
+   "id": "Sprinkler1",
+   "node": "Sprinkler1",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler1",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    0.5909,
+    1.6985,
+    -0.8213
+   ],
+   "bbox_max": [
+    0.6609,
+    1.756,
+    -0.7513
+   ]
+  },
+  {
+   "id": "Sprinkler2",
+   "node": "Sprinkler2",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler2",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.664,
+    1.6985,
+    -2.4479
+   ],
+   "bbox_max": [
+    -4.594,
+    1.756,
+    -2.3779
+   ]
+  },
+  {
+   "id": "Sprinkler3",
+   "node": "Sprinkler3",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler3",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.153,
+    1.6985,
+    0.9701
+   ],
+   "bbox_max": [
+    -1.083,
+    1.756,
+    1.0401
+   ]
+  },
+  {
+   "id": "Sprinkler4",
+   "node": "Sprinkler4",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler4",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -6.4079,
+    1.6985,
+    -0.6565
+   ],
+   "bbox_max": [
+    -6.3379,
+    1.756,
+    -0.5865
+   ]
+  },
+  {
+   "id": "Sprinkler5",
+   "node": "Sprinkler5",
+   "category": "sprinkler",
+   "role": "fixture",
+   "group": "Sprinkler5",
+   "mount": "ceiling",
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "Ceiling0",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.8968,
+    1.6985,
+    2.7614
+   ],
+   "bbox_max": [
+    -2.8268,
+    1.756,
+    2.8314
+   ]
+  },
+  {
+   "id": "Storage0",
+   "node": "Storage0",
+   "category": "storage",
+   "role": "furniture",
+   "group": "CabinetWallBracket",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": "CabinetWallBracket",
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -1.3788,
+    -0.943,
+    -4.9126
+   ],
+   "bbox_max": [
+    1.9326,
+    0.9,
+    -1.6768
+   ]
+  },
+  {
+   "id": "Storage1",
+   "node": "Storage1",
+   "category": "storage",
+   "role": "furniture",
+   "group": "Storage1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -1.3911,
+    -1.5939,
+    -4.9247
+   ],
+   "bbox_max": [
+    1.9863,
+    -0.944,
+    -1.6245
+   ]
+  },
+  {
+   "id": "StoredDisplayPanel",
+   "node": "StoredDisplayPanel",
+   "category": "display",
+   "role": "furniture",
+   "group": "StoredDisplayPanel",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -4.0818,
+    -1.594,
+    4.8096
+   ],
+   "bbox_max": [
+    -3.2311,
+    0.538,
+    5.6558
+   ]
+  },
+  {
+   "id": "Table0",
+   "node": "Table0",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table0",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -3.4788,
+    -1.594,
+    3.2632
+   ],
+   "bbox_max": [
+    -2.5078,
+    -1.104,
+    4.2326
+   ]
+  },
+  {
+   "id": "Table1",
+   "node": "Table1",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table1",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -6.8288,
+    -1.594,
+    -0.3361
+   ],
+   "bbox_max": [
+    -5.8564,
+    -1.094,
+    0.6361
+   ]
+  },
+  {
+   "id": "Table2",
+   "node": "Table2",
+   "category": "table",
+   "role": "furniture",
+   "group": "Table2",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": true,
+   "bbox_min": [
+    -5.5663,
+    -1.594,
+    -3.5263
+   ],
+   "bbox_max": [
+    -1.4407,
+    -0.825,
+    0.7249
+   ]
+  },
+  {
+   "id": "TallSnakePlant",
+   "node": "TallSnakePlant",
+   "category": "plant",
+   "role": "furniture",
+   "group": "TallSnakePlant",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.0099,
+    -1.594,
+    -0.9981
+   ],
+   "bbox_max": [
+    -7.4541,
+    -0.0833,
+    -0.4304
+   ]
+  },
+  {
+   "id": "Television0",
+   "node": "Television0",
+   "category": "television",
+   "role": "furniture",
+   "group": "DisplayTrolley",
+   "mount": null,
+   "wall": null,
+   "rests_on": null,
+   "attached_to": "DisplayTrolley",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -0.5695,
+    -0.8132,
+    1.0251
+   ],
+   "bbox_max": [
+    0.7603,
+    0.2942,
+    2.3873
+   ]
+  },
+  {
+   "id": "TrainingPosterEasel",
+   "node": "TrainingPosterEasel",
+   "category": "display",
+   "role": "furniture",
+   "group": "TrainingPosterEasel",
+   "mount": "floor",
+   "wall": null,
+   "rests_on": "Floor0",
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.5638,
+    -1.594,
+    -0.3923
+   ],
+   "bbox_max": [
+    -7.902,
+    -0.0223,
+    0.2523
+   ]
+  },
+  {
+   "id": "Wall0",
+   "node": "Wall0",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall0",
+   "mount": null,
+   "wall": "Wall0",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.0238,
+    -1.594,
+    -6.0888
+   ],
+   "bbox_max": [
+    -2.9277,
+    1.786,
+    -1.2437
+   ]
+  },
+  {
+   "id": "Wall1",
+   "node": "Wall1",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall1",
+   "mount": null,
+   "wall": "Wall1",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.1628,
+    -1.594,
+    -5.1092
+   ],
+   "bbox_max": [
+    2.1151,
+    1.786,
+    -1.9143
+   ]
+  },
+  {
+   "id": "Wall10",
+   "node": "Wall10",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall10",
+   "mount": null,
+   "wall": "Wall10",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.2752,
+    -1.594,
+    4.5274
+   ],
+   "bbox_max": [
+    -2.1327,
+    1.786,
+    4.6699
+   ]
+  },
+  {
+   "id": "Wall11",
+   "node": "Wall11",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall11",
+   "mount": null,
+   "wall": "Wall11",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9283,
+    -1.594,
+    -6.0879
+   ],
+   "bbox_max": [
+    -2.7675,
+    1.786,
+    -5.9275
+   ]
+  },
+  {
+   "id": "Wall12",
+   "node": "Wall12",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall12",
+   "mount": null,
+   "wall": "Wall12",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.1334,
+    -1.594,
+    -0.4688
+   ],
+   "bbox_max": [
+    2.8711,
+    1.786,
+    4.668
+   ]
+  },
+  {
+   "id": "Wall13",
+   "node": "Wall13",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall13",
+   "mount": null,
+   "wall": "Wall13",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -3.6684,
+    -1.594,
+    4.5275
+   ],
+   "bbox_max": [
+    -2.1345,
+    1.786,
+    6.0992
+   ]
+  },
+  {
+   "id": "Wall2",
+   "node": "Wall2",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall2",
+   "mount": null,
+   "wall": "Wall2",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.5322,
+    -1.594,
+    -1.2708
+   ],
+   "bbox_max": [
+    -7.911,
+    1.786,
+    0.3906
+   ]
+  },
+  {
+   "id": "Wall3",
+   "node": "Wall3",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall3",
+   "mount": null,
+   "wall": "Wall3",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.6971,
+    -1.594,
+    -6.156
+   ],
+   "bbox_max": [
+    -1.3164,
+    1.786,
+    -4.8081
+   ]
+  },
+  {
+   "id": "Wall4",
+   "node": "Wall4",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall4",
+   "mount": null,
+   "wall": "Wall4",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.6895,
+    -1.594,
+    -1.6204
+   ],
+   "bbox_max": [
+    2.8692,
+    1.786,
+    -0.4681
+   ]
+  },
+  {
+   "id": "Wall5",
+   "node": "Wall5",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall5",
+   "mount": null,
+   "wall": "Wall5",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    1.6894,
+    -1.594,
+    -1.915
+   ],
+   "bbox_max": [
+    2.117,
+    1.786,
+    -1.4797
+   ]
+  },
+  {
+   "id": "Wall6",
+   "node": "Wall6",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall6",
+   "mount": null,
+   "wall": "Wall6",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -1.4571,
+    -1.594,
+    -5.1073
+   ],
+   "bbox_max": [
+    -1.1621,
+    1.786,
+    -4.8082
+   ]
+  },
+  {
+   "id": "Wall7",
+   "node": "Wall7",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall7",
+   "mount": null,
+   "wall": "Wall7",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -8.0247,
+    -1.594,
+    -1.2445
+   ],
+   "bbox_max": [
+    -7.9111,
+    1.786,
+    -1.1301
+   ]
+  },
+  {
+   "id": "Wall8",
+   "node": "Wall8",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall8",
+   "mount": null,
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.5303,
+    -1.594,
+    0.3899
+   ],
+   "bbox_max": [
+    -3.6677,
+    1.786,
+    6.1011
+   ]
+  },
+  {
+   "id": "Wall9",
+   "node": "Wall9",
+   "category": "wall",
+   "role": "structure",
+   "group": "Wall9",
+   "mount": null,
+   "wall": "Wall9",
+   "rests_on": null,
+   "attached_to": null,
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -2.9561,
+    -1.594,
+    -6.1801
+   ],
+   "bbox_max": [
+    -2.6967,
+    1.786,
+    -6.0161
+   ]
+  },
+  {
+   "id": "WindowLeft",
+   "node": "WindowLeft",
+   "category": "window",
+   "role": "opening",
+   "group": "WindowLeft",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": "Wall8",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -5.6488,
+    -1.594,
+    4.0462
+   ],
+   "bbox_max": [
+    -3.6276,
+    1.734,
+    6.0314
+   ]
+  },
+  {
+   "id": "WindowRight",
+   "node": "WindowRight",
+   "category": "window",
+   "role": "opening",
+   "group": "WindowRight",
+   "mount": "wall",
+   "wall": "Wall8",
+   "rests_on": null,
+   "attached_to": "Wall8",
+   "support_part": null,
+   "placeable_surface": false,
+   "bbox_min": [
+    -9.5505,
+    -1.594,
+    0.2584
+   ],
+   "bbox_max": [
+    -7.5183,
+    1.734,
+    2.2324
+   ]
+  }
+ ],
+ "joints": [
+  {
+   "node": "Door_Bay5_R",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay5_L",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay4_R",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay4_L",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay3_R",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay3_L",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay2_R",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay2_L",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay1_R",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Bay1_L",
+   "object": "Storage0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_05_R",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_05_L",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_04_R",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_04_L",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_03_R",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_03_L",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_02_R",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_02_L",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_01_R",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_01_L",
+   "object": "Storage1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.74533
+  },
+  {
+   "node": "Door_Leaf",
+   "object": "Door0",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.5708
+  },
+  {
+   "node": "Door_Leaf_Right_Hinge",
+   "object": "Door1",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.5708
+  },
+  {
+   "node": "Central_Door_Leaf",
+   "object": "Door2",
+   "type": "revolute",
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.5708
+  }
+ ]
+}
