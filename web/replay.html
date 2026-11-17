@@ -16,6 +16,8 @@
   button {font: inherit; color: var(--rc-text); cursor: pointer; border: 1px solid var(--rc-line); background: var(--rc-raised); border-radius: 8px; padding: 4px 10px;}
   button:is(:hover, :focus-visible, :active) {border-color: var(--rc-green); color: var(--rc-green); background: var(--rc-active);}
   :is(a, button):focus-visible {outline: 2px solid var(--rc-green); outline-offset: 4px;}
+  select {font: inherit; font-size: 13px; color: var(--rc-text); cursor: pointer; border: 1px solid var(--rc-line); background: var(--rc-raised); border-radius: 8px; height: 32px; padding: 0 6px;}
+  select:is(:hover, :focus-visible) {border-color: var(--rc-green); color: var(--rc-green);}
   svg {width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;}
   /* Header: same height, padding, icon and type as the room list (web/home.css .home-header). */
   header {display: flex; align-items: center; gap: 24px; padding: 0 24px; background: var(--rc-bg); border-bottom: 1px solid var(--rc-line); min-width: 0;}
@@ -83,7 +85,7 @@
   .lightbox.on {display: grid;}
   .lightbox img {max-height: calc(100vh - 230px); max-width: 100%; border-radius: 6px;}
   .lightbox .cap {color: var(--rc-text); margin-top: 10px; text-align: center; font-size: 14px;}
-  footer {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 0 20px; background: var(--rc-bg); border-top: 1px solid var(--rc-line);}
+  footer {display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 18px; align-items: center; padding: 0 20px; background: var(--rc-bg); border-top: 1px solid var(--rc-line);}
   .btns {display: flex; gap: 6px;}
   .btns button {width: 36px; height: 32px; padding: 0; display: grid; place-items: center;}
   .btns svg {pointer-events: none;}
@@ -143,6 +145,7 @@
   <div class="btns"><button id="prev" title="上一步（←）"><svg><use href="#i-prev"/></svg></button><button id="play" title="播放 / 暂停（空格）"><svg><use href="#i-play"/></svg></button><button id="next" title="下一步（→）"><svg><use href="#i-next"/></svg></button></div>
   <div class="track" id="track"></div>
   <div class="clock"><b id="clock">0:00:00</b> <span id="total">/ 0:00:00</span></div>
+  <select id="speed" title="播放速度" aria-label="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
 </footer>
 <script type="module" src="./replay/replay.mjs"></script>
 </body>

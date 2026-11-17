@@ -61,6 +61,7 @@ async function start() {
   document.title = `${data.name || '房间'} · 重建过程`;
   $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (data.start ? ` · ${new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3)}` : '');
   view = window.view = new RoomView($('view'), {files, scaffold: {points: `${api}/scaffold/points.bin`, layout: `${api}/scaffold/layout.json`, colors: `${api}/scaffold/colors.bin`}});
+  setRate();
   rebuild();
   $('loading').remove();
   if (data.live) {
@@ -202,6 +203,14 @@ $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 $('play').onclick = () => {following = false; player.toggle();};
 $('latest').onclick = () => seekTo(span());
+// Playback speed. The view decides the speed of the moment: sped up, it still plays what is worth watching
+// (the camera moving in, an object taking shape) at normal speed, and render() passes that on to the clock.
+function setRate() {
+  player.rate = +$('speed').value;
+  if (view) view.speed = player.rate;
+}
+// Back to the page afterwards, so Space and the arrows keep driving the replay rather than the list.
+$('speed').onchange = () => {setRate(); $('speed').blur();};
 addEventListener('keyup', (ev) => {if (ev.code === 'Space') ev.preventDefault();});
 addEventListener('keydown', (ev) => {
   if (ev.code === 'Space') {ev.preventDefault(); if (!ev.repeat) {following = false; player.toggle();}}
@@ -225,6 +234,7 @@ function directCamera(t, p) {
 player.on((t, p) => render(t, p));
 function render(t, p, force = false) {
   if (!tl || !view) return;
+  p.rate = view.rate;
   directCamera(t, p);
   if ($('play').dataset.on !== String(p.playing)) {
     $('play').dataset.on = p.playing;
