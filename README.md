@@ -17,7 +17,7 @@
 用 iPhone（LiDAR + RoomPlan）扫一遍房间，RoomCanvas 把它重建成带纹理、尺寸真实的三维模型，每件家具都是独立、可以挪动的物体。想买的新东西拍几张照片就能按真实大小加进来；用鼠标或摄像头手势摆放，碰撞和是否放稳实时检查，看放不放得下、好不好看。
 
 - **真实尺寸**：房间和家具来自扫描重建，新物品按一条实测边长标定，摆进去的就是真实大小。
-- **开箱即用**：网页编辑器是纯前端，没有构建步骤，有 Python 就能打开两个示例房间。
+- **开箱即用**：网页编辑器是纯前端，没有构建步骤，有 Python 就能打开三个示例房间。
 - **双手操作**：浏览器里用摄像头识别手势，画面只在本机处理，不上传。
 - **一个仓库，从扫描到手机**：房间重建、物体重建、网页编辑器、手势、Android 漫游 App 都在这里。
 
@@ -133,7 +133,7 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选卧室 `room3` 或办公室 `office`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office` 或 `Room_3934`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
 **服务器启动**：安装完成后，一条命令启动房间服务、物体服务和网关（已在运行的会跳过）；`status` 只查看状态。
 
@@ -257,7 +257,7 @@ flowchart LR
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
-| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934，未列入首页，用 `web/editor/?scene=../../samples/room-3934` 打开） | |
+| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934） | |
 
 ## 开发与测试
 
