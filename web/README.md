@@ -65,7 +65,7 @@ python3 web/scripts/serve.py
 
 ### 房间选择页
 
-房间选择页列出 `rooms.json` 里的房间（`id`、名字、目录、一句介绍），以及房间重建服务已完成的房间（服务在线时由 `serve.py` 合并进列表，不改写 `rooms.json`）。卡片上的物品数和模型大小直接从房间文件读取，缩略图是房间目录中的 `thumbnail.jpg`，由 `scripts/thumbnail.py` 从编辑器整体视角截图生成（需要 Playwright 和 Pillow）。手动添加房间只需在 `rooms.json` 加一行并生成缩略图。重建出来的房间也可以用它生成，缩略图放到服务器上该房间的发布目录，命令见 [使用与结果](../docs/ROOM_RECONSTRUCTION.md#使用与结果)。
+房间选择页列出 `rooms.json` 里的房间（`id`、名字、目录、一句介绍），以及房间重建服务已完成的房间（服务在线时由 `serve.py` 合并进列表，不改写 `rooms.json`）。示例房间如果是某次重建的副本，在它的条目里用 `scan` 写上那次任务的编号，首页就只显示示例这一张。卡片上的物品数和模型大小直接从房间文件读取，缩略图是房间目录中的 `thumbnail.jpg`，由 `scripts/thumbnail.py` 从编辑器整体视角截图生成（需要 Playwright 和 Pillow）。手动添加房间只需在 `rooms.json` 加一行并生成缩略图。重建出来的房间也可以用它生成，缩略图放到服务器上该房间的发布目录，命令见 [使用与结果](../docs/ROOM_RECONSTRUCTION.md#使用与结果)。
 
 打开方式：列表里的房间是 `editor/?room=<id>`；任意房间目录用 `editor/?scene=<相对 editor/ 的路径>`，例如 `editor/?scene=../../samples/room3`。要把编辑器发布到仓库外某个房间目录旁边，运行 `python3 web/scripts/publish.py --scene-dir <房间目录>`。
 
