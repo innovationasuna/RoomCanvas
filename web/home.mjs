@@ -125,9 +125,13 @@ async function loadRooms() {
   try {
     const response = await fetch(manifest, {cache: 'no-cache'});
     if (!response.ok) throw new Error('Room list unavailable');
-    const {rooms, deleted = []} = await response.json();
+    const {rooms: listed, deleted = []} = await response.json();
     if (version !== loadVersion) return;
-    if (!Array.isArray(rooms)) throw new Error('Invalid room list');
+    if (!Array.isArray(listed)) throw new Error('Invalid room list');
+    // A sample copied from a reconstructed room ("scan" in rooms.json: the job's id) stands in for it, so
+    // the room is listed once.
+    const copied = new Set(listed.map(room => room?.scan && `scan-${room.scan}`));
+    const rooms = listed.filter(room => !copied.has(room?.id));
     hiddenRooms = new Set(deleted);
     trash.setCount(hiddenRooms.size);
     for (const job of jobs) {
