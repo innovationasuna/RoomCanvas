@@ -257,7 +257,7 @@ flowchart LR
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
-| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室） | |
+| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934，未列入首页，用 `web/editor/?scene=../../samples/room-3934` 打开） | |
 
 ## 开发与测试
 
@@ -303,6 +303,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 ## 数据与隐私
 
 - `samples/room3` 是真实住宅的扫描，模型和缩略图来自实拍照片，仅供项目成员使用，请勿转发。
+- `samples/room-3934` 是真实房间的扫描（2026-11-12 重建），模型和缩略图同样来自实拍照片，仅供项目成员使用，请勿转发。
 - 原始扫描、照片、含相机轨迹的 `room_layout.json` 不进入仓库。
 - 手势识别只在本机浏览器中进行，摄像头画面不上传。
 
