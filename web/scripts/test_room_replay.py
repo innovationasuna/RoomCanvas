@@ -351,6 +351,15 @@ class LiveRecords(unittest.TestCase):
         self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED), (run / replay.ARTICULATED).resolve())
         self.assertIsNone(replay.scene_file(self.scene, '../../articulate/room_preview/Room.glb'))
 
+    def test_an_openable_parts_try_a_later_attempt_followed_does_not_end_the_replay(self):
+        self.append([{'t': T0 + 900, 'kind': 'articulate_start', 'run': 'attempt-01'},
+                     {'t': T0 + 950, 'kind': 'trace_start', 'run': 'attempt-02'},
+                     {'t': T0 + 1200, 'kind': 'articulate_start', 'run': 'attempt-02'}])
+        data = replay.timeline(self.scene.parent.parent.parent, 'completed', T0 + 1300)
+        starts = [e['t'] for e in data['events'] if e['say'].startswith('找出柜门')]
+        self.assertEqual(starts, [T0 + 1200])
+        self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('articulate'), 0)
+
 
 def glb(path, tree, t):
     """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""

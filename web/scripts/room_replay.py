@@ -181,6 +181,12 @@ def pipeline_events(scene, until=None):
     # Objects with a finished-model record; their per-attempt agent steps then only show retries and errors.
     done = {r['name'] for r in rows if r.get('kind') == 'object_done' and r.get('status') == 'ok' and r.get('name')}
     attempts = []  # run_room.py attempts seen, in order (older traces have a run id per stage process)
+    # A run whose author stopped short still tries the openable parts; when a later attempt follows, that try
+    # is not where the replay's last stage begins (the stages would all collapse into it).
+    later, seen = {}, set()  # run -> other runs with records after its last one
+    for r in reversed(rows):
+        later.setdefault(r.get('run'), seen - {r.get('run'), None})
+        seen.add(r.get('run'))
 
     def add(row, stage, say, kind='tool', once=None, **extra):
         if once:  # a resumed run repeats its early stages; show them once
@@ -243,7 +249,7 @@ def pipeline_events(scene, until=None):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
         elif kind == 'repair_start':
             add(r, 'review2', '按检查出的问题开始修复房间', 'think')
-        elif kind == 'articulate_start':
+        elif kind == 'articulate_start' and not later.get(r.get('run')):
             add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
         elif kind == 'articulate_done' and r.get('status') != 'ok':
             add(r, 'articulate', '可开合部件没有装成，使用检查后的房间', 'error')
