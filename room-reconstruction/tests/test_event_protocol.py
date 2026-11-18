@@ -47,3 +47,13 @@ def test_legacy_writer_between_versioned_events_does_not_reset_sequence(tmp_path
     telemetry.record(tmp_path, "stage")
     rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
     assert rows[-1]["sequence"] == 2
+
+
+def test_an_unwritable_or_malformed_trace_never_fails_the_caller(tmp_path, capsys):
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(json.dumps({"kind": "x", "sequence": 3}) + "\n" + json.dumps({"kind": "x", "sequence": None}) + "\n")
+    telemetry.record(tmp_path, "stage")
+    assert json.loads(trace.read_text().splitlines()[-1])["sequence"] == 4
+    trace.chmod(0o444)
+    telemetry.record(tmp_path, "stage")
+    assert "stage event not written" in capsys.readouterr().err
