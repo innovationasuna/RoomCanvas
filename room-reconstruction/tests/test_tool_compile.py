@@ -11,6 +11,7 @@ The Blender build itself is `-m blender`.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -95,6 +96,76 @@ def test_compile_tool_does_not_stamp_a_missing_glb(room, tmp_path, monkeypatch):
     assert not result.is_success()
     assert result.build == {"status": "error", "glb_path": None}
     assert not (room / ".compile_stamp").exists()
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "no-output"])
+def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monkeypatch, failure):
+    from litereality_agent.room_ops import api
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    glb = preview / "Room.glb"
+    outcomes = ["success", failure, "success"]
+    calls = []
+    records = []
+
+    def run(cmd, **kwargs):
+        if "--python" not in cmd:
+            calls.append("assemble")
+            glb.write_bytes(b"assembled")
+            (preview / "Room.blend").write_bytes(f"blend {len(calls)}".encode())
+            return SimpleNamespace(returncode=0)
+        calls.append("bake")
+        assert cmd[cmd.index("--python") - 2 : cmd.index("--python")] == ["--python-exit-code", "1"]
+        output = Path(cmd[cmd.index("--") + 1])
+        outcome = outcomes.pop(0)
+        if outcome == "success":
+            output.write_bytes(b"baked")
+        elif outcome == "nonzero":
+            output.write_bytes(b"partial")
+            print("script failed", file=kwargs["stdout"])
+            return SimpleNamespace(returncode=7)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(api.subprocess, "run", run)
+    monkeypatch.setattr(api, "blender_bin", lambda: "blender")
+    monkeypatch.setattr(api, "_record_build", lambda *args: records.append(glb.read_bytes()))
+    inv = CompileInvocation(CompileParams())
+    inv.bind(str(room), None)
+    assert asyncio.run(inv.execute()).is_success()
+    assert compile_is_fresh(room)
+
+    failed = asyncio.run(inv.execute())
+    assert failed.build == {"status": "error", "glb_path": None}
+    assert "bake.log" in failed.error
+    assert (preview / "bake.log").read_text()
+    assert glb.read_bytes() == b"assembled"
+    assert not compile_is_fresh(room)
+    assert records == [b"baked"]
+    assert list(preview.glob(".bake-*")) == []
+
+    assert asyncio.run(inv.execute()).is_success()
+    assert compile_is_fresh(room)
+    assert records == [b"baked", b"baked"]
+    assert calls == ["assemble", "bake"] * 3
+
+
+@pytest.mark.parametrize("old_blend", [False, True])
+def test_baked_compile_requires_the_current_blend(room, monkeypatch, old_blend):
+    from litereality_agent.room_ops import api
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    if old_blend:
+        (preview / "Room.blend").write_bytes(b"older scene")
+
+    def assemble(_cmd):
+        (preview / "Room.glb").write_bytes(b"assembled")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(api.subprocess, "run", assemble)
+    assert api.compile_room(room) is None
+    assert api.compile_room(room, bake=False) == preview / "Room.glb"
 
 
 @pytest.mark.blender
