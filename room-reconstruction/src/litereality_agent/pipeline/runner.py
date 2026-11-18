@@ -15,6 +15,7 @@ from litereality_agent.pipeline.context import RunContext
 from litereality_agent.pipeline.result import StageResult, StageStatus
 from litereality_agent.pipeline.stage import Stage
 from litereality_agent.pipeline.stages import STAGES
+from litereality_agent.timing import Measurement
 
 PIPELINE = tuple(STAGES)
 
@@ -163,7 +164,9 @@ class PipelineRunner:
                 prior[stage.name] = {**running.to_dict(), "input_options": cache_options,
                                      "input_fingerprint": fingerprint}
                 self._write_state(context, state)
+                timing_attempts = []
                 for attempt in range(1, 3):
+                    measurement = Measurement()
                     try:
                         # Restore the caller's environment after the compatibility bridge.
                         with patch.dict(os.environ, {**context.environment, **trace_environment,
@@ -171,7 +174,10 @@ class PipelineRunner:
                             result = stage.run(context, stage_options)
                     except Exception as exc:
                         result = StageResult.failure(stage.name, exc)
+                    timing_attempts.append({"attempt": attempt, "outcome": result.status.value,
+                                            **measurement.finish()})
                     result.details["execution_attempts"] = attempt
+                    result.details["timing_attempts"] = timing_attempts.copy()
                     result.details["forced"] = bool(stage_options.get("force"))
                     if result.ok or not result.retryable or attempt == 2:
                         break
@@ -191,6 +197,8 @@ class PipelineRunner:
             telemetry.record(context.object_root / "traces", "pipeline_stage", stage=stage.name,
                              outcome=result.status.value, error_category=result.error_category,
                              retryable=result.retryable, artifact_validity=result.artifact_validity,
+                             duration_seconds=0. if result.status == StageStatus.REUSED else result.duration_seconds,
+                             timing_attempts=[] if result.status == StageStatus.REUSED else result.details.get("timing_attempts", []),
                              run=run_id, job_id=trace_environment["LITEREALITY_JOB_ID"],
                              attempt_id=trace_environment["LITEREALITY_ATTEMPT_ID"])
             if result.ok:

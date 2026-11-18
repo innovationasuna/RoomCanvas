@@ -58,6 +58,12 @@ else:
                     str(tmp_path / "scan"), str(run)], env=env, timeout=20, check=True)
     attempt = run / "attempt-01"
     assert json.loads((attempt / "run-config.json").read_text())["gpu"] == CARD
+    timing = json.loads((attempt / "runtime-timing.json").read_text())
+    assert [phase['phase'] for phase in timing['phases']] == ['pipeline', 'articulate']
+    assert all(phase['exit'] == 0 and phase['wall_seconds'] > 0 for phase in timing['phases'])
+    assert timing['gpu_uuid'] == CARD and timing['gpu_kernel_seconds'] is None
+    assert timing['gpu_wait_seconds'] >= 0
+    assert timing['gpu_lease_seconds'] >= sum(phase['wall_seconds'] for phase in timing['phases'])
     for name in ("exit", "articulate-exit"):
         assert (attempt / name).read_text().strip() == "0", (attempt / "pipeline.log").read_text()
 
@@ -112,6 +118,8 @@ Path({str(called)!r}).write_text("unexpected articulation")
     assert result.returncode == 23, result.stdout + result.stderr
     attempt = run / "attempt-02"
     assert (attempt / "exit").read_text().strip() == "23"
+    timing = json.loads((attempt / "runtime-timing.json").read_text())
+    assert len(timing['phases']) == 1 and timing['phases'][0]['exit'] == 23
     assert not called.exists()
     assert not (attempt / "articulate-exit").exists()
     assert not (attempt / "articulate.log").exists()

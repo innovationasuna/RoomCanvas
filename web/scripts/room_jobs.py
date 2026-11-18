@@ -117,7 +117,8 @@ class Jobs:
             with tempfile.TemporaryDirectory(dir=self.root) as temp:
                 staged = Path(temp) / identifier
                 capture = self.extract(archive, staged / 'capture')
-                record = {'id': identifier, 'name': name, 'status': 'queued', 'created': time.time(),
+                now = time.time()
+                record = {'id': identifier, 'name': name, 'status': 'queued', 'created': now, 'queued_at': now,
                           'capture': str(folder / capture.relative_to(staged)), 'scan': capture.name, 'runner': self.runner}
                 self.save(record, staged)
                 with self.lock:
@@ -134,7 +135,7 @@ class Jobs:
                 raise ValueError('只有失败的任务可以重试')
             if not self.public(record)['retryable']:
                 raise ValueError('请修正扫描输入或运行配置后重新提交')
-            record.update(status='queued')
+            record.update(status='queued', queued_at=time.time())
             record.pop('error', None)
             record.pop('enhancement', None)
             self.save(record)

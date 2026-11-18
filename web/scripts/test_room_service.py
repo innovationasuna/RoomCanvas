@@ -240,6 +240,9 @@ class APIIntegration(unittest.TestCase):
             self.jobs.run_one(self.identifier)
         job = self.request('/room-reconstruction/jobs/' + self.identifier)
         self.assertEqual(job['status'], 'completed', job)
+        timing = self.jobs.records[self.identifier]['timing']
+        self.assertGreaterEqual(timing['queue_seconds'], 0)
+        self.assertGreater(timing['execution_seconds'], 0)
         self.assertEqual(len(job['stages']), 5)
         catalog = self.request('/web/rooms.json')['rooms']
         self.assertTrue(any(r['name'] == '测试客厅' for r in catalog))

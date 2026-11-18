@@ -5,6 +5,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from room_contract import ROOT, ASSETS
 
 
@@ -29,6 +30,7 @@ def execute(self, args, log):
 def run_one(self, identifier):
     record = self.records[identifier]
     self.active_job = identifier
+    execution_started = None
     folder = self.root / identifier
     guard = (folder / 'task.lock').open('a')
     try:
@@ -38,6 +40,11 @@ def run_one(self, identifier):
             raise RuntimeError('上一次重建进程仍在运行，请等它结束后重试。')
         self.task_lock = guard
         with self.lock:
+            now = time.time()
+            execution_started = time.monotonic()
+            queued_at = record.get('queued_at')
+            record['timing'] = {'queue_seconds': max(0., now-queued_at) if queued_at is not None else None,
+                                'started_at': now}
             record.update(status='running')
             self.save(record)
         with (folder / 'task.log').open('ab') as log:
@@ -82,10 +89,13 @@ def run_one(self, identifier):
                 if (preview / name).is_file():
                     shutil.copy2(preview / name, published / name)
         with self.lock:
+            record['timing']['execution_seconds'] = time.monotonic()-execution_started
             record.update(status='completed')
             self.save(record)
     except Exception as error:
         with self.lock:
+            if execution_started is not None:
+                record['timing']['execution_seconds'] = time.monotonic()-execution_started
             record.update(status='failed', error=str(error) if isinstance(error, RuntimeError) else '无法运行重建程序，请检查服务器环境及 task.log。')
             self.save(record)
     finally:

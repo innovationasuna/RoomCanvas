@@ -28,6 +28,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from gpu import room_lease
@@ -180,7 +182,52 @@ def trace(scene: Path, kind: str, **data) -> None:
         telemetry.record(traces, kind, **data)
 
 
-with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
+timing = {"attempt_id": attempt.name, "phases": [], "gpu_kernel_seconds": None}
+
+
+def save_timing():
+    temporary = attempt / "runtime-timing.tmp"
+    try:
+        temporary.write_text(json.dumps(timing, indent=2))
+        temporary.replace(attempt / "runtime-timing.json")
+    except OSError:
+        # Observations must not turn an otherwise usable paid run into a failure.
+        print("Runtime timing could not be written", file=sys.stderr)
+
+
+@contextmanager
+def measured_lease():
+    waiting = time.monotonic()
+    acquired = None
+    try:
+        with room_lease(runtime, env, wait=a.wait_gpu) as selected:
+            acquired = time.monotonic()
+            timing.update(gpu_wait_seconds=acquired-waiting, gpu_uuid=selected[0].uuid)
+            save_timing()
+            yield selected
+    finally:
+        if acquired is None:
+            timing.update(gpu_wait_seconds=time.monotonic()-waiting, gpu_lease_seconds=0.)
+        else:
+            timing["gpu_lease_seconds"] = time.monotonic()-acquired
+        save_timing()
+
+
+def run_timed(command, log, phase, lease):
+    sys.path.insert(0, str(RECON / "src"))
+    from litereality_agent.timing import Measurement
+    measurement = Measurement()
+    row = {"phase": phase, "exit": None}
+    try:
+        row["exit"] = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                     pass_fds=lease.fds).returncode
+        return row["exit"]
+    finally:
+        timing["phases"].append({**row, **measurement.finish()})
+        save_timing()
+
+
+with measured_lease() as (gpu, lease):
     # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
     env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu.uuid,
                LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
@@ -188,7 +235,7 @@ with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
               "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
     (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
     with (attempt / "pipeline.log").open("w") as log:
-        rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, pass_fds=lease.fds).returncode
+        rc = run_timed(cmd, log, "pipeline", lease)
     (attempt / "exit").write_text(f"{rc}\n")
     print(attempt.name, "exit", rc)
     # Only a successful current pipeline may feed enhancement. A failed retry can
@@ -203,7 +250,7 @@ with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
         articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
         trace(scenes[0], "articulate_start")
         with (attempt / "articulate.log").open("w") as log:
-            art = subprocess.run(articulate, env=env, stdout=log, stderr=subprocess.STDOUT, pass_fds=lease.fds).returncode
+            art = run_timed(articulate, log, "articulate", lease)
         (attempt / "articulate-exit").write_text(f"{art}\n")
         room = a.run_dir / "articulate/room_preview/Room.glb"
         trace(scenes[0], "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
