@@ -267,7 +267,7 @@ class Jobs:
                 if record.get('runner', 'cli') == 'server':
                     # Retain this project's runtime configuration, GPU selection/lock and articulation pass.
                     self.execute([self.python, str(self.pipeline / 'server/run_room.py'), record['capture'],
-                                  str(folder / 'run'), '--through', 'publish'], log)
+                                  str(folder / 'run'), '--through', 'publish', '--wait-gpu'], log)
                     attempts = sorted((folder / 'run').glob('attempt-*'))
                     if not attempts or any(not (attempts[-1] / name).is_file() or (attempts[-1] / name).read_text().strip() != '0'
                                            for name in ('exit', 'articulate-exit')):

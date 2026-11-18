@@ -2,7 +2,7 @@
 # Source configs/local.env explicitly before this file; never auto-load it.
 : "${VIEWFORGE_ROOT:?Set VIEWFORGE_ROOT, or explicitly source configs/local.env first}"
 # Without an explicit CUDA_VISIBLE_DEVICES, use the GPU with the most free memory right now; on a shared
-# server set it (and the same VIEWFORGE_GPU_LOCK for every app on that card) in configs/local.env.
+# server pin an authorized card in configs/local.env. Room and object jobs lock its physical UUID.
 if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
   CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits 2>/dev/null | sort -t, -k2 -nr | head -1 | cut -d, -f1)
   : "${CUDA_VISIBLE_DEVICES:?No GPU found by nvidia-smi; set CUDA_VISIBLE_DEVICES}"
