@@ -17,6 +17,7 @@ THRESHOLDS = dict(bounds_diagonal_fraction=.02, surface_p99_diagonal_fraction=.0
                   surface_max_diagonal_fraction=.05, support_hit_agreement=.98,
                   support_p95_diagonal_fraction=.02, support_max_diagonal_fraction=.05,
                   surface_color_mean_absolute=.10, cover_max_iou_drop=.05,
+                  support_edge_nearest_fraction=1e-4, support_edge_radius_fraction=1e-4,
                   camera_rtol=1e-5, camera_atol=1e-6)
 
 
@@ -196,11 +197,64 @@ def neighborhood(a, b, xz, height, radius):
     return old, new
 
 
+def explain_support_edges(a, b, xz, height, diagonal, old, new):
+    """Explain every height exceedance, independently of the top-N diagnostic display."""
+    common = np.isfinite(old) & np.isfinite(new)
+    ids = np.flatnonzero(common)
+    errors = np.abs(old[common]-new[common])/diagonal
+    # Inspect all samples above the original 2% height tolerance, including the
+    # subset exceeding the original 5% maximum; never inspect just the top 20.
+    ids = ids[errors > THRESHOLDS['support_p95_diagonal_fraction']]
+    rule = dict(height_exceedance_fraction=THRESHOLDS['support_p95_diagonal_fraction'],
+                nearest_surface_fraction=THRESHOLDS['support_edge_nearest_fraction'],
+                ring_radius_fraction=THRESHOLDS['support_edge_radius_fraction'],
+                ring_rays=8, all_ring_rays_hit_in_both=True,
+                ring_max_height_difference_fraction=THRESHOLDS['support_p95_diagonal_fraction'])
+    if not len(ids):
+        return dict(passed=True, total=0, explained=0, unexplained=0, rule=rule, records=[])
+    origins = xz[ids].astype(np.float32)
+    cross_distances = []
+    for hits, target in ((old, b), (new, a)):
+        points = np.column_stack((origins[:, 0], np.float32(height)-hits[ids], origins[:, 1])).astype(np.float32)
+        nearest = target.query.compute_closest_points(target.o3d.core.Tensor(points))['points'].numpy()
+        cross_distances.append(np.linalg.norm(points-nearest, axis=1)/diagonal)
+    ha, hb = neighborhood(a, b, origins.astype(float), height,
+                          diagonal*THRESHOLDS['support_edge_radius_fraction'])
+    # The center is intentionally reported separately: the ring must agree on
+    # the same topmost layer in both models on all eight sides of that center.
+    ring_a, ring_b = ha[:, 1:], hb[:, 1:]
+    matches = np.isfinite(ring_a) & np.isfinite(ring_b)
+    all_hit = matches.all(axis=1)
+    gaps = np.full(ring_a.shape, np.inf)
+    gaps[matches] = np.abs(ring_a[matches]-ring_b[matches])/diagonal
+    maxima = gaps.max(axis=1)
+    records = []
+    for index, probe in enumerate(ids):
+        near = [float(values[index]) for values in cross_distances]
+        reasons = []
+        if max(near) > rule['nearest_surface_fraction']:
+            reasons.append('opposite_surface_too_far')
+        if not all_hit[index]:
+            reasons.append('ring_missing_hits')
+        elif maxima[index] > rule['ring_max_height_difference_fraction']:
+            reasons.append('ring_height_disagreement')
+        records.append(dict(probe=int(probe), xz=origins[index].tolist(), explained=not reasons,
+            reason='small_boundary_layer_switch' if not reasons else ','.join(reasons),
+            height_difference_fraction=float(abs(old[probe]-new[probe])/diagonal),
+            exceeds_raw_maximum=bool(abs(old[probe]-new[probe])/diagonal > THRESHOLDS['support_max_diagonal_fraction']),
+            nearest_cross_surface_fractions=near, ring_matching_hits=int(matches[index].sum()),
+            ring_max_height_difference_fraction=float(maxima[index]) if np.isfinite(maxima[index]) else None))
+    explained = sum(row['explained'] for row in records)
+    return dict(passed=explained == len(records), total=len(records), explained=explained,
+                unexplained=len(records)-explained, rule=rule, records=records)
+
+
 def support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid_count, old_center_count):
     old, new = hit_a['t_hit'], hit_b['t_hit']
     common = np.isfinite(old) & np.isfinite(new)
     ids = np.flatnonzero(common)
     errors = np.abs(old[common]-new[common])/diagonal
+    edge_explanations = explain_support_edges(a, b, xz, height, diagonal, old, new)
     selected = ids[np.argsort(errors)[-20:][::-1]]
     records = []
     for index in selected:
@@ -248,7 +302,7 @@ def support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid_count, ol
     raw_failures = common.copy()
     raw_failures[common] = errors > THRESHOLDS['support_max_diagonal_fraction']
     maximum = float(interior_error.max()) if len(interior_error) else None
-    return dict(top_height_differences=records, raw_max_failures=int(raw_failures.sum()),
+    return dict(top_height_differences=records, raw_max_failures=int(raw_failures.sum()), edge_explanations=edge_explanations,
         stable_interior=dict(rule=dict(radius_diagonal_fraction=.001, offsets=OFFSETS.tolist(),
             all_nine_rays_hit_in_both=True, max_height_span_in_each=.02, min_abs_normal_y=.97),
             probes=int(interior.sum()), excluded_probes=int((common & ~interior).sum()),
@@ -256,7 +310,7 @@ def support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid_count, ol
             height_p95_fraction=float(np.quantile(interior_error, .95)) if len(interior_error) else None,
             height_max_fraction=maximum, passed=len(interior_error) >= 32 and maximum <= THRESHOLDS['support_max_diagonal_fraction']
                 and float(np.quantile(interior_error, .95)) <= THRESHOLDS['support_p95_diagonal_fraction']),
-        note='Diagnostic only: the original support gate and thresholds are unchanged. Edge exclusions are not proof of all small supports.')
+        note='The gate uses stable horizontal supports and hit agreement. Every raw height exceedance must also satisfy the explicit boundary explanation; the top 20 are display-only.')
 
 
 def support_comparison(a, b, diagonal, grid):
@@ -281,11 +335,17 @@ def support_comparison(a, b, diagonal, grid):
     agreement = float(common.sum()/union.sum()) if union.any() else 0.
     error = np.abs(ha[common]-hb[common])/diagonal
     p95, maximum = (float(np.quantile(error, .95)), float(error.max())) if len(error) else (None, None)
-    return dict(passed=agreement >= THRESHOLDS['support_hit_agreement'] and p95 is not None
-                and p95 <= THRESHOLDS['support_p95_diagonal_fraction'] and maximum <= THRESHOLDS['support_max_diagonal_fraction'],
+    raw_passed = agreement >= THRESHOLDS['support_hit_agreement'] and p95 is not None \
+        and p95 <= THRESHOLDS['support_p95_diagonal_fraction'] and maximum <= THRESHOLDS['support_max_diagonal_fraction']
+    diagnostics = support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid*grid, center_counts[0])
+    passed = agreement >= THRESHOLDS['support_hit_agreement'] and diagnostics['stable_interior']['passed'] \
+        and diagnostics['edge_explanations']['passed']
+    return dict(passed=passed, gate='stable_horizontal_supports_and_hit_agreement_with_explained_boundaries',
+                raw=dict(passed=raw_passed, height_p95_fraction=p95, height_max_fraction=maximum,
+                         max_failures=diagnostics['raw_max_failures']),
                 probes=len(xz), source_hits=int(valid_a.sum()), candidate_hits=int(valid_b.sum()),
                 hit_agreement=agreement, height_p95_fraction=p95, height_max_fraction=maximum,
-                diagnostics=support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid*grid, center_counts[0]))
+                diagnostics=diagnostics)
 
 
 def cover_comparison(old, new):
