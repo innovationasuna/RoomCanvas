@@ -84,6 +84,25 @@ class Paths(unittest.TestCase):
         self.assertIsNone(room_cache.local(cache, f'{P}health'))
         self.assertIsNone(room_cache.local(cache, f'{P}jobs/{DONE}/replay/files/../../x'))
 
+    def test_slow_earlier_request_cannot_replace_a_newer_successful_answer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'answer.json'
+            with room_cache.answer_writer(target) as first:
+                with room_cache.answer_writer(target) as second:
+                    second(b'{"version":2}')
+                first(b'{"version":1}')
+            self.assertEqual(json.loads(target.read_bytes()), {'version': 2})
+            self.assertEqual(list(target.parent.iterdir()), [target])
+
+    def test_newer_failed_request_does_not_block_an_older_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'answer.json'
+            with room_cache.answer_writer(target) as first:
+                with room_cache.answer_writer(target):
+                    pass  # the second fetch failed and published nothing
+                first(b'{}')
+            self.assertEqual(target.read_bytes(), b'{}')
+
     def test_a_replay_needs_its_scaffold_models_seed_first_and_each_picture_once(self):
         first, models, pictures = room_cache.job_files(DONE, {'models': {'round0': 'r0.glb', 'final': 'f.glb', 'seed': 's.glb'},
                                                                'events': [{'img': 'a.jpg'}, {}, {'img': 'a.jpg'}, {'img': 'b.jpg'}]})
