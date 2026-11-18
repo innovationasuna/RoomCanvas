@@ -290,6 +290,22 @@ class APIIntegration(unittest.TestCase):
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
 
+    def test_only_a_failure_of_the_input_refuses_a_retry(self):
+        self.submit()
+        state = self.jobs.root / self.identifier / 'output/scan/.litereality/pipeline.json'
+        state.parent.mkdir(parents=True)
+        retry = '/room-reconstruction/jobs/' + self.identifier + '/retry'
+        for category, allowed in [('execution', True), ('input', False)]:
+            self.jobs.records[self.identifier]['status'] = 'failed'
+            state.write_text(json.dumps({'stages': {'author': {
+                'status': 'failed', 'error': 'command exited 1', 'error_category': category, 'retryable': False}}}))
+            if allowed:
+                self.assertEqual(self.request(retry, b'')['status'], 'queued')
+            else:
+                with self.assertRaises(HTTPError) as error:
+                    self.request(retry, b'')
+                self.assertEqual(error.exception.code, 409)
+
     def test_optional_enhancement_failure_preserves_a_valid_published_room(self):
         self.jobs.runner = 'server'
         self.submit()
