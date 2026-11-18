@@ -22,6 +22,14 @@ def textured_box():
 
 
 class QualityHelpersTests(unittest.TestCase):
+    def test_float64_vertical_reference_independently_finds_top_surface(self):
+        surface = Surface.__new__(Surface)
+        surface.mesh = trimesh.creation.box()
+        self.assertAlmostEqual(surface.vertical_reference(np.array([0., 0.]))['height'], .5)
+        self.assertIsNone(surface.vertical_reference(np.array([2., 2.]))['height'])
+        surface.mesh.apply_translation([0, .2, 0])
+        self.assertAlmostEqual(surface.vertical_reference(np.array([0., 0.]))['height'], .7)
+
     def test_surface_colour_includes_pbr_factor_and_does_not_depend_on_face_order(self):
         surface = Surface.__new__(Surface)
         surface.parts, surface.offsets = [textured_box()], [0]
@@ -74,6 +82,16 @@ class QualityHelpersTests(unittest.TestCase):
             self.assertLess(difference['color_mean_absolute'], 1e-6)
             self.assertTrue(support_comparison(a, same, diagonal, 16)['passed'])
             self.assertFalse(support_comparison(a, moved, diagonal, 16)['passed'])
+            # A genuine broad support-height regression stays in the strict interior set.
+            run = Path(temp)/'raised'
+            (run/'reconstruction').mkdir(parents=True)
+            mesh = textured_box(); mesh.apply_translation([0, .2, 0])
+            mesh.export(run/'reconstruction/result.glb')
+            raised = Surface(run, dict(assets=dict(glb=dict(transform=np.eye(4).flatten().tolist()))))
+            support = support_comparison(a, raised, diagonal, 16)
+            self.assertFalse(support['passed'])
+            self.assertFalse(support['diagnostics']['stable_interior']['passed'])
+            self.assertGreater(support['diagnostics']['stable_interior']['raw_failures_included'], 0)
 
 
 if __name__ == '__main__':

@@ -150,10 +150,113 @@ class Surface:
                     surface_p99_fraction=float(np.quantile(distances, .99)), surface_max_fraction=float(distances.max()),
                     color_mean_absolute=float(color_error.mean()), color_p95_absolute=float(np.quantile(color_error, .95)))
 
-    def support_hits(self, xz, height):
+    def support_intersections(self, xz, height):
         rays = np.zeros((len(xz), 6), dtype=np.float32)
         rays[:, [0, 2]], rays[:, 1], rays[:, 4] = xz, height, -1
-        return self.query.cast_rays(self.o3d.core.Tensor(rays))['t_hit'].numpy()
+        return {key: value.numpy() for key, value in self.query.cast_rays(self.o3d.core.Tensor(rays)).items()}
+
+    def support_hits(self, xz, height):
+        return self.support_intersections(xz, height)['t_hit']
+
+    def vertical_reference(self, xz):
+        """Independent float64 triangle intersection for a small number of disputed rays."""
+        triangles = self.mesh.triangles
+        if not hasattr(self, '_xz_bounds'):
+            coordinates = triangles[:, :, [0, 2]]
+            self._xz_bounds = coordinates.min(axis=1), coordinates.max(axis=1)
+        lower, upper = self._xz_bounds
+        candidates = np.flatnonzero(((lower <= xz) & (upper >= xz)).all(axis=1))
+        tri = triangles[candidates]
+        a, b, p = tri[:, 1, [0, 2]]-tri[:, 0, [0, 2]], tri[:, 2, [0, 2]]-tri[:, 0, [0, 2]], xz-tri[:, 0, [0, 2]]
+        determinant = a[:, 0]*b[:, 1]-a[:, 1]*b[:, 0]
+        usable = np.abs(determinant) > 1e-18
+        u, v = np.zeros(len(tri)), np.zeros(len(tri))
+        u[usable] = (p[usable, 0]*b[usable, 1]-p[usable, 1]*b[usable, 0])/determinant[usable]
+        v[usable] = (a[usable, 0]*p[usable, 1]-a[usable, 1]*p[usable, 0])/determinant[usable]
+        inside = usable & (u >= -1e-10) & (v >= -1e-10) & (u+v <= 1+1e-10)
+        if not inside.any():
+            return dict(height=None, candidates=len(candidates))
+        ys = tri[:, 0, 1]+u*(tri[:, 1, 1]-tri[:, 0, 1])+v*(tri[:, 2, 1]-tri[:, 0, 1])
+        hit = np.flatnonzero(inside)[np.argmax(ys[inside])]
+        return dict(height=float(ys[hit]), triangle=int(candidates[hit]), candidates=len(candidates),
+                    barycentric=[float(1-u[hit]-v[hit]), float(u[hit]), float(v[hit])])
+
+
+OFFSETS = np.array([[1, 0], [-1, 0], [0, 1], [0, -1],
+                    [1, 1], [1, -1], [-1, 1], [-1, -1]], dtype=float)
+OFFSETS /= np.linalg.norm(OFFSETS, axis=1, keepdims=True)
+
+
+def neighborhood(a, b, xz, height, radius):
+    points = xz[:, None, :]+OFFSETS[None, :, :]*radius
+    points = np.concatenate([xz[:, None, :], points], axis=1)
+    shape = points.shape[:2]
+    old = a.support_hits(points.reshape(-1, 2), height).reshape(shape)
+    new = b.support_hits(points.reshape(-1, 2), height).reshape(shape)
+    return old, new
+
+
+def support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid_count, old_center_count):
+    old, new = hit_a['t_hit'], hit_b['t_hit']
+    common = np.isfinite(old) & np.isfinite(new)
+    ids = np.flatnonzero(common)
+    errors = np.abs(old[common]-new[common])/diagonal
+    selected = ids[np.argsort(errors)[-20:][::-1]]
+    records = []
+    for index in selected:
+        # Match the actual float32 ray origin sent to Open3D, not an unrounded copy.
+        origin = xz[index].astype(np.float32).astype(float)
+        ys = [float(np.float32(height)-hits['t_hit'][index]) for hits in (hit_a, hit_b)]
+        p = [np.array([origin[0], y, origin[1]], dtype=np.float32) for y in ys]
+        nearest = []
+        for point, surface in zip(p, (b, a)):
+            answer = surface.query.compute_closest_points(surface.o3d.core.Tensor(point[None]))
+            closest = answer['points'].numpy()[0]
+            nearest.append(dict(point=closest.tolist(), distance_fraction=float(np.linalg.norm(point-closest)/diagonal),
+                                normal=answer['primitive_normals'].numpy()[0].tolist()))
+        neighborhoods = []
+        for fraction in (1e-6, 1e-5, 1e-4, 1e-3):
+            ha, hb = neighborhood(a, b, origin[None], height, diagonal*fraction)
+            ha, hb = ha[0], hb[0]
+            valid = np.isfinite(ha) & np.isfinite(hb)
+            span = lambda values: float(np.ptp(values[np.isfinite(values)])/diagonal) if np.isfinite(values).any() else None
+            delta = np.abs(ha[valid]-hb[valid])/diagonal
+            neighborhoods.append(dict(radius_fraction=fraction, common_hits=int(valid.sum()),
+                old_height_span_fraction=span(ha), new_height_span_fraction=span(hb),
+                max_difference_fraction=float(delta.max()) if len(delta) else None,
+                old_heights=[float(np.float32(height)-value) if np.isfinite(value) else None for value in ha],
+                new_heights=[float(np.float32(height)-value) if np.isfinite(value) else None for value in hb]))
+        discontinuity = any(any(row[key] is not None and row[key] > THRESHOLDS['support_p95_diagonal_fraction']
+            for key in ('old_height_span_fraction', 'new_height_span_fraction')) for row in neighborhoods)
+        close_surfaces = all(row['distance_fraction'] <= 1e-4 for row in nearest)
+        records.append(dict(probe=int(index), source='grid' if index < grid_count else
+                'old_horizontal_triangle' if index < grid_count+old_center_count else 'new_horizontal_triangle',
+            xz=origin.tolist(), old_height=ys[0], new_height=ys[1], height_difference_fraction=float(abs(ys[0]-ys[1])/diagonal),
+            old_normal=hit_a['primitive_normals'][index].tolist(), new_normal=hit_b['primitive_normals'][index].tolist(),
+            old_barycentric_uv=hit_a['primitive_uvs'][index].tolist(), new_barycentric_uv=hit_b['primitive_uvs'][index].tolist(),
+            float64_reference_old=a.vertical_reference(origin), float64_reference_new=b.vertical_reference(origin),
+            old_hit_nearest_new=nearest[0], new_hit_nearest_old=nearest[1], neighborhoods=neighborhoods,
+            classification='edge_or_depth_discontinuity' if discontinuity and close_surfaces else
+                'surface_displacement' if not close_surfaces else 'stable_height_comparison'))
+    ha, hb = neighborhood(a, b, xz, height, diagonal*.001)
+    all_hit = np.isfinite(ha).all(axis=1) & np.isfinite(hb).all(axis=1)
+    stable = np.zeros(len(xz), dtype=bool)
+    stable[all_hit] = (np.ptp(ha[all_hit], axis=1)/diagonal <= .02) & (np.ptp(hb[all_hit], axis=1)/diagonal <= .02)
+    horizontal = (np.abs(hit_a['primitive_normals'][:, 1]) >= .97) & (np.abs(hit_b['primitive_normals'][:, 1]) >= .97)
+    interior = stable & horizontal & common
+    interior_error = np.abs(old[interior]-new[interior])/diagonal
+    raw_failures = common.copy()
+    raw_failures[common] = errors > THRESHOLDS['support_max_diagonal_fraction']
+    maximum = float(interior_error.max()) if len(interior_error) else None
+    return dict(top_height_differences=records, raw_max_failures=int(raw_failures.sum()),
+        stable_interior=dict(rule=dict(radius_diagonal_fraction=.001, offsets=OFFSETS.tolist(),
+            all_nine_rays_hit_in_both=True, max_height_span_in_each=.02, min_abs_normal_y=.97),
+            probes=int(interior.sum()), excluded_probes=int((common & ~interior).sum()),
+            raw_failures_included=int((raw_failures & interior).sum()), raw_failures_excluded=int((raw_failures & ~interior).sum()),
+            height_p95_fraction=float(np.quantile(interior_error, .95)) if len(interior_error) else None,
+            height_max_fraction=maximum, passed=len(interior_error) >= 32 and maximum <= THRESHOLDS['support_max_diagonal_fraction']
+                and float(np.quantile(interior_error, .95)) <= THRESHOLDS['support_p95_diagonal_fraction']),
+        note='Diagnostic only: the original support gate and thresholds are unchanged. Edge exclusions are not proof of all small supports.')
 
 
 def support_comparison(a, b, diagonal, grid):
@@ -163,12 +266,16 @@ def support_comparison(a, b, diagonal, grid):
     x, z = np.meshgrid(lower[0]+steps*(upper[0]-lower[0]), lower[2]+steps*(upper[2]-lower[2]))
     probes = [np.column_stack((x.ravel(), z.ravel()))]
     # Probe actual near-horizontal triangles too, including tiny support surfaces.
+    center_counts = []
     for surface in (a, b):
         centers = surface.mesh.triangles_center[np.abs(surface.mesh.face_normals[:, 1]) >= .97]
         if len(centers):
             probes.append(centers[np.linspace(0, len(centers)-1, min(len(centers), 2048), dtype=int)][:, [0, 2]])
+        center_counts.append(min(len(centers), 2048))
     xz = np.concatenate(probes)
-    ha, hb = a.support_hits(xz, upper[1]+diagonal), b.support_hits(xz, upper[1]+diagonal)
+    height = upper[1]+diagonal
+    hit_a, hit_b = a.support_intersections(xz, height), b.support_intersections(xz, height)
+    ha, hb = hit_a['t_hit'], hit_b['t_hit']
     valid_a, valid_b = np.isfinite(ha), np.isfinite(hb)
     union, common = valid_a | valid_b, valid_a & valid_b
     agreement = float(common.sum()/union.sum()) if union.any() else 0.
@@ -177,7 +284,8 @@ def support_comparison(a, b, diagonal, grid):
     return dict(passed=agreement >= THRESHOLDS['support_hit_agreement'] and p95 is not None
                 and p95 <= THRESHOLDS['support_p95_diagonal_fraction'] and maximum <= THRESHOLDS['support_max_diagonal_fraction'],
                 probes=len(xz), source_hits=int(valid_a.sum()), candidate_hits=int(valid_b.sum()),
-                hit_agreement=agreement, height_p95_fraction=p95, height_max_fraction=maximum)
+                hit_agreement=agreement, height_p95_fraction=p95, height_max_fraction=maximum,
+                diagnostics=support_diagnostics(a, b, xz, height, diagonal, hit_a, hit_b, grid*grid, center_counts[0]))
 
 
 def cover_comparison(old, new):
