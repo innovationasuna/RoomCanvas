@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
+import os
 import shutil
 from pathlib import Path
 import stat
@@ -290,10 +291,26 @@ class APIIntegration(unittest.TestCase):
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
 
-    def test_a_restart_clears_an_upload_left_half_unpacked(self):
-        (self.jobs.root / '.upload-x' / self.identifier / 'capture').mkdir(parents=True)
-        restarted = service.Jobs(self.jobs.root, Path.cwd())
-        self.assertEqual(list(restarted.root.iterdir()), [])
+    def test_only_a_stopped_service_leaves_uploads_to_clear(self):
+        entered, release = threading.Event(), threading.Event()
+        extract = service.extract_scan
+
+        def pause(archive, destination):
+            unpacked = extract(archive, destination)
+            entered.set()
+            release.wait(10)
+            return unpacked
+
+        with patch.object(service, 'extract_scan', side_effect=pause), ThreadPoolExecutor(1) as pool:
+            upload = pool.submit(self.submit)
+            self.assertTrue(entered.wait(5))
+            service.Jobs(self.jobs.root, Path.cwd())  # a second start while this one still serves
+            release.set()
+            self.assertEqual(upload.result()['status'], 'queued')
+        (self.jobs.root / '.upload-x' / 'capture').mkdir(parents=True)
+        os.close(self.jobs.owner)  # the first service stops
+        service.Jobs(self.jobs.root, Path.cwd())
+        self.assertEqual(list(self.jobs.root.iterdir()), [self.jobs.root / self.identifier])
 
     def test_only_a_failure_of_the_input_refuses_a_retry(self):
         self.submit()
