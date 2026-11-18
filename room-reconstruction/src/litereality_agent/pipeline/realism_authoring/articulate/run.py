@@ -30,11 +30,13 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 from litereality_agent import artifact_cache as cache
+from litereality_agent import telemetry
 from litereality_agent.pipeline.realism_authoring import pass_cache
 from litereality_agent.pipeline.realism_authoring.articulate import candidates, judge, urdf
 from litereality_agent.pipeline.realism_authoring.small_objects import evidence
@@ -329,6 +331,16 @@ class Pass:
                 (objects / source.name).symlink_to(source)
         for row in kept:
             urdf.write(row["id"], row["parts"], objects)
+        # Direct CLI passes need publication evidence too. The launcher owns model_saved,
+        # which selects the replay's displayed model; this lower-level receipt does not.
+        traces = self.scene_dir / "scene_init/obj_stage/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        telemetry.record_artifact(
+            traces, "artifact_published", final / "Room.glb",
+            path=os.path.relpath(final / "Room.glb", self.scene_dir), phase="articulate", stage="articulate",
+            run=os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex,
+            job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir),
+        )
         self.log(f"kept {sum(len(r['parts']) for r in kept)} parts on {len(kept)} objects")
 
     def summarize(self):

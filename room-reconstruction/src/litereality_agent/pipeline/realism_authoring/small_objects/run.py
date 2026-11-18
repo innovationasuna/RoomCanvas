@@ -28,12 +28,14 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 from litereality_agent import artifact_cache as cache
+from litereality_agent import telemetry
 from litereality_agent.pipeline.realism_authoring import pass_cache
 from litereality_agent.pipeline.realism_authoring.small_objects import candidates, evidence, judge
 from litereality_agent.room_ops.paths import find_blender
@@ -279,6 +281,16 @@ class Pass:
         rebuilt = [i for i in self.items if i.get("glb") and
                    i["decision"]["decision"] == "trellis"]
         self.render_pairs(final / "Room.blend", rebuilt, "after")
+        # Keep publication evidence for direct CLI use without duplicating a launcher's
+        # model_saved event, which is responsible for selecting a model in the replay.
+        traces = self.scene_dir / "scene_init/obj_stage/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        telemetry.record_artifact(
+            traces, "artifact_published", final / "Room.glb",
+            path=os.path.relpath(final / "Room.glb", self.scene_dir), phase="small_objects", stage="small_objects",
+            run=os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex,
+            job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir),
+        )
 
     def outcome(self, item) -> str:
         decision = item.get("decision", {}).get("decision")
