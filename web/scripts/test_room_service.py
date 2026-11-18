@@ -290,6 +290,11 @@ class APIIntegration(unittest.TestCase):
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
 
+    def test_a_restart_clears_an_upload_left_half_unpacked(self):
+        (self.jobs.root / '.upload-x' / self.identifier / 'capture').mkdir(parents=True)
+        restarted = service.Jobs(self.jobs.root, Path.cwd())
+        self.assertEqual(list(restarted.root.iterdir()), [])
+
     def test_only_a_failure_of_the_input_refuses_a_retry(self):
         self.submit()
         state = self.jobs.root / self.identifier / 'output/scan/.litereality/pipeline.json'
