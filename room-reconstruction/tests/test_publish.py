@@ -42,10 +42,12 @@ def _context(scene: Path) -> RunContext:
 class Recorder:
     """Stands in for `run_module`, creating whatever each real module would have produced."""
 
-    def __init__(self, context: RunContext, *, compare_rc: int = 0, compile_rc: int = 0) -> None:
+    def __init__(self, context: RunContext, *, compare_rc: int = 0, compile_rc: int = 0,
+                 export_layout: bool = True) -> None:
         self.context = context
         self.compare_rc = compare_rc
         self.compile_rc = compile_rc
+        self.export_layout = export_layout
         self.calls: list[str] = []
 
     def __call__(self, _context, module: str, args=(), *, log_name=None):
@@ -58,6 +60,12 @@ class Recorder:
             glb.parent.mkdir(parents=True, exist_ok=True)
             glb.write_bytes(b"glTF")
             glb.with_suffix(".blend").write_bytes(b"assembled scene")
+            if self.export_layout:
+                (glb.parent / "room_layout.json").write_text('{"objects": []}')
+        elif short == "checks":
+            assert args == ["--layout", self.context.preview_dir / "room_layout.json",
+                            "--shell", self.context.authored_room / "Room.py"]
+            assert json.loads(args[1].read_text()) == {"objects": []}
         elif short == "render_vs_capture":
             if self.compare_rc:
                 return self.compare_rc, Path("compare.log")
@@ -109,6 +117,16 @@ def test_publishes_the_room_and_the_comparison(scene: Path, stub) -> None:
     assert not (context.preview_dir / publish.WEB_GLB_NAME).exists()
     assert "room_web_glb" not in result.artifacts
     assert "render_vs_capture" in rec.calls
+    assert rec.calls.index("build_from_room") < rec.calls.index("checks")
+
+
+def test_missing_layout_reports_unavailable_quality_and_keeps_the_model(scene: Path, stub) -> None:
+    context = _context(scene)
+    rec = stub(context, export_layout=False)
+    result = publish.run(context, {"compare_frames": 0})
+    assert result.status is StageStatus.COMPLETED
+    assert any("produced no room_layout.json" in warning for warning in result.warnings)
+    assert "checks" not in rec.calls
 
 
 def test_no_compare_frames_means_no_render(scene: Path, stub) -> None:

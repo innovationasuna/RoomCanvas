@@ -122,12 +122,17 @@ def run_assembly(cmd: list[str], log: Path, *, require_blend: bool) -> int:
     # Room.py writes the .blend alongside its GLB and some historical scripts swallow save errors.
     # Move its predecessor aside first. A filesystem with coarse timestamps can legitimately give
     # two independent writes the same modification time, and exports may have identical bytes.
-    with tempfile.TemporaryDirectory(prefix=".previous-blend-", dir=log.parent) as folder:
-        previous = Path(folder) / blend.name
-        if blend.is_file():
-            blend.replace(previous)
+    with tempfile.TemporaryDirectory(prefix=".previous-assembly-", dir=log.parent) as folder:
+        previous = {}
         success = False
         try:
+            # A new model can have a different layout, including no exported layout at all.
+            # Keep both outputs available for rollback while Blender produces the new pair.
+            for target in (blend, log.parent / "room_layout.json"):
+                if target.is_file():
+                    backup = Path(folder) / target.name
+                    target.replace(backup)
+                    previous[target] = backup
             rc = console.run_logged(cmd, log, "assembling", "yellow").returncode
             if rc:
                 return rc
@@ -138,8 +143,9 @@ def run_assembly(cmd: list[str], log: Path, *, require_blend: bool) -> int:
             success = True
             return 0
         finally:
-            if not success and previous.exists():
-                previous.replace(blend)
+            if not success:
+                for target, backup in previous.items():
+                    backup.replace(target)
 
 
 def main() -> int:
