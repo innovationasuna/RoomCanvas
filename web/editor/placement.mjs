@@ -1,3 +1,4 @@
+import {entityGeometry} from './entity-geometry.mjs';
 import {extent, bounds2d} from './geometry-bounds.mjs';
 
 // Geometric contact checks, not a rigid-body / load-bearing simulation.
@@ -288,20 +289,29 @@ export function seatBand(triangles, floorY, {from = .25, to = .8, window = .06, 
 
 export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, {openings: openingsByWall = {}} = {}) {
   room.updateMatrixWorld(true);
-  const byName = new Map();
-  room.traverse((object) => {byName.set(object.userData.name || object.name, object);});
+  const editable = new Set(), fixed = new Map(), references = new Map();
+  for (const [id, entity] of entities) {
+    editable.add(entity.group);
+    references.set(id, entityGeometry(THREE, entity));
+  }
+  for (const root of room.children) if (!editable.has(root)) {
+    root.traverse(node => fixed.set(node.userData.name || node.name, node));
+  }
+  references.set(null, {nodes: fixed});
   const meshCache = new Map();
-  function geometry(names) {
+  function geometry(names, owner = null) {
+    const {nodes, matrices} = references.get(owner);
     const vertices = [], triangles = [], seen = new Set();
     for (const name of names) {
-      const root = byName.get(name);
+      const root = nodes.get(name);
       if (!root) throw new Error(`缺少放置几何：${name}`);
       root.traverse((mesh) => {
         if (!mesh.isMesh || seen.has(mesh)) return;
         seen.add(mesh);
         if (!meshCache.has(mesh)) {
           const positions = mesh.geometry.attributes.position;
-          const localVertices = Array.from({length: positions.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld).toArray());
+          const matrix = matrices?.get(mesh) ?? mesh.matrixWorld;
+          const localVertices = Array.from({length: positions.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(matrix).toArray());
           const index = mesh.geometry.index;
           const count = index ? index.count : positions.count;
           const faces = [];
@@ -318,7 +328,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
   const surfaces = [];
   function addSurfaces(owner, names, label) {
     for (const name of names) {
-      const flat = geometry([name]).triangles.filter((triangle) => {
+      const flat = geometry([name], owner).triangles.filter((triangle) => {
         const {n, area} = triangleNormal(triangle);
         return Math.abs(n[1]) >= .995 && area >= 1e-8 && Math.max(...triangle.map((p) => p[1])) - Math.min(...triangle.map((p) => p[1])) < .003;
       });
@@ -335,11 +345,11 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
   const seats = {};
   for (const [id, spec] of Object.entries(specs)) if (spec.seat) {
     const originY = entities.get(id).origin.toArray()[1];
-    const range = spec.seat === 'auto' ? seatBand(geometry(spec.body).triangles, originY) : spec.seat.range;
+    const range = spec.seat === 'auto' ? seatBand(geometry(spec.body, id).triangles, originY) : spec.seat.range;
     if (!range) continue;  // e.g. a stool scanned as a closed block
     seats[id] = range.map((y) => +y.toFixed(2));
     const [low, high] = range.map(y => y + originY);
-    const triangles = geometry(spec.body).triangles.filter(triangle => {
+    const triangles = geometry(spec.body, id).triangles.filter(triangle => {
       const {n, area} = triangleNormal(triangle);
       return Math.abs(n[1]) >= .92 && area >= 1e-8 && triangle.every(p => p[1] >= low && p[1] <= high);
     });
@@ -387,10 +397,10 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
 
   const bodies = new Map();
   for (const [id, spec] of Object.entries(specs)) {
-    const {vertices, triangles} = geometry(spec.body);
+    const {vertices, triangles} = geometry(spec.body, id);
     const bottom = vertices.reduce((a, p) => Math.min(a, p[1]), Infinity);
     // Ceiling clearance includes the desk monitor, ornaments and other grouped parts.
-    const groupBounds = new THREE.Box3().setFromObject(entities.get(id).group);
+    const groupBounds = references.get(id).bounds;
     const top = groupBounds.max.y;
     const base = spec.wall ? [] : sampleContactGeometry(triangles, bottom);
     const body = {id, origin: entities.get(id).origin.toArray(), bottom, mountBottom: groupBounds.min.y, top, base, vertices, wall: null};
