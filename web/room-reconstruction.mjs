@@ -39,7 +39,8 @@ async function request(path, options = {}) {
   const response = await fetch(API + path, {...options, signal: AbortSignal.timeout(15000)});
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || (response.status === 404 ? '网页服务尚未启用房间重建接口，请更新并重启网页服务。' : '暂时无法连接房间重建服务，请稍后重试。'));
-  return data;
+  // While the reconstruction service is unreachable the web service answers with the last kept state.
+  return response.headers?.get('X-RoomCanvas-Cache') === 'stale' ? {...data, stale: true} : data;
 }
 
 export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async () => {}, isRoomHidden = () => false}) {
@@ -145,11 +146,11 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
     if (polling) return;
     polling = true; $('refresh-jobs').disabled = true;
     try {
-      let {jobs} = await request('/jobs');
+      let {jobs, stale} = await request('/jobs');
       if (!Array.isArray(jobs)) throw new Error('任务列表格式无效，请检查重建服务版本。');
       await onJobsChanged(jobs);
       jobs = jobs.filter(job => !isRoomHidden(`scan-${job.id}`));
-      $('jobs-message').textContent = '';
+      $('jobs-message').textContent = stale ? '暂时连不上房间重建服务，以下是上次获取的任务状态。' : '';
       $('reconstruction-jobs').hidden = !jobs.length;
       const roomIDs = jobs.filter(j => j.status === 'completed').map(j => j.id).sort().join(',');
       if (completed !== null && completed !== roomIDs) await onRoomsChanged();
