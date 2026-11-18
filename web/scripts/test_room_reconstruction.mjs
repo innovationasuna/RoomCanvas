@@ -85,3 +85,30 @@ test('progress reflects real stages and keeps errors distinct from completion', 
   assert.match(jobDescription({status: 'completed', quality: {status: 'warnings'},
     enhancement: {added: 0, zero_added_reason: '已存在可动关节'}}), /待改善.*已存在可动关节/);
 });
+test('a kept answer during an outage is marked, and a live one clears the mark', async () => {
+  class Element {
+    constructor() {this.value = ''; this.textContent = ''; this.classList = {add() {}, remove() {}};}
+    append() {}
+    addEventListener() {}
+    replaceChildren() {}
+    scrollIntoView() {}
+  }
+  const ids = new Map(), get = id => {if (!ids.has(id)) ids.set(id, new Element()); return ids.get(id);};
+  const saved = Object.fromEntries(['document', 'window', 'location', 'fetch', 'setInterval'].map(key => [key, globalThis[key]]));
+  const settle = async () => {for (let i = 0; i < 30; i++) await Promise.resolve();};
+  let stale = true;
+  globalThis.document = {getElementById: get, createElement: () => new Element(), addEventListener() {}};
+  globalThis.window = {addEventListener() {}};
+  globalThis.location = {hash: ''};
+  globalThis.setInterval = () => 1;
+  globalThis.fetch = async () => ({ok: true, headers: new Headers(stale ? {'X-RoomCanvas-Cache': 'stale'} : {}),
+    json: async () => ({jobs: [{id: 'a'.repeat(32), name: '客厅', status: 'running', created: 1}]})});
+  try {
+    const {refresh} = mountRoomReconstruction({onRoomsChanged: async () => {}});
+    await settle();
+    assert.match(get('jobs-message').textContent, /连不上/);
+    stale = false;
+    await refresh(); await settle();
+    assert.equal(get('jobs-message').textContent, '');
+  } finally {Object.assign(globalThis, saved);}
+});
