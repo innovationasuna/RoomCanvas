@@ -163,8 +163,12 @@ class Sync:
         stamp = folder / 'stamp.json'
         seen = json.loads(stamp.read_text()).get('updated') if stamp.exists() else None
         if seen is not None and seen != job.get('updated'):
+            prefixes = (f'{PREFIX}jobs/{job["id"]}/', f'{PREFIX}assets/{job["id"]}/')
+            self.absent = {path for path in self.absent if not path.startswith(prefixes)}
             for old in (folder / 'replay/files', folder / 'replay/scaffold', self.cache / 'assets' / job['id']):
                 shutil.rmtree(old, ignore_errors=True)
+            (folder / 'replay' / ANSWER).unlink(missing_ok=True)
+            (folder / ANSWER).unlink(missing_ok=True)
             stamp.unlink()
         if job.get('status') in LIVE:
             return True

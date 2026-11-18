@@ -31,6 +31,7 @@ class FakeService:
 
     def __init__(self):
         self.updated = 1.0
+        self.errors = {}
         self.asked = []
         self.files = {
             f'{P}jobs/{DONE}/replay/scaffold/points.bin': b'pts', f'{P}jobs/{DONE}/replay/scaffold/layout.json': b'{}',
@@ -46,6 +47,8 @@ class FakeService:
 
             def do_GET(self):
                 service.asked.append(self.path)
+                if self.path in service.errors:
+                    return self.send_error(service.errors[self.path])
                 answers = {
                     f'{P}jobs': {'jobs': [{'id': DONE, 'status': 'completed', 'updated': service.updated},
                                           {'id': RUNNING, 'status': 'running', 'updated': 2.0}]},
@@ -146,11 +149,15 @@ class Download(unittest.TestCase):
 
     def test_a_retried_job_is_downloaded_again(self):
         self.sync.once()
+        thumbnail = f'{P}assets/{DONE}/thumbnail.jpg'
+        self.assertIn(thumbnail, self.sync.absent)
+        self.service.files[thumbnail] = b'new thumbnail'
         kept = room_cache.local(self.cache, f'{P}assets/{DONE}/Room.glb')
         self.service.files[f'{P}assets/{DONE}/Room.glb'] = b'new room'
         self.service.updated = 5.0
         self.sync.once()
         self.assertEqual(kept.read_bytes(), b'new room')
+        self.assertEqual(room_cache.local(self.cache, thumbnail).read_bytes(), b'new thumbnail')
 
 
 class Serving(unittest.TestCase):
@@ -202,6 +209,32 @@ class Serving(unittest.TestCase):
         self.assertEqual(json.loads((self.cache / 'jobs/answer.json').read_bytes()), json.loads(body))
         self.assertEqual(self.get(f'{P}jobs/{DONE}/replay/files/seed/Room.glb')[:2], (200, b'seed'))  # not kept yet: asked
         self.assertEqual(self.get(f'{P}jobs/{DONE}/replay/files/nothing.glb')[0], 404)
+
+    def test_gateway_failure_uses_only_existing_answers_then_recovers(self):
+        self.service = FakeService()
+        self.backend(self.service.url)
+        path = f'{P}jobs'
+        status, original, headers = self.get(path)
+        self.assertEqual(status, 200)
+        self.assertNotIn('X-RoomCanvas-Cache', headers)
+        for code in (502, 503, 504):
+            with self.subTest(code=code):
+                self.service.errors[path] = code
+                status, body, headers = self.get(path)
+                self.assertEqual((status, body, headers['X-RoomCanvas-Cache']), (200, original, 'stale'))
+        for code in (400, 403, 404, 500):
+            with self.subTest(code=code):
+                self.service.errors[path] = code
+                self.assertEqual(self.get(path)[0], code)
+        self.service.errors[f'{P}catalog'] = 502
+        self.assertEqual(self.get(f'{P}catalog')[0], 502)
+        self.service.errors.clear()
+        self.service.updated += 1
+        status, updated, headers = self.get(path)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(updated, original)
+        self.assertNotIn('X-RoomCanvas-Cache', headers)
+        self.assertEqual(room_cache.local(self.cache, path).read_bytes(), updated)
 
 
 class Quiet(Handler):
