@@ -303,8 +303,9 @@ def draft_time(scene, rows, until=None):
     records = [r for r in rows if r.get('kind') == 'room_built' or
                (r.get('kind') == 'artifact_published' and r.get('path') == FINAL)]
     current = records[-1] if records else None
-    modern = any(r.get('schema_version', 1) >= 2 for r in rows)
-    t = replay_history.artifact_evidence(Path(scene) / FINAL, current if modern else None, legacy=not modern)['time']
+    if not current or current.get('schema_version', 1) < 2:
+        current = None  # no recorded build of this file: keep the file time, as before
+    t = replay_history.artifact_evidence(Path(scene) / FINAL, current, legacy=not current)['time']
     return t if t and t > seed and (not until or t <= until) else None
 
 
@@ -325,12 +326,17 @@ def _model_time(scene, rows, model, rel, until=None):
     return t if t and (not until or t <= until) else None
 
 
+def records_models(rows):
+    """Whether the authoring run records its saved room models. Rows that later passes (articulate,
+    small objects, a retry's pipeline stages) append to an older run do not count: its models stay
+    timed by their files."""
+    return any(r.get('kind') == 'model_saved' and r.get('model') != 'articulated' for r in rows)
+
+
 def model_evidence(scene, rows, model, rel):
     import replay_history
     recorded = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == model]
-    all_rows = trace_rows(scene)
-    legacy = model != 'articulated' and not any(
-        r.get('kind') == 'model_saved' or r.get('schema_version', 1) >= 2 for r in all_rows)
+    legacy = model != 'articulated' and not records_models(trace_rows(scene))
     path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
     return replay_history.artifact_evidence(path, recorded[-1] if recorded else None, legacy=legacy)
 
@@ -352,7 +358,9 @@ def _rounds(scene, until=None):
                    r.get('run')) for r in sorted(done, key=lambda r: r['t'])]
     else:
         from replay_history import legacy_rounds
-        rounds = [] if any(r.get('schema_version', 1) >= 2 for r in rows) else legacy_rounds(scene)
+        # A new-format run records its rounds; older runs, and their later passes, use file times.
+        modern = records_models(r for r in rows if r.get('schema_version', 1) >= 2)
+        rounds = [] if modern else legacy_rounds(scene)
     return [x for x in rounds if x[0] and (not until or x[0] <= until)]
 
 
