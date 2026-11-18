@@ -299,6 +299,21 @@ def test_author_checkpoint_restores_matching_source_and_resources(tmp_path):
     assert json.loads((room / "textures.json").read_text()) == {"a": 1}
 
 
+def test_an_unresolved_path_literal_holds_back_a_checkpoint_but_never_restores_over_the_room(tmp_path):
+    from litereality_agent.agent import author_checkpoint as checkpoint
+
+    room = tmp_path / "room"
+    room.mkdir()
+    last_good = tmp_path / ".room_checkpoint.py"
+    (room / "Room.py").write_text("x = 1\n")
+    assert checkpoint.save(room, last_good)
+    (room / "Room.py").write_text("import glob\nTEX = glob.glob('materials/*.jpg')\n")
+    assert checkpoint.save(room, last_good), "a glob pattern is not a missing file"
+    (room / "Room.py").write_text("OUT = 'textures/baked_preview.png'\n")
+    assert not checkpoint.save(room, last_good)
+    assert checkpoint.source_error(room) == "", "valid sources must not be replaced by the checkpoint"
+
+
 def test_broken_checkpoint_blob_never_partially_restores_room(tmp_path):
     from litereality_agent.agent import author_checkpoint as checkpoint
 
