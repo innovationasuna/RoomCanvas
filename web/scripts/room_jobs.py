@@ -1,6 +1,7 @@
 """Persistent job state and queue, independent of HTTP transport."""
 import json
 import queue
+import shutil
 import sys
 import tempfile
 import threading
@@ -22,6 +23,9 @@ class Jobs:
         self.upload_lock = threading.Lock()
         self.pending = queue.Queue()
         self.records = {}
+        # An upload being unpacked when the service stopped never became a job.
+        for staged in self.root.glob('.upload-*'):
+            shutil.rmtree(staged, ignore_errors=True)
         for path in sorted(self.root.glob('*/job.json')):
             record = json.loads(path.read_text())
             self.records[record['id']] = record
@@ -114,7 +118,7 @@ class Jobs:
                 if identifier in self.records:
                     return self.public(self.records[identifier])
             folder = self.root / identifier
-            with tempfile.TemporaryDirectory(dir=self.root) as temp:
+            with tempfile.TemporaryDirectory(dir=self.root, prefix='.upload-') as temp:
                 staged = Path(temp) / identifier
                 capture = self.extract(archive, staged / 'capture')
                 now = time.time()
