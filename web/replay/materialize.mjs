@@ -11,16 +11,14 @@ const PER_M2 = 9000, MIN_POINTS = 2500, MAX_POINTS = 16000;
 const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const span = (t, [a, b]) => ease((t - a) / (b - a));
 
-let dotMap = null;
 function dot() {
-  if (dotMap) return dotMap;
   const c = document.createElement('canvas');
   c.width = c.height = 32;
   const g = c.getContext('2d'), grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
   grad.addColorStop(0, '#fff'); grad.addColorStop(0.55, '#fff'); grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 32, 32);
-  return (dotMap = new THREE.CanvasTexture(c));
+  return new THREE.CanvasTexture(c);
 }
 
 // The texels of each texture (a small copy), read ahead with prefetch() so points can take the object's
@@ -29,22 +27,29 @@ const texels = new WeakMap();
 const pixels = (texture) => texels.get(texture?.image) || null;
 
 const TEXEL_SIZE = 128;
-export async function prefetch(root) {
+export function prefetch(root, {signal} = {}) {
   const images = new Set();
   root.traverse((o) => {if (o.isMesh) for (const m of [o.material].flat()) if (m?.map?.image) images.add(m.map.image);});
+  // The continuation owns only the image queue, never the model root.
+  return prefetchImages(images, signal);
+}
+
+async function prefetchImages(images, signal) {
   for (const image of images) {
+    if (signal?.aborted) return;
     if (texels.has(image) || !image.width || !image.height) continue;
     try {
       const scale = Math.min(1, TEXEL_SIZE / Math.max(image.width, image.height));
       const w = Math.max(1, Math.round(image.width * scale)), h = Math.max(1, Math.round(image.height * scale));
       // resized off the main thread; reading back the small copy is cheap
       const small = await createImageBitmap(image, {resizeWidth: w, resizeHeight: h, resizeQuality: 'medium'});
+      if (signal?.aborted) {small.close?.(); return;}
       const g = Object.assign(document.createElement('canvas'), {width: w, height: h}).getContext('2d', {willReadFrequently: true});
       g.drawImage(small, 0, 0);
       small.close?.();
       texels.set(image, {w, h, data: g.getImageData(0, 0, w, h).data});
     } catch {
-      texels.set(image, null);  // not readable (e.g. a compressed texture): the material colour is used
+      if (!signal?.aborted) texels.set(image, null);  // unreadable: use the material colour
     }
     await new Promise((r) => setTimeout(r, 0));
   }
@@ -118,11 +123,11 @@ export class Materializer {
     this.scene = scene;
     this.wire = wire;
     this.active = new Map();  // node -> effect
-    // Materials are kept and reused, never disposed: disposing one drops its compiled shader, and compiling it
-    // again when the next object takes shape stalls the page for about a second.
-    this.clones = new WeakMap();  // original material -> its clipped clone
+    // Point/wire shaders belong to the view; clipped copies belong to one model.
+    this.clones = new Map();     // original material -> reusable clipped copies
     this.busy = new Set();        // clones in use (two objects taking shape at once may share a material)
     this.spare = [];              // {points, wireMats} of finished effects
+    this.dotMap = dot();
   }
 
   // held: the object stays hidden until release(), e.g. while the camera moves in. delay: seconds it stays hidden
@@ -154,7 +159,7 @@ export class Materializer {
     for (const o of meshes) {
       const orig = o.material, list = [orig].flat();
       const clones = list.map((m) => {
-        const c = this.busy.has(this.clones.get(m)) ? this.clipped(m, true) : this.clipped(m);
+        const c = this.clipped(m, owner(node));
         this.busy.add(c);
         c.clippingPlanes = [solidTop];
         return c;
@@ -175,14 +180,17 @@ export class Materializer {
     this.place(e);
   }
 
-  // The clipped copy of a material an object shows while it takes shape (fresh: a second one).
-  clipped(m, fresh = false) {
-    let c = this.clones.get(m);
-    if (!c || fresh) {
+  // Concurrent objects sharing a material need separate clipping planes.
+  clipped(m, root) {
+    const copies = this.clones.get(m) || [];
+    let c = copies.find(copy => !this.busy.has(copy));
+    if (!c) {
       c = m.clone();
       c.clippingPlanes = [new THREE.Plane()];
-      this.clones.set(m, c);
+      copies.push(c);
+      this.clones.set(m, copies);
     }
+    if (root) (root.userData.materializerMaterials ||= new Set()).add(m);
     return c;
   }
 
@@ -191,8 +199,8 @@ export class Materializer {
   // stalls the page for about a second.
   standIns() {
     const kit = this.spare.at(-1) || this.spare[this.spare.push(this.kit()) - 1];
-    const plane = new THREE.Plane(), geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    const plane = new THREE.Plane(), geo = this.standInGeometry ||= new THREE.BufferGeometry();
+    if (!geo.attributes.position) geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
     kit.points.clippingPlanes = [plane];
     kit.wireMats.forEach((m) => (m.clippingPlanes = [plane, plane]));
     return [new THREE.Points(geo, kit.points), ...kit.wireMats.map((m) => new THREE.Mesh(geo, m))];
@@ -203,7 +211,7 @@ export class Materializer {
     // little towards the camera, so they do not flicker against them.
     const ahead = {polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8};
     return {
-      points: lifted(new THREE.PointsMaterial({map: dot(), vertexColors: true, transparent: true, depthWrite: false})),
+      points: lifted(new THREE.PointsMaterial({map: this.dotMap, vertexColors: true, transparent: true, depthWrite: false})),
       wireMats: [
         new THREE.MeshBasicMaterial({color: this.wire, wireframe: true, transparent: true, opacity: 0.7, depthWrite: false, ...ahead}),
         new THREE.MeshBasicMaterial({color: this.wire, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide, ...ahead}),
@@ -277,7 +285,34 @@ export class Materializer {
   }
 
   finishAll() {[...this.active.keys()].forEach((node) => this.finish(node));}
+
+  finishModel(root) {
+    for (const node of [...this.active.keys()]) if (inside(node, root)) this.finish(node);
+  }
+
+  releaseModel(root) {
+    this.finishModel(root);
+    root.traverse(node => {
+      for (const material of node.userData.materializerMaterials || []) {
+        for (const copy of this.clones.get(material) || []) {this.busy.delete(copy); copy.dispose();}
+        this.clones.delete(material);
+      }
+      delete node.userData.materializerMaterials;
+    });
+  }
+
+  dispose() {
+    this.finishAll();
+    for (const copies of this.clones.values()) copies.forEach(copy => copy.dispose());
+    this.clones.clear(); this.busy.clear();
+    for (const kit of this.spare) {kit.points.dispose(); kit.wireMats.forEach(material => material.dispose());}
+    this.spare.length = 0;
+    this.standInGeometry?.dispose(); this.dotMap.dispose();
+  }
 }
+
+function inside(node, root) {for (let p = node; p; p = p.parent) if (p === root) return true; return false;}
+function owner(node) {for (let p = node; p; p = p.parent) if (p.userData.replayRoot) return p; return node;}
 
 // Points drawn 2 cm towards the camera (polygon offset does not apply to points), and never smaller than
 // 3 device pixels: a point of a pixel or two hops between pixels as the camera moves and sparkles.
