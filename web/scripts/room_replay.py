@@ -329,14 +329,15 @@ def _model_time(scene, rows, model, rel, until=None):
 def records_models(rows):
     """Whether the authoring run records its saved room models. Rows that later passes (articulate,
     small objects, a retry's pipeline stages) append to an older run do not count: its models stay
-    timed by their files."""
+    timed by their files. Callers pass only the rows up to the replayed moment, so records written
+    after it never change what an earlier moment shows."""
     return any(r.get('kind') == 'model_saved' and r.get('model') != 'articulated' for r in rows)
 
 
 def model_evidence(scene, rows, model, rel):
     import replay_history
     recorded = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == model]
-    legacy = model != 'articulated' and not records_models(trace_rows(scene))
+    legacy = model != 'articulated' and not records_models(rows)
     path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
     return replay_history.artifact_evidence(path, recorded[-1] if recorded else None, legacy=legacy)
 
@@ -346,7 +347,7 @@ def _rounds(scene, until=None):
 
     Runs that record review_done / model_saved are timed by those records; older runs by file times."""
     scene = Path(scene)
-    rows = trace_rows(scene)
+    rows = trace_rows(scene, until)
     done = [r for r in rows if r.get('kind') == 'review_done' and r.get('reviewed') and r.get('folder')]
     if done:
         import replay_history
