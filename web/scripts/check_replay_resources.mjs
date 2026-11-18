@@ -66,12 +66,27 @@ try {
     fixture.buffers.push({byteLength: buffer.length, uri: 'data:application/octet-stream;base64,' + btoa(String.fromCharCode(...buffer))});
     const url = URL.createObjectURL(new Blob([JSON.stringify(fixture)], {type: 'model/gltf+json'}));
     const view = new RoomView(document.querySelector('#view'), {background: '#e9ede5'});
+    const gl = view.renderer.getContext(), shaderCompiles = [], compileJobs = [];
+    let currentIteration = -1;
+    const compileShader = gl.compileShader.bind(gl);
+    gl.compileShader = shader => {
+      const start = performance.now();
+      try { return compileShader(shader); }
+      finally { shaderCompiles.push({iteration: currentIteration, cpuMs: performance.now()-start}); }
+    };
+    const compileAsync = view.renderer.compileAsync.bind(view.renderer);
+    view.renderer.compileAsync = async (...args) => {
+      const start = performance.now(), iteration = currentIteration;
+      try { return await compileAsync(...args); }
+      finally { compileJobs.push({iteration, wallMs: performance.now()-start}); }
+    };
     const snapshots = [], retired = [];
     const snapshot = iteration => ({iteration, ...view.renderer.info.memory, programs: view.renderer.info.programs.length,
       wallFades: view.wallFades.length, models: Object.keys(view.models).length, active: view.forming.active.size,
       cloneSources: view.forming.clones.size, pooledKits: view.forming.spare.length});
     try {
       for (let iteration = 0; iteration < 24; iteration++) {
+        currentIteration = iteration;
         console.log('replay-check: draft', iteration);
         const previous = view.models[view.current]?.root;
         await view.show(`draft-${iteration}`, url, iteration % 2 === 0);
@@ -159,7 +174,7 @@ try {
       await closing.dispose();
       await Promise.all([pending.warming, pending.prefetching]);
       check(!closing.retiring.size && !closing.forming.clones.size, 'view disposal must wait for in-flight compilation safely');
-      return {drafts: 24, snapshots, empty, lateLoadDiscarded: true, latePrefetchClosed: true, cancelledWarmUploads: 0,
+      return {drafts: 24, snapshots, shaderCompiles, compileJobs, empty, lateLoadDiscarded: true, latePrefetchClosed: true, cancelledWarmUploads: 0,
         backwardSeek: true, speeds: [1, 2, 8], physicalLighting: true, disposeDuringWarm: true, sameKeyGenerationSafe: true};
     } finally {await view.dispose(); URL.revokeObjectURL(url);}
   }, values.url);
