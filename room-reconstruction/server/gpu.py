@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from roomcanvas_gpu import acquire, device_uuid  # noqa: E402
+from roomcanvas_gpu import POLL_SECONDS, WAIT_SECONDS, acquire, device_uuid  # noqa: E402
 
 IDLE_MEMORY_MIB = 100
 
@@ -85,30 +85,37 @@ def room_lease(runtime, env, *, wait=False):
         allowed = {device_uuid(s.strip()) for s in env["CUDA_VISIBLE_DEVICES"].split(",")}
     requested_uuid = None if request == "auto" else device_uuid(request)
     shared_mib = int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0"))
-    reported_wait = False
+    deadline, reported_wait = time.monotonic() + WAIT_SECONDS, False
     while True:
         cards = [gpu for gpu in list_gpus() if (allowed is None or gpu.uuid in allowed)
                  and (requested_uuid is None or gpu.uuid == requested_uuid)]
         if not cards:
             raise RuntimeError(f"No visible GPU matches ROOMCANVAS_GPU={request!r}")
+        reasons = []
         for card in cards:
             if not card.usable(shared_mib):
+                reasons.append(f"GPU {card.index} is busy: {card.memory_used_mib} MiB used, pids {card.compute_pids}")
                 continue
             with ExitStack() as stack:
                 legacy = runtime / "locks" / f"gpu-{card.uuid}.lock"
                 try:
                     lease = stack.enter_context(acquire(card.uuid, env, legacy))
-                except BlockingIOError:
+                except BlockingIOError as error:
+                    reasons.append(str(error))
                     continue
                 try:
                     current = select_gpu(card.uuid, list_gpus(), shared_mib)
-                except RuntimeError:
+                except RuntimeError as error:
+                    reasons.append(str(error))
                     continue
                 yield current, lease
                 return
         if not wait:
-            raise RuntimeError(f"No available GPU: selected card(s) busy or locked: {[g.uuid for g in cards]}")
+            raise RuntimeError(f"No available GPU: {'; '.join(reasons)}")
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"No GPU became available in {WAIT_SECONDS // 60} min: {'; '.join(reasons)}")
         if not reported_wait:
-            print(f"Waiting for an available GPU: {[g.uuid for g in cards]}", file=sys.stderr, flush=True)
+            print(f"Waiting up to {WAIT_SECONDS // 60} min for a GPU: {'; '.join(reasons)}",
+                  file=sys.stderr, flush=True)
             reported_wait = True
-        time.sleep(1)
+        time.sleep(POLL_SECONDS)

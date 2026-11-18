@@ -22,6 +22,7 @@ import time
 import uuid
 
 from run import CODE, component, input_manifest, match_masks, object_lease, selected_images
+from roomcanvas_gpu import WAIT_SECONDS
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection
 
@@ -128,9 +129,12 @@ class Job:
         return any(row['mask'] is None for row in rows)
 
     def wait_for_gpu(self):
-        # Whoever holds the lock (a CLI run or another job) finishes first. The script
+        # Whoever holds the lock (a CLI run, a room or another job) finishes first. The script
         # then takes the lock with --wait-gpu, so losing a race to it only waits a bit longer.
+        deadline = time.monotonic() + WAIT_SECONDS
         while not gpu_free(self.root):
+            if time.monotonic() > deadline:
+                raise RuntimeError(f'GPU 被其他任务占用已超过 {WAIT_SECONDS // 60} 分钟，请稍后重试')
             time.sleep(GPU_POLL_SECONDS)
 
     def work(self):
