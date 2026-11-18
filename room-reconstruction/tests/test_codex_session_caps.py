@@ -4,6 +4,8 @@ import asyncio
 import sys
 import time
 
+import pytest
+
 from litereality_agent.agent.providers.base import SessionResult, SessionSpec
 from litereality_agent.agent.providers.codex import CodexHarness, _budgeted_prompt
 
@@ -13,6 +15,11 @@ def test_session_can_see_its_time_and_tool_limits():
     assert "600 wall-clock seconds" in prompt and "deadline" in prompt
     assert "40 tool calls" in prompt and "Never skip required checks" in prompt
     assert prompt.endswith("Required task")
+
+
+@pytest.fixture(autouse=True)
+def scratch_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # a session records its timing under cwd, never in the checkout
 
 
 def run_fake(monkeypatch, program, seconds, steps):
