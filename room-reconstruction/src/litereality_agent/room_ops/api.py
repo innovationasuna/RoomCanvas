@@ -79,8 +79,9 @@ def compile_room(
         # Direct callers (including the live unbaked preview) can replace the tool's output.
         (room_dir / ".compile_stamp").unlink(missing_ok=True)
     blend = preview / "Room.blend"
-    previous_blend = blend.stat() if bake and blend.is_file() else None
     cmd = [sys.executable, "-m", "litereality_agent.room_ops.compile.build_from_room", "--room", str(room_dir)]
+    if bake:
+        cmd.append("--require-blend")
     if out_dir:
         cmd += ["--out", str(out_dir)]
     if regenerate:
@@ -91,16 +92,7 @@ def compile_room(
     if not glb.is_file() or not glb.stat().st_size:
         return None
     if bake:
-        if not blend.is_file():
-            print(f"Assembly did not produce {blend}; see {preview / 'build.log'}", file=sys.stderr)
-            return None
-        current = blend.stat()
-        if previous_blend and (current.st_ino, current.st_ctime_ns) == (
-            previous_blend.st_ino, previous_blend.st_ctime_ns
-        ):
-            print(f"Assembly left {blend} unchanged; see {preview / 'build.log'}", file=sys.stderr)
-            return None
-        rc = bake_room(blend, glb, blender=blender)
+        rc = bake_room(blend, glb, blender=blender, required=True)
         if rc:
             print(f"Material bake failed (exit {rc}); see {preview / 'bake.log'}", file=sys.stderr)
             return None
@@ -142,18 +134,24 @@ def _record_build(room_dir: Path, glb: Path) -> None:
         pass
 
 
-def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 1024) -> int:
-    """Bake the SHELL's node-graph materials into a built `Room.glb` (faithful preview).
-    No-op (returns 0) if the `Room.blend` isn't present. Returns the Blender exit code."""
+def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 1024,
+              required: bool = False) -> int:
+    """Bake a preview from its .blend. Required callers check freshness at assembly time.
+
+    A standalone bake of a legacy preview without a .blend is an optional no-op.
+    """
     blend, glb = Path(blend), Path(glb)
-    if not blend.is_file():
+    log_path = glb.parent / "bake.log"
+    if not blend.is_file() or (required and not blend.stat().st_size):
+        if required:
+            log_path.write_text(f"Required bake input missing or empty: {blend}\n")
+            return 1
         return 0
     # Blender's bake floods stdout with per-object `Fra: … | Updating Images | Loading bake_…`
     # progress. bake_room runs on EVERY `compile` the authoring/materials agent makes, so if that
     # inherits the parent stdout it drowns the step log (authoring.log hit 164 MB this way). Route
     # it to a sibling bake.log — same precedent as the render engine's render.log — so the step log
     # stays readable and the bake output is still there to inspect on failure.
-    log_path = glb.parent / "bake.log"
     with tempfile.TemporaryDirectory(dir=glb.parent, prefix=".bake-") as folder, log_path.open("w") as log:
         baked = Path(folder) / glb.name
         rc = subprocess.run(

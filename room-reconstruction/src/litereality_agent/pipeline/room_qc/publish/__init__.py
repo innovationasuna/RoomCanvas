@@ -122,13 +122,19 @@ def run(context: RunContext, options: dict) -> StageResult:
     )
     if quality_rc:
         warnings.append(f"scene quality checks reported violations; see {quality_log}")
+    from litereality_agent.room_ops import api
+
+    blend = context.preview_dir / "Room.blend"
+    acceptance = context.preview_dir / "acceptance.json"
+    acceptance.unlink(missing_ok=True)
+    (context.authored_room / ".compile_stamp").unlink(missing_ok=True)
     rc, log = run_module(
         context, "litereality_agent.room_ops.compile.build_from_room",
-        ["--room", context.authored_room, "--out", context.preview_dir, "--regenerate"],
+        ["--room", context.authored_room, "--out", context.preview_dir, "--regenerate", "--require-blend"],
         log_name="publish_compile",
     )
     glb = context.preview_dir / "Room.glb"
-    if rc or not glb.is_file():
+    if rc or not glb.is_file() or not glb.stat().st_size:
         return StageResult("publish", StageStatus.FAILED, error=f"final compile failed; see {log}")
     # Flatten node-graph SHELL materials into the glb. `build_from_room` only EXPORTS; the bake is
     # the step `compile_room` adds on top, and the agent's own compile/render tool goes through
@@ -137,12 +143,10 @@ def run(context: RunContext, options: dict) -> StageResult:
     # `carpet_mat`, `ceiling_tile_mat`) has no glTF representation, so it exports with neither a
     # texture nor a baseColorFactor and renders WHITE. Flat-RGB and fetched-image materials
     # survive either way, which is why this stayed invisible until a room used procedural ones.
-    from litereality_agent.room_ops import api
-
-    bake_rc = api.bake_room(context.preview_dir / "Room.blend", glb)
+    bake_rc = api.bake_room(blend, glb, required=True)
     if bake_rc:
         return StageResult("publish", StageStatus.FAILED,
-                           error=f"material bake failed; candidate retained at {glb}")
+                           error=f"material bake failed; see {context.preview_dir / 'bake.log'}; candidate retained at {glb}")
     from litereality_agent.pipeline.scene_init.seed import saved
     saved(context, "final", glb)
 
@@ -155,7 +159,6 @@ def run(context: RunContext, options: dict) -> StageResult:
         pass
     report = {"schema": SCHEMA, "status": "published", "accepted": checked.get("accepted") is True,
               "checked": checked.get("status"), "fingerprint": fingerprint(context.authored_room, context.preview_dir)}
-    acceptance = context.preview_dir / "acceptance.json"
     acceptance.write_text(json.dumps(report, indent=2))
 
     frames = compare_frames(options)
