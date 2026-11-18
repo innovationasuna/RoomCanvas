@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from dimensions import read_dimensions, result_directory
 from mvsam_pbr import material_capabilities
-from asset_state import AssetUnavailableError, preview_manifest, require_asset
+from asset_state import AssetUnavailableError, complete, preview_manifest, require_asset
 
 
 class AssetsMiddleware:
@@ -71,6 +71,8 @@ class AssetsMiddleware:
                     published = require_asset(run)
                     if not file.is_file() or (published and parts[1] not in published['files']):
                         raise FileNotFoundError('没有这个模型文件')
+                    if not complete(file):
+                        raise AssetUnavailableError('asset_failed', '模型文件不完整，请重新重建')
                     response = FileResponse(file, media_type='model/gltf-binary' if parts[1].endswith('.glb') else 'application/octet-stream')
                 else:
                     data = await run_in_threadpool(read_dimensions, run)

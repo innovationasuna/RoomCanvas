@@ -13,14 +13,38 @@ class AssetUnavailableError(FileNotFoundError):
         self.state = state
 
 
+PLY_SIZES = {'char': 1, 'uchar': 1, 'int8': 1, 'uint8': 1, 'short': 2, 'ushort': 2, 'int16': 2, 'uint16': 2,
+             'int': 4, 'uint': 4, 'int32': 4, 'uint32': 4, 'float': 4, 'float32': 4, 'double': 8, 'float64': 8}
+
+
 def complete(file):
-    """Whether a model file is whole: a GLB must be as long as its header says, anything else nonempty."""
+    """Whether a model file is whole: exactly as long as its GLB or binary PLY header says."""
     size = file.stat().st_size
-    if file.suffix != '.glb':
-        return size > 0
     with file.open('rb') as stream:
-        head = stream.read(12)
-    return len(head) == 12 and head[:4] == b'glTF' and int.from_bytes(head[8:], 'little') == size
+        head = stream.read(12 if file.suffix == '.glb' else 65536)
+    if file.suffix == '.glb':
+        return len(head) == 12 and head[:4] == b'glTF' and int.from_bytes(head[8:], 'little') == size
+    if file.suffix != '.ply':
+        return size > 0
+    end = head.find(b'end_header')
+    if not head.startswith(b'ply') or end < 0 or b'\n' not in head[end:]:
+        return False
+    expected = head.index(b'\n', end) + 1
+    lines = [line.split() for line in head[:end].decode('ascii', 'replace').splitlines()]
+    try:
+        if lines[1][1] not in ('binary_little_endian', 'binary_big_endian'):
+            return size > expected  # ASCII rows have no fixed length
+        count = 0
+        for words in lines:
+            if words[:1] == ['element']:
+                count = int(words[2])
+            elif words[:1] == ['property']:
+                if words[1] == 'list':
+                    return size > expected  # variable-length rows
+                expected += count * PLY_SIZES[words[1]]
+    except (IndexError, KeyError, ValueError):
+        return False
+    return size == expected
 
 
 def require_asset(run):
@@ -59,10 +83,9 @@ def require_asset(run):
             raise AssetUnavailableError('asset_failed', '重建失败，模型尚未发布')
         raise AssetUnavailableError('asset_pending', '模型尚未完成资产发布，请稍后重试')
     # Older runs and manually imported GLBs predate asset.json and were served whatever their state
-    # said: a finished one is served as before, any other only while its model file is whole.
-    if not (isinstance(state, dict) and state.get('status', 'complete') == 'complete'):
-        if not complete(run/'reconstruction/result.glb'):
-            raise AssetUnavailableError('asset_failed', '重建未完成，模型文件不完整')
+    # said; they still are, while their model file is whole.
+    if not complete(run/'reconstruction/result.glb'):
+        raise AssetUnavailableError('asset_failed', '模型文件不完整，请重新重建或导入')
     return None
 
 
@@ -89,7 +112,7 @@ def preview_manifest(run):
 
 def publish_asset(run):
     """Validate all required products, then atomically commit their stable contract."""
-    from cover_scene import load_scene, preview_manifest as make_manifest, write_json
+    from cover_scene import load_gaussians, load_scene, preview_manifest as make_manifest, write_json
     from dimensions import geometry
     from mvsam_pbr import material_capabilities
     import yaml
@@ -97,10 +120,14 @@ def publish_asset(run):
     run = Path(run)
     if (run/'asset.json').exists():
         return require_asset(run)
-    for name in ('result.glb', 'result.ply'):
+    for name in ('result.glb', 'result.ply', 'preview.glb', 'collision.glb'):
         file = run/'reconstruction'/name
-        if not file.is_file() or not file.stat().st_size:
+        if name.startswith('result') and not file.is_file():
             raise ValueError(f'Missing reconstruction artifact: {name}')
+        if file.is_file() and not complete(file):
+            raise ValueError(f'Incomplete reconstruction artifact: {name}')
+    # A damaged Gaussian model blocks publication; only a failed camera fit below may degrade.
+    load_gaussians(run/'reconstruction/result.ply')
     capabilities = material_capabilities(run)
     config = yaml.safe_load((run/'config.yaml').read_text()) or {}
     if config.get('mesh_export', {}).get('mode') == 'baked_pbr' and not capabilities:
