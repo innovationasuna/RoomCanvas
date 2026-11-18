@@ -77,14 +77,16 @@ class PipelineRunner:
             "LITEREALITY_ATTEMPT_ID": os.environ.get("LITEREALITY_ATTEMPT_ID") or run_id,
         }
         prior = state.setdefault("stages", {})
-        invalidated = {name for name, value in prior.items() if
-                       value.get("status") == StageStatus.INVALIDATED.value or
-                       (value.get("status") in {"failed", "running"} and value.get("details", {}).get("forced"))}
         def invalidate(name):
+            # No longer reusable, but not forced: it starts over only if its own inputs have
+            # changed by the time it runs; otherwise it resumes its saved work.
             if name in prior:
-                invalidated.add(name)
                 prior[name] = {**prior[name], "status": StageStatus.INVALIDATED.value,
-                               "artifact_validity": "invalid", "details": {"forced": True}}
+                               "artifact_validity": "invalid"}
+        def changed(stage, record, fingerprint):
+            # A record from before fingerprints existed proves nothing either way: accept it.
+            recorded = (record or {}).get("input_fingerprint")
+            return stage.fingerprint is not None and recorded is not None and recorded != fingerprint
         force = force or set()
         unknown_force = force - self.by_name.keys()
         if unknown_force:
@@ -104,8 +106,8 @@ class PipelineRunner:
             if value.get("status") in {StageStatus.COMPLETED.value, StageStatus.REUSED.value}
             and name in self.by_name
             and (self.by_name[name].is_complete is None or self.by_name[name].is_complete(context))
-            and (self.by_name[name].fingerprint is None or value.get("input_fingerprint") ==
-                 self.by_name[name].fingerprint(context, value.get("input_options", {})))
+            and (self.by_name[name].fingerprint is None or not changed(self.by_name[name], value,
+                 self.by_name[name].fingerprint(context, value.get("input_options", {}))))
         }
         for stage in selected:
             for prerequisite in stage.prerequisites:
@@ -115,7 +117,6 @@ class PipelineRunner:
                     and prior.get(prerequisite, {}).get("status") not in {"failed", "running", "invalidated"}
                     and dependency.is_complete is not None
                     and dependency.is_complete(context)
-                    and prerequisite not in invalidated
                     and (dependency.fingerprint is None or prerequisite not in prior)
                 ):
                     reused = StageResult(prerequisite, StageStatus.REUSED)
@@ -136,14 +137,10 @@ class PipelineRunner:
             stage_options = dict((options or {}).get(stage.name, {}))
             cache_options = {key: value for key, value in stage_options.items() if key != "force"}
             fingerprint = stage.fingerprint(context, cache_options) if stage.fingerprint else None
+            inputs_changed = changed(stage, old, fingerprint)
+            # Enabling DINO on an existing run must rerun ingest and invalidate its consumers.
             same_options = (old is not None and old.get("input_options", {}) == cache_options
-                            and (stage.fingerprint is None or old.get("input_fingerprint") == fingerprint))
-            if old and not same_options:
-                invalidated.add(stage.name)
-                # Enabling DINO on an existing run must reach ingest and invalidate its consumers.
-                for dependent in self.stages[self.stages.index(stage) + 1:]:
-                    invalidate(dependent.name)
-                    completed.discard(dependent.name)
+                            and not inputs_changed)
             complete_on_disk = stage.is_complete(context) if stage.is_complete else False
             if (stage.name not in force and old and same_options and complete_on_disk
                     and StageResult.from_dict(old).ok):
@@ -155,7 +152,7 @@ class PipelineRunner:
                     invalidate(dependent.name)
                     completed.discard(dependent.name)
                 started = time.monotonic()
-                if stage.name in force or stage.name in invalidated:
+                if stage.name in force or inputs_changed:
                     stage_options.setdefault("force", True)
                 # Commit loss of validity before touching any stage files. A killed process
                 # must never leave yesterday's completed marker certifying a partial rebuild.
