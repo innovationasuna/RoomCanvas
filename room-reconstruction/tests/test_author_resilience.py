@@ -267,3 +267,49 @@ def test_budget_stop_is_saved_as_incomplete(room, tmp_path, monkeypatch):
     assert report['session_ok'] is False
     assert report['ended_early'] == 'step budget'
     assert (room / 'Room.py').is_file()
+
+
+@pytest.mark.parametrize("recorded", [True, False])
+def test_a_retry_after_a_new_seed_never_resumes_the_room_built_from_the_old_one(tmp_path, monkeypatch, recorded):
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.realism_authoring import author
+    from litereality_agent.pipeline.result import StageResult, StageStatus
+    from litereality_agent.pipeline.runner import PipelineRunner
+    from litereality_agent.pipeline.stage import Stage
+    from litereality_agent.pipeline.stages import STAGES
+    from litereality_agent.settings import LiteRealitySettings
+
+    settings = LiteRealitySettings(_env_file=None, repo_root=tmp_path, output_root=tmp_path / "run")
+    context = RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run", settings=settings)
+    context.seed_room.mkdir(parents=True)
+    (context.seed_room / "Room.py").write_text("seed = 1\n")
+    authored, evidence_fails = [], []
+
+    def fake_run_module(_context, module, args, *, log_name=None):
+        if module.endswith("evidence"):
+            if evidence_fails:
+                return 1, None
+            manifest = context.authoring_root / "surface_ref/surface_ref_manifest.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}")
+        elif module.endswith("entrypoint"):
+            authored.append((context.authored_room / "Room.py").read_text())
+            (context.authored_room / "Room.py").write_text(authored[-1] + "edited = True\n")
+            return 1, None  # out of budget: a retry should continue this room
+        return 0, None
+
+    monkeypatch.setattr(author, "run_module", fake_run_module)
+    real = next(stage for stage in STAGES if stage.name == "author")
+    runner = PipelineRunner((Stage("seed", lambda *_: StageResult("seed", StageStatus.COMPLETED),
+                                   is_complete=lambda _: True), real))
+    runner.run(context)
+    runner.run(context)
+    if not recorded:  # a room authored before its inputs were recorded
+        (context.authoring_root / ".author_inputs").unlink()
+    (context.seed_room / "Room.py").write_text("seed = 2\n")
+    evidence_fails.append(True)  # fails while regenerating evidence, before the room is touched
+    runner.run(context)
+    evidence_fails.clear()
+    runner.run(context)
+    runner.run(context)
+    assert authored == ["seed = 1\n", "seed = 1\nedited = True\n", "seed = 2\n", "seed = 2\nedited = True\n"]

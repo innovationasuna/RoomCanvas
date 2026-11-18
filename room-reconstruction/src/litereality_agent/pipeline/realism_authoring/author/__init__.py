@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from litereality_agent.pipeline.context import RunContext
+from litereality_agent.pipeline.fingerprint import input_fingerprint
 from litereality_agent.pipeline.result import StageResult, StageStatus
 from litereality_agent.pipeline.support import command_result, run_module
 
@@ -20,8 +21,16 @@ def complete(context: RunContext) -> bool:
 def run(context: RunContext, options: dict) -> StageResult:
     if not (context.seed_room / "Room.py").is_file():
         return StageResult("author", StageStatus.FAILED, error=f"missing seed room at {context.seed_room}")
+    # The room records the inputs it was copied for. A forced run that failed before setting the
+    # old room aside leaves the old record, so the retry starts over again instead of resuming it.
+    inputs = context.authoring_root / ".author_inputs"
+    current = input_fingerprint(context, "author", options)
+    force = options.get("force") or (context.authored_room.exists() and inputs.is_file()
+                                     and inputs.read_text() != current)
+    if force and context.authored_room.exists() and not inputs.is_file():
+        inputs.write_text("")  # a room from before this record: note that it is not for these inputs
     evidence = context.authoring_root / "surface_ref" / "surface_ref_manifest.json"
-    if not evidence.is_file() or options.get("force"):
+    if not evidence.is_file() or force:
         evidence_rc, evidence_log = run_module(
             context,
             "litereality_agent.pipeline.realism_authoring.author.evidence",
@@ -34,17 +43,18 @@ def run(context: RunContext, options: dict) -> StageResult:
                 StageStatus.FAILED,
                 error=f"scene evidence failed; see {evidence_log}",
             )
-    if context.authored_room.exists() and options.get("force"):
+    if context.authored_room.exists() and force:
         backup = Path(tempfile.mkdtemp(prefix="before-author-", dir=context.authored_room.parent))
         shutil.move(str(context.authored_room), str(backup / "room"))
         for name in (".room_checkpoint.py", ".room_checkpoint.d", ".author_resume.json",
-                     ".author_result.json", ".author_restore_pending.json"):
+                     ".author_result.json", ".author_restore_pending.json", ".author_inputs"):
             saved = context.authored_room.parent / name
             if saved.exists():
                 shutil.move(str(saved), str(backup / name))
     context.authored_room.parent.mkdir(parents=True, exist_ok=True)
     if not context.authored_room.exists():
         shutil.copytree(context.seed_room, context.authored_room)
+        inputs.write_text(current)
     args: list[object] = [
         "--scene", context.scene_dir,
         "--room", context.authored_room,
