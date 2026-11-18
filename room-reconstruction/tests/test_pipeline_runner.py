@@ -21,7 +21,8 @@ def result(name: str, status: StageStatus = StageStatus.COMPLETED) -> StageResul
     return StageResult(name, status, artifacts={"marker": __file__})
 
 
-@pytest.mark.parametrize("error,expected", [(TimeoutError("temporarily busy"), 2), (ValueError("bad capture"), 1)])
+@pytest.mark.parametrize("error,expected", [(TimeoutError("temporarily busy"), 2), (ValueError("bad capture"), 1),
+                                            (FileNotFoundError("missing mesh"), 1)])
 def test_only_transient_failures_retry_with_a_fixed_limit(tmp_path, monkeypatch, error, expected):
     calls = []
     monkeypatch.setattr("litereality_agent.pipeline.runner.time.sleep", lambda _: None)
@@ -32,6 +33,8 @@ def test_only_transient_failures_retry_with_a_fixed_limit(tmp_path, monkeypatch,
     assert len(calls) == expected
     assert value.status is StageStatus.FAILED and value.artifact_validity == "invalid"
     assert value.retryable == isinstance(error, TimeoutError)
+    # Only a stage that knows its input is at fault marks it so; that alone makes the job unretryable.
+    assert value.error_category == ("transient" if isinstance(error, TimeoutError) else "execution")
     attempts = value.details['timing_attempts']
     assert [a['attempt'] for a in attempts] == list(range(1, expected+1))
     assert all(a['outcome'] == 'failed' and a['wall_seconds'] >= 0 for a in attempts)

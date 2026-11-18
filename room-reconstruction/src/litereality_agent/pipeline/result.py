@@ -18,7 +18,11 @@ class StageStatus(str, Enum):
 
 
 class StageFailure(RuntimeError):
-    """A failure whose retry policy is known at the boundary that detects it."""
+    """A failure whose retry policy is known at the boundary that detects it.
+
+    ``category="input"`` is only for a failure that the same scan and settings can never get past; the
+    job then refuses a retry. ``retryable`` asks the runner to run the stage again at once.
+    """
 
     def __init__(self, message: str, category: str = "execution", *, retryable: bool = False):
         super().__init__(message)
@@ -68,9 +72,9 @@ class StageResult:
             category, retryable = error.category, error.retryable
         elif isinstance(error, (TimeoutError, ConnectionError)):
             category, retryable = "transient", True
-        elif isinstance(error, (ValueError, FileNotFoundError)):
-            category, retryable = "input", False
         else:
+            # A ValueError or missing file deep inside a stage does not prove the input is bad:
+            # it is not retried at once, but the job can still be retried.
             category, retryable = "execution", False
         return cls(stage, StageStatus.FAILED, error=str(error), error_category=category,
                    retryable=retryable, artifact_validity="invalid")
