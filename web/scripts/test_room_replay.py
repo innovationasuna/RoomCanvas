@@ -134,6 +134,17 @@ class Events(unittest.TestCase):
         self.assertEqual(replayed(), before)
         self.assertEqual(list(before[0]), ['seed', 'round0', 'round1', 'final'])
 
+    def test_rows_with_a_damaged_sequence_are_read_like_the_writer_reads_them(self):
+        rows = [{'t': T0 + 5, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'a', 'sequence': 1},
+                {'t': T0 + 6, 'kind': 'trace_start', 'schema_version': 2, 'event_id': None, 'sequence': None},
+                {'t': T0 + 7, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'c', 'sequence': '3'},
+                {'t': T0 + 8, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'd', 'sequence': 4}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual([r['t'] for r in replay.trace_rows(self.scene) if r.get('schema_version') == 2],
+                         [T0 + 5, T0 + 6, T0 + 7, T0 + 8])
+        self.assertEqual(list(replay.timeline(self.root, 'completed', self.until)['models'])[-1], 'final')
+
     def test_a_model_rewritten_after_its_record_is_still_shown(self):
         import hashlib
         row = {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'path': replay.FINAL, 'schema_version': 2,
