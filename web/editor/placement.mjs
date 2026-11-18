@@ -1,3 +1,5 @@
+import {extent, bounds2d} from './geometry-bounds.mjs';
+
 // Geometric contact checks, not a rigid-body / load-bearing simulation.
 // Plain numeric functions keep wall holes and support-edge checks testable without WebGL.
 const EPS = 1e-6;
@@ -87,14 +89,19 @@ export function sampleContactGeometry(triangles, bottom, band = .025, spacing = 
 const grids = new WeakMap();
 function triangleGrid(triangles) {
   if (!grids.has(triangles)) {
+    const low = [Infinity, Infinity], high = [-Infinity, -Infinity];
     const boxes = triangles.map((t) => {
       const xs = t.map((p) => p[0]), zs = t.map((p) => p[1]);
       const box = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
       const margin = 4 * EPS * Math.max(box[2] - box[0], box[3] - box[1]) + 1e-12;
-      return [box[0] - margin, box[1] - margin, box[2] + margin, box[3] + margin];
+      for (let axis = 0; axis < 2; axis++) {
+        box[axis] -= margin;
+        box[axis + 2] += margin;
+        low[axis] = Math.min(low[axis], box[axis]);
+        high[axis] = Math.max(high[axis], box[axis + 2]);
+      }
+      return box;
     });
-    const low = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1]))];
-    const high = [Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
     const n = Math.max(1, Math.min(256, Math.ceil(Math.sqrt(triangles.length))));
     const size = [(high[0] - low[0]) / n || 1, (high[1] - low[1]) / n || 1];
     const cell = (v, axis) => Math.min(n - 1, Math.max(0, Math.floor((v - low[axis]) / size[axis])));
@@ -122,8 +129,8 @@ export function polygonsOverlap(a, b) {
   for (const polygon of [a, b]) for (let i = 0; i < polygon.length; i++) {
     const p = polygon[i], q = polygon[(i + 1) % polygon.length];
     const axis = [q[1] - p[1], p[0] - q[0]];
-    const pa = a.map((v) => dot(axis, v)), pb = b.map((v) => dot(axis, v));
-    if (Math.max(...pa) <= Math.min(...pb) + EPS || Math.max(...pb) <= Math.min(...pa) + EPS) return false;
+    const [minA, maxA] = extent(a, v => dot(axis, v)), [minB, maxB] = extent(b, v => dot(axis, v));
+    if (maxA <= minB + EPS || maxB <= minA + EPS) return false;
   }
   return a.length >= 3 && b.length >= 3;
 }
@@ -259,7 +266,8 @@ export function seatBand(triangles, floorY, {from = .25, to = .8, window = .06, 
   }).map((triangle) => ({flat: triangle.map((p) => [p[0], p[2]]), y: triangle.reduce((sum, p) => sum + p[1], 0) / 3 - floorY,
     box: [0, 2].map((k) => [Math.min(...triangle.map((p) => p[k])), Math.max(...triangle.map((p) => p[k]))])}));
   if (!flat.length) return null;
-  const [xs, zs] = [0, 1].map((k) => [Math.min(...flat.map((t) => t.box[k][0])), Math.max(...flat.map((t) => t.box[k][1]))]);
+  const [xs, zs] = [0, 1].map(k => [flat.reduce((min, t) => Math.min(min, t.box[k][0]), Infinity),
+    flat.reduce((max, t) => Math.max(max, t.box[k][1]), -Infinity)]);
   const counts = new Map();
   for (let x = xs[0] + cell / 2; x < xs[1]; x += cell) for (let z = zs[0] + cell / 2; z < zs[1]; z += cell) {
     let top = -Infinity;
@@ -337,7 +345,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     });
     if (!triangles.length) throw new Error(`没有可用椅面：${id}`);
     surfaces.push({id: `${id}:seat`, owner: id, label: `${entities.get(id).name} · 椅面`,
-      minY: Math.min(...triangles.flat().map(p => p[1])), heightAt: meshSupport(triangles)});
+      minY: triangles.reduce((min, [a, b, c]) => Math.min(min, a[1], b[1], c[1]), Infinity), heightAt: meshSupport(triangles)});
   }
 
   const walls = [];
@@ -369,8 +377,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     const face = parallel.reduce((best, candidate) => !best || candidate.d > best.d ? candidate : best, null);
     const tangent = [-face.n[2], 0, face.n[0]];
     const triangles2d = face.triangles.map((triangle) => triangle.map((p) => [dot(tangent, p), p[1]]));
-    const points = triangles2d.flat();
-    const bounds = [0, 1].map((bound) => [0, 1].map((axis) => Math[bound ? 'max' : 'min'](...points.map((p) => p[axis]))));
+    const bounds = bounds2d(triangles2d.flat());
     const openingNames = openingsByWall[name] || [];
     const openings = openingNames.map((opening) => convexHull(geometry([opening]).vertices.map((p) => [dot(tangent, p), p[1]])));
     const u = (bounds[0][0] + bounds[1][0]) / 2;
@@ -392,8 +399,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
       // The original attachment defines the object's back; future attachments are
       // inferred from its transformed back normal and patch, not a fixed wall ID.
       for (const face of walls) {
-        const distances = vertices.map((p) => dot(face.n, p) - face.d);
-        const gap = Math.min(...distances);
+        const gap = vertices.reduce((min, p) => Math.min(min, dot(face.n, p) - face.d), Infinity);
         if (gap < -.10 || gap > .35) continue;
         const points = sampleHull(convexHull(vertices.map((p) => [dot(face.tangent, p), p[1]])));
         const cover = coverage(points, face.triangles2d);
@@ -402,8 +408,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
       }
       body.wall = best;
       if (!best) throw new Error(`无法识别${entities.get(id).name}的安装墙面`);
-      const low = [0, 1].map((i) => Math.min(...best.points.map((p) => p[i])));
-      const high = [0, 1].map((i) => Math.max(...best.points.map((p) => p[i])));
+      const [low, high] = bounds2d(best.points);
       const u = (low[0] + high[0]) / 2, depth = best.d + best.gap;
       body.back = {n: best.n, center: [best.tangent[0] * u + best.n[0] * depth,
         (low[1] + high[1]) / 2, best.tangent[2] * u + best.n[2] * depth],
@@ -427,10 +432,11 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
       if (surface.heightAt) {
         const heights = projected.map(surface.heightAt).filter(Number.isFinite);
         if (!heights.length) return null;
-        const y = Math.max(...heights) + offset;
+        const [low, high] = extent(heights, height => height);
+        const y = high + offset;
         if (y > maxHeight + CONTACT) return null;
         return {...surface, y, covered: heights.length, total: points.length,
-          full: heights.length === points.length && Math.max(...heights) - Math.min(...heights) <= CONTACT};
+          full: heights.length === points.length && high - low <= CONTACT};
       }
       const hit = coverage(projected, surface.triangles);
       return {...surface, y: surface.y + offset, ...hit};
@@ -451,7 +457,8 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     const points = wallPatch(body, pose, wall);
     const result = coverage(points, wall.triangles2d);
     const overlapsOpening = wall.openings.some((opening) => polygonsOverlap(convexHull(points), opening));
-    const width = Math.max(...points.map((p) => p[0])) - Math.min(...points.map((p) => p[0]));
+    const [left, right] = extent(points, p => p[0]);
+    const width = right - left;
     let reason = null;
     if (body.mountBottom + (pose.y || 0) < floorY - CONTACT || body.top + (pose.y || 0) > ceilingY + CONTACT) reason = '安装位置超出地面或天花板，请调整高度';
     else if (width > wall.bounds[1][0] - wall.bounds[0][0] + EPS) reason = '该墙面宽度不足，无法完整容纳此物品';
@@ -593,7 +600,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     const pose = layout[id], attachment = currentWall(body, pose);
     if (!attachment) return null;
     const {wall} = attachment, points = wallPatch(body, pose, wall);
-    const low = [0, 1].map((i) => Math.min(...points.map((p) => p[i]))), high = [0, 1].map((i) => Math.max(...points.map((p) => p[i])));
+    const [low, high] = bounds2d(points);
     const u = (low[0] + high[0]) / 2;
     return {name: wall.name, n: wall.n.slice(), tangent: wall.tangent.slice(), width: high[0] - low[0], height: high[1] - low[1],
       center: [wall.tangent[0] * u + wall.n[0] * (wall.d + .018), (low[1] + high[1]) / 2, wall.tangent[2] * u + wall.n[2] * (wall.d + .018)]};
