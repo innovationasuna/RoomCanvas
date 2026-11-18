@@ -121,6 +121,47 @@ test('a scanned overlap with a rotated wall is judged by depth, not by the direc
   assert.equal(c.checkPlacement({desk: at(.03, 0, 0)}, ['desk']).ok, false);
 });
 
+test('against a slightly slanted wall, a scanned overlap slides along it but not deeper, whichever moves', () => {
+  const degrees = Math.PI / 180, apply = (m, p) => m.map((row) => row[0] * p[0] + row[1] * p[1] + row[2] * p[2]);
+  const rotation = (yaw, tilt = 0, roll = 0) => {
+    const [cy, sy, ct, st, cr, sr] = [Math.cos(yaw), Math.sin(yaw), Math.cos(tilt), Math.sin(tilt), Math.cos(roll), Math.sin(roll)];
+    const y = [[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], z = [[ct, -st, 0], [st, ct, 0], [0, 0, 1]], x = [[1, 0, 0], [0, cr, -sr], [0, sr, cr]];
+    const times = (a, b) => a.map((row) => [0, 1, 2].map((j) => row[0] * b[0][j] + row[1] * b[1][j] + row[2] * b[2][j]));
+    return times(y, times(z, x));
+  };
+  for (const [yaw, tilt, roll] of [[.5, 0, 0], [3, 0, 0], [10, 0, 0], [30, 0, 0], [3, 2, 4]]) for (const square of [false, true]) {
+    const r = rotation(yaw * degrees, tilt * degrees, roll * degrees), turn = (p) => apply(r, p);
+    const n = turn([1, 0, 0]), t = turn([0, 0, 1]), at = (into, along) => n.map((v, k) => v * into + t[k] * along);
+    // The wall's face is the plane n·x = 0, the wall behind it. The item is scanned 5 mm into it,
+    // either turned with the wall or square to the room axes, its deepest corner 5 mm in.
+    const wall = box(0, -1, -2, .2, 1, 2).map((tri) => tri.map(turn));
+    let item = box(-.2, 0, -.1, .005, .5, .1).map((tri) => tri.map(turn));
+    if (square) {
+      const center = turn([-.0975, .25, 0]), corners = [-1, 1].flatMap((a) => [-1, 1].flatMap((b) => [-1, 1].map((c) => [center[0] + a * .1, center[1] + b * .25, center[2] + c * .1])));
+      const shift = .005 - Math.max(...corners.map((p) => p[0] * n[0] + p[1] * n[1] + p[2] * n[2]));
+      item = box(...[-1, 1].flatMap((sign) => center.map((v, k) => v + sign * [.1, .25, .1][k] + shift * n[k])));
+    }
+    const c = buildCollision([owner('item', item), owner('wall', wall)], {keepAuthoredOverlaps: true});
+    const scanned = {item: pose(), wall: pose()}, label = JSON.stringify({yaw, tilt, roll, square});
+    for (const [moved, sign] of [['item', 1], ['wall', -1]]) {
+      const move = (into, along) => {const [x, y, z] = at(into, along).map((v) => v * sign); return {...scanned, [moved]: pose(x, y, z)};};
+      const depthAfter = (layout) => .005 + sign * (layout[moved].x * n[0] + layout[moved].y * n[1] + layout[moved].z * n[2]);
+      // Along and into at once: stops within the tolerance of the scanned depth, cannot be confirmed.
+      for (const along of [.4, -.4]) {
+        const deeper = c.limit(scanned, move(.02, along), [moved]);
+        assert.equal(deeper.blocked, true, `${label} ${moved} along ${along}`);
+        assert.ok(depthAfter(deeper.layout) < .0101, `${label} ${moved} along ${along} pushed to ${depthAfter(deeper.layout)}`);
+        assert.equal(c.checkPlacement(move(.02, along), [moved]).ok, false, `${label} ${moved} along ${along}`);
+      }
+      // Purely along the wall, a long way either way: allowed and confirmable.
+      for (const along of [1.2, -1.2]) {
+        assert.equal(c.limit(scanned, move(0, along), [moved]).blocked, false, `${label} ${moved} along ${along}`);
+        assert.equal(c.checkPlacement(move(0, along), [moved]).ok, true, `${label} ${moved} along ${along}`);
+      }
+    }
+  }
+});
+
 test('coincident solids stay where scanned; an interlock cannot be pushed into one side', () => {
   const c = buildCollision([owner('a', box(0, 0, 0, 1, 1, 1)), owner('b', box(0, 0, 0, 1, 1, 1))], {keepAuthoredOverlaps: true});
   assert.equal(c.checkPlacement({a: pose()}, ['a']).ok, true);
