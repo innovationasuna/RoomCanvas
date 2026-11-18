@@ -85,6 +85,15 @@ def test_compile_api_rejects_a_missing_glb(room, tmp_path, monkeypatch):
     assert api.compile_room(room, out_dir=tmp_path / "preview", bake=False) is None
 
 
+def test_standalone_bake_still_accepts_a_legacy_preview_without_a_blend(tmp_path):
+    from litereality_agent.room_ops import api
+
+    glb = tmp_path / "Room.glb"
+    glb.write_bytes(b"existing preview")
+    assert api.bake_room(tmp_path / "Room.blend", glb) == 0
+    assert glb.read_bytes() == b"existing preview"
+
+
 def test_compile_tool_does_not_stamp_a_missing_glb(room, tmp_path, monkeypatch):
     missing = tmp_path / "preview" / "Room.glb"
     monkeypatch.setattr("litereality_agent.room_ops.compile_room", lambda *_a, **_k: missing)
@@ -153,19 +162,52 @@ def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monk
 @pytest.mark.parametrize("old_blend", [False, True])
 def test_baked_compile_requires_the_current_blend(room, monkeypatch, old_blend):
     from litereality_agent.room_ops import api
+    from litereality_agent.room_ops.compile import build_from_room
 
     preview = room.parent / "room_preview"
     preview.mkdir()
     if old_blend:
         (preview / "Room.blend").write_bytes(b"older scene")
 
-    def assemble(_cmd):
+    def blender(*args):
         (preview / "Room.glb").write_bytes(b"assembled")
         return SimpleNamespace(returncode=0)
 
+    def assemble(cmd):
+        rc = build_from_room.run_assembly([], preview / "build.log", require_blend="--require-blend" in cmd)
+        return SimpleNamespace(returncode=rc)
+
+    monkeypatch.setattr(build_from_room.console, "run_logged", blender)
     monkeypatch.setattr(api.subprocess, "run", assemble)
     assert api.compile_room(room) is None
+    if old_blend:
+        assert (preview / "Room.blend").read_bytes() == b"older scene"
     assert api.compile_room(room, bake=False) == preview / "Room.glb"
+
+
+def test_assembly_accepts_identical_output_on_a_coarse_filesystem(tmp_path, monkeypatch):
+    from litereality_agent.room_ops.compile import build_from_room
+
+    blend = tmp_path / "Room.blend"
+    blend.write_bytes(b"same scene")
+    original = Path.stat
+    stamp = blend.stat()
+
+    def coarse_stat(path, *args, **kwargs):
+        # Still raise when a file doesn't exist. Existing revisions have identical stat values.
+        actual = original(path, *args, **kwargs)
+        return stamp if path == blend else actual
+
+    def blender(*args):
+        assert not blend.exists()
+        blend.write_bytes(b"same scene")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(Path, "stat", coarse_stat)
+    monkeypatch.setattr(build_from_room.console, "run_logged", blender)
+    assert build_from_room.run_assembly([], tmp_path / "build.log", require_blend=True) == 0
+    assert blend.read_bytes() == b"same scene"
+    assert list(tmp_path.glob(".previous-blend-*")) == []
 
 
 @pytest.mark.blender

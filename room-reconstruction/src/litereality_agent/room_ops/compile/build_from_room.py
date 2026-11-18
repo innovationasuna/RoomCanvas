@@ -26,6 +26,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -63,8 +64,6 @@ def run_object_py(
     out_glb.parent.mkdir(parents=True, exist_ok=True)
     # Blender can exit zero after a Python error. Build away from the cache so an
     # old GLB cannot impersonate the result of a failed regeneration.
-    import tempfile
-
     staging = tempfile.TemporaryDirectory(prefix=f".{name}-build-", dir=out_glb.parent)
     candidate = Path(staging.name) / out_glb.name
     cmd = [blender, "-b", "--python-exit-code", "1", "--python", str(script),
@@ -116,6 +115,33 @@ def materialize_textures(obj_dir: Path, texdir: Path) -> int:
     return len(made)
 
 
+def run_assembly(cmd: list[str], log: Path, *, require_blend: bool) -> int:
+    if not require_blend:
+        return console.run_logged(cmd, log, "assembling", "yellow").returncode
+    blend = log.parent / "Room.blend"
+    # Room.py writes the .blend alongside its GLB and some historical scripts swallow save errors.
+    # Move its predecessor aside first. A filesystem with coarse timestamps can legitimately give
+    # two independent writes the same modification time, and exports may have identical bytes.
+    with tempfile.TemporaryDirectory(prefix=".previous-blend-", dir=log.parent) as folder:
+        previous = Path(folder) / blend.name
+        if blend.is_file():
+            blend.replace(previous)
+        success = False
+        try:
+            rc = console.run_logged(cmd, log, "assembling", "yellow").returncode
+            if rc:
+                return rc
+            if not blend.is_file() or not blend.stat().st_size:
+                with log.open("a", encoding="utf-8") as stream:
+                    stream.write(f"\nAssembly did not produce a new, nonempty {blend}.\n")
+                return 1
+            success = True
+            return 0
+        finally:
+            if not success and previous.exists():
+                previous.replace(blend)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -123,6 +149,7 @@ def main() -> int:
     ap.add_argument("--room", required=True, help="the Room/<scan> definition directory")
     ap.add_argument("--out", help="output dir (default Room_preview/<scan>)")
     ap.add_argument("--regenerate", action="store_true", help="force every object.py to run again")
+    ap.add_argument("--require-blend", action="store_true", help="require this assembly to save a .blend for baking")
     args = ap.parse_args()
 
     roomdir = Path(args.room).resolve()
@@ -218,17 +245,17 @@ def main() -> int:
     ]
     log = preview / "build.log"
     t0 = time.time()
-    r = console.run_logged(cmd, log, "assembling", "yellow")
+    rc = run_assembly(cmd, log, require_blend=args.require_blend)
     took = f"{console.colour('dim')}{time.time() - t0:5.1f}s{console.colour('off')}"
     # Whether the capture's ARKit cameras were found is worth stating: without them the room
     # still assembles, just without the viewpoints everything downstream compares against.
     detail = "with cameras" if scan_dir is scan_frames else "NO frames — geometry only"
-    if r.returncode != 0:
-        print(console.row("error", "assemble", f"Blender exited {r.returncode}", "yellow"))
+    if rc != 0:
+        print(console.row("error", "assemble", f"assembly exited {rc}", "yellow"))
         for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]:
             print(f"     {console.colour('dim')}{line}{console.colour('off')}")
         print(f"     {console.colour('dim')}… full log: {console.short(log)}{console.colour('off')}")
-        return r.returncode
+        return rc
 
     if not out_glb.is_file():
         print(console.row("error", "Room.glb", f"missing   {detail}", "yellow"))
