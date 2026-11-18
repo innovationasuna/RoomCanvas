@@ -386,6 +386,16 @@ class APIIntegration(unittest.TestCase):
         self.assertEqual(self.jobs.records[self.identifier]['status'], 'failed')
         self.assertIn('可动部件', self.jobs.records[self.identifier]['error'])
 
+    def test_server_runner_says_when_the_time_limit_stopped_it(self):
+        self.jobs.runner = 'server'
+        self.submit()
+        def timed_out(args, log):
+            (Path(args[3]) / 'attempt-01').mkdir(parents=True)
+            raise RuntimeError('任务超过运行时限，请检查服务器日志后重试。')
+        with patch.object(self.jobs, 'execute', side_effect=timed_out):
+            self.jobs.run_one(self.identifier)
+        self.assertIn('运行时限', self.jobs.records[self.identifier]['error'])
+
     def test_server_runner_publishes_articulated_result(self):
         self.jobs.runner = 'server'
         self.submit()
