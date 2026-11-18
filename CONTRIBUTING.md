@@ -12,7 +12,7 @@
    # 房间重建（在 room-reconstruction/ 下）
    uv run ruff check . && uv run pytest -n auto
    # 物体重建 API（在 object-reconstruction/ 下，CPU 即可，与 CI 同一组）
-   for suite in api assets dimensions objects masks capture runner cover_scene; do python -m unittest discover -s tests -p "test_${suite}.py"; done
+   for suite in api assets dimensions objects masks capture runner cover_scene mvsam_pbr da3_arrays collision_proxy reconstruction_quality; do python -m unittest discover -s tests -p "test_${suite}.py"; done
    # 手势（在 gesture/ 下）
    npm ci && npm run typecheck && npm test && npm run check:resources && npm run build
    # Android App（在 android-app/ 下，CI 不运行）
