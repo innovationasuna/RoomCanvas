@@ -178,7 +178,8 @@ def trace_rows(scene, until=None):
             sequence = last + .5  # not a number, which the writer skips too: keep it where it was written
         else:
             sequence = row['t']
-        keyed.append(((row.get('schema_version', 1) >= 2, sequence, identifier or ''), row))
+        # Equal keys (damaged or repeated numbers, equal times) keep the order rows were written in.
+        keyed.append(((row.get('schema_version', 1) >= 2, sequence, len(keyed)), row))
     rows = [row for _, row in sorted(keyed, key=lambda item: item[0])]
     return [r for r in rows if r['t'] <= until] if until else rows
 
