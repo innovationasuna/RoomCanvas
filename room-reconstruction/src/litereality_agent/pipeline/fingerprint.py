@@ -11,10 +11,15 @@ from pathlib import Path
 from litereality_agent import artifact_cache
 from litereality_agent.pipeline.context import RunContext
 
+# The model choices each stage's code reads (directly or as the environment it exports). Agent
+# roles fall back to `agent_provider`, and a Codex role runs `codex_model` at `codex_effort`.
+AGENT = ("agent_provider", "codex_model", "codex_effort", "harness_model")
 SETTINGS = {
-    "ingest": ("image_provider", "image_model", "dino_model"),
-    "reconstruct": ("harness_model", "procedural_model"),
-    "author": ("agent_provider", "author_provider", "codex_model", "harness_model", "image_model"),
+    "ingest": ("image_provider", "image_model", "dino_model", "dino_embed_model", "chair_judge_model"),
+    # Classification, procedural objects, and chair QC's regenerated references.
+    "reconstruct": (*AGENT, "procedural_provider", "procedural_model", "image_provider", "image_model"),
+    # Authoring and its refine/materials/quality passes.
+    "author": (*AGENT, "author_provider", "refine_provider", "materials_provider", "quality_provider"),
 }
 
 
@@ -42,10 +47,12 @@ def input_fingerprint(context: RunContext, stage: str, options: dict) -> str:
                           else context.preview_dir)
     inputs = {
         "ingest": [context.capture_dir],
-        # Classifier writes routing inside work and chair QC regenerates chair references, so
-        # hash only evidence ingest alone writes: object/opening refs and the chair grouping.
-        "reconstruct": [work / "object_refs", work / "opening_refs",
-                        work / "chair_clusters" / context.scan / "chair_clusters.json"],
+        # What reconstruct reads from ingest: object/opening refs, the chair grouping and the chair
+        # references TRELLIS builds from. Chair QC regenerates a failing chair's reference, but
+        # the stage's fingerprint is taken again when it ends, so only a kill in between restarts.
+        "reconstruct": [work / "object_refs", work / "opening_refs", *[
+            work / "chair_clusters" / context.scan / name for name in
+            ("chair_clusters.json", "references", "nano_banana_normalized_1024")]],
         "seed": [context.object_root / "reconstructed_objs", work / "input" / "scene_data"],
         # Not surface_ref: author writes it, and a killed first run must resume, not restart.
         "author": [context.seed_room, context.capture_dir],

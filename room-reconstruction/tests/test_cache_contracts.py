@@ -278,6 +278,25 @@ def test_stage_input_fingerprint_ignores_own_outputs_job_location_and_unused_set
     assert input_fingerprint(context(tmp_path / "job", codex_model="other"), "author", {}) != first
 
 
+def test_reconstruct_fingerprint_covers_chair_references_and_the_procedural_agent(tmp_path):
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.fingerprint import input_fingerprint
+    from litereality_agent.settings import LiteRealitySettings
+
+    def context(**settings):
+        values = LiteRealitySettings(_env_file=None, repo_root=tmp_path, **settings)
+        return RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run", settings=values)
+
+    chairs = context().object_root / "object_init/chair_clusters/scan"
+    (chairs / "references").mkdir(parents=True)
+    (chairs / "references/ChairCluster0.png").write_bytes(b"first")
+    first = input_fingerprint(context(), "reconstruct", {})
+    (chairs / "references/ChairCluster0.png").write_bytes(b"second")
+    assert input_fingerprint(context(), "reconstruct", {}) != first
+    second = input_fingerprint(context(), "reconstruct", {})
+    assert input_fingerprint(context(codex_model="other"), "reconstruct", {}) != second
+
+
 def test_author_checkpoint_restores_matching_source_and_resources(tmp_path):
     from litereality_agent.agent import author_checkpoint as checkpoint
 
