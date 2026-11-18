@@ -107,6 +107,7 @@ class Forwarding(unittest.TestCase):
         run = '20260926_sofa_web_114146_561893'
         for path in ['/viewforge/assets/catalog', f'/viewforge/assets/{run}',
                      f'/viewforge/assets/{run}/result.glb', f'/viewforge/assets/{run}/preview.glb?x=1',
+                     f'/viewforge/assets/{run}/collision.glb',
                      f'/viewforge/assets/{run}/result.ply', f'/viewforge/assets/{run}/preview.json',
                      '/viewforge/layouts/catalog', f'/viewforge/layouts/assets/{run}',
                      f'/viewforge/layouts/assets/{run}/result.glb', f'/viewforge/layouts/assets/{run}/preview.glb?x=1']:

@@ -76,7 +76,15 @@ def main():
     if material_settings:
         if receipt['status'] != 'complete':
             raise RuntimeError('MV-SAM3D did not complete native PBR colour baking')
-        # The old preview generator converts texture materials back to vertex colours.
+    # Collision data is independent of display materials, including default PBR.
+    # A failed quality check retains that component's exact geometry.
+    try:
+        from collision_proxy import generate_collision_proxy
+        print('Collision proxy:', json.dumps(generate_collision_proxy(run)), flush=True)
+    except Exception as exc:
+        print(f'Collision proxy unavailable: {exc}', flush=True)
+    if material_settings:
+        # Colour previews remain optional; PBR display always retains its texture.
         return
     # A preview is optional: a failed simplification must not discard a valid
     # reconstruction or prevent the full GLB from being viewed.

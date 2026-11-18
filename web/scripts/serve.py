@@ -47,7 +47,7 @@ import room_cache  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
 # The reads the editor makes: catalog, assets/<run>[/result.glb|preview.glb], a job, a mask preview.
-READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
+READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview|collision)\.glb|result\.ply|preview\.json))?)'
                    rf'|layouts/(catalog|assets/{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
                    rf'|objects/(jobs/[0-9a-f]{{32}}|previews/\w+/{NAME}\.png))$')
 # Its writes: new object with photos, more photos for a finished one (补拍), masks, reconstruction, measured size.

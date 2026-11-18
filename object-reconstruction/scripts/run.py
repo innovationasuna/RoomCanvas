@@ -16,6 +16,7 @@ from PIL import Image
 CODE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODE.parent / "scripts"))
 from roomcanvas_gpu import object_lease
+from asset_state import publish_asset
 
 
 def write_json(path, value):
@@ -123,7 +124,8 @@ def stage_commands(root, run, cfg, inputs):
 
 
 def execute(run, commands, result, lease=None):
-    result.update(status='running', stages={})
+    result.update(status='running', stages={}, asset_schema_version=1,
+                  mesh_ready=False, asset_ready=False, recommendation_ready=False)
     try:
         for stage, command in commands:
             result['current_stage'] = stage
@@ -139,7 +141,10 @@ def execute(run, commands, result, lease=None):
         for name in ('result.glb', 'result.ply'):
             if not (run/'reconstruction'/name).is_file() or not (run/'reconstruction'/name).stat().st_size:
                 raise RuntimeError(f'Missing reconstruction artifact: {name}')
-        result.update(status='complete', mesh='reconstruction/result.glb')
+        result.update(mesh_ready=True, current_stage='publishing')
+        write_json(run/'result.json', result)
+        publish_asset(run)
+        result.update(status='complete', mesh='reconstruction/result.glb', asset_ready=True)
     except BaseException as exc:
         result.update(status='failed', error=str(exc))
         raise
@@ -190,6 +195,7 @@ def stage_inputs(root, run, object_name, inputs, parent_run_id=None):
 def execute_cover(run, result, lease=None):
     result['current_stage'] = 'cover'
     result['cover_status'] = 'running'
+    result['recommendation_ready'] = False
     write_json(run/'result.json', result)
     try:
         with (run/'logs/cover.log').open('a') as log:
@@ -200,6 +206,7 @@ def execute_cover(run, result, lease=None):
                 env=dict(os.environ, CUDA_VISIBLE_DEVICES=lease.uuid) if lease else None,
                 pass_fds=lease.fds if lease else ())
         result['cover_status'] = 'complete' if completed.returncode == 0 else 'failed'
+        result['recommendation_ready'] = completed.returncode == 0
     except Exception as exc:
         result.update(cover_status='failed', cover_error=str(exc))
     result.pop('current_stage', None)
@@ -237,6 +244,8 @@ def main():
         (run/'logs').mkdir()
         started = time.monotonic()
         result = dict(status='preparing', current_stage='preparing', gpu=gpu,
+                      asset_schema_version=1, mesh_ready=False, asset_ready=False,
+                      recommendation_ready=False,
                       timing=dict(started_at=datetime.now().astimezone().isoformat()))
         write_json(run/'result.json', result)
         try:

@@ -2643,16 +2643,9 @@ def run_weighted_inference(
             )
         
         logger.info(f"Loading external pointmaps from DA3: {da3_path}")
-        da3_data = np.load(da3_path)
-        
-        # Check if pointmaps_sam3d exists
-        if "pointmaps_sam3d" not in da3_data:
-            raise ValueError(
-                f"No 'pointmaps_sam3d' found in DA3 output: {da3_path}\n"
-                f"Available keys: {list(da3_data.keys())}\n"
-                f"Please regenerate DA3 output with the latest run_da3.py script."
-            )
-        
+        from scripts.da3_arrays import load_da3_arrays
+        da3_data = load_da3_arrays(da3_path)
+
         da3_pointmaps = da3_data["pointmaps_sam3d"]
         logger.info(f"  DA3 pointmaps shape: {da3_pointmaps.shape}")
         

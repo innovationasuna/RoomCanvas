@@ -4,7 +4,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import numpy as np
 import trimesh
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -13,6 +15,8 @@ from starlette.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from assets import AssetsMiddleware
 from dimensions import DimensionsMiddleware
+from asset_state import publish_asset
+from cover_scene import preview_manifest
 
 
 class AssetsTests(unittest.TestCase):
@@ -108,6 +112,69 @@ class AssetsTests(unittest.TestCase):
         self.assertFalse(info['predicted_material_maps'])
         receipt.write_text(json.dumps(dict(status='failed', method='native_gaussian_colour_baking')))
         self.assertNotIn('capabilities', self.client.get('/viewforge/assets/baked').json())
+
+    def prepare_publication(self):
+        run = self.model('published')
+        (run/'reconstruction/result.ply').write_bytes(b'ply fixture')
+        (run/'config.yaml').write_text('mesh_export: {mode: baked_pbr}\n')
+        (run/'reconstruction/materials.json').write_text(json.dumps(dict(
+            status='complete', method='native_gaussian_colour_baking')))
+        (run/'result.json').write_text(json.dumps(dict(status='running', asset_schema_version=1)))
+        return run
+
+    def publish(self, run):
+        scene = dict(gaussian_transform=np.eye(4), mesh_transform=np.diag([2., 1., 1., 1.]), radius=1.)
+        with patch('cover_scene.load_scene', return_value=scene):
+            return publish_asset(run)
+
+    def test_partial_mesh_and_interrupted_publication_are_not_importable(self):
+        run = self.prepare_publication()
+        for stage in ('running', 'complete', 'failed'):
+            (run/'result.json').write_text(json.dumps(dict(status=stage, asset_schema_version=1)))
+            self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+            for route in ('assets/published', 'assets/published/result.glb', 'dimensions/published'):
+                response = self.client.get('/viewforge/' + route)
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json()['state'], 'asset_failed' if stage == 'failed' else 'asset_pending')
+        with patch('cover_scene.write_json', side_effect=OSError('interrupted atomic publication')):
+            with self.assertRaises(OSError):
+                self.publish(run)
+        self.assertFalse((run/'asset.json').exists())
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        # A pre-manifest historical success remains importable.
+        (run/'result.json').write_text('{"status":"complete"}')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+
+    def test_publication_freezes_transform_and_capabilities_across_recommendations(self):
+        run = self.prepare_publication()
+        base = self.publish(run)
+        url = '/viewforge/dimensions/published'
+        calibrated = self.client.post(url, json=dict(axis='X', value=120, unit='cm')).json()
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+        self.assertIn('manifest_url', self.client.get('/viewforge/assets/published').json())
+        # A delayed legacy-style COVER writer cannot replace the stable contract.
+        (run/'cover').mkdir()
+        (run/'cover/preview.json').write_text(json.dumps(dict(assets=dict(glb=dict(transform=np.eye(4).ravel().tolist())),
+            recommendation={'id': 'later'}, status='complete')))
+        (run/'reconstruction/materials.json').write_text('{"status":"failed"}')
+        self.assertEqual(self.client.get(url).json(), calibrated)
+        asset = self.client.get('/viewforge/assets/published').json()
+        self.assertEqual(asset['capabilities']['material_mode'], 'pbr')
+        manifest = self.client.get(asset['manifest_url']).json()
+        self.assertEqual(manifest['recommendation'], {'id': 'later'})
+        self.assertEqual(manifest['assets']['glb'], base['assets']['glb'])
+        self.assertEqual(preview_manifest(run)['assets'], base['assets'])
+        # An incomplete/corrupt set remains hidden, even if its commit marker exists.
+        (run/'reconstruction/result.ply').write_bytes(b'partial')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get(url).status_code, 409)
+
+    def test_failed_material_bake_cannot_publish_a_glb(self):
+        run = self.prepare_publication()
+        (run/'reconstruction/materials.json').write_text('{"status":"failed"}')
+        with self.assertRaisesRegex(ValueError, 'material baking'):
+            self.publish(run)
+        self.assertFalse((run/'asset.json').exists())
 
 
 if __name__ == '__main__':
