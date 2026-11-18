@@ -12,7 +12,8 @@ self.onmessage = ({data}) => {
     if (data.type === 'build') owners = new Map();
     for (const id of data.removed || []) owners.delete(id);
     for (const owner of unpackOwners(data.owners)) owners.set(owner.id, owner);
-    collision = buildCollision([...owners.values()], {keepAuthoredOverlaps: data.keepAuthoredOverlaps});
+    // In the page's order, so both name the same obstacle when a move meets several.
+    collision = buildCollision(data.order.map((id) => owners.get(id)), {keepAuthoredOverlaps: data.keepAuthoredOverlaps});
     self.postMessage({type: 'built', generation, audit: collision.audit});
   } else if (data.type === 'drop' && collision && data.generation === generation) {
     const contact = collision.checkPlacement(data.candidate, data.moved);

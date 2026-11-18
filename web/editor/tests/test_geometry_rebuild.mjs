@@ -80,14 +80,14 @@ test('rebuilding after import and removal preserves rendered footprints, carried
   };
   let generation = 1, workerOwners = new Map(baseline.owners.map((owner) => [owner.id, owner]));
   const initialPacked = packOwners(baseline.owners);
-  await request({type: 'build', generation, owners: initialPacked.owners, keepAuthoredOverlaps: true}, initialPacked.transfer);
+  await request({type: 'build', generation, owners: initialPacked.owners, order: baseline.owners.map((owner) => owner.id), keepAuthoredOverlaps: true}, initialPacked.transfer);
   async function verify() {
     const {placement, owners, collision} = rebuild();
     const current = new Map(owners.map((owner) => [owner.id, owner]));
     const changed = owners.filter((owner) => workerOwners.get(owner.id) !== owner);
     const removed = [...workerOwners.keys()].filter((id) => !current.has(id));
     const packed = packOwners(changed);
-    const update = await request({type: 'update', generation: ++generation, removed, owners: packed.owners, keepAuthoredOverlaps: true}, packed.transfer);
+    const update = await request({type: 'update', generation: ++generation, removed, owners: packed.owners, order: owners.map((owner) => owner.id), keepAuthoredOverlaps: true}, packed.transfer);
     assert.equal(update.type, 'built');
     const newMeshes = changed.reduce((count, owner) => count + owner.meshes.length, 0);
     assert.equal(update.audit.builtMeshes, newMeshes);
