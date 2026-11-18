@@ -1,4 +1,5 @@
 """Offline API/worker integration. No GPU, agent CLI, credentials or real captures used."""
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import shutil
@@ -241,6 +242,30 @@ class APIIntegration(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             self.request(job['room']['dir'] + '/task.log')
         self.assertEqual(error.exception.code, 404)
+
+    def test_status_and_duplicate_upload_during_extraction(self):
+        entered, release = threading.Event(), threading.Event()
+        extract = service.extract_scan
+
+        def pause(archive, destination):
+            entered.set()
+            if not release.wait(10):
+                raise RuntimeError('stalled upload')
+            return extract(archive, destination)
+
+        with patch.object(service, 'extract_scan', side_effect=pause) as unpack, ThreadPoolExecutor(4) as pool:
+            first = pool.submit(self.submit)
+            try:
+                self.assertTrue(entered.wait(5))
+                duplicate = pool.submit(self.submit)
+                self.assertTrue(pool.submit(self.request, '/room-reconstruction/health').result(3)['ok'])
+                self.assertEqual(pool.submit(self.request, '/room-reconstruction/jobs').result(3)['jobs'], [])
+            finally:
+                release.set()
+            self.assertEqual(first.result()['id'], duplicate.result()['id'])
+            unpack.assert_called_once()
+        self.assertEqual(self.jobs.pending.qsize(), 1)
+        self.assertEqual(list(self.jobs.root.iterdir()), [self.jobs.root / self.identifier])
 
     def test_failure_retry_and_restart(self):
         self.submit()
