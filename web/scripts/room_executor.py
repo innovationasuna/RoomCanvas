@@ -59,7 +59,8 @@ def run_one(self, identifier):
                     execution_error = error
                 attempts = sorted(set((folder / 'run').glob('attempt-*')) - previous_attempts)
                 if not attempts or not (attempts[-1] / 'exit').is_file() or (attempts[-1] / 'exit').read_text().strip() != '0':
-                    raise RuntimeError('房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。')
+                    # Say what happened (time limit, exit code) when the launcher itself reported it.
+                    raise execution_error or RuntimeError('房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。')
                 if not execution_error and (attempts[-1] / 'articulate-exit').is_file() and (attempts[-1] / 'articulate-exit').read_text().strip() == '0':
                     preview = folder / 'run/articulate/room_preview'
                     record['enhancement'] = {'status': 'completed', 'attempt_id': attempts[-1].name}
