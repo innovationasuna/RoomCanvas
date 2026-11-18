@@ -298,7 +298,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体重建服务的部署、接口和本机连接 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
 | [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
-| [重构验收](docs/refactor-validation.md) | 重构范围、性能对照、回归结果与 GPU 0 验证边界 |
+| [本次重构说明](docs/refactor/README.md) | 主要改动、实施计划、验收证据与维护契约 |
 
 ## 数据与隐私
 

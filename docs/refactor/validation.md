@@ -1,3 +1,5 @@
+[重构说明与文档导航](README.md)
+
 # 重构验收记录
 
 更新：2026-11-18。开发分支 `refactor/reliability-start`，基线为官方 `main@d8842f65c1c1e0d0a6abd0bd1f6b7fc134ca5b7e`。源码位于本地 `runs/refactor-worktrees/reliability`；服务器仅使用独立 `validate/scut407-gpu0` worktree。正式目录未部署本轮代码。
@@ -24,7 +26,7 @@
 | 4D | DA3 单份 NHWC float32 存储，NCHW 按需视图；兼容旧 NPZ。数值、磁盘/内存基准及固定输入 GPU 0 下游重建对照已执行。 |
 | 4E | 回放释放旧 root、wall fade、warm/active/克隆材质；取消晚到加载、解码及预热，释放等待在途编译；每视图复用成形材质。24 draft 真实 WebGL 验证通过。 |
 | 4F | refine 子进程异步运行，取消时终止 Blender 子进程，closed/open 复用同一有效构建；心跳、取消、输入内容变化和构建次数回归通过。真实渲染对照见下节。 |
-| 5 | 抽出几何、Worker、导入实体、仓库卡片和查询模块；两个 tracker 共用生命周期；房间 HTTP、任务、执行、状态分离。配置顺序与 legacy/上游 walk/Android 维护边界见 [契约文档](refactor-contracts.md)。 |
+| 5 | 抽出几何、Worker、导入实体、仓库卡片和查询模块；两个 tracker 共用生命周期；房间 HTTP、任务、执行、状态分离。配置顺序与 legacy/上游 walk/Android 维护边界见 [契约文档](contracts.md)。 |
 
 ## 自动化与真实浏览器
 
@@ -59,7 +61,7 @@
 
 ## 性能与质量
 
-同条件重复五轮的详细数据见 [编辑器记录](editor-refactor-validation.md)。以下是具体工作负载的收益，不代表所有场景端到端耗时。
+同条件重复五轮的详细数据见 [编辑器记录](editor-validation.md)。以下是具体工作负载的收益，不代表所有场景端到端耗时。
 
 | 指标 | 原版 → 重构 |
 | --- | --- |

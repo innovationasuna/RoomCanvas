@@ -1,6 +1,10 @@
+[重构说明与文档导航](../README.md)
+
 # RoomCanvas 重构建议
 
-> 本文保留重构前的审查意见，部分问题现已修复。最终实施与验证以[重构验收记录](refactor-validation.md)为准。
+> 本文保留重构前的审查意见，部分问题现已修复。最终实施与验证以[重构验收记录](../validation.md)为准。
+
+原文中的 `refactor.md` 对应归档后的[最初代码审查](initial-review.md)。
 
 2026-11-16
 
