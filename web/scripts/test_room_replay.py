@@ -119,6 +119,21 @@ class Events(unittest.TestCase):
             f.write(''.join(json.dumps(r) + '\n' for r in rows))
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
 
+    def test_later_records_never_change_an_earlier_moment(self):
+        def replayed():
+            data = replay.timeline(self.root, 'completed', self.until)
+            return data['models'], [(e['t'], e['say'], e.get('model')) for e in data['events']]
+        before = replayed()
+        rows = [{'t': T0 + 5000, 'kind': 'model_saved', 'model': 'seed', 'path': replay.SEED, 'run': 'attempt-02'},
+                {'t': T0 + 5100, 'kind': 'model_saved', 'model': 'round', 'attempt': 'attempt-y', 'round': 0,
+                 'schema_version': 2, 'event_id': 'r', 'run': 'attempt-02'},
+                {'t': T0 + 5200, 'kind': 'review_done', 'attempt': 'attempt-y', 'round': 0, 'reviewed': True,
+                 'folder': 'realism_authoring/acceptance/attempt-x/round_01', 'run': 'attempt-02'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual(replayed(), before)
+        self.assertEqual(list(before[0]), ['seed', 'round0', 'round1', 'final'])
+
     def test_a_model_rewritten_after_its_record_is_still_shown(self):
         import hashlib
         row = {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'path': replay.FINAL, 'schema_version': 2,
