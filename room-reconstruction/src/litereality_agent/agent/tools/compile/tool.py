@@ -64,7 +64,7 @@ class CompileInvocation(SceneToolInvocation):
             )
         if glb is None or not Path(glb).is_file():
             return ToolResult(
-                error="compile failed — Room.py did not produce Room.glb (see build errors).",
+                error="Room compilation failed. Check room_preview/build.log and room_preview/bake.log.",
                 build={"status": "error", "glb_path": None},
             )
         _write_compile_stamp(room_dir)
