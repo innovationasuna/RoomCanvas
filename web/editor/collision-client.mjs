@@ -31,7 +31,7 @@ export function createCollisionClient(worker, onError = console.error) {
       const removed = [...previous.keys()].filter((id) => !current.has(id));
       const {owners: packed, transfer} = packOwners(changed);
       generation++; ready = false; cancel();
-      worker.postMessage({type: generation === 1 ? 'build' : 'update', generation, owners: packed, removed, keepAuthoredOverlaps: true}, transfer);
+      worker.postMessage({type: generation === 1 ? 'build' : 'update', generation, owners: packed, removed, order: owners.map((owner) => owner.id), keepAuthoredOverlaps: true}, transfer);
       previous = current;
     },
     request(candidate, moved, source) {
