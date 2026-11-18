@@ -276,3 +276,13 @@ test('support coverage on a binned surface matches testing every triangle', () =
   assert.ok(brute > 500 && brute < points.length);
   for (const p of points.slice(0, 600)) assert.equal(coverage([p], triangles).covered, triangles.some((t) => inTriangle(p, t)) ? 1 : 0);
 });
+
+test('coverage of 200,000 support triangles preserves the mesh edges, gaps and far corner', () => {
+  const triangles = [];
+  for (let x = 0; x < 400; x++) for (let z = 0; z < 250; z++) {
+    // Separate tiles leave real gaps inside the overall bounds.
+    triangles.push(...rectangle(x, z, x + .8, z + .8));
+  }
+  const points = [[0, 0], [120.4, 40.4], [399.8, 249.8], [.9, .9], [400, 250]];
+  assert.deepEqual(coverage(points, triangles), {covered: 3, total: 5, full: false});
+});
