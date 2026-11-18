@@ -1,5 +1,7 @@
 """Persistent job state and queue, independent of HTTP transport."""
+import fcntl
 import json
+import os
 import queue
 import shutil
 import sys
@@ -23,9 +25,16 @@ class Jobs:
         self.upload_lock = threading.Lock()
         self.pending = queue.Queue()
         self.records = {}
-        # An upload being unpacked when the service stopped never became a job.
-        for staged in self.root.glob('.upload-*'):
-            shutil.rmtree(staged, ignore_errors=True)
+        # The service that holds this lock owns the directory for as long as it runs. Only the owner
+        # clears uploads a stopped service left half unpacked; a second start leaves them alone.
+        self.owner = os.open(self.root, os.O_RDONLY)
+        try:
+            fcntl.flock(self.owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            for staged in self.root.glob('.upload-*'):
+                shutil.rmtree(staged, ignore_errors=True)
         for path in sorted(self.root.glob('*/job.json')):
             record = json.loads(path.read_text())
             self.records[record['id']] = record
