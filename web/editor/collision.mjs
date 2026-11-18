@@ -1,4 +1,4 @@
-import {entityGeometry} from './entity-geometry.mjs';
+import {entityGeometry, meshGeometry} from './entity-geometry.mjs';
 // Surface collision uses authored triangles; bounds only prune the search.
 // Translation is swept continuously, so even a long step cannot jump a thin wall.
 import {carryPose} from './placement.mjs';
@@ -199,6 +199,23 @@ function makeBVH(faces) {
   return {box, left: makeBVH(faces.slice(0, mid)), right: makeBVH(faces.slice(mid))};
 }
 
+// Exact support projections of mesh vertices. BVH bounds only prune branches;
+// the returned extrema always come from real triangle vertices, including concave meshes.
+function support(mesh, axis) {
+  let best = -Infinity;
+  const upper = (node) => axis.reduce((sum, value, k) => sum + value * node.box[k + (value >= 0 ? 3 : 0)], 0);
+  function visit(node) {
+    if (upper(node) <= best) return;
+    if (node.faces) {
+      for (const face of node.faces) for (const point of face.triangle) best = Math.max(best, dot(axis, point));
+    } else if (upper(node.left) >= upper(node.right)) {visit(node.left); visit(node.right);}
+    else {visit(node.right); visit(node.left);}
+  }
+  visit(mesh.tree);
+  return best;
+}
+const projection = (mesh, axis, offset = 0) => [-support(mesh, axis.map((v) => -v)) + offset, support(mesh, axis) + offset];
+
 const worldPoint = (p, owner, pose) => {
   const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
   return [owner.origin[0] + pose.x + c * p[0] + s * p[2], owner.origin[1] + (pose.y || 0) + p[1], owner.origin[2] + pose.z - s * p[0] + c * p[2]];
@@ -212,16 +229,23 @@ const interpolate = (a, b, t) => ({...b, x: a.x + (b.x - a.x) * t, y: (a.y || 0)
 
 // Pure-data adapter also makes actual collision behavior testable without WebGL.
 // All triangle vertices are relative to the owner's authored origin.
+const meshIndexes = new WeakMap();
 export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   const started = performance.now();
+  let builtMeshes = 0, reusedMeshes = 0;
   const owners = input.map((owner) => ({...owner, origin: owner.origin || [0, 0, 0], meshes: owner.meshes.map((mesh) => {
-    const faces = mesh.triangles.filter((triangle) => dot(normal(triangle), normal(triangle)) > 1e-20).map((triangle) => {
+    if (meshIndexes.has(mesh.triangles)) {reusedMeshes++; return {...mesh, ...meshIndexes.get(mesh.triangles)};}
+    builtMeshes++;
+    const faces = mesh.triangles.map((triangle, faceIndex) => {
+      if (dot(normal(triangle), normal(triangle)) <= 1e-20) return null;
       const raw = normal(triangle), length = Math.hypot(...raw), plane = raw.map((v) => v / length);
-      return {triangle, box: bounds(triangle), plane, d: dot(plane,triangle[0])};
-    });
-    return {...mesh, faces, tree: faces.length ? makeBVH(faces) : null};
+      return {triangle, faceIndex, box: bounds(triangle), plane, d: dot(plane,triangle[0])};
+    }).filter(Boolean);
+    const index = {faces, tree: faces.length ? makeBVH(faces) : null};
+    meshIndexes.set(mesh.triangles, index);
+    return {...mesh, ...index};
   }).filter((mesh) => mesh.tree)}));
-  const audit = {objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started};
+  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started};
 
   function fixedMesh(meshA, ownerA, poseA, meshB, ownerB, poseB) {
     const relative = (point) => localPoint(worldPoint(point, ownerA, poseA), ownerB, poseB);
@@ -303,10 +327,9 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     return null;
   }
 
-  // A reconstructed room can start with furniture slightly inside its neighbour (a
-  // headboard in a wardrobe's socket plate). Those mesh pairs are the room as scanned,
-  // not a user's move: they never block. Every other mesh pair still does. Checked on
-  // first use and cached; a full pass over every pair at load takes seconds.
+  // Remember only whether the authored geometry needs recovery. This never exempts
+  // a pair from collision checks at a later pose. Restoring an old layout changes
+  // poses only, so undo cannot create persistent collision permissions.
   const authored = new Map();
   function known(meshA, ownerA, meshB, ownerB) {
     // An object brought in later (owner.added) was never part of the scan.
@@ -318,6 +341,34 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       row.set(meshB, overlap(box(meshA, ownerA), box(meshB, ownerB)) && !!fixedMesh(meshA, ownerA, IDENTITY, meshB, ownerB, IDENTITY));
     }
     return row.get(meshB);
+  }
+
+  // Recovery is deliberately restricted to shallow straight translations out of a
+  // supporting triangle plane. Concave interlocks, containment and rotation have no
+  // reliable single departure direction. They remain visible/restorable, but require
+  // a clear destination before confirmation. This is a surface projection, not AABB depth.
+  function canRecover(meshA, ownerA, start, end, meshB, ownerB, poseB) {
+    if (Math.abs(wrap(end.yaw - start.yaw)) > EPS) return false;
+    const delta = subtract(localPoint(worldPoint([0, 0, 0], ownerA, end), ownerB, poseB), localPoint(worldPoint([0, 0, 0], ownerA, start), ownerB, poseB));
+    const relative = (p) => localPoint(worldPoint(p, ownerA, start), ownerB, poseB);
+    const zero = relative([0, 0, 0]), basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p), zero));
+    const seen = new Set();
+    for (const face of meshB.faces) {
+      const n = face.plane, key = [...n, face.d].map((v) => v.toFixed(7)).join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const projectedSpeed = dot(n, delta), tangent = delta.map((v, k) => v - n[k] * projectedSpeed);
+      if (Math.abs(projectedSpeed) <= EPS || Math.hypot(...tangent) > EPS) continue;
+      const [lowA, highA] = projection(meshA, basis.map((axis) => dot(n, axis)), dot(n, zero) - face.d);
+      const [lowB, highB] = projection(meshB, n, -face.d);
+      if (lowA >= -EPS || highA <= EPS || (lowB < -EPS && highB > EPS)) continue;
+      const side = highB <= EPS ? 1 : lowB >= -EPS ? -1 : 0;
+      // An open sheet has no solid side; depart towards the larger existing side.
+      const outward = Math.abs(lowB) <= EPS && Math.abs(highB) <= EPS ? (highA > -lowA ? 1 : -1) : side;
+      const depth = outward > 0 ? -lowA : highA, speed = dot(n, delta) * outward;
+      if (depth <= .03 + EPS && speed > EPS) return true;
+    }
+    return false;
   }
 
   // An explicit wall remount chooses a destination, unlike an ordinary nudge.
@@ -348,7 +399,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     outer: for (const a of moving.filter((owner) => layout[owner.id]?.visible !== false)) for (const ma of a.meshes) {
       const pose = layout[a.id], box = bounds(corners(ma.tree.box).map((p) => worldPoint(p, a, pose)));
       for (const {owner: b, mesh: mb, pose: poseB, box: obstacleBox} of obstacles) {
-        if (!overlap(box, obstacleBox) || known(ma, a, mb, b)) continue;
+        if (!overlap(box, obstacleBox)) continue;
         reason = fixedMesh(ma, a, pose, mb, b, poseB);
         if (reason) {
           other = {id: b.id, name: b.name, mesh: mb.name, movingId: a.id, movingMesh: ma.name};
@@ -398,14 +449,17 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       return enter <= exit + EPS ? enter : Infinity;
     }
     const recoveryCache = new Map();
+    const startZero = relative([0, 0, 0], poseA), endZero = relative([0, 0, 0], endA);
+    const basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p, poseA), startZero));
+    const endBasis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p, endA), endZero));
     function recovering(fb) {
       if (recoveryCache.has(fb)) return recoveryCache.get(fb);
       const n0 = normal(fb.triangle), length = Math.hypot(...n0), n = n0.map((v) => v / length), d = dot(n, fb.triangle[0]);
-      const points = corners(meshA.tree.box).map((p) => relative(p, poseA));
-      const ds = points.map((p) => dot(n, p) - d);
-      const velocities = corners(meshA.tree.box).map((p, i) => dot(n, subtract(relative(p, endA), points[i])));
-      const negative = Math.max(0, -Math.min(...ds)), positive = Math.max(0, Math.max(...ds));
-      const away = negative < positive ? Math.min(...velocities) >= -EPS : Math.max(...velocities) <= EPS;
+      const axis = basis.map((v) => dot(n, v)), endAxis = endBasis.map((v) => dot(n, v));
+      const [low, high] = projection(meshA, axis, dot(n, startZero) - d);
+      const [lowSpeed, highSpeed] = projection(meshA, subtract(endAxis, axis), dot(n, subtract(endZero, startZero)));
+      const negative = Math.max(0, -low), positive = Math.max(0, high);
+      const away = negative < positive ? lowSpeed >= -EPS : highSpeed <= EPS;
       let touching = false;
       if (away) {
         const scan = (node) => {
@@ -470,7 +524,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     const stationary = owners.filter((owner) => !moved.has(owner.id) && next[owner.id]?.visible !== false);
     const obstacles = stationary.flatMap((owner) => owner.meshes.map((mesh) => ({owner, mesh, pose: before[owner.id] || IDENTITY,
       box: bounds(corners(mesh.tree.box).map((p) => worldPoint(p, owner, before[owner.id] || IDENTITY)))})));
-    let fraction = 1, other = null;
+    let fraction = 1, other = null, reason = null;
     outer: for (let segment = 0; segment < segments; segment++) {
       let first = 1;
       for (const a of moving) {
@@ -480,9 +534,12 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
           const assemblyRadius = radiusFromRoot(a,ma), arc = assemblyRadius * (1 - Math.cos(angle / 2));
           const box = expand(union(bounds(points.map((p) => worldPoint(p, a, start))), bounds(points.map((p) => worldPoint(p, a, end)))), arc);
           for (const {owner: b, mesh: mb, pose, box: obstacleBox} of obstacles) {
-            if (!overlap(box, obstacleBox) || known(ma, a, mb, b)) continue;
+            if (!overlap(box, obstacleBox)) continue;
             const pairStart = performance.now();
-            const hit = sweepMesh(ma, a, start, end, mb, b, pose, first, assemblyRadius);
+            const recovering = known(ma, a, mb, b) && fixedMesh(ma, a, start, mb, b, pose);
+            const restricted = recovering && !canRecover(ma, a, start, end, mb, b, pose);
+            const hit = restricted ? 0 : sweepMesh(ma, a, start, end, mb, b, pose, first, assemblyRadius);
+            if (restricted) reason = 'overlap-recovery-limited';
             pairTimings.push({moving:ma.name, obstacle:mb.name, owner:b.id, ms:performance.now()-pairStart});
             if (hit < first) {first = hit; other = {id: b.id, name: b.name, mesh: mb.name, movingId:a.id, movingMesh:ma.name};}
             if (first <= 0) break;
@@ -497,12 +554,18 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     if (fraction < 1) for (const owner of moving) layout[owner.id] = poseAt(owner,fraction);
     audit.lastMs = performance.now() - started;
     audit.lastPairs = pairTimings.sort((a,b) => b.ms-a.ms).slice(0,5);
-    return {layout, blocked: fraction < 1, other, fraction};
+    return {layout, blocked: fraction < 1, other, fraction, ...(reason ? {reason} : {})};
   }
   return {limit, checkPlacement, audit};
 }
 
 // The pieces and fixed parts of a room with their triangles, read from its meshes once.
+const ownerSnapshots = new WeakMap(), relativeMeshes = new WeakMap(), meshSources = new WeakMap();
+export const collisionMeshSource = (mesh) => meshSources.get(mesh);
+export function triangleIndex(triangles) {
+  if (!meshIndexes.has(triangles)) buildCollision([{id: 'query', meshes: [{triangles}]}]);
+  return meshIndexes.get(triangles);
+}
 export function collisionOwners(THREE, room, entities, {label = () => null} = {}) {
   room.updateMatrixWorld(true);
   const owners = [], meshOwners = new Map();
@@ -528,15 +591,25 @@ export function collisionOwners(THREE, room, entities, {label = () => null} = {}
       if (!staticOwners.has(id)) staticOwners.set(id, {id, name, origin: [0, 0, 0], meshes: []});
       owner = staticOwners.get(id);
     }
-    const position = mesh.geometry.attributes.position, index = mesh.geometry.index;
-    if (!position) return;
-    const matrix = reference?.matrix ?? mesh.matrixWorld;
-    const vertices = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(matrix).toArray().map((v, k) => v - owner.origin[k]));
-    const triangles = [];
-    for (let i = 0, count = index ? index.count : position.count; i + 2 < count; i += 3) triangles.push([0, 1, 2].map((k) => vertices[index ? index.getX(i + k) : i + k]));
-    owner.meshes.push({name: mesh.userData.name || mesh.name, triangles});
+    if (!mesh.geometry.attributes.position) return;
+    const data = meshGeometry(THREE, mesh, reference?.matrix ?? mesh.matrixWorld);
+    const originKey = owner.origin.join(',');
+    let cached = relativeMeshes.get(mesh);
+    if (cached?.data !== data || cached.originKey !== originKey) {
+      const local = new Map(data.vertices.map((p) => [p, p.map((v, k) => v - owner.origin[k])]));
+      cached = {data, originKey, mesh: {name: mesh.userData.name || mesh.name, triangles: data.triangles.map((t) => t.map((p) => local.get(p)))}};
+      relativeMeshes.set(mesh, cached);
+      meshSources.set(cached.mesh, {mesh, matrix: (reference?.matrix ?? mesh.matrixWorld).clone()});
+    }
+    owner.meshes.push(cached.mesh);
   });
-  return [...owners, ...staticOwners.values()];
+  const previous = ownerSnapshots.get(room) || new Map();
+  const result = [...owners, ...staticOwners.values()].map((owner) => {
+    const old = previous.get(owner.id);
+    return old && old.name === owner.name && old.added === owner.added && old.origin.every((v, k) => v === owner.origin[k]) && old.meshes.length === owner.meshes.length && old.meshes.every((mesh, k) => mesh === owner.meshes[k]) ? old : owner;
+  });
+  ownerSnapshots.set(room, new Map(result.map((owner) => [owner.id, owner])));
+  return result;
 }
 
 export function createCollision(THREE, room, entities, specs, {label = () => null, keepAuthoredOverlaps = false} = {}) {

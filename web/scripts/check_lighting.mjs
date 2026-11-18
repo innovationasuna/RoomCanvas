@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const {values} = parseArgs({options: {url: {type:'string', default:'http://127.0.0.1:7880/web/'},
   output: {type:'string'}, playwright: {type:'string'}, browser: {type:'string'}, rooms: {type:'string', default:'room3,office'},
-  'asset-edits': {type:'boolean', default:false}, variants: {type:'string', default:'original,initial,balanced,balanced-no-ao,balanced-n8ao'}, frames: {type:'string', default:'90'}}});
+  'asset-edits': {type:'boolean', default:false}, 'editor-queries': {type:'boolean', default:false}, variants: {type:'string', default:'original,initial,balanced,balanced-no-ao,balanced-n8ao'}, frames: {type:'string', default:'90'}}});
 if (!values.output) throw new Error('请指定 --output 到仓库外的结果目录（含私人房间截图）');
 const output = resolve(values.output), repo = fileURLToPath(new URL('../../', import.meta.url));
 if (output === repo || output.startsWith(repo + '/')) throw new Error('基线结果请写到仓库外，不提交私人截图');
@@ -145,6 +145,37 @@ try {
           assert.ok(has('initial', stage), '缺少初次加载计时 ' + stage);
         if (chair) for (const [operation, stage] of [['import','rebuild'], ['import','floorSearch'], ['delete','rebuild']])
           assert.ok(has(operation, stage), '缺少资产编辑计时 ' + operation + '/' + stage);
+      }
+      if (values['editor-queries']) {
+        result.editorQueries = await page.evaluate(() => roomLightingLab.queryBenchmark());
+        assert.equal(result.editorQueries.baseline.mismatches, 0, '原始姿态射线与 Three.js 不一致');
+        assert.equal(result.editorQueries.articulated.mismatches, 0, '开合部件射线与 Three.js 不一致');
+        await page.waitForFunction(() => roomLightingLab.geometryStatus().workerReady, null, {timeout: 60000});
+        result.collisionProbe = await page.evaluate(async () => {
+          const objects = roomEditor.snapshot().objects;
+          const object = objects.find((row) => /piano/i.test(row.id)) || objects.find((row) => /table|desk/i.test(row.id)) || objects[0];
+          return {id: object.id, ...await roomLightingLab.collisionProbe(object.id, {y: .12})};
+        });
+        assert.ok(result.collisionProbe.worker, 'Worker 请求被意外取消');
+        assert.deepEqual(result.collisionProbe.worker.contact, result.collisionProbe.main.contact);
+        assert.deepEqual(result.collisionProbe.worker.sweep, result.collisionProbe.main.sweep);
+        await page.locator('[data-mode="preview"]').click();
+        await page.locator('[data-mode="walk"]').click();
+        await page.waitForFunction(() => roomEditor.snapshot().walk.active);
+        result.walkStart = await page.evaluate(() => roomEditor.snapshot().walk);
+        await page.keyboard.down('KeyW');
+        try {
+          result.walkRafIntervalsMs = await page.evaluate(async () => {
+            const intervals = []; let last = await new Promise(requestAnimationFrame);
+            for (let i = 0; i < 30; i++) {const time = await new Promise(requestAnimationFrame); intervals.push(time - last); last = time;}
+            return intervals;
+          });
+        } finally {await page.keyboard.up('KeyW');}
+        result.walkEnd = await page.evaluate(() => roomEditor.snapshot().walk);
+        assert.ok([...result.walkStart.position, ...result.walkEnd.position].every(Number.isFinite));
+        await capture('walk');
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => !roomEditor.snapshot().walk.active);
       }
       result.activity = await page.evaluate(() => window.readBenchmarkActivity());
       assert.deepEqual(errors,[]);

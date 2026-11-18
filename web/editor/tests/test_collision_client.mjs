@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createCollisionClient} from '../collision-client.mjs';
+
+test('incremental Worker generations settle superseded work and ignore late replies', async () => {
+  const sent = [], worker = {postMessage: (data, transfer) => sent.push({data, transfer}), terminate() {this.stopped = true;}};
+  const client = createCollisionClient(worker, () => {}), owner = {id: 'chair', origin: [0, 0, 0], meshes: [{name: 'body', triangles: [[[0, 0, 0], [1, 0, 0], [0, 1, 0]]]}]};
+  client.update([owner]);
+  assert.equal(sent[0].data.type, 'build');
+  assert.equal(sent[0].transfer.length, 2);
+  worker.onmessage({data: {type: 'built', generation: 1}});
+  const old = client.request({}, ['chair'], {});
+  const waiting = client.request({}, ['chair'], {});
+  const latest = client.request({}, ['chair'], {});
+  assert.equal(await waiting, null);
+  client.update([owner]);
+  assert.equal(await old, null);
+  assert.equal(await latest, null);
+  assert.deepEqual(sent.at(-1).data.owners, []);
+  assert.deepEqual(sent.at(-1).transfer, []);
+  const pending = client.request({}, ['chair'], {});
+  worker.onmessage({data: {type: 'built', generation: 1}});
+  assert.equal(client.ready, false);
+  worker.onmessage({data: {type: 'built', generation: 2}});
+  const current = sent.at(-1).data;
+  worker.onmessage({data: {type: 'drop', generation: 1, ticket: current.ticket, contact: {ok: true}}});
+  worker.onmessage({data: {type: 'drop', generation: 2, ticket: current.ticket - 1, contact: {ok: true}}});
+  worker.onmessage({data: {type: 'drop', generation: 2, ticket: current.ticket, contact: {ok: false}}});
+  assert.equal((await pending).contact.ok, false);
+  client.update([]);
+  assert.deepEqual(sent.at(-1).data.removed, ['chair']);
+  const failed = client.request({}, [], {});
+  worker.onerror(new Error('worker stopped'));
+  assert.equal(client.failed, true);
+  assert.equal(await failed, null);
+  client.dispose();
+  assert.equal(worker.stopped, true);
+});
