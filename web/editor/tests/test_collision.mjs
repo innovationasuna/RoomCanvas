@@ -135,6 +135,58 @@ test('coincident solids stay where scanned; an interlock cannot be pushed into o
   assert.equal(interlock.checkPlacement({a: pose(-.2)}, ['a']).ok, false);
 });
 
+test('a detailed scanned mesh slides along its wall and leaves it, but not deeper', () => {
+  const lat = 21, lon = 40, rows = Array.from({length: lat}, (_, i) => Array.from({length: lon}, (_, j) => {
+    const t = Math.PI * i / (lat - 1), q = 2 * Math.PI * j / lon;
+    return [.29 + .3 * Math.sin(t) * Math.cos(q), .4 + .3 * Math.cos(t), .3 * Math.sin(t) * Math.sin(q)];
+  }));
+  const ball = [];
+  for (let i = 0; i < lat - 1; i++) for (let j = 0; j < lon; j++) {
+    const [a, b, c, d] = [rows[i][j], rows[i][(j + 1) % lon], rows[i + 1][j], rows[i + 1][(j + 1) % lon]];
+    if (i > 0) ball.push([a, c, b]);
+    if (i < lat - 2) ball.push([b, c, d]);
+  }
+  // Scanned 1 cm into the wall.
+  const c = buildCollision([owner('ball', ball), owner('wall', box(-.3, -1, -1, 0, 2, 1))], {keepAuthoredOverlaps: true});
+  assert.equal(c.checkPlacement({ball: pose()}, ['ball']).ok, true);
+  for (const target of [pose(0, .2, .3), pose(.002, 0, -.3), pose(.1)]) assert.equal(c.limit({ball: pose()}, {ball: target}, ['ball']).blocked, false, JSON.stringify(target));
+  assert.ok(c.limit({ball: pose()}, {ball: pose(-.05)}, ['ball']).layout.ball.x > -.0051);
+  assert.equal(c.checkPlacement({ball: pose(-.03)}, ['ball']).ok, false);
+});
+
+test('a scanned pair gets the same verdict whichever of the two is moved', () => {
+  const concave = [...box(-.3, 0, -.3, -.09, 1, .3), ...box(.09, 0, -.3, .3, 1, .3)];
+  const c = buildCollision([owner('a', box(-.1, 0, -.1, .1, .5, .1)), owner('frame', concave)], {keepAuthoredOverlaps: true});
+  const scanned = {a: pose(), frame: pose()};
+  c.prepare('frame'); // what selecting it does ahead of a drag; the answers stay the same
+  // The same relative step, once by the middle piece and once by the frame.
+  const middle = c.limit(scanned, {...scanned, a: pose(-.16)}, ['a']), frame = c.limit(scanned, {...scanned, frame: pose(.16)}, ['frame']);
+  assert.equal(middle.blocked, true); assert.equal(frame.blocked, true);
+  near(middle.layout.a.x, -frame.layout.frame.x, 1e-6);
+  assert.ok(frame.layout.frame.x < .0051);
+  assert.equal(c.checkPlacement({...scanned, a: pose(-.16)}, ['a']).ok, false);
+  assert.equal(c.checkPlacement({...scanned, frame: pose(.16)}, ['frame']).ok, false);
+  for (const [moved, step] of [['a', pose(0, .2, .2)], ['frame', pose(0, -.2, -.2)]]) {
+    assert.equal(c.limit(scanned, {...scanned, [moved]: step}, [moved]).blocked, false, moved);
+    assert.equal(c.checkPlacement({...scanned, [moved]: step}, [moved]).ok, true, moved);
+  }
+});
+
+test('the scan allowance stays with the parts that touched: a thin partition of the same mesh still blocks', () => {
+  // A 1 mm sheet scanned 5 mm into a rail; a 2 mm partition, a separate part of the rail's mesh, stands further along.
+  const sheet = box(-.2, .015, -.0005, .2, .5, .0005), rail = [...box(-1, 0, -.02, 1, .02, .02), ...box(.5, 0, -.3, .502, .6, .3)];
+  const c = buildCollision([owner('sheet', sheet), owner('rail', rail)], {keepAuthoredOverlaps: true});
+  const scanned = {sheet: pose(), rail: pose()};
+  assert.equal(c.checkPlacement(scanned, ['sheet']).ok, true);
+  assert.equal(c.limit(scanned, {...scanned, sheet: pose(.2)}, ['sheet']).blocked, false, 'slides along the rail');
+  const through = c.limit(scanned, {...scanned, sheet: pose(.8)}, ['sheet']);
+  assert.equal(through.blocked, true);
+  near(through.layout.sheet.x, .3, .001);
+  assert.equal(c.checkPlacement({...scanned, sheet: pose(.4)}, ['sheet']).ok, false);
+  const back = c.limit(scanned, {...scanned, rail: pose(-.8)}, ['rail']);
+  near(back.layout.rail.x, -.3, .001);
+});
+
 test('a carried pair scanned through an open sheet may leave it, and still meets every other mesh', () => {
   const wall = [[[.09, -1, -1], [.09, 1, -1], [.09, 1, 1]], [[.09, -1, -1], [.09, 1, 1], [.09, -1, 1]]];
   const c = buildCollision([owner('table', box(-.1, 0, -.1, .1, .5, .1)), owner('payload', box(-.1, .5, -.1, .1, .8, .1)), owner('wall', wall), owner('other', box(-.5, .6, -.2, -.4, 1, .2))], {keepAuthoredOverlaps: true});

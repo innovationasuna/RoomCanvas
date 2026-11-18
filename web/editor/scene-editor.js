@@ -661,6 +661,8 @@ function select(id, announce = true) {
     $('#selection-label').classList.remove('just-selected');
     requestAnimationFrame(() => $('#selection-label').classList.add('just-selected'));
     if (announce) $('#status').textContent = `已选中${entities.get(id).name}，拖动或使用右侧连续拖动工具调整`;
+    // After this frame is drawn, not in the first frame of a drag.
+    setTimeout(() => {if (selected === id) collision?.prepare(id);});
   } else if (announce) $('#status').textContent = '点选物品，开始布置房间';
   updateInspector();
   requestRender();
