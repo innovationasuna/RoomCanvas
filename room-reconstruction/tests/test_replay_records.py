@@ -55,7 +55,10 @@ def test_record_uses_the_given_time_and_run_and_skips_a_missing_dir(scene, tmp_p
     traces = scene / "scene_init/obj_stage/traces"
     telemetry.record(traces, "model_saved", at=T0, model="seed")
     telemetry.record(tmp_path / "nowhere", "model_saved", model="seed")
-    assert rows(traces) == [{"t": T0, "kind": "model_saved", "model": "seed", "run": "run-1"}]
+    row, = rows(traces)
+    assert {key: row[key] for key in ("t", "kind", "model", "run")} == {
+        "t": T0, "kind": "model_saved", "model": "seed", "run": "run-1"}
+    assert row["schema_version"] == 2 and row["sequence"] == 1
     assert not (tmp_path / "nowhere").exists()
 
 
@@ -104,8 +107,10 @@ def test_a_build_of_the_authored_room_records_the_parts_beyond_the_seed(scene, t
     built = glb(scene / "realism_authoring/room_preview/Room.glb", ["Floor0", "Bed0", "Curtain"], T0 + 300)
     _record_build(scene / "realism_authoring/room", built)
     _record_build(tmp_path / "elsewhere/room", built)  # not an authored room: no record
-    assert rows(scene / "scene_init/obj_stage/traces") == [
-        {"t": T0 + 300, "kind": "room_built", "added": ["Curtain"], "run": "run-1"}]
+    row, = rows(scene / "scene_init/obj_stage/traces")
+    assert {key: row[key] for key in ("t", "kind", "added", "run")} == {
+        "t": T0 + 300, "kind": "room_built", "added": ["Curtain"], "run": "run-1"}
+    assert row["artifact_digest"] == telemetry.artifact_digest(built)
 
 
 def test_the_repair_session_is_traced_for_the_replay(tmp_path, monkeypatch):

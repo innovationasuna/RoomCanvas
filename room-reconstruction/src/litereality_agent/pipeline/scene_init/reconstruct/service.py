@@ -32,7 +32,9 @@ def reconstruct_refs(
     *,
     seed: int = 42,
     simplify: float = 0.95,
-    texture_size: int = 1024,
+    texture_size: int = 4096,
+    decimation: int = 50000,
+    skip_existing: bool = True,
 ) -> dict[str, str] | None:
     """refs = [(asset_id, png_path)] → {asset_id: glb_path}, via the tool (parallel). Returns
     None if no tool is installed (caller should use the local launcher)."""
@@ -40,5 +42,6 @@ def reconstruct_refs(
         return None
     items = {aid: str(png) for aid, png in refs}
     return _SERVICE.reconstruct_many(
-        items, out_dir=str(out_dir), seed=seed, simplify=simplify, texture_size=texture_size
+        items, out_dir=str(out_dir), seed=seed, simplify=simplify, texture_size=texture_size,
+        decimation=decimation, skip_existing=skip_existing
     )

@@ -57,6 +57,7 @@ def test_ported_preprocessing_stays_behind_project_adapters():
         "__init__.py",
         "object_images.py",
         "scene_data.py",
+        "scanner.py",
     }
     assert not (
         PACKAGE / "pipeline" / "scene_init" / "ingest" / "extract" / "lr_preprocessing"

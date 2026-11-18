@@ -11,7 +11,7 @@ def saved(context: RunContext, model: str, glb: Path, **data) -> None:
     from litereality_agent import telemetry
 
     if glb.is_file():
-        telemetry.record(context.object_root / "traces", "model_saved", at=glb.stat().st_mtime,
+        telemetry.record_artifact(context.object_root / "traces", "model_saved", glb, at=glb.stat().st_mtime,
                          model=model, path=str(glb.relative_to(context.scene_dir)), **data)
 
 

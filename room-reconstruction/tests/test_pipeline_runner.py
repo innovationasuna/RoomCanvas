@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from litereality_agent.pipeline.context import RunContext
 from litereality_agent.pipeline.result import StageResult, StageStatus
 from litereality_agent.pipeline.runner import PipelineRunner
@@ -17,6 +19,66 @@ def context(tmp_path: Path) -> RunContext:
 
 def result(name: str, status: StageStatus = StageStatus.COMPLETED) -> StageResult:
     return StageResult(name, status, artifacts={"marker": __file__})
+
+
+@pytest.mark.parametrize("error,expected", [(TimeoutError("temporarily busy"), 2), (ValueError("bad capture"), 1)])
+def test_only_transient_failures_retry_with_a_fixed_limit(tmp_path, monkeypatch, error, expected):
+    calls = []
+    monkeypatch.setattr("litereality_agent.pipeline.runner.time.sleep", lambda _: None)
+    def fail(*_):
+        calls.append(1)
+        raise error
+    value, = PipelineRunner((Stage("only", fail),)).run(context(tmp_path))
+    assert len(calls) == expected
+    assert value.status is StageStatus.FAILED and value.artifact_validity == "invalid"
+    assert value.retryable == isinstance(error, TimeoutError)
+
+
+def test_content_change_forces_stage_and_consumers_even_with_same_size_and_time(tmp_path):
+    source = tmp_path / "source"
+    source.write_text("first")
+    before = source.stat()
+    calls = []
+    stages = (
+        Stage("first", lambda _, opts: calls.append(("first", opts.copy())) or result("first"),
+              is_complete=lambda _: True, fingerprint=lambda *_: source.read_text()),
+        Stage("next", lambda _, opts: calls.append(("next", opts.copy())) or result("next"),
+              ("first",), is_complete=lambda _: True),
+    )
+    runner = PipelineRunner(stages)
+    runner.run(context(tmp_path))
+    source.write_text("other")
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    runner.run(context(tmp_path))
+    assert calls[-2:] == [("first", {"force": True}), ("next", {"force": True})]
+
+
+def test_killed_force_rebuild_never_reuses_partial_files_or_downstream_success(tmp_path):
+    import json
+    target = tmp_path / "model"
+    interrupt, calls = False, []
+    def build(_, options):
+        calls.append(dict(options))
+        target.write_text("PARTIAL" if interrupt else "GOOD")
+        if interrupt:
+            raise KeyboardInterrupt()
+        return StageResult("build", StageStatus.COMPLETED, artifacts={"model": str(target)})
+    runner = PipelineRunner((
+        Stage("build", build, is_complete=lambda _: target.exists()),
+        Stage("publish", lambda *_: result("publish"), ("build",), is_complete=lambda _: True),
+    ))
+    ctx = context(tmp_path)
+    runner.run(ctx)
+    interrupt = True
+    with pytest.raises(KeyboardInterrupt):
+        runner.run(ctx, force={"build"})
+    state = json.loads(ctx.state_path.read_text())["stages"]
+    assert state["build"]["status"] == "running"
+    assert state["publish"]["status"] == "invalidated"
+    interrupt = False
+    resumed = runner.run(ctx)
+    assert resumed[0].status is StageStatus.COMPLETED and calls[-1]["force"]
+    assert target.read_text() == "GOOD"
 
 
 def test_optional_failure_does_not_stop_later_stages(tmp_path):
@@ -117,7 +179,7 @@ def test_enabling_dino_invalidates_cached_ingest_and_consumers(tmp_path):
     runner.run(context(tmp_path), options={"ingest": {"use_dino": True}})
     reused = runner.run(context(tmp_path), options={"ingest": {"use_dino": True}})
     assert calls == [("ingest", {}), ("reconstruct", {}),
-                     ("ingest", {"use_dino": True}), ("reconstruct", {})]
+                     ("ingest", {"use_dino": True, "force": True}), ("reconstruct", {})]
     assert all(r.status is StageStatus.REUSED for r in reused)
 
 

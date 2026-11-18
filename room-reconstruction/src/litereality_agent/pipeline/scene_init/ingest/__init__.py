@@ -20,6 +20,9 @@ def complete(context: RunContext) -> bool:
 
 
 def run(context: RunContext, options: dict) -> StageResult:
+    from litereality_agent.capture import capture_frames
+
+    capture_frames(context.capture_dir)
     args: list[object] = [
         "--scan", context.capture_dir, "--name", context.scan,
         "--output-root", context.output_root,

@@ -27,7 +27,7 @@ import json
 import os
 import re
 import subprocess
-import time
+import sys
 from pathlib import Path
 
 from gpu import room_lease
@@ -169,10 +169,15 @@ attempt.mkdir()
 def trace(scene: Path, kind: str, **data) -> None:
     """One record in the scene's trace for the reconstruction replay (as telemetry.record writes it)."""
     traces = scene / "scene_init/obj_stage/traces"
-    if traces.is_dir():
-        row = {"t": round(data.pop("at", None) or time.time(), 3), "kind": kind, "run": attempt.name, **data}
-        with (traces / "trace.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+    sys.path.insert(0, str(RECON / "src"))
+    from litereality_agent import telemetry
+
+    data.update(run=attempt.name, attempt_id=attempt.name,
+                job_id=env.get("LITEREALITY_JOB_ID") or str(a.run_dir.resolve()), stage="articulate")
+    if kind == "model_saved" and data.get("path"):
+        telemetry.record_artifact(traces, kind, data["path"], **data)
+    else:
+        telemetry.record(traces, kind, **data)
 
 
 with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
@@ -186,14 +191,15 @@ with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
         rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, pass_fds=lease.fds).returncode
     (attempt / "exit").write_text(f"{rc}\n")
     print(attempt.name, "exit", rc)
-    # Author may stop short of publishing (its visual review) and still leave a usable room: take the
-    # scene that has one.
+    # Only a successful current pipeline may feed enhancement. A failed retry can
+    # leave yesterday's preview beside its partial source.
     scenes = [d for d in scene_dirs(a.run_dir)
               if (d / "realism_authoring/room_preview/Room.blend").is_file()
               and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
 
 
-    if articulate and len(scenes) == 1:
+    art = 0
+    if rc == 0 and articulate and len(scenes) == 1:
         articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
         trace(scenes[0], "articulate_start")
         with (attempt / "articulate.log").open("w") as log:
@@ -204,3 +210,4 @@ with room_lease(runtime, env, wait=a.wait_gpu) as (gpu, lease):
         if not art and room.is_file():
             trace(scenes[0], "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
         print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
+    raise SystemExit(rc or art)

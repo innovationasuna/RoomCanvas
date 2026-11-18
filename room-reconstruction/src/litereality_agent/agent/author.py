@@ -20,12 +20,16 @@ current directory is inside a package. The explicit spelling still works and sti
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
 import sys
 import time
 from pathlib import Path
+
+from litereality_agent import artifact_cache as cache
+from litereality_agent.agent import author_checkpoint as recovery
 
 
 # Surfaces are DISCOVERED from the room, never assumed: a scan has as many walls as RoomPlan gave it
@@ -501,14 +505,7 @@ def checkpoint(room: Path, where: Path) -> bool:
     possibly unparseable, which fails every downstream stage. Keeping the newest COMPILING
     version means a break costs one edit, not the run.
     """
-    if room_compiles(room):
-        return False
-    try:
-        where.parent.mkdir(parents=True, exist_ok=True)
-        where.write_bytes((room / "Room.py").read_bytes())
-        return True
-    except OSError:
-        return False
+    return recovery.save(room, where)
 
 
 # The in-process capability server and the step-budget hook are Claude Code machinery, so they
@@ -521,6 +518,27 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
               step_budget: int = 100, step_reserve: int = 15, provider: str | None = None):
     from litereality_agent.agent import providers
 
+    last_good = room.parent / ".room_checkpoint.py"
+    previous = cache.read_json(room.parent / ".author_resume.json")
+    previous = previous if isinstance(previous, dict) else {}
+    if profile == "open" and provider is None and not (
+            os.environ.get("LR_AUTHOR_PROVIDER") or os.environ.get("LR_AGENT_PROVIDER")):
+        provider = "codex"
+    input_key = recovery.input_fingerprint(surface_ref, scan, {
+        "profile": profile, "model": model, "provider": provider,
+        "agent_provider": os.environ.get("LR_AGENT_PROVIDER"),
+        "author_provider": os.environ.get("LR_AUTHOR_PROVIDER"),
+        "codex_model": os.environ.get("LR_CODEX_MODEL"),
+    })
+    if previous and previous.get("input_fingerprint") != input_key:
+        cache.retire([last_good, last_good.with_suffix(".d"),
+                      room.parent / ".author_restore_pending.json"], room.parent)
+    broken = recovery.source_error(room)
+    if broken or (room.parent / ".author_restore_pending.json").exists():
+        if not recovery.restore(room, last_good):
+            print(f"author recovery failed: {broken or 'interrupted restore'}; "
+                  "no consistent checkpoint for the current inputs; saved files retained", flush=True)
+            return 1
     surfaces = surfaces_for(room)
     stitches = [surface_ref / f"{s}_stitched.jpg" for s in surfaces]
     stitch_lines = "\n".join(f"  - {s} (head-on): {p}" for s, p in zip(surfaces, stitches) if p.is_file())
@@ -534,14 +552,23 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
         from litereality_agent.agent import evidence_pack
         # room = <scene>/realism_authoring/room, so the scene package is two levels up.
         evidence = evidence_pack.build(room.parent, Path(scan), surface_ref, scene_dir=room.parents[1])
-        if provider is None and not (os.environ.get("LR_AUTHOR_PROVIDER") or os.environ.get("LR_AGENT_PROVIDER")):
-            provider = "codex"       # the brief was written for, and measured on, gpt-6 via Codex
     fills = dict(stitch_lines=stitch_lines, scan=scan, surface_list=", ".join(surfaces), rhythm=RHYTHM,
                  evidence=str(evidence) if evidence else "",
                  n_frames=_n_frames(evidence / "scan" if evidence else Path(scan)),
                  python=sys.executable, blender=_blender_bin(),
                  scratch=str(scratch_at) if scratch_at else str(room.parent / "_scratch"))
+    resume_check = "new session"
+    if previous:
+        resume_check = ("inputs and configuration match" if previous.get("input_fingerprint") == input_key
+                        else "inputs or configuration changed; recheck saved edits against current evidence")
+        if previous.get("source_resources") != recovery.inventory(room):
+            resume_check += "; source/resources changed since the saved summary"
     prompt = PROFILES.get(profile, PROMPT).format(**fills)
+    if previous:
+        prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
+                   f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "
+                   "Continue the pending work from that summary; revalidate any completed work "
+                   "whose inputs changed. This is a new conversation, not a provider session resume.\n")
     prompt += "\nBefore finishing, compile and run " + sys.executable + (
         " -m litereality_agent.pipeline.room_qc.validate --room ."
         + " Read validation.json and fix every blocking finding. Wall attachments need actual "
@@ -613,8 +640,11 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
              evidence=str(evidence) if evidence else None, provider=harness.name)
     # Kept OUTSIDE the room: the room dir is copied and scanned wholesale downstream, and a
     # stray second Room-ish file in it is a trap.
-    last_good = room.parent / ".room_checkpoint.py"
-    checkpoint(room, last_good)  # the seed is valid by construction — start from it
+    checkpoint(room, last_good)
+    recovery.summary(room, input_key, status="running", resumed=resume_check,
+                     completed=previous.get("completed", []),
+                     pending=previous.get("pending", ["finish authoring and validate the room"]),
+                     result=previous.get("summary", ""))
     ended_early = ""
     stopped = ""
     try:
@@ -651,7 +681,11 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
                 # Newest COMPILING Room.py wins. Cheap enough to run per edit, and it is what
                 # makes an interrupted session cost one edit instead of the whole run.
                 elif name in ("Edit", "Write", "Bash"):
-                    checkpoint(room, last_good)
+                    if checkpoint(room, last_good):
+                        recovery.summary(room, input_key, status="running", resumed=resume_check,
+                                         completed=[f"read reference: {s}" for s in sorted(read_surfaces)],
+                                         pending=["finish authoring and validate the room"],
+                                         result=previous.get("summary", ""))
         if isinstance(m, providers.SessionResult):
             terminal_seen = True
             result_text = m.result or ""
@@ -671,6 +705,15 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
                     tr.think(f"[codex rollout] {dst}")
                 except OSError as exc:
                     print(f"   ⚠ could not keep the codex rollout ({exc})", flush=True)
+    except asyncio.CancelledError:
+        if recovery.source_error(room):
+            recovery.restore(room, last_good)
+        else:
+            checkpoint(room, last_good)
+        recovery.summary(room, input_key, status="cancelled", completed=[],
+                         pending=["inspect saved edits and complete authoring"], resumed=resume_check,
+                         result=result_text or previous.get("summary", ""))
+        raise
     except Exception as exc:  # noqa: BLE001 — including the SDK's turn-cap Exception
         # Running out of turns is not a failed run. `Room.py` is edited IN PLACE, so by this
         # point the session's work is already on disk; raising here threw it away, because
@@ -695,13 +738,12 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
 
     # The ONE thing that must hold when this returns: Room.py is valid Python. Every downstream
     # stage (materials, refine, qc, export) builds it, so a broken file fails all of them.
-    broken = room_compiles(room)
-    if broken and last_good.is_file():
-        (room / "Room.py").write_bytes(last_good.read_bytes())
+    broken = recovery.source_error(room)
+    if broken and recovery.restore(room, last_good):
         print(f"  ⚠ Room.py did not compile ({broken}) — restored the last good version",
               flush=True)
         tr.think(f"[restored checkpoint] {broken}")
-        broken = room_compiles(room)
+        broken = recovery.source_error(room)
     # WHETHER THIS ROOM WAS FINISHED OR MERELY STOPPED. A budget landing is graceful and exits 0,
     # so the stage above could not tell it apart from a room the model considered done — a
     # half-authored room reported as a completed stage. The distinction is only knowable here, so
@@ -714,6 +756,13 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
         }), encoding="utf-8")
     except OSError:
         pass                                    # a summary that cannot be written is not fatal
+    checkpoint(room, last_good)
+    session_ok = terminal_seen and not ended_early and not terminal_error and not broken
+    recovery.summary(room, input_key, status="complete" if session_ok else "incomplete",
+                     completed=["author session"] if session_ok else [],
+                     pending=["downstream build and acceptance"] if session_ok else
+                             ["inspect saved edits and finish authoring", "build and validate"],
+                     result=result_text or previous.get("summary", ""), resumed=resume_check)
     tr.end(calls=calls, cost_usd=cost, summary=result_text)
     print(f"\n== done {dt}s | calls={calls} {counts} | cost=${cost} ==\n", flush=True)
     if tr.ok:
