@@ -164,6 +164,16 @@ def object_names(scene):
 
 def trace_rows(scene, until=None):
     rows = [r for r in read_jsonl(Path(scene) / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
+    seen, unique = set(), []
+    for row in rows:
+        identifier = row.get('event_id')
+        if identifier and identifier in seen:
+            continue
+        if identifier:
+            seen.add(identifier)
+        unique.append(row)
+    rows = sorted(unique, key=lambda r: (r.get('schema_version', 1) >= 2,
+                                        r.get('sequence', r['t']), r.get('event_id', '')))
     return [r for r in rows if r['t'] <= until] if until else rows
 
 
@@ -193,7 +203,9 @@ def pipeline_events(scene, until=None):
             if once in said:
                 return
             said.add(once)
-        events.append({'id': f'p{len(events)}', 't': row['t'], 'stage': stage, 'kind': kind, 'say': say, **extra})
+        events.append({'id': row.get('event_id') or f'p{len(events)}', 't': row['t'], 'stage': stage,
+                       'kind': kind, 'say': say, 'source': 'event', 'confidence': 'recorded',
+                       'attempt_id': row.get('attempt_id', row.get('run')), **extra})
 
     for r in rows:
         kind, stage, status = r.get('kind'), r.get('stage'), r.get('status')
@@ -287,7 +299,12 @@ def draft_time(scene, rows, until=None):
     seed = saved_at(rows, 'seed')
     if not seed or saved_at(rows, 'final'):
         return None
-    t = _mtime(Path(scene) / FINAL)
+    import replay_history
+    records = [r for r in rows if r.get('kind') == 'room_built' or
+               (r.get('kind') == 'artifact_published' and r.get('path') == FINAL)]
+    current = records[-1] if records else None
+    modern = any(r.get('schema_version', 1) >= 2 for r in rows)
+    t = replay_history.artifact_evidence(Path(scene) / FINAL, current if modern else None, legacy=not modern)['time']
     return t if t and t > seed and (not until or t <= until) else None
 
 
@@ -304,10 +321,18 @@ def _model_time(scene, rows, model, rel, until=None):
     path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
     if not path.is_file():
         return None
-    t = saved_at(rows, model)
-    if t is None and model != 'articulated' and not any(r.get('kind') == 'model_saved' for r in trace_rows(scene)):
-        t = _mtime(path)
+    t = model_evidence(scene, rows, model, rel)['time']
     return t if t and (not until or t <= until) else None
+
+
+def model_evidence(scene, rows, model, rel):
+    import replay_history
+    recorded = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == model]
+    all_rows = trace_rows(scene)
+    legacy = model != 'articulated' and not any(
+        r.get('kind') == 'model_saved' or r.get('schema_version', 1) >= 2 for r in all_rows)
+    path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
+    return replay_history.artifact_evidence(path, recorded[-1] if recorded else None, legacy=legacy)
 
 
 def _rounds(scene, until=None):
@@ -318,14 +343,16 @@ def _rounds(scene, until=None):
     rows = trace_rows(scene)
     done = [r for r in rows if r.get('kind') == 'review_done' and r.get('reviewed') and r.get('folder')]
     if done:
-        saved = {(r.get('attempt'), r.get('round')): r['t'] for r in rows
+        import replay_history
+        saved = {(r.get('run'), r.get('attempt'), r.get('round')):
+                 (replay_history.artifact_evidence(scene / r.get('path', ''), r)['time']
+                  if r.get('schema_version', 1) >= 2 else r['t']) for r in rows
                  if r.get('kind') == 'model_saved' and r.get('model') == 'round'}
-        rounds = [(r['t'], scene / r['folder'] / 'visual_review.json', saved.get((r.get('attempt'), r.get('round'))),
+        rounds = [(r['t'], scene / r['folder'] / 'visual_review.json', saved.get((r.get('run'), r.get('attempt'), r.get('round'))),
                    r.get('run')) for r in sorted(done, key=lambda r: r['t'])]
     else:
-        paths = sorted(scene.glob('realism_authoring/acceptance/*/round_*/visual_review.json'),
-                       key=lambda p: (_mtime(p) or 0, str(p)))
-        rounds = [(_mtime(p), p, _mtime(p.parent / 'Room.glb'), None) for p in paths]
+        from replay_history import legacy_rounds
+        rounds = [] if any(r.get('schema_version', 1) >= 2 for r in rows) else legacy_rounds(scene)
     return [x for x in rounds if x[0] and (not until or x[0] <= until)]
 
 
@@ -682,6 +709,8 @@ def timeline(job_dir, status='completed', until=None):
         event['stage'] = 'review2'
         events.append(event)
     for event in events:
+        event.setdefault('source', 'legacy_projection')
+        event.setdefault('confidence', 'inferred')
         if event['kind'] == 'review' and event.get('issues'):
             said = summary.data['reviews'].get(event['id'])
             if said:
@@ -701,7 +730,9 @@ def timeline(job_dir, status='completed', until=None):
         build = {'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': STAGES, 'events': events, 'models': models(scene, until), 'build': build}
+            'stages': STAGES, 'events': events, 'models': models(scene, until), 'build': build,
+            'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
+                               for model, rel in [('seed', SEED), ('final', FINAL), ('articulated', ARTICULATED)]}}
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
