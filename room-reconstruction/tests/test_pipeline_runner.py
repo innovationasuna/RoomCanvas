@@ -32,6 +32,10 @@ def test_only_transient_failures_retry_with_a_fixed_limit(tmp_path, monkeypatch,
     assert len(calls) == expected
     assert value.status is StageStatus.FAILED and value.artifact_validity == "invalid"
     assert value.retryable == isinstance(error, TimeoutError)
+    attempts = value.details['timing_attempts']
+    assert [a['attempt'] for a in attempts] == list(range(1, expected+1))
+    assert all(a['outcome'] == 'failed' and a['wall_seconds'] >= 0 for a in attempts)
+    assert value.duration_seconds >= sum(a['wall_seconds'] for a in attempts)
 
 
 def test_content_change_forces_stage_and_consumers_even_with_same_size_and_time(tmp_path):

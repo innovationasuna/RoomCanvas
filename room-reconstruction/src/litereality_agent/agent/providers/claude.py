@@ -21,6 +21,7 @@ from litereality_agent.agent.providers.base import (
     SessionSpec,
     normalise_blocks,
 )
+from litereality_agent.agent.providers.timing import record_session_timing
 
 # The capability tools are the model's self-check and material sourcing (mcp__cap__render |
 # critic | select_views | grid | fetch_material | check_collisions). In wind-down they are
@@ -163,6 +164,7 @@ class ClaudeHarness:
     def effective_model(self, spec: SessionSpec) -> str:
         return spec.model or "(claude CLI default)"
 
+    @record_session_timing
     async def run(self, spec: SessionSpec) -> AsyncIterator[AgentMessage | SessionResult]:
         from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, ResultMessage, query
 
