@@ -81,33 +81,66 @@ test('authored penetration allows escape but not deepening, without ignoring lat
   assert.equal(c.limit({chair:pose()},{chair:pose(2)},['chair']).fraction,0,'long step does not skip initial penetration');
 });
 
-test('scan overlap never grants the pair a permanent collision exemption', () => {
+test('a scanned overlap may slide, lift and leave in any direction, but not go deeper', () => {
+  // The chair is scanned 1 cm into the wall.
   const c = buildCollision([owner('chair', box(-.1, 0, -.1, .1, .5, .1)), owner('wall', box(.09, -1, -1, .3, 1, 1))], {keepAuthoredOverlaps: true});
   const original = {chair: pose()}, clear = {chair: pose(-.2)};
+  assert.equal(c.checkPlacement(original, ['chair']).ok, true);
   assert.equal(c.limit(original, clear, ['chair']).blocked, false);
-  assert.equal(c.limit(original, {chair: pose(.05)}, ['chair']).fraction, 0);
-  assert.equal(c.limit(clear, {chair: pose(2)}, ['chair']).blocked, true);
+  // Oblique moves: out and along the wall, up and along it, along it sinking less than the tolerance.
+  for (const target of [pose(-.05, 0, .1), pose(0, .3, -.4), pose(.003, .1, .2)]) {
+    assert.equal(c.limit(original, {chair: target}, ['chair']).blocked, false, JSON.stringify(target));
+    assert.equal(c.checkPlacement({chair: target}, ['chair']).ok, true, JSON.stringify(target));
+  }
+  const deeper = c.limit(original, {chair: pose(.05, 0, .05)}, ['chair']);
+  assert.equal(deeper.blocked, true); assert.equal(deeper.other.id, 'wall');
+  assert.ok(deeper.layout.chair.x < .0051, 'stops within the tolerance of its scanned depth');
+  assert.equal(c.checkPlacement({chair: pose(.02)}, ['chair']).ok, false);
   assert.equal(c.checkPlacement({chair: pose(.2)}, ['chair']).ok, false);
-  // Undo restores poses only; repeating the same departure produces the same answer.
+  assert.ok(c.limit(original, {chair: pose(2)}, ['chair']).layout.chair.x < .0051, 'a long step cannot pass through');
+  // Turning in place swings the chair's corners deeper into the wall.
+  assert.equal(c.limit(original, {chair: pose(0, 0, 0, .2)}, ['chair']).blocked, true);
+  // Pulled clear and pushed back, it goes in only as deep as it was scanned. Undo restores
+  // poses only, so the same departure from the scanned pose gives the same answer again.
+  assert.ok(c.limit(clear, {chair: pose(2)}, ['chair']).layout.chair.x < .0051);
   assert.equal(c.limit(original, clear, ['chair']).blocked, false);
-  assert.equal(c.limit(original, {chair: pose(0, 0, 0, .2)}, ['chair']).reason, 'overlap-recovery-limited');
 });
 
-test('coincident solids and concave interlocks require a clear placement', () => {
+test('a scanned overlap with a rotated wall is judged by depth, not by the direction of the move', () => {
+  const turn = ([x, y, z]) => [Math.cos(.5) * x + Math.sin(.5) * z, y, -Math.sin(.5) * x + Math.cos(.5) * z];
+  const turned = (triangles) => triangles.map((triangle) => triangle.map(turn));
+  const c = buildCollision([owner('desk', turned(box(-.1, 0, -.1, .1, .5, .1))), owner('wall', turned(box(.09, -1, -1, .3, 1, 1)))], {keepAuthoredOverlaps: true});
+  const [nx, , nz] = turn([1, 0, 0]), [tx, , tz] = turn([0, 0, 1]), at = (s, y, t) => pose(nx * s + tx * t, y, nz * s + tz * t);
+  for (const target of [at(0, 0, .3), at(0, .2, 0), at(-.1, 0, .2), at(.002, 0, -.3)]) {
+    assert.equal(c.limit({desk: pose()}, {desk: target}, ['desk']).blocked, false, JSON.stringify(target));
+    assert.equal(c.checkPlacement({desk: target}, ['desk']).ok, true, JSON.stringify(target));
+  }
+  const deeper = c.limit({desk: pose()}, {desk: at(.05, 0, .1)}, ['desk']);
+  assert.equal(deeper.blocked, true);
+  assert.ok(deeper.layout.desk.x * nx + deeper.layout.desk.z * nz < .0051);
+  assert.equal(c.checkPlacement({desk: at(.03, 0, 0)}, ['desk']).ok, false);
+});
+
+test('coincident solids stay where scanned; an interlock cannot be pushed into one side', () => {
   const c = buildCollision([owner('a', box(0, 0, 0, 1, 1, 1)), owner('b', box(0, 0, 0, 1, 1, 1))], {keepAuthoredOverlaps: true});
-  assert.equal(c.checkPlacement({a: pose()}, ['a']).ok, false);
-  assert.equal(c.limit({a: pose()}, {a: pose(.1)}, ['a']).fraction, 0);
+  assert.equal(c.checkPlacement({a: pose()}, ['a']).ok, true);
+  assert.equal(c.limit({a: pose()}, {a: pose(.1)}, ['a']).blocked, false);
   assert.equal(c.checkPlacement({a: pose(2)}, ['a']).ok, true);
+  // One mesh in two parts, each 1 cm into the piece between them.
   const concave = [...box(-.3, 0, -.3, -.09, 1, .3), ...box(.09, 0, -.3, .3, 1, .3)];
   const interlock = buildCollision([owner('a', box(-.1, 0, -.1, .1, .5, .1)), owner('b', concave)], {keepAuthoredOverlaps: true});
+  assert.equal(interlock.checkPlacement({a: pose()}, ['a']).ok, true);
+  assert.equal(interlock.limit({a: pose()}, {a: pose(0, .2, .2)}, ['a']).blocked, false);
   assert.equal(interlock.limit({a: pose()}, {a: pose(-.2)}, ['a']).blocked, true);
+  assert.equal(interlock.checkPlacement({a: pose(-.2)}, ['a']).ok, false);
 });
 
-test('shallow open-sheet recovery and carried scans check every stationary mesh', () => {
+test('a carried pair scanned through an open sheet may leave it, and still meets every other mesh', () => {
   const wall = [[[.09, -1, -1], [.09, 1, -1], [.09, 1, 1]], [[.09, -1, -1], [.09, 1, 1], [.09, -1, 1]]];
   const c = buildCollision([owner('table', box(-.1, 0, -.1, .1, .5, .1)), owner('payload', box(-.1, .5, -.1, .1, .8, .1)), owner('wall', wall), owner('other', box(-.5, .6, -.2, -.4, 1, .2))], {keepAuthoredOverlaps: true});
   const initial = {table: pose(), payload: pose()};
   assert.equal(c.limit(initial, {table: pose(-.2), payload: pose(-.2)}, ['table', 'payload']).blocked, false);
+  assert.ok(c.limit(initial, {table: pose(1), payload: pose(1)}, ['table', 'payload']).layout.table.x < .0051, 'cannot be pushed through the sheet');
   const stop = c.limit(initial, {table: pose(-1), payload: pose(-1)}, ['table', 'payload']);
   assert.equal(stop.blocked, true);
   assert.equal(stop.other.movingId, 'payload');

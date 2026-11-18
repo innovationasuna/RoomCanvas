@@ -733,7 +733,7 @@ function editObject(change, direction) {
   layout = contact.layout;
   if (contact.blocked) {
     const name = typeof contact.other === 'string' ? (entities.get(contact.other)?.name || contact.other) : contact.other?.name || '其他物品';
-    motionNotice = {id: selected, contactInvalid: !!installing, message: contact.reason === 'overlap-recovery-limited' ? '原始扫描存在重叠，请向外移开后再旋转；仍受阻时先收起，再放到空处' : installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
+    motionNotice = {id: selected, contactInvalid: !!installing, message: installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
     showToast(motionNotice.message);
   }
   applyLayout();

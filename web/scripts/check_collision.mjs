@@ -55,6 +55,16 @@ for (const id of ['Table0', 'Table1']) check(`${id} lift then settle at original
   assert.equal(placement.assess(id, settled.layout).state, 'stable');
   return {lift: lifted.layout[id].y, liftObstacle: lifted.other, landed: settled.layout[id].y};
 });
+check('desk scanned into its wall slides along the wall but not deeper into it', () => {
+  // The desktop is scanned inside Wall1, which runs about 5° off the x axis.
+  assert(collision.checkPlacement(initial, ['Table1']).ok, 'the desk must be confirmable where it was scanned');
+  const along = action(initial, 'Table1', (pose) => {pose.x -= .996 * .04; pose.z += .086 * .04;}, 'left');
+  assert(along.ok && !along.blocked, `sliding along the wall blocked by ${along.other?.name || along.message}`);
+  const into = action(initial, 'Table1', (pose) => {pose.z += .05;}, 'forward');
+  assert(into.ok && into.blocked && into.other?.id === 'room:Wall1', `pushing into the wall must stop at it, not at ${into.other?.id || into.message}`);
+  assert(into.layout.Table1.z < .006, `pushed ${into.layout.Table1.z} m deeper into the wall`);
+  return {along: [along.layout.Table1.x, along.layout.Table1.z], into: into.layout.Table1.z};
+});
 check('footrest moves through real empty space under the desk', () => {
   const footrest = entities.get('Footrest0').bounds, desk = entities.get('Table1').bounds;
   assert(footrest.intersectsBox(desk), 'fixture must overlap whole-furniture AABBs');
