@@ -46,7 +46,7 @@
 | 物体旧锁 `VIEWFORGE_GPU_LOCK` | 显式指定时继续独占该文件；默认 `$VIEWFORGE_ROOT/cache/gpu.lock` 以共享模式持有，与旧程序的独占操作兼容，也允许新程序在不同 GPU 上运行。物理 UUID 锁始终独占。 |
 | 房间旧锁 | 继续持有 `$ROOMCANVAS_HOME/runtime/locks/gpu-<UUID>.lock`，同时持有新共用物理锁。 |
 | `ROOMCANVAS_GPU_SHARED_MIB` | 默认 `0`：允许显存不超过 100 MiB 且没有计算进程的空闲卡；设为正值时按该显存阈值允许已有轻量占用，不代表跳过锁。 |
-| 等待与继承 | 房间 `--wait-gpu` 和物体任务等待资源时每 2 秒重试一次、等待期间不持有任何锁，最长 30 分钟，超时以明确错误结束。房间任务等待期间在 `runtime-timing.json` 写入 `gpu_waiting_since`，任务状态带 `gpu_waiting`；未取得显卡时记录 `gpu_error`。锁 FD 传递到子进程，父进程关闭自己的 FD 不提前解锁仍工作的子进程。COVER 使用继承锁时校验同一物理卡和同一锁文件。 |
+| 等待与继承 | 房间 `--wait-gpu` 和物体任务等待资源时每 2 秒重试一次、等待期间不持有任何锁，最长 30 分钟，超时以明确错误结束。物体任务只在网页服务里等一次，等待期间状态为 `queued`，拿到锁后经 `--lock-fd` 交给重建脚本。房间任务等待期间在 `runtime-timing.json` 写入 `gpu_waiting_since`，任务状态带 `gpu_waiting`；未取得显卡时记录 `gpu_error`。锁 FD 传递到子进程，父进程关闭自己的 FD 不提前解锁仍工作的子进程。COVER 使用继承锁时校验同一物理卡和同一锁文件。 |
 
 新旧兼容锁不是可删除的临时文件；不能通过删除锁文件“解除占用”。GPU0 验证时使用 `ROOMCANVAS_GPU=0 CUDA_VISIBLE_DEVICES=0`，由统一入口解析为 UUID。
 
@@ -59,7 +59,7 @@
 | [`web/scripts/room_service.py`](../../web/scripts/room_service.py) | `127.0.0.1:7866`；`--data-dir` 必填 | 一键启动默认 `runs/web-room-jobs`。任务记录、执行器和 HTTP 的维护边界以当前模块导入为准。 |
 | [`object-reconstruction/scripts/web.py`](../../object-reconstruction/scripts/web.py) | `127.0.0.1:7862`；`--host`、`--port` | `VIEWFORGE_ROOT`；uploads、任务状态、资产 ready 与尺寸标定各自维护。 |
 
-阶段复用、服务任务状态和事件回放不是同一个状态源：pipeline 输入指纹决定是否强制从头重做（选项变化和上游重跑只引起不强制的重跑）；任务存储表示排队/运行；事件表示发生过什么。新缓存保存内容 receipt，无法证明输入一致的旧缓存明确失效并移至 `.stale`。author 多文件检查点位于 `.room_checkpoint.d`，恢复摘要为 `.author_resume.json`；检查点只表示源码语法与本地资源一致（资源检查只决定是否保存新检查点，不参与恢复判断），不能冒充 Blender 构建或质量验收通过。
+阶段复用、服务任务状态和事件回放不是同一个状态源：pipeline 输入指纹决定是否强制从头重做（选项变化和上游重跑只引起不强制的重跑）；任务存储表示排队/运行；事件表示发生过什么。新缓存保存内容 receipt，无法证明输入一致的旧缓存明确失效并移至 `.stale`。author 多文件检查点位于 `.room_checkpoint.d`，恢复摘要为 `.author_resume.json`，房间初始化所用的输入指纹记在 `.author_inputs`；检查点只表示源码语法与本地资源一致（资源检查只决定是否保存新检查点，不参与恢复判断），不能冒充 Blender 构建或质量验收通过。
 
 ## 4. 保留代码的实际调用与维护责任
 
