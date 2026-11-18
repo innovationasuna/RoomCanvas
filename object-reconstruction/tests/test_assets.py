@@ -164,10 +164,31 @@ class AssetsTests(unittest.TestCase):
         self.assertEqual(manifest['recommendation'], {'id': 'later'})
         self.assertEqual(manifest['assets']['glb'], base['assets']['glb'])
         self.assertEqual(preview_manifest(run)['assets'], base['assets'])
-        # An incomplete/corrupt set remains hidden, even if its commit marker exists.
-        (run/'reconstruction/result.ply').write_bytes(b'partial')
+        # A published file regenerated whole stays served; a torn one hides the set, even if its
+        # commit marker exists.
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb'))
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb')[:-8])
         self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
         self.assertEqual(self.client.get(url).status_code, 409)
+
+    def test_runs_from_before_publication_are_served_while_their_model_is_whole(self):
+        for name, state in [('failed', '{"status": "failed"}'), ('interrupted', '{"status": "running"}'),
+                            ('unreadable', '{"status": "comp')]:
+            (self.model(name)/'result.json').write_text(state)
+        torn = self.model('torn')
+        (torn/'result.json').write_text('{"status": "failed"}')
+        (torn/'reconstruction/result.glb').write_bytes((torn/'reconstruction/result.glb').read_bytes()[:-8])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['unreadable', 'interrupted', 'failed'])
+        self.assertEqual(self.client.get('/viewforge/assets/failed/result.glb').status_code, 200)
+        self.assertEqual(self.client.get('/viewforge/assets/torn/result.glb').status_code, 409)
+
+    def test_a_model_without_a_usable_camera_fit_is_still_published(self):
+        run = self.prepare_publication()
+        with patch('cover_scene.load_scene', side_effect=ValueError('DA3 camera rotation is not orthonormal')):
+            data = publish_asset(run)
+        self.assertTrue(data['assets']['glb']['transform'])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
 
     def test_failed_material_bake_cannot_publish_a_glb(self):
         run = self.prepare_publication()

@@ -13,6 +13,16 @@ class AssetUnavailableError(FileNotFoundError):
         self.state = state
 
 
+def complete(file):
+    """Whether a model file is whole: a GLB must be as long as its header says, anything else nonempty."""
+    size = file.stat().st_size
+    if file.suffix != '.glb':
+        return size > 0
+    with file.open('rb') as stream:
+        head = stream.read(12)
+    return len(head) == 12 and head[:4] == b'glTF' and int.from_bytes(head[8:], 'little') == size
+
+
 def require_asset(run):
     run = Path(run)
     publication = run/'asset.json'
@@ -30,24 +40,29 @@ def require_asset(run):
                 if Path(name).name != name or size <= 0:
                     raise ValueError('Invalid artifact name or size')
                 file = run/'reconstruction'/name
-                if not file.is_file() or file.stat().st_size != size:
+                # A file regenerated after publication (e.g. a collision proxy) stays usable while whole.
+                if not file.is_file() or (file.stat().st_size != size and not complete(file)):
                     raise ValueError('Published artifact is missing or incomplete')
             if not data.get('assets', {}).get('glb', {}).get('transform'):
                 raise ValueError('Missing stable model transform')
             return data
         except (ValueError, KeyError, TypeError, OSError) as exc:
             raise AssetUnavailableError('asset_failed', '物体资产发布不完整，请重新重建') from exc
-    state_path = run/'result.json'
-    if state_path.is_file():
+    state = {}
+    if (run/'result.json').is_file():
         try:
-            state = json.loads(state_path.read_text())
-        except (ValueError, OSError) as exc:
-            raise AssetUnavailableError('asset_failed', '无法读取重建状态') from exc
+            state = json.loads((run/'result.json').read_text())
+        except (ValueError, OSError):
+            state = None  # judged by its model file alone
+    if isinstance(state, dict) and state.get('asset_schema_version'):
         if state.get('status') == 'failed':
             raise AssetUnavailableError('asset_failed', '重建失败，模型尚未发布')
-        if state.get('asset_schema_version') or state.get('status') != 'complete':
-            raise AssetUnavailableError('asset_pending', '模型尚未完成资产发布，请稍后重试')
-    # Historical completed runs and manually imported GLBs predate result.json.
+        raise AssetUnavailableError('asset_pending', '模型尚未完成资产发布，请稍后重试')
+    # Older runs and manually imported GLBs predate asset.json and were served whatever their state
+    # said: a finished one is served as before, any other only while its model file is whole.
+    if not (isinstance(state, dict) and state.get('status', 'complete') == 'complete'):
+        if not complete(run/'reconstruction/result.glb'):
+            raise AssetUnavailableError('asset_failed', '重建未完成，模型文件不完整')
     return None
 
 
@@ -90,7 +105,10 @@ def publish_asset(run):
     config = yaml.safe_load((run/'config.yaml').read_text()) or {}
     if config.get('mesh_export', {}).get('mode') == 'baked_pbr' and not capabilities:
         raise ValueError('PBR material baking has not completed')
-    scene = load_scene(run)
+    try:
+        scene = load_scene(run)
+    except Exception:
+        scene = None  # As COVER does: without a usable camera fit the model is still published, unaligned.
     data = make_manifest(run, scene)
     # Parse the actual GLB as well: a nonempty partial file cannot be published.
     geometry(run, manifest=data)
