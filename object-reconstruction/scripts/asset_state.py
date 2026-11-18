@@ -3,6 +3,7 @@
 The single asset.json rename is the commit point. COVER owns recommendations,
 but never owns the transforms or material capabilities of a published model.
 """
+from functools import lru_cache
 import json
 from pathlib import Path
 
@@ -17,9 +18,22 @@ PLY_SIZES = {'char': 1, 'uchar': 1, 'int8': 1, 'uint8': 1, 'short': 2, 'ushort':
              'int': 4, 'uint': 4, 'int32': 4, 'uint32': 4, 'float': 4, 'float32': 4, 'double': 8, 'float64': 8}
 
 
+@lru_cache(maxsize=256)
+def _parses(path, size, mtime_ns, inode):
+    """A PLY whose length its header cannot give (text rows, list properties) is whole when it parses.
+    Keyed by the file's identity, so serving it again does not parse it again."""
+    from plyfile import PlyData, PlyParseError
+    try:
+        PlyData.read(path)
+    except (PlyParseError, ValueError, OSError):
+        return False
+    return True
+
+
 def complete(file):
     """Whether a model file is whole: exactly as long as its GLB or binary PLY header says."""
-    size = file.stat().st_size
+    stat = file.stat()
+    size = stat.st_size
     with file.open('rb') as stream:
         head = stream.read(12 if file.suffix == '.glb' else 65536)
     if file.suffix == '.glb':
@@ -33,14 +47,14 @@ def complete(file):
     lines = [line.split() for line in head[:end].decode('ascii', 'replace').splitlines()]
     try:
         if lines[1][1] not in ('binary_little_endian', 'binary_big_endian'):
-            return size > expected  # ASCII rows have no fixed length
+            return _parses(str(file), size, stat.st_mtime_ns, stat.st_ino)  # text rows: no fixed length
         count = 0
         for words in lines:
             if words[:1] == ['element']:
                 count = int(words[2])
             elif words[:1] == ['property']:
                 if words[1] == 'list':
-                    return size > expected  # variable-length rows
+                    return _parses(str(file), size, stat.st_mtime_ns, stat.st_ino)  # variable-length rows
                 expected += count * PLY_SIZES[words[1]]
     except (IndexError, KeyError, ValueError):
         return False
