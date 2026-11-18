@@ -102,4 +102,6 @@ def command_result(
         artifacts=paths,
         warnings=warnings,
         error=None if rc == 0 or allow_nonzero else f"command exited {rc}" + (f"; see {log}" if log else ""),
+        error_category="execution" if rc and not allow_nonzero else None,
+        artifact_validity="valid" if paths and len(paths) == len(artifacts or {}) and rc == 0 else "unknown",
     )

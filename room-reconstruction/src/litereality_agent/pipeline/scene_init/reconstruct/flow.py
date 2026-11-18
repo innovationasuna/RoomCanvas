@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from litereality_agent import PACKAGE_ROOT, REPO_ROOT, telemetry
+from litereality_agent import PACKAGE_ROOT, REPO_ROOT, artifact_cache, telemetry
 from litereality_agent.pipeline.scene_init import paths as config
 
 LAUNCHER = PACKAGE_ROOT / "models" / "trellis" / "inference.py"
@@ -258,6 +258,7 @@ def run_for_scan(
     python: str | None = None,
     seed: int = 42,
     decimation: int = 50000,
+    texture_size: int = 4096,
     skip_existing: bool = True,
     dry_run: bool = False,
 ) -> dict:
@@ -311,7 +312,7 @@ def run_for_scan(
         staged: list[tuple[str, Path]] = []
         for asset_id, ref in refs:
             dst = refs_dir / f"{asset_id}.png"
-            if not dst.exists() or dst.stat().st_mtime < ref.stat().st_mtime:
+            if artifact_cache.file_hash(dst) != artifact_cache.file_hash(ref):
                 shutil.copy(ref, dst)
             staged.append((asset_id, dst))
         plan["backend"] = service_name
@@ -327,7 +328,8 @@ def run_for_scan(
             return plan
         launched = time.time()
         results = reconstructor.reconstruct_refs(
-            staged, recon_dir, seed=seed
+            staged, recon_dir, seed=seed, decimation=decimation,
+            texture_size=texture_size, skip_existing=skip_existing,
         )  # simplify ratio default
         results = results or {}
         failed = [
@@ -380,8 +382,12 @@ def run_for_scan(
     refs_dir.mkdir(parents=True, exist_ok=True)
     for asset_id, ref in refs:
         dst = refs_dir / f"{asset_id}.png"
-        if not dst.exists() or dst.stat().st_mtime < ref.stat().st_mtime:
+        if artifact_cache.file_hash(dst) != artifact_cache.file_hash(ref):
             shutil.copy(ref, dst)
+
+    for staged in refs_dir.glob("*.png"):
+        if staged.stem not in {aid for aid, _ in refs}:
+            staged.unlink()
 
     cmd = [
         interpreter,
@@ -394,6 +400,7 @@ def run_for_scan(
         str(seed),
         "--decimation",
         str(decimation),
+        "--texture-size", str(texture_size),
     ]
     if skip_existing:
         cmd.append("--skip-existing")
@@ -410,7 +417,7 @@ def run_for_scan(
 
     launched = time.time()
     proc = _run(cmd, cwd=str(REPO_ROOT))
-    generated = sorted(p.name for p in recon_dir.glob("*.glb"))
+    generated = sorted(f"{aid}.glb" for aid, _ in refs if (recon_dir / f"{aid}.glb").is_file())
     _record_objects(scan, {aid: recon_dir / f"{aid}.glb" for aid, _ in refs}, launched)
     failed = sorted(aid for aid, _ in refs if not (recon_dir / f"{aid}.glb").is_file())
     if proc.returncode:

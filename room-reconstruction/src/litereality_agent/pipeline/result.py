@@ -9,10 +9,20 @@ from typing import Any
 
 
 class StageStatus(str, Enum):
+    RUNNING = "running"
+    INVALIDATED = "invalidated"
     COMPLETED = "completed"
     REUSED = "reused"
     SKIPPED = "skipped"
     FAILED = "failed"
+
+
+class StageFailure(RuntimeError):
+    """A failure whose retry policy is known at the boundary that detects it."""
+
+    def __init__(self, message: str, category: str = "execution", *, retryable: bool = False):
+        super().__init__(message)
+        self.category, self.retryable = category, retryable
 
 
 @dataclass(slots=True)
@@ -24,6 +34,9 @@ class StageResult:
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
     details: dict[str, Any] = field(default_factory=dict)
+    error_category: str | None = None
+    retryable: bool = False
+    artifact_validity: str = "unknown"
 
     @property
     def ok(self) -> bool:
@@ -44,7 +57,23 @@ class StageResult:
             warnings=[str(item) for item in data.get("warnings", [])],
             error=data.get("error"),
             details=dict(data.get("details", {})),
+            error_category=data.get("error_category"),
+            retryable=bool(data.get("retryable", False)),
+            artifact_validity=str(data.get("artifact_validity", "unknown")),
         )
+
+    @classmethod
+    def failure(cls, stage: str, error: Exception) -> "StageResult":
+        if isinstance(error, StageFailure):
+            category, retryable = error.category, error.retryable
+        elif isinstance(error, (TimeoutError, ConnectionError)):
+            category, retryable = "transient", True
+        elif isinstance(error, (ValueError, FileNotFoundError)):
+            category, retryable = "input", False
+        else:
+            category, retryable = "execution", False
+        return cls(stage, StageStatus.FAILED, error=str(error), error_category=category,
+                   retryable=retryable, artifact_validity="invalid")
 
     def artifacts_exist(self) -> bool:
         return bool(self.artifacts) and all(Path(value).exists() for value in self.artifacts.values())

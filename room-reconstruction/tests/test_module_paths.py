@@ -128,11 +128,27 @@ def test_executable_helpers_survived_the_layout_move():
     )
 
 
-def test_reconstruct_resolves_python_from_canonical_repo_root(monkeypatch):
+def test_reconstruct_resolves_python_from_canonical_repo_root(tmp_path, monkeypatch):
     from litereality_agent.pipeline.scene_init.reconstruct import flow
 
     monkeypatch.delenv("LITEREALITY_TRELLIS_PYTHON", raising=False)
-    assert Path(flow.resolve_python(None)) == REPO / ".venv" / "bin" / "python"
+    root = tmp_path / "repo"
+    interpreter = root / ".venv" / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    monkeypatch.setattr(flow, "REPO_ROOT", root)
+    monkeypatch.chdir(tmp_path)
+    assert Path(flow.resolve_python(None)) == interpreter
+
+
+def test_reconstruct_without_repo_venv_falls_back_to_calling_python(tmp_path, monkeypatch):
+    import sys
+
+    from litereality_agent.pipeline.scene_init.reconstruct import flow
+
+    monkeypatch.delenv("LITEREALITY_TRELLIS_PYTHON", raising=False)
+    monkeypatch.setattr(flow, "REPO_ROOT", tmp_path)
+    assert flow.resolve_python(None) == sys.executable
 
 
 def test_agent_render_tool_uses_the_engine_under_its_own_source():

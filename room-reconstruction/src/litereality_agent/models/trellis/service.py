@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from litereality_agent import PACKAGE_ROOT  # the launcher is CODE, shipped in the wheel
+from litereality_agent import artifact_cache as cache
 
 DEFAULT_LAUNCHER = PACKAGE_ROOT / "models" / "trellis" / "inference.py"
 
@@ -63,13 +64,25 @@ class LocalTrellisService:
         simplify: float = 0.95,  # simplify accepted (hosted parity), unused locally
         decimation: int = 50000,
         texture_size: int = 4096,
+        pipeline_type: str | None = None,
+        skip_existing: bool = True,
     ) -> dict[str, str]:
         """{asset_id: image(path|PIL)} → {asset_id: glb_path} via the local launcher (batch)."""
         if not self.launcher.is_file():
             raise FileNotFoundError(f"TRELLIS launcher not found: {self.launcher}")
+        if decimation is None:
+            decimation = max(10_000, round(1_000_000 * (1.0 - min(max(simplify, 0.0), 1.0))))
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
-        refs = Path(tempfile.mkdtemp(prefix="trellis_refs_"))
+        refs = Path(tempfile.mkdtemp(prefix=".trellis-", dir=out))
+        generated = refs / "generated"
+        home = Path(os.environ.get("ROOMCANVAS_HOME") or PACKAGE_ROOT.parents[2])
+        weights = home / "backends" / "weights"
+        model_identity = {name: {"config": cache.file_hash(weights / name / "pipeline.json"),
+                                 "resolved": str((weights / name / "ckpts").resolve())}
+                          for name in ("trellis2", "trellis2-local", "trellis2_4b_local")}
+        results = {aid: "" for aid in items}
+        keys = {}
         try:
             for aid, img in items.items():
                 dst = refs / f"{aid}.png"
@@ -77,13 +90,32 @@ class LocalTrellisService:
                     shutil.copy(img, dst)
                 else:  # PIL
                     img.convert("RGB").save(dst)
+            for aid in items:
+                keys[aid] = cache.fingerprint({
+                    "version": 1, "image": cache.file_hash(refs / f"{aid}.png"),
+                    "seed": seed, "decimation": decimation, "texture_size": texture_size,
+                    "pipeline_type": pipeline_type, "model": model_identity,
+                    "launcher": cache.file_hash(self.launcher),
+                    "inference": cache.file_hash(DEFAULT_LAUNCHER),
+                    "model_revision": os.environ.get("LITEREALITY_TRELLIS_REVISION", "default"),
+                })
+                target = out / f"{aid}.glb"
+                if skip_existing and cache.matches(target, keys[aid]):
+                    results[aid] = str(target)
+                    (refs / f"{aid}.png").unlink()
+                else:
+                    cache.invalidate(target)
+            pending = [aid for aid in items if not results[aid]]
+            if not pending:
+                self.last_report = {"rc": 0, "n": len(items), "reused": len(items)}
+                return results
             cmd = [
                 self.python,
                 str(self.launcher),
                 "-i",
                 str(refs),
                 "-o",
-                str(out),
+                str(generated),
                 "--seed",
                 str(seed),
                 "--decimation",
@@ -92,12 +124,25 @@ class LocalTrellisService:
                 str(texture_size),
                 "--parallel",
                 str(self.parallel),
-                "--skip-existing",
             ]
+            if pipeline_type:
+                cmd += ["--pipeline-type", pipeline_type]
+            if skip_existing:
+                cmd.append("--skip-existing")
             print(f"  [trellis-local] {len(items)} asset(s) via {self.launcher.name}", flush=True)
             t0 = time.time()
             rc = subprocess.run(cmd).returncode
-            self.last_report = {"rc": rc, "seconds": round(time.time() - t0, 1), "n": len(items)}
+            for aid in pending:
+                made = generated / f"{aid}.glb"
+                receipt = cache.read_json(cache.receipt_path(made))
+                certified = isinstance(receipt, dict) and receipt.get("output") == cache.file_hash(made)
+                if made.is_file() and made.stat().st_size and (rc == 0 or certified):
+                    target = out / made.name
+                    made.replace(target)
+                    cache.record(target, keys[aid])
+                    results[aid] = str(target)
+            self.last_report = {"rc": rc, "seconds": round(time.time() - t0, 1), "n": len(items),
+                                "failed": [aid for aid, result in results.items() if not result]}
         finally:
             shutil.rmtree(refs, ignore_errors=True)
-        return {aid: str(out / f"{aid}.glb") for aid in items}
+        return results

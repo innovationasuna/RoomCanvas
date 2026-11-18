@@ -25,7 +25,6 @@ import argparse
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,6 +33,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from litereality_agent import artifact_cache as cache
+from litereality_agent.pipeline.realism_authoring import pass_cache
 from litereality_agent.pipeline.realism_authoring.small_objects import candidates, evidence, judge
 from litereality_agent.room_ops.paths import find_blender
 
@@ -54,6 +55,8 @@ class Pass:
         self.only = set(only or [])
         self.concurrency = concurrency
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
+        self.dependency_key = pass_cache.prepare(
+            self.out, self.preview, self.frames, self.layout, Path(__file__).parent)
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
@@ -256,19 +259,22 @@ class Pass:
         final = self.out / "room_preview"
         drop, replace = self.plan(self.items)
         plan = {"drop": drop, "replace": replace}
-        record = final / "plan.json"
-        if record.exists() and json.loads(record.read_text()) != plan:
-            # A rerun finished rebuilds that failed before: the derived room is made again.
-            self.log("plan changed since the last apply: rebuilding room_preview")
-            shutil.rmtree(final)
-            shutil.rmtree(self.out / "renders" / "after", ignore_errors=True)
+        key = cache.fingerprint({"source": self.dependency_key, "plan": plan,
+                                 "meshes": {i["glb"]: cache.file_hash(Path(i["glb"]))
+                                            for i in replace}})
+        if not pass_cache.bundle_matches(final, key, pass_cache.ROOM_FILES):
+            cache.retire([final, self.out / "renders" / "after"], self.out)
             for item in self.items:
                 (self.out / "evidence" / item["id"] / "pair_after.jpg").unlink(missing_ok=True)
-        if not (final / "Room.blend").exists():
-            self.blender(self.preview / "Room.blend",
-                         {"op": "apply", "layout": str(self.preview / "room_layout.json"),
-                          "out_dir": str(final), **plan}, "apply")
-            record.write_text(json.dumps(plan, indent=1))
+            try:
+                self.blender(self.preview / "Room.blend",
+                             {"op": "apply", "layout": str(self.preview / "room_layout.json"),
+                              "out_dir": str(final), **plan}, "apply")
+                pass_cache.record_bundle(final, key, pass_cache.ROOM_FILES)
+                cache.atomic_json(final / "plan.json", plan)
+            except BaseException:
+                cache.retire([final], self.out)
+                raise
         # For people to look at (overview.jpg); nobody asks a model about these.
         rebuilt = [i for i in self.items if i.get("glb") and
                    i["decision"]["decision"] == "trellis"]

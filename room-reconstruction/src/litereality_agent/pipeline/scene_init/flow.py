@@ -510,7 +510,8 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
             try:
                 recon = reconstruct.run_for_scan(
                     scan, python=args.trellis_python, seed=args.seed,
-                    decimation=args.decimation, skip_existing=not args.force_reconstruct,
+                    decimation=args.decimation, texture_size=args.texture_size,
+                    skip_existing=not args.force_reconstruct,
                     dry_run=args.dry_run_reconstruct,
                 )
                 result["reconstruct"] = recon
@@ -829,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Interpreter for the TRELLIS launcher ($LITEREALITY_TRELLIS_PYTHON / .venv).",
     )
     parser.add_argument("--seed", type=int, default=42, help="TRELLIS seed.")
+    parser.add_argument("--texture-size", type=int, default=4096, help="TRELLIS texture size.")
     parser.add_argument(
         "--decimation", type=int, default=50000, help="TRELLIS mesh decimation target."
     )

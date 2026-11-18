@@ -128,8 +128,9 @@ def _record_build(room_dir: Path, glb: Path) -> None:
 
         before, after = _glb_tree(scene / SEED_GLB), _glb_tree(glb)
         added = sorted(n for n, p in after.items() if n not in before and (p is None or p in before))
-        telemetry.record(scene / "scene_init" / "obj_stage" / "traces", "room_built",
-                         at=Path(glb).stat().st_mtime, added=added)
+        telemetry.record_artifact(scene / "scene_init" / "obj_stage" / "traces", "room_built", glb,
+                                  at=Path(glb).stat().st_mtime, added=added,
+                                  path=str(Path(glb).relative_to(scene)))
     except Exception:  # noqa: BLE001 — a replay record never fails a build
         pass
 
@@ -176,4 +177,7 @@ def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 102
             print(f"Blender produced no baked {glb.name}", file=log)
             return 1
         baked.replace(glb)
+        from litereality_agent.room_ops.compile.records import record_compilation
+
+        record_compilation(glb, "baked")
         return 0

@@ -28,6 +28,7 @@ import sys
 import time
 from pathlib import Path
 
+from litereality_agent import artifact_cache as cache
 from litereality_agent.models import runtime_env as _env
 
 _env.configure_trellis_runtime()
@@ -232,7 +233,7 @@ def main() -> int:
     p.add_argument("--decimation", type=int, default=50000, dest="decimation_target", help="Target face count.")
     p.add_argument("--texture-size", type=int, default=4096)
     p.add_argument("--pipeline-type", default=None, help="'512'/'1024'/'1024_cascade'/'1536_cascade'.")
-    p.add_argument("--skip-existing", action="store_true", help="Skip if the output GLB already exists.")
+    p.add_argument("--skip-existing", action="store_true", help="Reuse outputs with matching input, model and parameter receipts.")
     p.add_argument("--no-skip-floor-wall", dest="skip_floor_wall", action="store_false",
                    help="Reconstruct Floor and pure Wall images too (skipped by default).")
     p.set_defaults(skip_floor_wall=True)
@@ -257,11 +258,6 @@ def main() -> int:
         pairs = [(i, o) for i, o in pairs if not is_pure_wall_or_floor(i.stem)]
         if skipped:
             print(f"[TRELLIS] skipping {len(skipped)} Floor/pure-Wall image(s): {skipped}")
-    if args.skip_existing:
-        pairs = [(i, o) for i, o in pairs if not o.exists()]
-        if not pairs:
-            print("[TRELLIS] all outputs already exist, nothing to do.")
-            return 0
     if args._shard is not None:
         si, sn = (int(x) for x in args._shard.split("/"))
         pairs = pairs[si::sn]
@@ -269,21 +265,44 @@ def main() -> int:
             print("nothing to do")
             return 0
 
+    model_path = Path(args.model)
+    model_identity = {"model": args.model, "resolved": str(model_path.resolve()),
+                      "config": cache.file_hash(model_path / "pipeline.json")}
+    keys = {out: cache.fingerprint({
+        "version": 1, "image": cache.file_hash(img), "model": model_identity,
+        "code": cache.file_hash(Path(__file__)), "seed": args.seed,
+        "decimation": args.decimation_target, "texture_size": args.texture_size,
+        "pipeline_type": args.pipeline_type, "skip_rembg": args.skip_rembg,
+    }) for img, out in pairs}
+    if args.skip_existing:
+        pairs = [(i, o) for i, o in pairs if not cache.matches(o, keys[o])]
+        if not pairs:
+            print("[TRELLIS] all outputs already exist, nothing to do.")
+            return 0
+
+    if not pairs:
+        return 0
+    for _, output in pairs:
+        cache.invalidate(output)
     print(f"[TRELLIS] {len(pairs)} image(s) to process")
     pipeline = load_pipeline(prepare_local_model(args.model), skip_rembg=args.skip_rembg)
 
     t0 = time.time()
+    failed = 0
     for idx, (img, out) in enumerate(pairs, 1):
         print(f"[{idx}/{len(pairs)}] {img.name} -> {out.name}")
         ti = time.time()
         try:
             generate(pipeline, img, out, seed=args.seed, decimation_target=args.decimation_target,
                      texture_size=args.texture_size, pipeline_type=args.pipeline_type)
+            cache.record(out, keys[out])
             print(f"  done in {time.time() - ti:.1f}s  ({out.stat().st_size / 1024:.0f} KB)")
         except Exception as e:  # noqa: BLE001
+            failed += 1
+            cache.invalidate(out)
             print(f"  ERROR: {e}", file=sys.stderr)
     print(f"[TRELLIS] all done in {time.time() - t0:.1f}s")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 """The supported pipeline, in execution order."""
+from dataclasses import replace
 
 from litereality_agent.pipeline import simulate
+from litereality_agent.pipeline.fingerprint import input_fingerprint
 from litereality_agent.pipeline.realism_authoring import author
 from litereality_agent.pipeline.room_qc import publish
 from litereality_agent.pipeline.scene_init import ingest, reconstruct, seed
@@ -18,5 +20,8 @@ STAGES = (
     Stage("simulate", simulate.run, ("publish",), required=False,
           is_complete=simulate.complete),
 )
+
+STAGES = tuple(replace(stage, fingerprint=lambda context, options, name=stage.name:
+                      input_fingerprint(context, name, options)) for stage in STAGES)
 
 __all__ = ["STAGES"]

@@ -37,6 +37,11 @@ def run(context: RunContext, options: dict) -> StageResult:
     if context.authored_room.exists() and options.get("force"):
         backup = Path(tempfile.mkdtemp(prefix="before-author-", dir=context.authored_room.parent))
         shutil.move(str(context.authored_room), str(backup / "room"))
+        for name in (".room_checkpoint.py", ".room_checkpoint.d", ".author_resume.json",
+                     ".author_result.json", ".author_restore_pending.json"):
+            saved = context.authored_room.parent / name
+            if saved.exists():
+                shutil.move(str(saved), str(backup / name))
     context.authored_room.parent.mkdir(parents=True, exist_ok=True)
     if not context.authored_room.exists():
         shutil.copytree(context.seed_room, context.authored_room)

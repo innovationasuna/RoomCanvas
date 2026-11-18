@@ -86,6 +86,9 @@ def run_object_py(
                           "cyan"))
         return False
     size = console.human_bytes(out_glb.stat().st_size)
+    from litereality_agent.room_ops.compile.records import record_compilation
+
+    record_compilation(out_glb, "assembled")
     kind = "regen" if is_proc else "wrap "
     print(f"{console.row('done', name, f'{kind}  {size:<9}', 'cyan')}{took}")
     return True
