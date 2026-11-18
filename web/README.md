@@ -126,7 +126,7 @@ python3 web/scripts/serve.py
 | `ao=off` / `ao=n8ao` | 关闭环境遮蔽 / 改用 N8AO |
 | `env=off`、`shadows=original` | 关闭环境反射、使用原始阴影参数，用于分项对比 |
 | `materials=pbr` / `materials=original` | 默认开启导入受光；`original` 仅关闭旧版顶点色模型的受光，原生 PBR 结果仍然受光 |
-| `lightingLab=1` | 开启 `roomLightingLab` 调试接口：固定状态保存与恢复、材质检查、镜头回放和 GPU 计时 |
+| `lightingLab=1` | 开启 `roomLightingLab` 调试接口：固定状态保存与恢复、材质检查、镜头回放、编辑器阶段和 GPU 计时 |
 
 控制台里的 `roomEditor.snapshot().lighting` 可查看当前环境、阴影参数和 AO 状态。
 
@@ -219,12 +219,14 @@ node web/scripts/check_object_photos.mjs --playwright $PW
 
 | 脚本 | 检查内容 |
 | --- | --- |
-| `check_lighting.mjs` | 固定镜头和布局下的整体、近景截图，逐帧 CPU / GPU 计时；支持 `--rooms`、`--variants`、`--frames` |
+| `check_lighting.mjs` | 固定镜头和布局下的整体、近景截图，逐帧 CPU / GPU 计时；支持 `--rooms`、`--variants`、`--frames`；加 `--asset-edits` 可在光照采样后导入并删除示例阅读椅 |
 | `check_import_lighting.mjs` | 用合成模型走完整的导入和摆放流程，检查受光材质与原显示的切换 |
 | `check_lighting_stability.mjs` | 悬停和移出画布时不重绘、半透明墙前后一致、移动后正确更新 |
 | `check_time_lighting.mjs` | 五个时段、顶灯定位与衰减、角度和开关、按房间保存、调色只做一次合成、窄屏和键盘操作 |
 | `check_ground_grid.mjs` | 108 组透视 / 俯视、微小旋转及渲染合成的像素对比：地板遮挡网格，房间外的网格仍可见 |
 | `check_object_photos.mjs` | 合成 HEIC 原图与误改 PNG / JPEG 后缀、预览尺寸和颜色、损坏文件提示及实际上传编码；模拟接口，不启动重建任务 |
+
+每个光照档位的 `report.json` 条目在 `editorStages` 下保留最近 128 个分段样本。每个样本记录操作、阶段、页面内起点和耗时（毫秒），以及可编辑物品数。初次加载分开记录模型读取与解析的合计耗时、支撑构建、碰撞几何提取、主线程碰撞构建、Worker 提交和缩略图。`collisionWorkerSubmit` 从主线程准备或复用 Worker 开始，到数据打包并提交结束。`rebuild` 是资产增删时支撑与碰撞子阶段的总耗时；`floorSearch` 记录导入后的落点搜索。用 `--asset-edits` 时，显示模型和碰撞预览均使用仓库内同一份椅子模型，哈希见报告的 `conditions.assetEditModelSha256`。旧版页面的 `editorStages` 为 `null`。
 
 输出包含示例房间的截图，请放在仓库外，不要提交。
 

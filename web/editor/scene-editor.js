@@ -50,6 +50,15 @@ const gestureFeedbackPanel = mountGestureFeedback($('#gesture-card'));
 // path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
 // a published preview (<room>/preview/editor/) with neither.
 const query = new URLSearchParams(location.search);
+const stageSamples = query.has('lightingLab') ? [] : null;
+function startStage() {
+  return stageSamples && performance.now();
+}
+function finishStage(operation, stage, atMs) {
+  if (!stageSamples) return;
+  if (stageSamples.length === 128) stageSamples.shift();
+  stageSamples.push({operation, stage, atMs, durationMs: performance.now() - atMs, entityCount: entities.size});
+}
 const lightProfile = lightingProfile(query.get('lighting'));
 const enhancedLighting = lightProfile.name !== 'original';
 const sceneParam = query.get('scene'), roomParam = query.get('room');
@@ -961,7 +970,7 @@ function bindEvents() {
     select(null);
     const imported = [...entities.values()].filter(entity => entity.importMaterials);
     for (const entity of imported) entity.importMaterials.setMode($('#import-lighting').checked ? 'pbr' : 'original');
-    if (imported.length) renderFurnitureThumbnails(imported);
+    if (imported.length) renderFurnitureThumbnails(imported, 'changeMaterials');
     renderer.shadowMap.needsUpdate = true; requestRender();
   };
   $('#export-layout').onclick = (event) => {
@@ -1145,14 +1154,14 @@ function removeImportedObject(id) {
   setSeeThrough(entity.group, false);
   entity.importMaterials.dispose(); disposeObjectTree(entity.group);
   placementStates.delete(id); dropPlan = null;
-  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
-  rebuildCollision(); applyLayout(); persist();
+  rebuildAfterAssetChange('delete'); applyLayout(); persist();
   if ($('#search').value) $('#search').dispatchEvent(new Event('input'));
   $('#status').textContent = `已删除${entity.name}这一份，重建结果仍保留`;
   showToast('已删除这一份，可从“导入物品”重新添加');
 }
 
-function renderFurnitureThumbnails(list = entities.values()) {
+function renderFurnitureThumbnails(list = entities.values(), operation = 'initial') {
+  const started = startStage();
   list = [...list];
   // Render the actual grouped model, sharing its geometry/materials without mutating them.
   // One temporary context serves the entire shelf and is released after rendering.
@@ -1190,6 +1199,7 @@ function renderFurnitureThumbnails(list = entities.values()) {
     previewEnvironment?.dispose();
     previewRenderer.dispose();
     previewRenderer.forceContextLoss();
+    finishStage(operation, 'thumbnails', started);
   }
 }
 
@@ -1979,7 +1989,9 @@ async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
   $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
   const loader = new GLTFLoader();
+  const modelStarted = startStage();
   const {full, light} = await loadModels(run, (url) => loader.loadAsync(url));
+  finishStage('import', 'modelReadAndParse', modelStarted);
   cancelSession(false);
   const id = `added-${++addedCount}`, contact = `${id}:contact`;
   const shape = new THREE.Group();
@@ -2010,14 +2022,15 @@ async function importRun(run, base, scale, capabilities) {
   placementSpecs[id] = {body: [contact]};
   layout[id] = stored();
   for (const past of [...history.past, ...history.future]) past[id] = stored();
-  appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity]);
+  appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity], 'import');
   group.visible = false;
   // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
-  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
-  rebuildCollision();
+  rebuildAfterAssetChange('import');
   renderer.shadowMap.needsUpdate = true;
   beginSession(id);
+  const searchStarted = startStage();
   const spot = freeSpot(id);
+  finishStage('import', 'floorSearch', searchStarted);
   if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
   showToast(`已导入${name}：${handsOn() ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
   if (!handsOn()) pending.locked = false;
@@ -2075,7 +2088,10 @@ async function load() {
   config = await roomConfigReady;
   ids.push(...config.catalog.map((item) => item.id)); roomIds.push(...ids);
   Object.assign(placementSpecs, config.placement);
-  const gltf = await new GLTFLoader().loadAsync(await versionedModelURL(), reportProgress(0, 80));
+  const modelURL = await versionedModelURL();
+  const modelStarted = startStage();
+  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80));
+  finishStage('initial', 'modelReadAndParse', modelStarted);
   progress.value = 80;
   room = gltf.scene;
   scene.add(room);
@@ -2119,7 +2135,7 @@ async function load() {
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
   ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
-  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  rebuildPlacement('initial');
   groundGrid = createGroundGrid(THREE, {floorY, target: controls.target, walls: placement.wallTargets()});
   scene.add(groundGrid);
   if (enhancedLighting) {
@@ -2136,7 +2152,7 @@ async function load() {
     $('#wall-target').appendChild(option);
   }
   audit.placement = placement.audit;
-  rebuildCollision();
+  rebuildCollision('initial');
   audit.collision = collision.audit;
   wallVisibility = createWallVisibility(room, placement.wallTargets(), {...wallOptions(placement.wallTargets()), conceal: (root, on) => setSeeThrough(root, on, nearWallMode() === 'hidden' ? 0 : SEE_THROUGH)});
   // GLTFLoader may rename a node; the original name is kept in userData.name.
@@ -2353,6 +2369,7 @@ function installLightingLab() {
     },
     metrics: () => renderMetrics.snapshot(),
     resetMetrics: () => renderMetrics.reset(),
+    stageTimings: () => stageSamples.map(sample => ({...sample})),
     materials() {
       const materials = new Map(); let meshes = 0, missingNormals = 0;
       room.traverse(mesh => {
@@ -2379,10 +2396,31 @@ function installLightingLab() {
   });
 }
 
-function rebuildCollision() {
+function rebuildPlacement(operation) {
+  const started = startStage();
+  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
+  finishStage(operation, 'placement', started);
+}
+
+function rebuildCollision(operation) {
+  const geometryStarted = startStage();
   const owners = collisionOwners(THREE, room, entities, {label: config.label});
+  finishStage(operation, 'collisionGeometry', geometryStarted);
+  const buildStarted = startStage();
   collision = buildCollision(owners, {keepAuthoredOverlaps: true});
-  try {startBackgroundCollision(owners);} catch (error) {console.error(error); background = null;}
+  finishStage(operation, 'collisionMainBuild', buildStarted);
+  try {
+    const submitStarted = startStage();
+    startBackgroundCollision(owners);
+    finishStage(operation, 'collisionWorkerSubmit', submitStarted);
+  } catch (error) {console.error(error); background = null;}
+}
+
+function rebuildAfterAssetChange(operation) {
+  const started = startStage();
+  rebuildPlacement(operation);
+  rebuildCollision(operation);
+  finishStage(operation, 'rebuild', started);
 }
 
 // Each fixture hides with its recorded wall; one with none (a curtain on a ceiling track)
