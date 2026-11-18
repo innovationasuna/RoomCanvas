@@ -195,10 +195,10 @@ python3 web/scripts/serve.py
 单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行：
 
 ```bash
-node --test 'web/editor/tests/*.mjs'
-node --test web/scripts/test_room_reconstruction.mjs
+node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
 python3 -m unittest discover -s web/scripts
-node web/scripts/check_room.mjs --scene-dir samples/room3      # 约 30 秒，适用于任何房间
+node web/scripts/check_room.mjs --scene-dir samples/room3
+node web/scripts/check_room.mjs --scene-dir samples/room-3934  # 57 件可编辑物品
 for c in collision wall_mount seat_support gravity; do node web/scripts/check_$c.mjs --scene-dir samples/office; done
 ```
 
