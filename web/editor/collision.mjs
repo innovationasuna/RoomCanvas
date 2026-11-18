@@ -223,8 +223,8 @@ const projection = (mesh, axis, offset = 0) => [-support(mesh, axis.map((v) => -
 
 // A mesh's connected pieces (the two sides of a frame, each book of a stack), each with its outer
 // planes, as an outward normal n and n·x <= d: its bounds, and the planes of its faces with the
-// whole piece behind them, the faces of its convex hull (one per direction, alike directions
-// merged). A flat sheet is behind both of its sides. Computed on first use.
+// whole piece behind them, the faces of its convex hull. A flat sheet is behind both of its
+// sides. Computed on first use.
 const pieceCache = new WeakMap();
 function pieces(mesh) {
   if (!pieceCache.has(mesh.tree)) {
@@ -240,9 +240,13 @@ function pieces(mesh) {
       return numbers.get(p);
     };
     const find = (k) => {while (parent[k] !== k) k = parent[k] = parent[parent[k]]; return k;};
+    // The corners of the faces around each vertex: most faces that are not on the hull have one
+    // of them in front, which is cheaper to find than a search of the whole piece.
+    const around = [];
     for (const face of mesh.faces) {
       const [a, b, c] = face.triangle.map(number);
       parent[find(b)] = find(a); parent[find(c)] = find(a);
+      for (const k of [a, b, c]) (around[k] ||= []).push(...face.triangle);
     }
     const groups = new Map();
     for (const face of mesh.faces) {
@@ -252,15 +256,19 @@ function pieces(mesh) {
     }
     const found = groups.size === 1 ? [{tree: mesh.tree, faces: mesh.faces}] : [...groups.values()].map((faces) => ({tree: makeBVH(faces.slice()), faces}));
     pieceCache.set(mesh.tree, found.map((piece) => {
-      const planes = new Map(), direction = (n) => n.map((v) => Math.round(v * 8)).join(',');
-      for (let k = 0; k < 6; k++) {
-        const n = [0, 1, 2].map((j) => j === k % 3 ? (k < 3 ? 1 : -1) : 0);
-        planes.set(direction(n), {n, d: k < 3 ? piece.tree.box[k + 3] : -piece.tree.box[k - 3]});
+      const planes = [0, 1, 2, 3, 4, 5].map((k) => ({n: [0, 1, 2].map((j) => j === k % 3 ? (k < 3 ? 1 : -1) : 0), d: k < 3 ? piece.tree.box[k + 3] : -piece.tree.box[k - 3]}));
+      // Only faces parallel to within about a hundredth of a degree are merged, keeping the largest;
+      // a real normal is never replaced by a nearby direction.
+      const directions = new Set(), area = ({triangle: [a, b, c]}) => Math.hypot(...cross(subtract(b, a), subtract(c, a)));
+      const largest = piece.faces.map((face) => [area(face), face]).sort((f, g) => g[0] - f[0]).map(([, face]) => face);
+      for (const face of largest) for (const [n, e] of [[face.plane, face.d], [face.plane.map((v) => -v), -face.d]]) {
+        const direction = n.map((v) => Math.round(v * 1e4)).join(','), front = (p) => dot(n, p) > e + EPS;
+        if (directions.has(direction) || face.triangle.some((p) => around[number(p)].some(front))) continue;
+        if (support(piece, n, e + EPS) <= e + EPS) {directions.add(direction); planes.push({n, d: e});}
       }
-      for (const {plane, d} of piece.faces) for (const [n, e] of [[plane, d], [plane.map((v) => -v), -d]]) {
-        if (!planes.has(direction(n)) && support(piece, n, e + EPS) <= e + EPS) planes.set(direction(n), {n, d: e});
-      }
-      return {...piece, planes: [...planes.values()]};
+      // A small piece (a wall, a box) is projected through its few vertices rather than its tree.
+      const points = piece.faces.length <= 64 ? [...new Set(piece.faces.flatMap((face) => face.triangle))] : null;
+      return {...piece, planes, points};
     }));
   }
   return pieceCache.get(mesh.tree);
@@ -391,7 +399,8 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       // b's normals in a's frame, and a's in b's frame.
       const c = Math.cos(turn), s = Math.sin(turn);
       const inA = ([x, y, z]) => [s * z - c * x, -y, -s * x - c * z], inB = ([x, y, z]) => [-c * x - s * z, -y, s * x - c * z];
-      known = {turn, a: b.planes.map(({n}) => -support(a, inA(n))), b: a.planes.map(({n}) => -support(b, inB(n)))};
+      const extent = (piece, [x, y, z]) => piece.points ? piece.points.reduce((best, p) => Math.max(best, x * p[0] + y * p[1] + z * p[2]), -Infinity) : support(piece, [x, y, z]);
+      known = {turn, a: b.planes.map(({n}) => -extent(a, inA(n))), b: a.planes.map(({n}) => -extent(b, inB(n)))};
       extents.get(a).set(b, [known, ...kept].slice(0, 2));
     }
     const zeroB = localPoint(worldPoint([0, 0, 0], ownerA, poseA), ownerB, poseB), zeroA = localPoint(worldPoint([0, 0, 0], ownerB, poseB), ownerA, poseA);
