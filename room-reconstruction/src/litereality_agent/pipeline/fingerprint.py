@@ -1,9 +1,21 @@
-"""Stable stage input identities; timestamps never prove that content is unchanged."""
+"""Stable stage input identities; timestamps never prove that content is unchanged.
+
+An identity covers the content a stage reads and the model settings it consumes. It leaves out
+the stage's own outputs, its options (the runner compares those itself), source code and where
+the job directory lives: a mismatch makes the stage start over, so anything hashed here that does
+not decide the result becomes a paid rerun.
+"""
 
 from pathlib import Path
 
-from litereality_agent import PACKAGE_ROOT, artifact_cache
+from litereality_agent import artifact_cache
 from litereality_agent.pipeline.context import RunContext
+
+SETTINGS = {
+    "ingest": ("image_provider", "image_model", "dino_model"),
+    "reconstruct": ("harness_model", "procedural_model"),
+    "author": ("agent_provider", "author_provider", "codex_model", "harness_model", "image_model"),
+}
 
 
 def _files(path: Path) -> dict:
@@ -16,6 +28,13 @@ def _files(path: Path) -> dict:
             and not any(part.startswith((".", "_")) for part in p.relative_to(path).parts)}
 
 
+def _key(context: RunContext, path: Path) -> str:
+    try:
+        return str(path.relative_to(context.scene_dir))
+    except ValueError:
+        return path.name  # the capture lives beside the job, not inside it
+
+
 def input_fingerprint(context: RunContext, stage: str, options: dict) -> str:
     work = context.object_root / "object_init"
     simulation_room = context.seed_room if options.get("from_seed") else context.authored_room
@@ -23,23 +42,21 @@ def input_fingerprint(context: RunContext, stage: str, options: dict) -> str:
                           else context.preview_dir)
     inputs = {
         "ingest": [context.capture_dir],
-        # Classifier writes routing inside work; hash actual evidence, not its own output/logs.
-        "reconstruct": [work / name for name in ("object_refs", "chair_clusters", "opening_refs")],
+        # Classifier writes routing inside work and chair QC regenerates chair references, so
+        # hash only evidence ingest alone writes: object/opening refs and the chair grouping.
+        "reconstruct": [work / "object_refs", work / "opening_refs",
+                        work / "chair_clusters" / context.scan / "chair_clusters.json"],
         "seed": [context.object_root / "reconstructed_objs", work / "input" / "scene_data"],
-        "author": [context.seed_room, context.capture_dir, context.authoring_root / "surface_ref"],
+        # Not surface_ref: author writes it, and a killed first run must resume, not restart.
+        "author": [context.seed_room, context.capture_dir],
         "publish": [context.authored_room],
         "simulate": [simulation_room, *[simulation_preview / name for name in
                       ("Room.glb", "room_layout.json", "manifest.json")]],
     }
     if stage not in inputs:
         raise ValueError(f"unknown pipeline stage: {stage}")
-    model_config = {key: getattr(context.settings, key) for key in
-                    ("agent_provider", "author_provider", "codex_model", "harness_model",
-                     "procedural_model", "image_provider", "image_model", "dino_model")}
     return artifact_cache.fingerprint({
-        "version": 1, "stage": stage, "options": {k: v for k, v in options.items() if k != "force"},
-        "inputs": {str(path): _files(path) for path in inputs[stage]},
-        "config": model_config,
-        "code": {str(p.relative_to(PACKAGE_ROOT)): artifact_cache.file_hash(p)
-                 for p in sorted(PACKAGE_ROOT.rglob("*.py")) if "__pycache__" not in p.parts},
+        "version": 2, "stage": stage,
+        "inputs": {_key(context, path): _files(path) for path in inputs[stage]},
+        "settings": {key: getattr(context.settings, key) for key in SETTINGS.get(stage, ())},
     })

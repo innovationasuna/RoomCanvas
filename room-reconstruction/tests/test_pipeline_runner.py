@@ -41,7 +41,7 @@ def test_only_transient_failures_retry_with_a_fixed_limit(tmp_path, monkeypatch,
     assert value.duration_seconds >= sum(a['wall_seconds'] for a in attempts)
 
 
-def test_content_change_forces_stage_and_consumers_even_with_same_size_and_time(tmp_path):
+def test_content_change_forces_stage_and_reruns_consumers_even_with_same_size_and_time(tmp_path):
     source = tmp_path / "source"
     source.write_text("first")
     before = source.stat()
@@ -57,10 +57,10 @@ def test_content_change_forces_stage_and_consumers_even_with_same_size_and_time(
     source.write_text("other")
     os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
     runner.run(context(tmp_path))
-    assert calls[-2:] == [("first", {"force": True}), ("next", {"force": True})]
+    assert calls[-2:] == [("first", {"force": True}), ("next", {})]
 
 
-def test_killed_force_rebuild_never_reuses_partial_files_or_downstream_success(tmp_path):
+def test_killed_force_rebuild_resumes_without_reusing_partial_files_or_downstream_success(tmp_path):
     import json
     target = tmp_path / "model"
     interrupt, calls = False, []
@@ -84,8 +84,42 @@ def test_killed_force_rebuild_never_reuses_partial_files_or_downstream_success(t
     assert state["publish"]["status"] == "invalidated"
     interrupt = False
     resumed = runner.run(ctx)
-    assert resumed[0].status is StageStatus.COMPLETED and calls[-1]["force"]
+    assert resumed[0].status is StageStatus.COMPLETED and "force" not in calls[-1]
     assert target.read_text() == "GOOD"
+
+
+def test_completed_records_without_fingerprint_are_kept(tmp_path):
+    import json
+    calls = []
+    stages = tuple(Stage(name, lambda _, options, name=name: calls.append(name) or result(name), pre,
+                         is_complete=lambda _: True, fingerprint=lambda *_: "current")
+                   for name, pre in (("ingest", ()), ("author", ("ingest",)), ("publish", ("author",))))
+    ctx = context(tmp_path)
+    ctx.state_path.parent.mkdir(parents=True)
+    ctx.state_path.write_text(json.dumps({"version": 1, "scan": "scan", "stages": {
+        name: {**result(name).to_dict(), "input_options": {}} for name in ("ingest", "author")}}))
+    PipelineRunner(stages).run(ctx, start="publish")
+    assert [r.status for r in PipelineRunner(stages).run(ctx)] == [StageStatus.REUSED] * 3
+    assert calls == ["publish"]
+
+
+def test_retry_after_a_forced_failure_resumes_unless_inputs_change_again(tmp_path):
+    source, calls = tmp_path / "source", []
+    source.write_text("v1")
+    runner = PipelineRunner((
+        Stage("seed", lambda *_: result("seed"), is_complete=lambda _: True,
+              fingerprint=lambda *_: source.read_text()),
+        Stage("author", lambda _, options: calls.append(dict(options)) or result("author", StageStatus.FAILED),
+              ("seed",), fingerprint=lambda *_: source.read_text()),
+    ))
+    ctx = context(tmp_path)
+    runner.run(ctx)
+    source.write_text("v2")
+    runner.run(ctx)
+    runner.run(ctx)
+    source.write_text("v3")
+    runner.run(ctx)
+    assert calls == [{}, {"force": True}, {}, {"force": True}]
 
 
 def test_optional_failure_does_not_stop_later_stages(tmp_path):
@@ -178,7 +212,7 @@ def test_enabling_dino_invalidates_cached_ingest_and_consumers(tmp_path):
     stages = (
         Stage("ingest", lambda _, options: calls.append(("ingest", dict(options))) or result("ingest"),
               is_complete=lambda _: True),
-        Stage("reconstruct", lambda *_: calls.append(("reconstruct", {})) or result("reconstruct"),
+        Stage("reconstruct", lambda _, options: calls.append(("reconstruct", dict(options))) or result("reconstruct"),
               ("ingest",), is_complete=lambda _: True),
     )
     runner = PipelineRunner(stages)
@@ -186,7 +220,7 @@ def test_enabling_dino_invalidates_cached_ingest_and_consumers(tmp_path):
     runner.run(context(tmp_path), options={"ingest": {"use_dino": True}})
     reused = runner.run(context(tmp_path), options={"ingest": {"use_dino": True}})
     assert calls == [("ingest", {}), ("reconstruct", {}),
-                     ("ingest", {"use_dino": True, "force": True}), ("reconstruct", {})]
+                     ("ingest", {"use_dino": True}), ("reconstruct", {})]
     assert all(r.status is StageStatus.REUSED for r in reused)
 
 
