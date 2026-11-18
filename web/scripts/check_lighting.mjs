@@ -38,6 +38,26 @@ try {
     for (const name of names) {
       console.log(`检查 ${id}: ${name}`);
       const page = await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1});
+      // Capture startup as well as interaction without enabling observers in the shipped editor.
+      await page.addInitScript(() => {
+        const pageStates = [], longTasks = [];
+        const recordState = () => pageStates.push({atMs: performance.now(),
+          visibility: document.visibilityState, focused: document.hasFocus()});
+        recordState();
+        document.addEventListener('visibilitychange', recordState);
+        window.addEventListener('focus', recordState);
+        window.addEventListener('blur', recordState);
+        const collect = entries => {
+          for (const entry of entries) longTasks.push({atMs: entry.startTime, durationMs: entry.duration});
+        };
+        const observer = PerformanceObserver.supportedEntryTypes.includes('longtask')
+          ? new PerformanceObserver(list => collect(list.getEntries())) : null;
+        observer?.observe({type: 'longtask', buffered: true});
+        window.readBenchmarkActivity = () => {
+          if (observer) collect(observer.takeRecords());
+          return {pageStates, longTasks: observer ? longTasks : null};
+        };
+      });
       const errors = [];
       page.on('pageerror',error => errors.push(String(error)));
       page.on('console',message => {if (message.type()==='error') errors.push(message.text());});
@@ -102,6 +122,7 @@ try {
       const start = Date.now();
       while ((await page.evaluate(() => roomLightingLab.metrics())).pendingQueries && Date.now()-start<5000) await page.waitForTimeout(20);
       result.performance = await page.evaluate(() => roomLightingLab.metrics());
+      result.activity = await page.evaluate(() => window.readBenchmarkActivity());
       assert.deepEqual(errors,[]);
       room.variants.push(result);
       await writeFile(join(output,'report.json'),JSON.stringify(report,null,2));
