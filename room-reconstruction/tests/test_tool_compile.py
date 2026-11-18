@@ -168,6 +168,8 @@ def test_baked_compile_requires_the_current_blend(room, monkeypatch, old_blend):
     preview.mkdir()
     if old_blend:
         (preview / "Room.blend").write_bytes(b"older scene")
+    layout = preview / "room_layout.json"
+    layout.write_text('{"objects": ["previous"]}')
 
     def blender(*args):
         (preview / "Room.glb").write_bytes(b"assembled")
@@ -180,6 +182,7 @@ def test_baked_compile_requires_the_current_blend(room, monkeypatch, old_blend):
     monkeypatch.setattr(build_from_room.console, "run_logged", blender)
     monkeypatch.setattr(api.subprocess, "run", assemble)
     assert api.compile_room(room) is None
+    assert layout.read_text() == '{"objects": ["previous"]}'
     if old_blend:
         assert (preview / "Room.blend").read_bytes() == b"older scene"
     assert api.compile_room(room, bake=False) == preview / "Room.glb"
@@ -190,6 +193,8 @@ def test_assembly_accepts_identical_output_on_a_coarse_filesystem(tmp_path, monk
 
     blend = tmp_path / "Room.blend"
     blend.write_bytes(b"same scene")
+    layout = tmp_path / "room_layout.json"
+    layout.write_text('{"objects": ["previous"]}')
     original = Path.stat
     stamp = blend.stat()
 
@@ -207,7 +212,8 @@ def test_assembly_accepts_identical_output_on_a_coarse_filesystem(tmp_path, monk
     monkeypatch.setattr(build_from_room.console, "run_logged", blender)
     assert build_from_room.run_assembly([], tmp_path / "build.log", require_blend=True) == 0
     assert blend.read_bytes() == b"same scene"
-    assert list(tmp_path.glob(".previous-blend-*")) == []
+    assert list(tmp_path.glob(".previous-assembly-*")) == []
+    assert not layout.exists()
 
 
 @pytest.mark.blender
