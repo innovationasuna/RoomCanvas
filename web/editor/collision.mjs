@@ -1,3 +1,4 @@
+import {entityGeometry} from './entity-geometry.mjs';
 // Surface collision uses authored triangles; bounds only prune the search.
 // Translation is swept continuously, so even a long step cannot jump a thin wall.
 import {carryPose} from './placement.mjs';
@@ -508,13 +509,14 @@ export function collisionOwners(THREE, room, entities, {label = () => null} = {}
   for (const [id, entity] of entities) {
     const owner = {id, name: entity.name, origin: entity.origin.toArray(), meshes: [], added: !!entity.added};
     owners.push(owner);
-    entity.group.traverse((mesh) => {if (mesh.isMesh) meshOwners.set(mesh, owner);});
+    for (const [mesh, matrix] of entityGeometry(THREE, entity).matrices) meshOwners.set(mesh, {owner, matrix});
   }
   const staticOwners = new Map();
   room.traverse((mesh) => {
     // A display mesh with a lighter stand-in for contact (userData.collision === false) is skipped.
     if (!mesh.isMesh || mesh.userData.collision === false) return;
-    let owner = meshOwners.get(mesh);
+    const reference = meshOwners.get(mesh);
+    let owner = reference?.owner;
     if (!owner) {
       let root = mesh; while (root.parent && root.parent !== room) root = root.parent;
       // The flat authored floor is enforced by placement's actual contact patches
@@ -528,7 +530,8 @@ export function collisionOwners(THREE, room, entities, {label = () => null} = {}
     }
     const position = mesh.geometry.attributes.position, index = mesh.geometry.index;
     if (!position) return;
-    const vertices = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld).toArray().map((v, k) => v - owner.origin[k]));
+    const matrix = reference?.matrix ?? mesh.matrixWorld;
+    const vertices = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(matrix).toArray().map((v, k) => v - owner.origin[k]));
     const triangles = [];
     for (let i = 0, count = index ? index.count : position.count; i + 2 < count; i += 3) triangles.push([0, 1, 2].map((k) => vertices[index ? index.getX(i + k) : i + k]));
     owner.meshes.push({name: mesh.userData.name || mesh.name, triangles});

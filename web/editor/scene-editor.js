@@ -8,6 +8,7 @@ import {THUMBNAIL_SIZE, frameThumbnailCamera} from './furniture-thumbnail.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs';
+import {applyEntityPose} from './entity-geometry.mjs';
 import {createPlacement} from './placement.mjs';
 import {updatePlacementPanel, bindPlacementPanel, updateFurnitureReadouts} from './placement-ui.mjs';
 import {PlacementSession} from './placement-session.mjs';
@@ -373,12 +374,7 @@ function updateSelectionVisuals() {
 }
 
 function applyLayout() {
-  for (const [id, entity] of entities) {
-    const value = layout[id];
-    entity.group.position.set(entity.origin.x + value.x, entity.origin.y + (value.y || 0), entity.origin.z + value.z);
-    entity.group.rotation.y = value.yaw;
-    entity.group.visible = value.visible !== false;
-  }
+  for (const [id, entity] of entities) applyEntityPose(entity, layout[id]);
   room.updateMatrixWorld(true);
   layoutStamp++;
   if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
