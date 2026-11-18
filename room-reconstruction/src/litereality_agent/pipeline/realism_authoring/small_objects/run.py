@@ -28,7 +28,8 @@ import os
 import shutil
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -59,9 +60,14 @@ class Pass:
 
     # ------------------------------------------------------------------ bookkeeping
     def save(self):
-        tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.items, indent=1, ensure_ascii=False))
-        tmp.replace(self.state_path)
+        handle = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.out, delete=False)
+        tmp = Path(handle.name)
+        try:
+            with handle:
+                json.dump(self.items, handle, indent=1, ensure_ascii=False)
+            tmp.replace(self.state_path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def log(self, message: str):
         print(f"[small-objects] {message}", flush=True)
@@ -192,18 +198,20 @@ class Pass:
         def reference(item):
             folder = self.out / "rebuild" / item["id"]
             tiles = evidence.generator_inputs(item["views"], folder / "tiles")
-            try:
-                meta = rebuild.make_reference(item, tiles, item["decision"]["description"],
-                                              folder)
-                item["reference"] = str(folder / "reference.png")
-                item.pop("reference_error", None)
-                item["image_cost_usd"] = (meta or {}).get("cost_usd") or 0
-            except Exception as exc:  # noqa: BLE001
-                item["reference_error"] = f"{type(exc).__name__}: {exc}"
-            self.save()
+            meta = rebuild.make_reference(item, tiles, item["decision"]["description"], folder)
+            return str(folder / "reference.png"), (meta or {}).get("cost_usd") or 0
 
         with ThreadPoolExecutor(self.concurrency) as pool:
-            list(pool.map(reference, todo))
+            futures = {pool.submit(reference, item): item for item in todo}
+            for future in as_completed(futures):
+                item = futures[future]
+                try:
+                    item["reference"], item["image_cost_usd"] = future.result()
+                except Exception as exc:  # noqa: BLE001 — keep other references and retry this item
+                    item["reference_error"] = f"{type(exc).__name__}: {exc}"
+                else:
+                    item.pop("reference_error", None)
+                self.save()
         pending = {i["id"]: Path(i["reference"]) for i in wanted
                    if i.get("reference") and "glb" not in i}  # includes earlier failures
         if pending:
