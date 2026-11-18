@@ -285,13 +285,15 @@ class APIIntegration(unittest.TestCase):
             self.jobs.run_one(self.identifier)
         self.assertEqual(self.request('/room-reconstruction/jobs')['jobs'][0]['status'], 'failed')
         self.assertEqual(self.request('/room-reconstruction/jobs/' + self.identifier + '/retry', b'')['status'], 'queued')
+        os.close(self.jobs.owner)  # the service stops
         restored = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restored.pending.get_nowait(), self.identifier)
         record = restored.records[self.identifier]; record['status'] = 'running'; restored.save(record)
+        os.close(restored.owner)
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
 
-    def test_only_a_stopped_service_leaves_uploads_to_clear(self):
+    def test_a_second_service_on_the_same_directory_does_not_start(self):
         entered, release = threading.Event(), threading.Event()
         extract = service.extract_scan
 
@@ -304,7 +306,8 @@ class APIIntegration(unittest.TestCase):
         with patch.object(service, 'extract_scan', side_effect=pause), ThreadPoolExecutor(1) as pool:
             upload = pool.submit(self.submit)
             self.assertTrue(entered.wait(5))
-            service.Jobs(self.jobs.root, Path.cwd())  # a second start while this one still serves
+            with self.assertRaisesRegex(RuntimeError, '正在使用'):
+                service.Jobs(self.jobs.root, Path.cwd())  # a second start while this one still serves
             release.set()
             self.assertEqual(upload.result()['status'], 'queued')
         (self.jobs.root / '.upload-x' / 'capture').mkdir(parents=True)
