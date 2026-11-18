@@ -24,14 +24,16 @@ def artifact_evidence(path, row=None, *, legacy=False):
     try:
         stat = Path(path).stat()
         if row:
-            expected = row.get('artifact_digest')
+            # A file rewritten after its record (or recorded without a digest) is still shown at the
+            # recorded time; its time is only marked unknown, never dropped.
+            expected, source = row.get('artifact_digest'), 'event'
             if expected:
                 actual = _digest(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino)
                 if actual != expected:
-                    return {'time': None, 'source': 'external_change', 'confidence': 'unknown'}
+                    source = 'external_change'
             elif row.get('schema_version', 1) >= 2:
-                return {'time': None, 'source': 'missing_digest', 'confidence': 'unknown'}
-            return {'time': row['t'], 'source': 'event', 'confidence': 'recorded',
+                source = 'missing_digest'
+            return {'time': row['t'], 'source': source, 'confidence': 'recorded' if source == 'event' else 'unknown',
                     'event_id': row.get('event_id'), 'attempt_id': row.get('attempt_id')}
         if legacy:
             return {'time': stat.st_mtime, 'source': 'file_mtime', 'confidence': 'inferred'}

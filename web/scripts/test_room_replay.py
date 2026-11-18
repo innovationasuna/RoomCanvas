@@ -110,6 +110,25 @@ class Events(unittest.TestCase):
         self.assertEqual([e['issues'] for e in reviews], [['The bed is too bright.'], ['The curtains are too stiff.']])
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
 
+    def test_a_later_pass_on_an_older_run_keeps_its_models(self):
+        rows = [{'t': T0 + 5000, 'kind': 'pipeline_stage', 'stage': 'ingest', 'schema_version': 2, 'event_id': 'e1'},
+                {'t': T0 + 5100, 'kind': 'artifact_published', 'path': replay.FINAL, 'schema_version': 2,
+                 'event_id': 'e2', 'artifact_digest': 'other'},
+                {'t': T0 + 5200, 'kind': 'model_saved', 'model': 'articulated', 'schema_version': 2, 'event_id': 'e3'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
+
+    def test_a_model_rewritten_after_its_record_is_still_shown(self):
+        import hashlib
+        row = {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'path': replay.FINAL, 'schema_version': 2,
+               'event_id': 'f', 'artifact_digest': hashlib.sha256(b'before').hexdigest()}
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps(row) + '\n')
+        evidence = replay.model_evidence(self.scene, replay.trace_rows(self.scene), 'final', replay.FINAL)
+        self.assertEqual((evidence['time'], evidence['confidence']), (T0 + 1140, 'unknown'))
+        self.assertIn('final', replay.models(self.scene, self.until))
+
     def test_only_allowlisted_files_are_served(self):
         self.assertIsNotNone(replay.scene_file(self.scene, replay.SEED))
         self.assertIsNotNone(replay.scene_file(self.scene, 'scene_init/obj_stage/traces/img/author_0004_a.jpg'))
