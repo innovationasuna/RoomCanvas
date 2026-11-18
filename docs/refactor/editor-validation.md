@@ -14,14 +14,14 @@
 
 ## 验证
 
-Node 覆盖薄墙、扫描交叠的斜向移动/加深/拉开后推回、旋转的墙和桌、原地转动、长步、两段互锁（两个方向拖动结论一致）、未接触过的薄隔板、多叶 BVH 网格、重置重复结果和承载，以及增量索引计数、真实 Node Worker 主线程一致性、过期消息和取消。最近命中与 Three 原生射线对照覆盖导入删除、隐藏、过滤、铰接、镜像与非均匀缩放。
+Node 覆盖薄墙、扫描交叠的斜向移动/加深/拉开后推回、旋转的墙和桌、原地转动、长步、两段互锁（两个方向拖动结论一致）、0.5° 到 30° 的斜墙（沿墙长距离移动放行、边移边入墙被拦下）、未接触过的薄隔板、多叶 BVH 网格、重置重复结果和承载，以及增量索引计数、真实 Node Worker 主线程一致性、过期消息和取消。最近命中与 Three 原生射线对照覆盖导入删除、隐藏、过滤、铰接、镜像与非均匀缩放。
 
 ```sh
 node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
 node web/scripts/check_room.mjs --scene-dir samples/room3
 ```
 
-本轮记录时全量 Node 297/297，发布导入图 Python 测试 2/2，三房间 `check_room` 分别为 office 18/18、room3 23/23、room-3934 60/60。`check_room` 要求每件物品都能在扫描位置原地确认。修复后全量 Node 为 303/303。
+本轮记录时全量 Node 297/297，发布导入图 Python 测试 2/2，三房间 `check_room` 分别为 office 18/18、room3 23/23、room-3934 60/60。`check_room` 要求每件物品都能在扫描位置原地确认。修复后全量 Node 为 304/304。
 
 真实浏览器使用 Chrome 157、Apple M5 / Metal、1440×1000、DPR 1、`balanced-no-ao`、关闭手势、30 帧，三个样例各运行 5 轮 `check_lighting.mjs --asset-edits`，全部通过。
 
