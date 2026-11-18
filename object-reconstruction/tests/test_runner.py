@@ -96,15 +96,19 @@ class RunnerTests(unittest.TestCase):
                 command = ['fake-reconstruction']
                 outcomes = [subprocess.CompletedProcess(command, exit_code)]
                 result = {}
-                with patch.object(runner.subprocess, 'run', side_effect=outcomes) as mocked:
+                with patch.object(runner.subprocess, 'run', side_effect=outcomes) as mocked, \
+                     patch.object(runner, 'publish_asset') as publish:
                     if exit_code:
                         with self.assertRaises(RuntimeError):
                             runner.execute(run, [('reconstruction', command)], result)
                     else:
                         runner.execute(run, [('reconstruction', command)], result)
                     self.assertEqual(mocked.call_count, 1)
+                    self.assertEqual(publish.call_count, 0 if exit_code else 1)
                 saved = json.loads((run/'result.json').read_text())
                 self.assertEqual(saved['status'], 'failed' if exit_code else 'complete')
+                self.assertEqual(saved['asset_ready'], exit_code == 0)
+                self.assertFalse(saved['recommendation_ready'])
     def test_options_pass_through_without_benchmark_restrictions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

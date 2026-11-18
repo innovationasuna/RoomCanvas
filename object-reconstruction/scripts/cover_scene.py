@@ -165,6 +165,13 @@ def make_candidates(scene):
 
 def preview_manifest(run,scene=None,recommendation=None,message='尚未计算补拍建议'):
     run=Path(run)
+    published = run/'asset.json'
+    if published.is_file():
+        # Recommendation retries must never alter an imported model's dimensions.
+        manifest = json.loads(published.read_text())
+        manifest.update(recommendation=recommendation,
+                        status='complete' if recommendation else 'unavailable', message=message)
+        return manifest
     if scene is None:
         gt=affine(CANONICAL_TO_GLB); mt=np.eye(4); radius=.7
     else:
@@ -177,6 +184,9 @@ def preview_manifest(run,scene=None,recommendation=None,message='尚未计算补
     preview=run/'reconstruction/preview.glb'
     if preview.is_file():
         manifest['assets']['glb_preview']=dict(url=file_url(preview),transform=matrix_list(mt))
+    collision=run/'reconstruction/collision.glb'
+    if collision.is_file():
+        manifest['assets']['collision']=dict(url=file_url(collision),transform=matrix_list(mt))
     return manifest
 
 

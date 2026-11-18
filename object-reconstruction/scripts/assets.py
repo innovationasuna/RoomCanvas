@@ -1,10 +1,10 @@
 """重建物体的目录、尺寸和模型读取；不加载房间或保存场景布局。"""
-import json
 from pathlib import Path
 from urllib.parse import quote
 
 from dimensions import read_dimensions, result_directory
 from mvsam_pbr import material_capabilities
+from asset_state import AssetUnavailableError, preview_manifest, require_asset
 
 
 class AssetsMiddleware:
@@ -52,32 +52,38 @@ class AssetsMiddleware:
                 response = JSONResponse(dict(runs=names))
             else:
                 parts = route.split('/')
-                if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ('result.glb', 'preview.glb', 'result.ply', 'preview.json')):
+                if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ('result.glb', 'preview.glb', 'collision.glb', 'result.ply', 'preview.json')):
                     raise FileNotFoundError('无效的物体资产地址')
                 run = result_directory(self.root, parts[0])
                 if len(parts) == 2 and parts[1] == 'preview.json':
                     # Historical manifests may contain old UI file URLs. Serve a copy with
                     # controlled asset URLs; preserve transforms, recommendations and disk data.
-                    data = json.loads((run/'cover/preview.json').read_text())
-                    for kind, filename in [('glb', 'result.glb'), ('glb_preview', 'preview.glb'), ('gaussian', 'result.ply')]:
+                    data = preview_manifest(run)
+                    if not data:
+                        raise FileNotFoundError('没有这个模型的预览信息')
+                    for kind, filename in [('glb', 'result.glb'), ('glb_preview', 'preview.glb'), ('collision', 'collision.glb'), ('gaussian', 'result.ply')]:
                         asset = data.get('assets', {}).get(kind)
                         if asset:
                             asset['url'] = f'/viewforge/assets/{quote(run.name, safe="")}/{filename}'
                     response = JSONResponse(data)
                 elif len(parts) == 2:
                     file = run/'reconstruction'/parts[1]
-                    if not file.is_file():
+                    published = require_asset(run)
+                    if not file.is_file() or (published and parts[1] not in published['files']):
                         raise FileNotFoundError('没有这个模型文件')
                     response = FileResponse(file, media_type='model/gltf-binary' if parts[1].endswith('.glb') else 'application/octet-stream')
                 else:
                     data = await run_in_threadpool(read_dimensions, run)
-                    info = material_capabilities(run)
+                    published = require_asset(run)
+                    info = published.get('capabilities') if published else material_capabilities(run)
                     if info:
                         data['capabilities'] = info
                     manifest = run/'cover/preview.json'
-                    if manifest.is_file():
+                    if published or manifest.is_file():
                         data['manifest_url'] = f'/viewforge/assets/{quote(run.name, safe="")}/preview.json'
                     response = JSONResponse(data)
+        except AssetUnavailableError as exc:
+            response = JSONResponse(dict(error=str(exc), state=exc.state), status_code=409)
         except FileNotFoundError as exc:
             response = JSONResponse(dict(error=str(exc)), status_code=404)
         except (ValueError, KeyError, TypeError) as exc:
