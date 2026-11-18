@@ -207,18 +207,20 @@ class Handler(SimpleHTTPRequestHandler):
         """(status, body, content type) of a JSON answer: asked live and kept, or the kept one when the
         service cannot be reached; status None when there is neither."""
         kept = room_cache.local(self.cache, path)
-        try:
-            with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
-                body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
-        except urllib.error.HTTPError as error:
-            return error.code, error.read(), error.headers.get('Content-Type', 'application/json')
-        except OSError:
-            if kept and kept.is_file():
-                return 200, kept.read_bytes(), 'application/json; charset=utf-8'
-            return None, b'', ''
-        if status == 200 and kept:
-            room_cache.save(kept, body)
-        return status, body, kind
+        with room_cache.answer_writer(kept) as publish:
+            try:
+                with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
+                    body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
+            except urllib.error.HTTPError as error:
+                with error:
+                    return error.code, error.read(), error.headers.get('Content-Type', 'application/json')
+            except OSError:
+                if kept and kept.is_file():
+                    return 200, kept.read_bytes(), 'application/json; charset=utf-8'
+                return None, b'', ''
+            if status == 200 and kept:
+                publish(body)
+            return status, body, kind
 
     def send_kept(self, path, head=False):
         self.send_response(200)
