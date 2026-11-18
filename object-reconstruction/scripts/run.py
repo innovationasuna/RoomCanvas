@@ -2,7 +2,6 @@
 import argparse
 import csv
 from datetime import datetime
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -15,6 +14,8 @@ import yaml
 from PIL import Image
 
 CODE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CODE.parent / "scripts"))
+from roomcanvas_gpu import object_lease
 
 
 def write_json(path, value):
@@ -98,8 +99,8 @@ def input_manifest(root, name, selected=None):
     return match_masks(selected_images(root, name, selected))
 
 
-def check_gpu(min_free_gib):
-    visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
+def check_gpu(min_free_gib, visible=None):
+    visible = visible or os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if not visible or ',' in visible or visible == '-1':
         raise ValueError('Set CUDA_VISIBLE_DEVICES to exactly one authorized GPU')
     output = subprocess.check_output(['nvidia-smi', f'--id={visible}',
@@ -121,7 +122,7 @@ def stage_commands(root, run, cfg, inputs):
     ]
 
 
-def execute(run, commands, result):
+def execute(run, commands, result, lease=None):
     result.update(status='running', stages={})
     try:
         for stage, command in commands:
@@ -129,7 +130,9 @@ def execute(run, commands, result):
             write_json(run/'result.json', result)
             print(f'START {stage}: {run}', flush=True)
             with (run/'logs'/f'{stage}.log').open('x') as log:
-                completed = subprocess.run(command, cwd=CODE, stdout=log, stderr=subprocess.STDOUT)
+                completed = subprocess.run(command, cwd=CODE, stdout=log, stderr=subprocess.STDOUT,
+                    env=dict(os.environ, CUDA_VISIBLE_DEVICES=lease.uuid) if lease else None,
+                    pass_fds=lease.fds if lease else ())
             result['stages'][stage] = completed.returncode
             if completed.returncode:
                 raise RuntimeError(f'{stage} failed; see logs/{stage}.log')
@@ -184,14 +187,18 @@ def stage_inputs(root, run, object_name, inputs, parent_run_id=None):
                 anchor_image_id=rows[0]['source_name'])
 
 
-def execute_cover(run, result):
+def execute_cover(run, result, lease=None):
     result['current_stage'] = 'cover'
     result['cover_status'] = 'running'
     write_json(run/'result.json', result)
     try:
         with (run/'logs/cover.log').open('a') as log:
-            completed = subprocess.run([sys.executable, str(CODE/'scripts/run_cover.py'),
-                '--run-dir', str(run), '--lock-held'], cwd=CODE, stdout=log, stderr=subprocess.STDOUT)
+            command = [sys.executable, str(CODE/'scripts/run_cover.py'), '--run-dir', str(run)]
+            if lease:
+                command.extend(['--lock-fd', str(lease.fd)])
+            completed = subprocess.run(command, cwd=CODE, stdout=log, stderr=subprocess.STDOUT,
+                env=dict(os.environ, CUDA_VISIBLE_DEVICES=lease.uuid) if lease else None,
+                pass_fds=lease.fds if lease else ())
         result['cover_status'] = 'complete' if completed.returncode == 0 else 'failed'
     except Exception as exc:
         result.update(cover_status='failed', cover_error=str(exc))
@@ -221,13 +228,10 @@ def main():
         gpu = check_gpu(cfg['runtime']['min_free_gib'])
         print(json.dumps(dict(status='preflight_passed', images=len(inputs['images']), gpu=gpu)))
         return
-    lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | (0 if args.wait_gpu else fcntl.LOCK_NB))
+    with object_lease(root, wait=args.wait_gpu) as lease:
         # Free memory means something only once the lock is ours: before that, the job holding
         # it is using the memory, and --wait-gpu should wait for it rather than fail.
-        gpu = check_gpu(cfg['runtime']['min_free_gib'])
+        gpu = check_gpu(cfg['runtime']['min_free_gib'], lease.uuid)
         run = root/'runs'/f'{datetime.now():%Y%m%d}_{name}_{attempt}'
         run.mkdir(parents=True, exist_ok=False)
         (run/'logs').mkdir()
@@ -242,8 +246,8 @@ def main():
             result.update(code_revision=subprocess.check_output(['git', '-C', str(CODE),
                 'rev-parse', 'HEAD'], text=True).strip(),
                 upstream_versions=json.loads((CODE/'configs/upstream_versions.json').read_text()))
-            execute(run, stage_commands(root, run, cfg, inputs), result)
-            execute_cover(run, result)
+            execute(run, stage_commands(root, run, cfg, inputs), result, lease)
+            execute_cover(run, result, lease)
         except BaseException as exc:
             if result.get('status') != 'failed':
                 result.update(status='failed', error=str(exc))

@@ -20,6 +20,8 @@ class MaskTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.enterContext(patch.dict("os.environ", CUDA_VISIBLE_DEVICES="GPU-00000000-0000-0000-0000-000000000001",
+                                     ROOMCANVAS_GPU_LOCK_DIR=str(self.root/"locks"), VIEWFORGE_GPU_LOCK=""))
         self.directory = self.root / 'data/inputs/toy'
         (self.directory / 'images').mkdir(parents=True)
         for name in ('1', '3', '5'):
@@ -86,7 +88,7 @@ class MaskTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(runner, 'check_gpu', side_effect=AssertionError('no GPU for reuse')))
             stack.enter_context(patch.object(prepare_masks, 'check_gpu', create=True, side_effect=AssertionError('no GPU for reuse')))
-            stack.enter_context(patch.object(runner.fcntl, 'flock', side_effect=AssertionError('no GPU lock for reuse')))
+            stack.enter_context(patch.object(prepare_masks, 'object_lease', side_effect=AssertionError('no GPU lock for reuse')))
             result = prepare_masks.prepare(self.root, 'toy', ['1', '3'], infer=infer)
         infer.assert_not_called()
         self.assertEqual(result['status'], 'complete')

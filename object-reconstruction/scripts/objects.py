@@ -11,7 +11,6 @@ Measured size is saved afterwards through /viewforge/dimensions/<run>.
 """
 import asyncio
 from datetime import datetime
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -22,7 +21,7 @@ import threading
 import time
 import uuid
 
-from run import CODE, component, input_manifest, match_masks, selected_images
+from run import CODE, component, input_manifest, match_masks, object_lease, selected_images
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection
 
@@ -35,20 +34,12 @@ GPU_POLL_SECONDS = 2
 JOBS, JOBS_LOCK = {}, threading.Lock()
 
 
-def gpu_lock(root):
-    return Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
-
-
 def gpu_free(root):
-    path = gpu_lock(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        return True
+    try:
+        with object_lease(root):
+            return True
+    except BlockingIOError:
+        return False
 
 
 def import_uploads(root, name, uploads, room=MAX_PHOTOS, **options):

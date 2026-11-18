@@ -4,11 +4,16 @@ lock on it for the whole run."""
 from __future__ import annotations
 
 import csv
-import fcntl
 import io
 import subprocess
+import sys
+import time
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from roomcanvas_gpu import acquire, device_uuid  # noqa: E402
 
 IDLE_MEMORY_MIB = 100
 
@@ -71,23 +76,39 @@ def select_gpu(request: str, gpus: list[Gpu], shared_mib: int = 0) -> Gpu:
     return gpu
 
 
-class GpuLock:
-    """Non-blocking flock on lock_dir/gpu-<uuid>.lock, released when the context exits."""
-
-    def __init__(self, lock_dir: Path, gpu: Gpu):
-        self.path = Path(lock_dir) / f"gpu-{gpu.uuid}.lock"
-        self._file = None
-
-    def __enter__(self) -> GpuLock:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = self.path.open("w")
-        try:
-            fcntl.flock(self._file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            self._file.close()
-            raise RuntimeError(f"GPU is locked by another RoomCanvas run: {self.path}") from None
-        return self
-
-    def __exit__(self, *exc) -> None:
-        fcntl.flock(self._file, fcntl.LOCK_UN)
-        self._file.close()
+@contextmanager
+def room_lease(runtime, env, *, wait=False):
+    """Pick an allowed physical GPU and check its occupancy again under the shared lock."""
+    request = env.get("ROOMCANVAS_GPU", "auto")
+    allowed = None
+    if "CUDA_VISIBLE_DEVICES" in env:
+        allowed = {device_uuid(s.strip()) for s in env["CUDA_VISIBLE_DEVICES"].split(",")}
+    requested_uuid = None if request == "auto" else device_uuid(request)
+    shared_mib = int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0"))
+    reported_wait = False
+    while True:
+        cards = [gpu for gpu in list_gpus() if (allowed is None or gpu.uuid in allowed)
+                 and (requested_uuid is None or gpu.uuid == requested_uuid)]
+        if not cards:
+            raise RuntimeError(f"No visible GPU matches ROOMCANVAS_GPU={request!r}")
+        for card in cards:
+            if not card.usable(shared_mib):
+                continue
+            with ExitStack() as stack:
+                legacy = runtime / "locks" / f"gpu-{card.uuid}.lock"
+                try:
+                    lease = stack.enter_context(acquire(card.uuid, env, legacy))
+                except BlockingIOError:
+                    continue
+                try:
+                    current = select_gpu(card.uuid, list_gpus(), shared_mib)
+                except RuntimeError:
+                    continue
+                yield current, lease
+                return
+        if not wait:
+            raise RuntimeError(f"No available GPU: selected card(s) busy or locked: {[g.uuid for g in cards]}")
+        if not reported_wait:
+            print(f"Waiting for an available GPU: {[g.uuid for g in cards]}", file=sys.stderr, flush=True)
+            reported_wait = True
+        time.sleep(1)

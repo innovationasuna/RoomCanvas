@@ -10,7 +10,8 @@
 | --- | --- |
 | `VIEWFORGE_ROOT` | 外部数据根目录的绝对路径，需可写，存放环境、权重、照片和结果 |
 | `CUDA_VISIBLE_DEVICES` | 可选。授权使用的一张 GPU；不设时 `scripts/env.sh` 选当前空闲显存最多的一张。共享服务器上应固定 |
-| `VIEWFORGE_GPU_LOCK` | 可选。共享 GPU 锁文件的绝对路径，父目录需可写；不设时为 `$VIEWFORGE_ROOT/cache/gpu.lock`。所有使用这张卡的应用应指向同一路径 |
+| `ROOMCANVAS_GPU_LOCK_DIR` | 房间和物体作业共用的本机锁目录，默认 `~/.cache/roomcanvas/gpu-locks`。每张卡按物理 UUID 分开。同一机器使用多个服务账号时，将它们指向同一个可创建锁文件的本地绝对路径。 |
+| `VIEWFORGE_GPU_LOCK` | 可选。已有应用指定的锁文件仍会独占。默认的 `$VIEWFORGE_ROOT/cache/gpu.lock` 以共享方式持有，可与旧版独占操作互斥，也允许不同 GPU 共用数据目录。 |
 | `TORCH_CUDA_ARCH_LIST` | 可选。CUDA 架构，如 RTX 30 系列为 `8.6`；不设时按所选 GPU 的 `compute_cap` 自动取 |
 | `TZ` | 可选，默认系统时区；没有 tzdata 的容器可用 `CST-8` 表示 UTC+8 |
 
@@ -74,7 +75,7 @@ bash scripts/launch.sh --object stuffed_toy --attempt a02
 - **配置**：默认 `configs/default.yaml`（seed 42、DA3 504、MV 50 / 25 步、entropy 融合），`--config <yaml>` 替换。`mv` 字段直接传给 `run_weighted_inference`，不支持的参数会直接报错。
 - **输出**：每次新建 `runs/<日期>_<物体>_<attempt>/`，不覆盖已有目录；包含 `config.yaml`、`inputs.json`、`result.json`、`da3/`、`reconstruction/`（GLB 网格和 Gaussian PLY）和 `logs/`。
 - **补拍**：`scripts/run.py --parent-run <结果>` 在已有结果基础上加入新照片重建；`scripts/import_photos.py` 把新照片导入物体目录。
-- **GPU**：作业在 `VIEWFORGE_GPU_LOCK` 下运行，一次使用一张卡。
+- **GPU** 作业按物理 UUID 加锁，并在持锁后检查可用显存。主流程将锁描述符传给 COVER；独立启动 COVER 时自行获取同一张卡的锁。
 
 ## 自动抠图（BiRefNet）
 

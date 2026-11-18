@@ -43,7 +43,8 @@ class ObjectsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.env = patch.dict(os.environ, VIEWFORGE_GPU_LOCK=str(self.root/'cache/gpu.lock'))
+        self.env = patch.dict(os.environ, VIEWFORGE_GPU_LOCK=str(self.root/'cache/gpu.lock'),
+                              CUDA_VISIBLE_DEVICES='GPU-00000000-0000-0000-0000-000000000001', ROOMCANVAS_GPU_LOCK_DIR=str(self.root/'locks'))
         self.env.start()
         self.spawn = patch.object(objects.subprocess, 'run', side_effect=self.fake_run)
         self.spawn.start()

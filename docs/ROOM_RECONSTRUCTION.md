@@ -60,6 +60,10 @@ export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
 
 打开 <http://127.0.0.1:7880/web/>，点击 **重建房间**，或直接打开 <http://127.0.0.1:7880/web/#reconstruct>。
 
+房间服务会等待获准的 GPU 可用。直接运行 `server/run_room.py` 时可用 `--wait-gpu` 开启等待，终止等待进程会释放其持有的描述符。设置 `CUDA_VISIBLE_DEVICES` 后，自动选卡只在可见范围内进行；子进程以选中卡的 UUID 运行。主流程及自动追加的 articulate 持同一把锁。
+
+房间与物体服务默认共用 `~/.cache/roomcanvas/gpu-locks/gpu-<UUID>.lock`。使用多个账号时，将两端的 `ROOMCANVAS_GPU_LOCK_DIR` 设为同一本地目录，并为各账号配置目录访问权限。房间旧的 `runtime/locks/gpu-<UUID>.lock` 继续持有，物体端原有 `VIEWFORGE_GPU_LOCK` 也继续生效。从两个独立锁协议升级时，先等旧版 GPU 作业退出，再切换两端进程。释放锁依靠关闭文件描述符，保留锁文件供后续进程复用。
+
 用 uv 直接安装的环境（例如 macOS + Modal）可选择 `--runner cli --pipeline-dir /path/to/RoomCanvas/room-reconstruction`，此模式调用 `uv run --no-sync litereality run ... --through publish`，使用该环境已有的模型配置，不包含服务器专用可动部件后处理；部署方负责 GPU 资源协调。默认 `server` 模式沿用本项目已有的运行器。
 
 ### 使用与结果
