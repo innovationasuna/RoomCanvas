@@ -9,20 +9,13 @@ import fcntl
 import gzip
 import json
 import mimetypes
-import os
-from pathlib import Path, PurePosixPath
-import queue
+from pathlib import Path
 import re
 import shutil
-import signal
-import stat
-import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
-import time
-import uuid
 import zipfile
 import zlib
 
@@ -32,283 +25,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-PREFIX = '/room-reconstruction'
+sys.path.insert(0, str(ROOT / 'room-reconstruction/src'))
+from room_contract import PREFIX, STAGES, ASSETS  # noqa: E402,F401
 MAX_UPLOAD = 2 * 1024**3
 MAX_EXPANDED = 8 * 1024**3
 MAX_ENTRIES = 50000
-STAGES = ['ingest', 'reconstruct', 'seed', 'author', 'publish']
-ASSETS = {'Room.glb', 'room_objects.json', 'thumbnail.jpg'}
 ID = r'[0-9a-f]{32}'
 PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
 
 
-SCAN_SUFFIXES = {'.usdz', '.jpg', '.jpeg', '.png', '.json', '.mp4', '.obj', '.mtl', '.txt', '.ply', '.pcd', '.heic'}
-UNSAFE = '扫描包包含不安全的路径、链接、特殊文件或加密文件'
-
-
-def _scan_entries(bundle):
-    """Yield bounded scan entries lazily. A directory has no opener; links and devices are refused."""
-    is_zip = isinstance(bundle, zipfile.ZipFile)
-    for item in bundle.infolist() if is_zip else bundle:
-        if is_zip:
-            if stat.S_ISLNK(item.external_attr >> 16) or item.flag_bits & 1:
-                raise ValueError(UNSAFE)
-            yield item.filename, item.file_size, None if item.is_dir() else lambda item=item: bundle.open(item)
-        else:
-            if not (item.isfile() or item.isdir()):
-                raise ValueError(UNSAFE)
-            yield item.name, item.size, None if item.isdir() else lambda item=item: bundle.extractfile(item)
-
-
-def _open_scan(archive):
-    # By the leading bytes: zipfile.is_zipfile looks for a ZIP's end record near the end of the file,
-    # which a tar ending with room.usdz (itself a ZIP) also has.
-    archive.seek(0)
-    head = archive.read(4)
-    archive.seek(0)
-    if head in (b'PK\x03\x04', b'PK\x05\x06'):
-        return zipfile.ZipFile(archive)
-    try:
-        return tarfile.open(fileobj=archive, mode='r:*')
-    except tarfile.TarError:
-        raise ValueError('请上传 ZIP 或 tar 格式的扫描包') from None
+from room_scan import extract_scan as _extract_scan
+from room_jobs import Jobs as JobStore
 
 
 def extract_scan(archive, destination):
-    """Extract bounded data only from a ZIP or tar; reject links, traversal, duplicates and multiple captures."""
-    with _open_scan(archive) as bundle:
-        names, expanded = set(), 0
-        for count, (name, size, open_entry) in enumerate(_scan_entries(bundle), 1):
-            expanded += size
-            if count > MAX_ENTRIES or size < 0 or expanded > MAX_EXPANDED:
-                raise ValueError('扫描包解压后过大（上限 8 GB / 50,000 个文件）')
-            path = PurePosixPath(name)
-            if path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name:
-                raise ValueError(UNSAFE)
-            if open_entry is None or '__MACOSX' in path.parts or path.name.startswith('.'):
-                continue
-            path = PurePosixPath(*[part for part in path.parts if part != '.'])  # tar names may start with ./
-            if path.suffix.lower() not in SCAN_SUFFIXES:
-                raise ValueError('扫描包只能包含扫描数据，不能包含程序或其他文件')
-            if str(path).casefold() in names:
-                raise ValueError('扫描包包含重复文件')
-            names.add(str(path).casefold())
-            target = destination.joinpath(*path.parts)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with open_entry() as source, target.open('xb') as output:
-                shutil.copyfileobj(source, output)
-    candidates = {p.parent.parent if p.parent.name == 'roomplan' else p.parent for p in destination.rglob('room.usdz')}
-    if len(candidates) != 1:
-        raise ValueError('请上传一个房间的完整扫描包，其中需包含 room.usdz')
-    capture = candidates.pop()
-    if (capture / 'scene.json').exists():
-        raise ValueError('请上传原始扫描包，而不是已经生成的场景包')
-    frames = list(capture.glob('frame_*.json')) + list((capture / 'images').glob('frame_*.json'))
-    if not frames or not any(p.with_name(p.stem.replace('frame_', 'depth_') + '.png').is_file() for p in frames):
-        raise ValueError('扫描包缺少 frame_*.json 相机数据或 depth_*.png 深度数据')
-    if not (list(capture.glob('frame_*.jpg')) or list((capture / 'images').glob('frame_*.jpg')) or (capture / 'frames.mp4').is_file()):
-        raise ValueError('扫描包缺少图像帧或 frames.mp4')
-    return capture
+    return _extract_scan(archive, destination, max_expanded=MAX_EXPANDED, max_entries=MAX_ENTRIES)
 
 
-class Jobs:
-    def __init__(self, root, pipeline, uv='uv', timeout=21600, runner='server', python=sys.executable):
-        self.root, self.pipeline, self.uv, self.timeout = Path(root).resolve(), Path(pipeline).resolve(), uv, timeout
-        self.runner, self.python = runner, python
-        self.task_lock = None
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.lock = threading.RLock()
-        self.upload_lock = threading.Lock()
-        self.pending = queue.Queue()
-        self.records = {}
-        for path in sorted(self.root.glob('*/job.json')):
-            record = json.loads(path.read_text())
-            self.records[record['id']] = record
-            if record['status'] in {'running', 'preparing'}:
-                record.update(status='failed', error='服务曾重启。重试会检查上次进程是否结束，并复用已完成的阶段。')
-                self.save(record)
-            elif record['status'] == 'queued':
-                self.pending.put(record['id'])
-
-    def save(self, record, directory=None):
-        record['updated'] = time.time()
-        path = (directory or self.root / record['id']) / 'job.json'
-        temp = path.with_suffix('.tmp')
-        temp.write_text(json.dumps(record, ensure_ascii=False))
-        temp.replace(path)
-
-    def public(self, record):
-        result = {key: record[key] for key in ('id', 'name', 'status', 'created', 'updated', 'error') if key in record}
-        result['stages'] = []
-        try:
-            folder = self.root / record['id']
-            output = folder / 'run/pipeline' if record.get('runner', 'cli') == 'server' else folder / 'output'
-            paths = list(output.glob('*/.litereality/pipeline.json'))
-            state = json.loads(paths[0].read_text()) if len(paths) == 1 else {}
-            result['stages'] = [{'name': name, 'status': state.get('stages', {}).get(name, {}).get('status', 'pending')} for name in STAGES]
-            if record.get('runner') == 'server':
-                result['stages'].append({'name': 'articulate', 'status': 'completed' if record['status'] in {'preparing', 'completed'} else 'pending'})
-        except (OSError, ValueError, KeyError):
-            pass
-        if record['status'] == 'completed' and not record.get('replay_only'):
-            result['room'] = self.room(record)
-        if record.get('replay_only'):
-            result['replay_only'] = True
-        return result
-
-    def load_new(self):
-        """Pick up jobs registered on disk while the service runs (room_replay.py register)."""
-        with self.lock:
-            for path in self.root.glob('*/job.json'):
-                if path.parent.name not in self.records:
-                    try:
-                        record = json.loads(path.read_text())
-                    except (OSError, ValueError):
-                        continue
-                    if record.get('replay_only'):
-                        self.records[record['id']] = record
-
-    def replay_worker(self, run=None, interval=20):
-        """Condense the modelling agent's log for live and finished jobs, a batch at a time."""
-        run = run or room_replay.codex_runner()
-        backoff = {}
-        while True:
-            self.load_new()
-            with self.lock:
-                records = [dict(r) for r in self.records.values()]
-            for record in records:
-                folder = self.root / record['id']
-                if backoff.get(record['id'], 0) > time.time() or record['status'] == 'queued':
-                    continue
-                scene = room_replay.find_scene(folder)
-                if not scene:
-                    continue
-                try:
-                    until = record.get('until')
-                    agent = room_replay.agent_records(scene, until)
-                    summary = room_replay.Summary(folder)
-                    start = min([r['t'] for r in agent] or [time.time()])
-                    summary.condense(agent, run, start, final=record['status'] not in ('running', 'preparing'))
-                    for event in room_replay.review_events(scene, until):
-                        if event.get('issues'):
-                            summary.review(event['id'], event['issues'], run)
-                except Exception as error:  # a failed call keeps the rule wording; try again later
-                    backoff[record['id']] = time.time() + 300
-                    with (folder / 'replay-error.log').open('a') as log:
-                        log.write(f'{time.ctime()} {error!r}\n')
-            time.sleep(interval)
-
-    def room(self, record):
-        return {'id': 'scan-' + record['id'], 'name': record['name'],
-                'dir': f'{PREFIX}/assets/{record["id"]}', 'summary': '由房间扫描重建，可进入布置。'}
-
-    def add(self, identifier, name, archive):
-        # Serialize disk-heavy extractions without holding up job status or replay queries.
-        with self.upload_lock:
-            with self.lock:
-                if identifier in self.records:
-                    return self.public(self.records[identifier])
-            folder = self.root / identifier
-            with tempfile.TemporaryDirectory(dir=self.root) as temp:
-                staged = Path(temp) / identifier
-                capture = extract_scan(archive, staged / 'capture')
-                record = {'id': identifier, 'name': name, 'status': 'queued', 'created': time.time(),
-                          'capture': str(folder / capture.relative_to(staged)), 'scan': capture.name, 'runner': self.runner}
-                self.save(record, staged)
-                with self.lock:
-                    staged.rename(folder)
-                    self.records[identifier] = record
-                    initial = record.copy()
-                    self.pending.put(identifier)
-            return self.public(initial)
-
-    def retry(self, identifier):
-        with self.lock:
-            record = self.records[identifier]
-            if record['status'] != 'failed':
-                raise ValueError('只有失败的任务可以重试')
-            record.update(status='queued')
-            record.pop('error', None)
-            self.save(record)
-            self.pending.put(identifier)
-            return self.public(record)
-
-    def execute(self, args, log):
-        process = subprocess.Popen(args, cwd=self.pipeline, stdout=log, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL, start_new_session=True,
-                                   pass_fds=(self.task_lock.fileno(),) if self.task_lock else ())
-        try:
-            code = process.wait(timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
-            raise RuntimeError('任务超过运行时限，请检查服务器日志后重试。')
-        if code:
-            raise RuntimeError(f'重建程序退出（代码 {code}）。请检查服务器 task.log、模型配置和扫描数据后重试。')
-
-    def run_one(self, identifier):
-        record = self.records[identifier]
-        folder = self.root / identifier
-        guard = (folder / 'task.lock').open('a')
-        try:
-            try:
-                fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise RuntimeError('上一次重建进程仍在运行，请等它结束后重试。')
-            self.task_lock = guard
-            with self.lock:
-                record.update(status='running')
-                self.save(record)
-            with (folder / 'task.log').open('ab') as log:
-                if record.get('runner', 'cli') == 'server':
-                    # Retain this project's runtime configuration, GPU selection/lock and articulation pass.
-                    self.execute([self.python, str(self.pipeline / 'server/run_room.py'), record['capture'],
-                                  str(folder / 'run'), '--through', 'publish', '--wait-gpu'], log)
-                    attempts = sorted((folder / 'run').glob('attempt-*'))
-                    if not attempts or any(not (attempts[-1] / name).is_file() or (attempts[-1] / name).read_text().strip() != '0'
-                                           for name in ('exit', 'articulate-exit')):
-                        raise RuntimeError('房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。')
-                    preview = folder / 'run/articulate/room_preview'
-                else:
-                    self.execute([self.uv, 'run', '--no-sync', 'litereality', 'run', record['capture'],
-                                  '--output-root', str(folder / 'output'), '--through', 'publish'], log)
-                    previews = list((folder / 'output').glob('*/realism_authoring/room_preview'))
-                    if len(previews) != 1:
-                        raise RuntimeError('未找到唯一的房间重建结果，请检查服务器日志。')
-                    preview = previews[0]
-                if not (preview / 'Room.glb').is_file() or not (preview / 'room_layout.json').is_file():
-                    raise RuntimeError('重建结束但缺少完整房间模型或布局，尚不能进入布置。')
-                with self.lock:
-                    record.update(status='preparing')
-                    self.save(record)
-                self.execute([sys.executable, str(ROOT / 'web/scripts/room_objects.py'), str(preview)], log)
-                published = folder / 'assets'
-                published.mkdir(exist_ok=True)
-                for name in ASSETS:
-                    if (preview / name).is_file():
-                        shutil.copy2(preview / name, published / name)
-            with self.lock:
-                record.update(status='completed')
-                self.save(record)
-        except Exception as error:
-            with self.lock:
-                record.update(status='failed', error=str(error) if isinstance(error, RuntimeError) else '无法运行重建程序，请检查服务器环境及 task.log。')
-                self.save(record)
-        finally:
-            self.task_lock = None
-            guard.close()
-
-    def worker(self):
-        while True:
-            identifier = self.pending.get()
-            try:
-                self.run_one(identifier)
-            finally:
-                self.pending.task_done()
+class Jobs(JobStore):
+    # Keep the script's public import stable for existing launchers and integrations.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, extract=lambda archive, dest: extract_scan(archive, dest), **kwargs)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -337,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, {'jobs': [self.jobs.public(r) for r in records]})
             if path == PREFIX + '/catalog':
                 return self.respond(200, {'rooms': [self.jobs.room(r) for r in self.jobs.records.values()
-                                                    if r['status'] == 'completed' and not r.get('replay_only')]})
+                                                    if self.jobs.public(r)['usable']]})
             match = re.fullmatch(PREFIX + rf'/jobs/({ID})', path)
             if match and match[1] in self.jobs.records:
                 return self.respond(200, self.jobs.public(self.jobs.records[match[1]]))

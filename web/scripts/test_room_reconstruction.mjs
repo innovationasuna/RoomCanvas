@@ -80,4 +80,7 @@ test('progress reflects real stages and keeps errors distinct from completion', 
   assert.match(jobDescription({status: 'preparing'}), /整理/);
   assert.equal(jobDescription({status: 'failed', error: '模型不可用'}), '模型不可用');
   assert.match(jobDescription({status: 'completed'}), /已加入房间列表/);
+  assert.match(jobDescription({status: 'completed', usable: false}), /产物暂不可用/);
+  assert.match(jobDescription({status: 'completed', quality: {status: 'warnings'},
+    enhancement: {added: 0, zero_added_reason: '已存在可动关节'}}), /待改善.*已存在可动关节/);
 });

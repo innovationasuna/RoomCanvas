@@ -67,6 +67,7 @@ test('the walk starts beside the bed, never on it', () => {
   // Hidden things do not count.
   const ghost = createBody(THREE, {room: room(), floorY: 0, solid: (hit) => hit.point.y < .1 || Math.abs(hit.point.x) > 1.9 || Math.abs(hit.point.z) > 1.4});
   assert.equal(ghost.free([0, 0]), true);
+  assert.equal(body.free([10, 10]), false, 'a missing floor cannot be a safe starting position');
 });
 
 test('walking reserves mouse left clicks for objects and middle drags for looking, while touch still works', t => {

@@ -21,11 +21,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_service as service
 import serve
 
+CAMERA = json.dumps({"intrinsics": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                     "cameraPoseARFrame": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                     "projectionMatrix": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]}).encode()
+
 
 def archive(extra=None, kind='zip', files=None):
     output = io.BytesIO()
     files = dict(files) if files is not None else {
-        'scan/room.usdz': b'scan', 'scan/frame_00000.json': b'{}',
+        'scan/room.usdz': b'scan', 'scan/frame_00000.json': CAMERA,
         'scan/depth_00000.png': b'depth', 'scan/frame_00000.jpg': b'image'}
     files.update(extra or {})
     if kind == 'zip':
@@ -82,7 +86,7 @@ class ScanValidation(unittest.TestCase):
         usdz = io.BytesIO()  # a .usdz is a ZIP: a tar ending with one must still be read as a tar
         with zipfile.ZipFile(usdz, 'w') as inner:
             inner.writestr('room.usdc', b'usd')
-        files = {'./roomplan/room.usdz': b'scan', './frame_00000.json': b'{}',
+        files = {'./roomplan/room.usdz': b'scan', './frame_00000.json': CAMERA,
                  './depth_00000.png': b'depth', './images/frame_00000.jpg': b'image', './pointcloud.pcd': b'pcd',
                  './._frame_00000.json': b'mac', './room.usdz': usdz.getvalue()}
         for mode in ('w', 'w:gz'):
@@ -97,7 +101,7 @@ class ScanValidation(unittest.TestCase):
                     service.extract_scan(tar({**files, **bad}, links=links), Path(root))
 
     def test_missing_capture_and_limits(self):
-        for data in [b'not a zip', archive({'scan/frame_00000.json': b'{}'}).getvalue()]:
+        for data in [b'not a zip', archive({'scan/frame_00000.json': CAMERA}).getvalue()]:
             with tempfile.TemporaryDirectory() as root:
                 if data == b'not a zip':
                     with self.assertRaisesRegex(ValueError, 'ZIP 或 tar'): service.extract_scan(io.BytesIO(data), Path(root))
@@ -105,10 +109,14 @@ class ScanValidation(unittest.TestCase):
                     with patch.object(service, 'MAX_EXPANDED', 1), self.assertRaises(ValueError):
                         service.extract_scan(io.BytesIO(data), Path(root))
 
+    def test_incomplete_camera_matrices_are_rejected_before_queueing(self):
+        with tempfile.TemporaryDirectory() as root, self.assertRaisesRegex(ValueError, 'frame_00000.json'):
+            service.extract_scan(archive({'scan/frame_00000.json': b'{}'}), Path(root))
+
     def test_tar_and_gzip_preserve_scan_data_with_nested_layouts(self):
         for kind in ['tar', 'tar.gz']:
             for prefix in ['', './扫描房间/']:
-                files = {prefix + 'roomplan/room.usdz': b'scan', prefix + 'images/frame_00000.json': b'{}',
+                files = {prefix + 'roomplan/room.usdz': b'scan', prefix + 'images/frame_00000.json': CAMERA,
                          prefix + 'images/depth_00000.png': b'depth', prefix + 'images/frame_00000.jpg': b'image',
                          prefix + '._room.usdz': b'mac metadata', '__MACOSX/._room.usdz': b'mac metadata'}
                 with self.subTest(kind=kind, prefix=prefix), tempfile.TemporaryDirectory() as root:
@@ -145,7 +153,7 @@ class ScanValidation(unittest.TestCase):
                 with self.subTest(kind=kind, limit=limit), tempfile.TemporaryDirectory() as root:
                     with patch.object(service, limit, value), self.assertRaisesRegex(ValueError, '过大'):
                         service.extract_scan(archive(kind=kind), Path(root))
-            for files in [{}, {'room.usdz': b'scan'}, {'room.usdz': b'scan', 'frame_00000.json': b'{}', 'depth_00000.png': b'depth'}]:
+            for files in [{}, {'room.usdz': b'scan'}, {'room.usdz': b'scan', 'frame_00000.json': CAMERA, 'depth_00000.png': b'depth'}]:
                 with self.subTest(kind=kind, files=files), tempfile.TemporaryDirectory() as root:
                     with self.assertRaises(ValueError):
                         service.extract_scan(archive(kind=kind, files=files), Path(root))
@@ -279,6 +287,45 @@ class APIIntegration(unittest.TestCase):
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
 
+    def test_optional_enhancement_failure_preserves_a_valid_published_room(self):
+        self.jobs.runner = 'server'
+        self.submit()
+        self.original_execute = self.jobs.execute
+        def failed_enhancement(args, log):
+            if not args[1].endswith('server/run_room.py'):
+                return self.original_execute(args, log)
+            run = Path(args[3])
+            self.fake_pipeline(['litereality', '--output-root', str(run / 'pipeline'), '--through', 'publish'], log)
+            attempt = run / 'attempt-01'
+            attempt.mkdir()
+            (attempt / 'exit').write_text('0')
+            (attempt / 'articulate-exit').write_text('1')
+            raise RuntimeError('articulation failed')
+        with patch.object(self.jobs, 'execute', side_effect=failed_enhancement):
+            self.jobs.run_one(self.identifier)
+        job = self.jobs.public(self.jobs.records[self.identifier])
+        self.assertEqual(job['status'], 'completed')
+        self.assertTrue(job['usable'])
+        self.assertEqual(job['enhancement']['status'], 'failed')
+        self.assertEqual(job['stages'][-1]['status'], 'failed')
+        self.assertTrue(job['warnings'])
+        old_summary = self.jobs.root / self.identifier / 'run/articulate/summary.json'
+        old_summary.parent.mkdir(parents=True)
+        old_summary.write_text(json.dumps({'attempt_id': 'attempt-00', 'added': 17, 'failed': 0}))
+        self.assertNotIn('added', self.jobs.public(self.jobs.records[self.identifier])['enhancement'])
+
+    def test_a_failed_launch_never_reuses_an_old_successful_attempt(self):
+        self.jobs.runner = 'server'
+        self.submit()
+        folder = self.jobs.root / self.identifier / 'run'
+        old = folder / 'attempt-01'
+        old.mkdir(parents=True)
+        (old / 'exit').write_text('0')
+        (old / 'articulate-exit').write_text('0')
+        with patch.object(self.jobs, 'execute', side_effect=RuntimeError('launch failed')):
+            self.jobs.run_one(self.identifier)
+        self.assertEqual(self.jobs.records[self.identifier]['status'], 'failed')
+
     def test_tar_uploads_through_proxy_and_publishes(self):
         self.original_execute = self.jobs.execute
         for index, kind in enumerate(['tar', 'tar.gz']):
@@ -369,7 +416,7 @@ class APIIntegration(unittest.TestCase):
             for path, code in [('/room-reconstruction/health', 503), ('/viewforge/assets/catalog', 502)]:
                 with self.assertRaises(HTTPError) as error:
                     self.request(path)
-                self.assertEqual(error.exception.code, code, path)
+                self.assertEqual(error.exception.code, code, (path, error.exception.read().decode(errors='replace')))
         finally:
             listener.close()
 
