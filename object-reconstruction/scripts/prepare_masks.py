@@ -44,7 +44,7 @@ def infer_missing(root, rows, work, lease):
         raise RuntimeError(f'BiRefNet 推理失败：{detail or "请查看服务器 inference.log"}')
 
 
-def prepare(root, name, selected, *, infer=None, wait_gpu=False):
+def prepare(root, name, selected, *, infer=None, wait_gpu=False, lock_fd=None):
     root = Path(root)
     task_id = datetime.now().strftime('%Y%m%d_%H%M%S_') + uuid.uuid4().hex[:8]
     work = root/'logs/masks'/task_id
@@ -66,7 +66,7 @@ def prepare(root, name, selected, *, infer=None, wait_gpu=False):
         missing = [dict(r, mask=str(Path(inputs['input_dir'])/'masks'/f'{r["name"]}.png'))
                    for r in inputs['images'] if not r['mask']]
         if missing:
-            with object_lease(root, wait=wait_gpu) as lease:
+            with object_lease(root, wait=wait_gpu, inherited=lock_fd) as lease:
                 # Another preparation might have completed between the first
                 # inspection and lock acquisition. Never overwrite its masks.
                 inputs = match_masks(selected_images(root, name, selected), allow_missing=True)
@@ -114,9 +114,11 @@ def main():
     parser.add_argument('--object', required=True)
     parser.add_argument('--images', nargs='+', required=True, help='Photo stems, without extensions')
     parser.add_argument('--wait-gpu', action='store_true', help='Wait for the GPU lock instead of failing')
+    parser.add_argument('--lock-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
-        result = prepare(Path(os.environ['VIEWFORGE_ROOT']).resolve(), args.object, args.images, wait_gpu=args.wait_gpu)
+        result = prepare(Path(os.environ['VIEWFORGE_ROOT']).resolve(), args.object, args.images,
+                         wait_gpu=args.wait_gpu, lock_fd=args.lock_fd)
     except Exception as exc:
         print(json.dumps(dict(status='failed', error=str(exc)), ensure_ascii=False), flush=True)
         sys.exit(1)

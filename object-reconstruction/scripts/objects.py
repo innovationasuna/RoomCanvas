@@ -10,6 +10,7 @@ Jobs wait their turn for the GPU instead of failing while another job holds the 
 Measured size is saved afterwards through /viewforge/dimensions/<run>.
 """
 import asyncio
+from contextlib import ExitStack
 from datetime import datetime
 import json
 import os
@@ -31,16 +32,7 @@ MIN_PHOTOS, MAX_PHOTOS = 1, 40
 # runs are <date>_<name>_web_<time> (27 more), photos <name>_001 (4 more).
 MAX_NAME = 53
 MAX_UPLOAD = 400 * 1024 * 1024
-GPU_POLL_SECONDS = 2
 JOBS, JOBS_LOCK = {}, threading.Lock()
-
-
-def gpu_free(root):
-    try:
-        with object_lease(root):
-            return True
-    except BlockingIOError:
-        return False
 
 
 def import_uploads(root, name, uploads, room=MAX_PHOTOS, **options):
@@ -128,25 +120,27 @@ class Job:
             return True  # prepare_masks.py reports it
         return any(row['mask'] is None for row in rows)
 
-    def wait_for_gpu(self):
-        # Whoever holds the lock (a CLI run, a room or another job) finishes first. The script
-        # then takes the lock with --wait-gpu, so losing a race to it only waits a bit longer.
-        deadline = time.monotonic() + WAIT_SECONDS
-        while not gpu_free(self.root):
-            if time.monotonic() > deadline:
-                raise RuntimeError(f'GPU 被其他任务占用已超过 {WAIT_SECONDS // 60} 分钟，请稍后重试')
-            time.sleep(GPU_POLL_SECONDS)
+    def hold_gpu(self, stack):
+        """Wait here, while the job still shows as queued, behind whoever holds the card (a CLI run,
+        a room or another job). The script inherits the held lease and never waits again."""
+        try:
+            return stack.enter_context(object_lease(self.root, wait=True))
+        except TimeoutError:
+            raise RuntimeError(f'GPU 被其他任务占用已超过 {WAIT_SECONDS // 60} 分钟，请稍后重试') from None
 
     def work(self):
         try:
-            if self.needs_gpu():
-                self.wait_for_gpu()
-            self.status = 'running'
-            logs = self.root/'logs'
-            logs.mkdir(parents=True, exist_ok=True)
-            with (logs/f'rc_{self.kind}_{self.object}_{datetime.now():%Y%m%d_%H%M%S_%f}.log').open('x') as log:
-                process = subprocess.run(self.command, cwd=CODE, stdout=subprocess.PIPE, stderr=log, text=True)
-                log.write(process.stdout)
+            with ExitStack() as stack:
+                lease = self.hold_gpu(stack) if self.needs_gpu() else None
+                command = self.command if lease is None else [
+                    *self.command[:2], '--lock-fd', str(lease.fd), *self.command[2:]]
+                self.status = 'running'
+                logs = self.root/'logs'
+                logs.mkdir(parents=True, exist_ok=True)
+                with (logs/f'rc_{self.kind}_{self.object}_{datetime.now():%Y%m%d_%H%M%S_%f}.log').open('x') as log:
+                    process = subprocess.run(command, cwd=CODE, stdout=subprocess.PIPE, stderr=log, text=True,
+                                             pass_fds=lease.fds if lease else ())
+                    log.write(process.stdout)
             self.finish(process)
         except Exception as exc:
             self.status, self.error = 'failed', str(exc)
