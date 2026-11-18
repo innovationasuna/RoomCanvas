@@ -241,7 +241,7 @@ with measured_lease() as (gpu, lease):
     # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
     env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu.uuid,
                LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
-    record = {"started": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+    record = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
               "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
     (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
     with (attempt / "pipeline.log").open("w") as log:
