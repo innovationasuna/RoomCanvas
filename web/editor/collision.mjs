@@ -4,6 +4,8 @@ import {entityGeometry, meshGeometry} from './entity-geometry.mjs';
 import {carryPose} from './placement.mjs';
 const EPS = 1e-6;
 const CLEARANCE = .0002;
+// How much deeper than scanned an intersecting pair may go: noise, not a push.
+const DEPTH_TOLERANCE = .005;
 const IDENTITY = {x: 0, y: 0, z: 0, yaw: 0};
 const subtract = (a, b) => a.map((v, i) => v - b[i]);
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -201,11 +203,12 @@ function makeBVH(faces) {
 
 // Exact support projections of mesh vertices. BVH bounds only prune branches;
 // the returned extrema always come from real triangle vertices, including concave meshes.
-function support(mesh, axis) {
+// With a stop, any value above it is returned as soon as it is found.
+function support(mesh, axis, stop = Infinity) {
   let best = -Infinity;
   const upper = (node) => axis.reduce((sum, value, k) => sum + value * node.box[k + (value >= 0 ? 3 : 0)], 0);
   function visit(node) {
-    if (upper(node) <= best) return;
+    if (best > stop || upper(node) <= best) return;
     if (node.faces) {
       for (const face of node.faces) for (const point of face.triangle) best = Math.max(best, dot(axis, point));
     } else if (upper(node.left) >= upper(node.right)) {visit(node.left); visit(node.right);}
@@ -215,6 +218,59 @@ function support(mesh, axis) {
   return best;
 }
 const projection = (mesh, axis, offset = 0) => [-support(mesh, axis.map((v) => -v)) + offset, support(mesh, axis) + offset];
+
+// The outer planes of a mesh, or of a piece of it: its faces with all of it behind them, plus its
+// bounds, each as an outward normal n with n·x <= d. They bound its convex hull; a flat sheet
+// is behind both of its sides.
+function outerPlanes(piece, faces) {
+  const planes = new Map(), box = piece.tree.box;
+  for (let k = 0; k < 3; k++) {
+    const n = [0, 1, 2].map((j) => j === k ? 1 : 0);
+    planes.set(k, [{n, d: box[k + 3]}, {n: n.map((v) => -v), d: -box[k]}]);
+  }
+  for (const {plane: n, d} of faces) {
+    const key = [...n, d].map((v) => v.toFixed(7)).join(',');
+    if (planes.has(key)) continue;
+    const sides = [];
+    if (support(piece, n, d + EPS) <= d + EPS) sides.push({n, d});
+    if (support(piece, n.map((v) => -v), EPS - d) <= EPS - d) sides.push({n: n.map((v) => -v), d: -d});
+    planes.set(key, sides);
+  }
+  return [...planes.values()].flat();
+}
+
+// A mesh's outer planes, and its connected pieces (the two sides of a frame, each book of a
+// stack) with theirs. Computed on first use.
+const hulls = new WeakMap();
+function hull(mesh) {
+  if (!hulls.has(mesh.tree)) hulls.set(mesh.tree, {});
+  const value = hulls.get(mesh.tree);
+  value.planes ||= outerPlanes(mesh, mesh.faces);
+  return value;
+}
+function pieces(mesh) {
+  const value = hull(mesh);
+  if (!value.pieces) {
+    const parent = new Map(), key = (p) => p.map((v) => Math.round(v / EPS)).join(',');
+    const find = (k) => {while (parent.get(k) !== k) parent.set(k, k = parent.get(parent.get(k))); return k;};
+    for (const face of mesh.faces) {
+      const [a, ...rest] = face.triangle.map(key);
+      for (const k of [a, ...rest]) if (!parent.has(k)) parent.set(k, k);
+      for (const k of rest) parent.set(find(k), find(a));
+    }
+    const groups = new Map();
+    for (const face of mesh.faces) {
+      const root = find(key(face.triangle[0]));
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root).push(face);
+    }
+    value.pieces = groups.size === 1 ? [{tree: mesh.tree, planes: value.planes}] : [...groups.values()].map((faces) => {
+      const piece = {tree: makeBVH(faces.slice())};
+      return {...piece, planes: outerPlanes(piece, faces)};
+    });
+  }
+  return value.pieces;
+}
 
 const worldPoint = (p, owner, pose) => {
   const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
@@ -327,48 +383,59 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     return null;
   }
 
-  // Remember only whether the authored geometry needs recovery. This never exempts
-  // a pair from collision checks at a later pose. Restoring an old layout changes
-  // poses only, so undo cannot create persistent collision permissions.
+  // How far meshA and each piece of meshB reach past each other's outer planes. The least is
+  // the shortest push that parts their hulls along one of those planes: their depth.
+  function penetrations(meshA, ownerA, poseA, meshB, ownerB, poseB) {
+    const frame = (owner, pose, other, otherPose) => {
+      const relative = (p) => localPoint(worldPoint(p, owner, pose), other, otherPose), zero = relative([0, 0, 0]);
+      return {zero, basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p), zero))};
+    };
+    const toB = frame(ownerA, poseA, ownerB, poseB), toA = frame(ownerB, poseB, ownerA, poseA);
+    const lowest = (mesh, {zero, basis}, n) => projection(mesh, basis.map((axis) => dot(n, axis)), dot(n, zero))[0];
+    const own = hull(meshA).planes;
+    return pieces(meshB).map((piece) => [...piece.planes.map(({n, d}) => d - lowest(meshA, toB, n)), ...own.map(({n, d}) => d - lowest(piece, toA, n))]);
+  }
+  const depth = (values) => values.reduce((a, b) => Math.min(a, b), Infinity);
+
+  // A mesh pair that already intersects in the scan (a desk against the wall it was scanned
+  // into, a frame sunk into its wall) may intersect, but not deeper than it was scanned, in any
+  // pose. Remembered per pair as how deep each piece of meshB may be entered: as deep as in the
+  // scan, within the tolerance, so an untouched piece not at all. Null for every other pair.
+  // Restoring an old layout changes poses only, so undo cannot create collision permissions.
   const authored = new Map();
-  function known(meshA, ownerA, meshB, ownerB) {
+  function allowance(meshA, ownerA, meshB, ownerB) {
     // An object brought in later (owner.added) was never part of the scan.
-    if (!keepAuthoredOverlaps || ownerA.added || ownerB.added) return false;
+    if (!keepAuthoredOverlaps || ownerA.added || ownerB.added) return null;
     if (!authored.has(meshA)) authored.set(meshA, new Map());
     const row = authored.get(meshA);
     if (!row.has(meshB)) {
       const box = (mesh, owner) => bounds(corners(mesh.tree.box).map((p) => worldPoint(p, owner, IDENTITY)));
-      row.set(meshB, overlap(box(meshA, ownerA), box(meshB, ownerB)) && !!fixedMesh(meshA, ownerA, IDENTITY, meshB, ownerB, IDENTITY));
+      const intersecting = overlap(box(meshA, ownerA), box(meshB, ownerB)) && !!fixedMesh(meshA, ownerA, IDENTITY, meshB, ownerB, IDENTITY);
+      row.set(meshB, intersecting ? penetrations(meshA, ownerA, IDENTITY, meshB, ownerB, IDENTITY).map((values) => Math.max(depth(values), 0) + DEPTH_TOLERANCE) : null);
     }
     return row.get(meshB);
   }
+  const deeper = (found, allowed) => found.some((values, i) => depth(values) > allowed[i]);
 
-  // Recovery is deliberately restricted to shallow straight translations out of a
-  // supporting triangle plane. Concave interlocks, containment and rotation have no
-  // reliable single departure direction. They remain visible/restorable, but require
-  // a clear destination before confirmation. This is a surface projection, not AABB depth.
-  function canRecover(meshA, ownerA, start, end, meshB, ownerB, poseB) {
-    if (Math.abs(wrap(end.yaw - start.yaw)) > EPS) return false;
-    const delta = subtract(localPoint(worldPoint([0, 0, 0], ownerA, end), ownerB, poseB), localPoint(worldPoint([0, 0, 0], ownerA, start), ownerB, poseB));
-    const relative = (p) => localPoint(worldPoint(p, ownerA, start), ownerB, poseB);
-    const zero = relative([0, 0, 0]), basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p), zero));
-    const seen = new Set();
-    for (const face of meshB.faces) {
-      const n = face.plane, key = [...n, face.d].map((v) => v.toFixed(7)).join(',');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const projectedSpeed = dot(n, delta), tangent = delta.map((v, k) => v - n[k] * projectedSpeed);
-      if (Math.abs(projectedSpeed) <= EPS || Math.hypot(...tangent) > EPS) continue;
-      const [lowA, highA] = projection(meshA, basis.map((axis) => dot(n, axis)), dot(n, zero) - face.d);
-      const [lowB, highB] = projection(meshB, n, -face.d);
-      if (lowA >= -EPS || highA <= EPS || (lowB < -EPS && highB > EPS)) continue;
-      const side = highB <= EPS ? 1 : lowB >= -EPS ? -1 : 0;
-      // An open sheet has no solid side; depart towards the larger existing side.
-      const outward = Math.abs(lowB) <= EPS && Math.abs(highB) <= EPS ? (highA > -lowA ? 1 : -1) : side;
-      const depth = outward > 0 ? -lowA : highA, speed = dot(n, delta) * outward;
-      if (depth <= .03 + EPS && speed > EPS) return true;
-    }
-    return false;
+  // The first fraction of a step at which a scanned pair becomes deeper than allowed, or 1. Each
+  // penetration changes linearly along a straight step (the yaw segments are short), so the
+  // too-deep part, where all of a piece's penetrations pass the allowance, is one interval. A
+  // piece already deeper than allowed may not go deeper still.
+  function deepens(meshA, ownerA, start, end, meshB, ownerB, poseB, allowed) {
+    const from = penetrations(meshA, ownerA, start, meshB, ownerB, poseB), to = penetrations(meshA, ownerA, end, meshB, ownerB, poseB);
+    let first = 1;
+    from.forEach((values, piece) => {
+      const limit = Math.max(allowed[piece], depth(values));
+      let enter = 0, exit = 1;
+      values.forEach((value, i) => {
+        const rate = to[piece][i] - value;
+        if (Math.abs(rate) < 1e-14) {if (value <= limit) exit = -1;}
+        else if (rate > 0) enter = Math.max(enter, (limit - value) / rate);
+        else exit = Math.min(exit, (limit - value) / rate);
+      });
+      if (enter < exit) first = Math.min(first, enter);
+    });
+    return first;
   }
 
   // An explicit wall remount chooses a destination, unlike an ordinary nudge.
@@ -401,6 +468,8 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       for (const {owner: b, mesh: mb, pose: poseB, box: obstacleBox} of obstacles) {
         if (!overlap(box, obstacleBox)) continue;
         reason = fixedMesh(ma, a, pose, mb, b, poseB);
+        const allowed = reason && allowance(ma, a, mb, b);
+        if (allowed && !deeper(penetrations(ma, a, pose, mb, b, poseB), allowed)) reason = null;
         if (reason) {
           other = {id: b.id, name: b.name, mesh: mb.name, movingId: a.id, movingMesh: ma.name};
           break outer;
@@ -524,7 +593,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     const stationary = owners.filter((owner) => !moved.has(owner.id) && next[owner.id]?.visible !== false);
     const obstacles = stationary.flatMap((owner) => owner.meshes.map((mesh) => ({owner, mesh, pose: before[owner.id] || IDENTITY,
       box: bounds(corners(mesh.tree.box).map((p) => worldPoint(p, owner, before[owner.id] || IDENTITY)))})));
-    let fraction = 1, other = null, reason = null;
+    let fraction = 1, other = null;
     outer: for (let segment = 0; segment < segments; segment++) {
       let first = 1;
       for (const a of moving) {
@@ -536,10 +605,9 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
           for (const {owner: b, mesh: mb, pose, box: obstacleBox} of obstacles) {
             if (!overlap(box, obstacleBox)) continue;
             const pairStart = performance.now();
-            const recovering = known(ma, a, mb, b) && fixedMesh(ma, a, start, mb, b, pose);
-            const restricted = recovering && !canRecover(ma, a, start, end, mb, b, pose);
-            const hit = restricted ? 0 : sweepMesh(ma, a, start, end, mb, b, pose, first, assemblyRadius);
-            if (restricted) reason = 'overlap-recovery-limited';
+            // A scanned pair is limited by its depth, every other pair by the sweep.
+            const allowed = allowance(ma, a, mb, b);
+            const hit = allowed ? deepens(ma, a, start, end, mb, b, pose, allowed) : sweepMesh(ma, a, start, end, mb, b, pose, first, assemblyRadius);
             pairTimings.push({moving:ma.name, obstacle:mb.name, owner:b.id, ms:performance.now()-pairStart});
             if (hit < first) {first = hit; other = {id: b.id, name: b.name, mesh: mb.name, movingId:a.id, movingMesh:ma.name};}
             if (first <= 0) break;
@@ -554,7 +622,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     if (fraction < 1) for (const owner of moving) layout[owner.id] = poseAt(owner,fraction);
     audit.lastMs = performance.now() - started;
     audit.lastPairs = pairTimings.sort((a,b) => b.ms-a.ms).slice(0,5);
-    return {layout, blocked: fraction < 1, other, fraction, ...(reason ? {reason} : {})};
+    return {layout, blocked: fraction < 1, other, fraction};
   }
   return {limit, checkPlacement, audit};
 }
