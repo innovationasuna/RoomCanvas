@@ -164,16 +164,22 @@ def object_names(scene):
 
 def trace_rows(scene, until=None):
     rows = [r for r in read_jsonl(Path(scene) / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
-    seen, unique = set(), []
+    seen, keyed, last = set(), [], 0
     for row in rows:
         identifier = row.get('event_id')
         if identifier and identifier in seen:
             continue
         if identifier:
             seen.add(identifier)
-        unique.append(row)
-    rows = sorted(unique, key=lambda r: (r.get('schema_version', 1) >= 2,
-                                        r.get('sequence', r['t']), r.get('event_id', '')))
+        sequence = row.get('sequence')
+        if isinstance(sequence, int) and not isinstance(sequence, bool):
+            last = sequence
+        elif 'sequence' in row:
+            sequence = last + .5  # not a number, which the writer skips too: keep it where it was written
+        else:
+            sequence = row['t']
+        keyed.append(((row.get('schema_version', 1) >= 2, sequence, identifier or ''), row))
+    rows = [row for _, row in sorted(keyed, key=lambda item: item[0])]
     return [r for r in rows if r['t'] <= until] if until else rows
 
 
