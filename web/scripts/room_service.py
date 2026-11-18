@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import uuid
@@ -117,6 +118,7 @@ class Jobs:
         self.task_lock = None
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.upload_lock = threading.Lock()
         self.pending = queue.Queue()
         self.records = {}
         for path in sorted(self.root.glob('*/job.json')):
@@ -128,9 +130,9 @@ class Jobs:
             elif record['status'] == 'queued':
                 self.pending.put(record['id'])
 
-    def save(self, record):
+    def save(self, record, directory=None):
         record['updated'] = time.time()
-        path = self.root / record['id'] / 'job.json'
+        path = (directory or self.root / record['id']) / 'job.json'
         temp = path.with_suffix('.tmp')
         temp.write_text(json.dumps(record, ensure_ascii=False))
         temp.replace(path)
@@ -201,22 +203,24 @@ class Jobs:
                 'dir': f'{PREFIX}/assets/{record["id"]}', 'summary': '由房间扫描重建，可进入布置。'}
 
     def add(self, identifier, name, archive):
-        with self.lock:
-            if identifier in self.records:
-                return self.public(self.records[identifier])
+        # Serialize disk-heavy extractions without holding up job status or replay queries.
+        with self.upload_lock:
+            with self.lock:
+                if identifier in self.records:
+                    return self.public(self.records[identifier])
             folder = self.root / identifier
-            folder.mkdir(exist_ok=True)
-            try:
-                capture = extract_scan(archive, folder / 'capture')
-            except Exception:
-                shutil.rmtree(folder)
-                raise
-            record = {'id': identifier, 'name': name, 'status': 'queued', 'created': time.time(),
-                      'capture': str(capture), 'scan': capture.name, 'runner': self.runner}
-            self.records[identifier] = record
-            self.save(record)
-            self.pending.put(identifier)
-            return self.public(record)
+            with tempfile.TemporaryDirectory(dir=self.root) as temp:
+                staged = Path(temp) / identifier
+                capture = extract_scan(archive, staged / 'capture')
+                record = {'id': identifier, 'name': name, 'status': 'queued', 'created': time.time(),
+                          'capture': str(folder / capture.relative_to(staged)), 'scan': capture.name, 'runner': self.runner}
+                self.save(record, staged)
+                with self.lock:
+                    staged.rename(folder)
+                    self.records[identifier] = record
+                    initial = record.copy()
+                    self.pending.put(identifier)
+            return self.public(initial)
 
     def retry(self, identifier):
         with self.lock:
@@ -405,7 +409,6 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_UPLOAD:
             return self.respond(413, {'error': '扫描包需在 2 GB 以内且不能为空'})
         # Spool in chunks instead of retaining a multi-gigabyte scan in memory.
-        import tempfile
         try:
             self.connection.settimeout(120)
             with tempfile.TemporaryFile() as archive:
