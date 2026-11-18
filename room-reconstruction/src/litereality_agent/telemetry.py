@@ -222,5 +222,9 @@ def agent_step(agent: str, step: str, *, payload: dict | None = None, **data) ->
     d = _state["dir"]
     if payload is not None and d is not None:
         ref = f"agent/{uuid.uuid4().hex}_{agent}_{step}.json"
-        (d / ref).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        try:
+            (d / ref).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 — like the event itself, never fails the agent
+            print(f"warning: agent_step payload not written: {exc}", file=sys.stderr)
+            ref = None
     event("agent_step", agent=agent, step=step, payload_ref=ref, **data)
