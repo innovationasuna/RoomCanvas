@@ -1,4 +1,4 @@
-import {entityGeometry} from './entity-geometry.mjs';
+import {entityGeometry, meshGeometry} from './entity-geometry.mjs';
 import {extent, bounds2d} from './geometry-bounds.mjs';
 
 // Geometric contact checks, not a rigid-body / load-bearing simulation.
@@ -287,6 +287,7 @@ export function seatBand(triangles, floorY, {from = .25, to = .8, window = .06, 
   return [best.start / 100 - .03, best.start / 100 + window + .03];
 }
 
+const preparedEntities = new WeakMap();
 export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, {openings: openingsByWall = {}} = {}) {
   room.updateMatrixWorld(true);
   const editable = new Set(), fixed = new Map(), references = new Map();
@@ -309,14 +310,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
         if (!mesh.isMesh || seen.has(mesh)) return;
         seen.add(mesh);
         if (!meshCache.has(mesh)) {
-          const positions = mesh.geometry.attributes.position;
-          const matrix = matrices?.get(mesh) ?? mesh.matrixWorld;
-          const localVertices = Array.from({length: positions.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(matrix).toArray());
-          const index = mesh.geometry.index;
-          const count = index ? index.count : positions.count;
-          const faces = [];
-          for (let i = 0; i < count; i += 3) faces.push([0, 1, 2].map((k) => localVertices[index ? index.getX(i + k) : i + k]));
-          meshCache.set(mesh, {vertices: localVertices, triangles: faces});
+          meshCache.set(mesh, meshGeometry(THREE, mesh, matrices?.get(mesh) ?? mesh.matrixWorld));
         }
         const data = meshCache.get(mesh);
         for (const v of data.vertices) vertices.push(v);
@@ -324,6 +318,13 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
       });
     }
     return {vertices, triangles};
+  }
+  const prepared = new Map(), keys = new Map();
+  for (const [id, spec] of Object.entries(specs)) {
+    const key = JSON.stringify([spec, openingsByWall]);
+    keys.set(id, key);
+    const cached = preparedEntities.get(references.get(id));
+    if (cached?.key === key) prepared.set(id, cached);
   }
   const surfaces = [];
   function addSurfaces(owner, names, label) {
@@ -341,9 +342,9 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     }
   }
   addSurfaces(null, ['Floor0'], '地面');
-  for (const [id, spec] of Object.entries(specs)) if (spec.surfaces) addSurfaces(id, spec.surfaces, entities.get(id).name);
+  for (const [id, spec] of Object.entries(specs)) if (spec.surfaces && !prepared.has(id)) addSurfaces(id, spec.surfaces, entities.get(id).name);
   const seats = {};
-  for (const [id, spec] of Object.entries(specs)) if (spec.seat) {
+  for (const [id, spec] of Object.entries(specs)) if (spec.seat && !prepared.has(id)) {
     const originY = entities.get(id).origin.toArray()[1];
     const range = spec.seat === 'auto' ? seatBand(geometry(spec.body, id).triangles, originY) : spec.seat.range;
     if (!range) continue;  // e.g. a stool scanned as a closed block
@@ -356,6 +357,11 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     if (!triangles.length) throw new Error(`没有可用椅面：${id}`);
     surfaces.push({id: `${id}:seat`, owner: id, label: `${entities.get(id).name} · 椅面`,
       minY: triangles.reduce((min, [a, b, c]) => Math.min(min, a[1], b[1], c[1]), Infinity), heightAt: meshSupport(triangles)});
+  }
+
+  for (const [id, cached] of prepared) {
+    surfaces.push(...cached.surfaces);
+    if (cached.seat) seats[id] = cached.seat;
   }
 
   const walls = [];
@@ -397,6 +403,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
 
   const bodies = new Map();
   for (const [id, spec] of Object.entries(specs)) {
+    if (prepared.has(id)) {bodies.set(id, prepared.get(id).body); continue;}
     const {vertices, triangles} = geometry(spec.body, id);
     const bottom = vertices.reduce((a, p) => Math.min(a, p[1]), Infinity);
     // Ceiling clearance includes the desk monitor, ornaments and other grouped parts.
@@ -427,6 +434,7 @@ export function createPlacement(THREE, room, entities, specs, floorY, ceilingY, 
     }
     bodies.set(id, body);
   }
+  for (const [id, body] of bodies) if (!prepared.has(id)) preparedEntities.set(references.get(id), {key: keys.get(id), body, surfaces: surfaces.filter((surface) => surface.owner === id), seat: seats[id]});
   meshCache.clear();
 
   const worldBase = (body, pose) => body.base.map(([x, z]) => transformPoint([x, body.bottom, z], body.origin, pose));

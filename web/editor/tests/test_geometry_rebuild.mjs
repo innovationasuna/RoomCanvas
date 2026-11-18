@@ -78,10 +78,22 @@ test('rebuilding after import and removal preserves rendered footprints, carried
   const request = async (data, transfer = []) => {
     const result = once(worker, 'message'); worker.postMessage(data, transfer); return (await result)[0];
   };
+  let generation = 1, workerOwners = new Map(baseline.owners.map((owner) => [owner.id, owner]));
+  const initialPacked = packOwners(baseline.owners);
+  await request({type: 'build', generation, owners: initialPacked.owners, keepAuthoredOverlaps: true}, initialPacked.transfer);
   async function verify() {
     const {placement, owners, collision} = rebuild();
-    const packed = packOwners(owners);
-    assert.equal((await request({type: 'build', owners: packed.owners, keepAuthoredOverlaps: true}, packed.transfer)).type, 'built');
+    const current = new Map(owners.map((owner) => [owner.id, owner]));
+    const changed = owners.filter((owner) => workerOwners.get(owner.id) !== owner);
+    const removed = [...workerOwners.keys()].filter((id) => !current.has(id));
+    const packed = packOwners(changed);
+    const update = await request({type: 'update', generation: ++generation, removed, owners: packed.owners, keepAuthoredOverlaps: true}, packed.transfer);
+    assert.equal(update.type, 'built');
+    const newMeshes = changed.reduce((count, owner) => count + owner.meshes.length, 0);
+    assert.equal(update.audit.builtMeshes, newMeshes);
+    assert.equal(collision.audit.builtMeshes, newMeshes);
+    assert.equal(collision.audit.reusedMeshes, baseline.collision.audit.meshes);
+    workerOwners = current;
     assert.deepEqual(placement.projectedBase('table', moved), footprint);
     assert.equal(placement.supportAtPoint('table', surfacePoint, moved).owner, 'table');
     assert.equal(placement.supportAtPoint('table', surfacePoint, stored), null);
@@ -92,7 +104,7 @@ test('rebuilding after import and removal preserves rendered footprints, carried
       const contact = collision.checkPlacement(layout, movedIds);
       assert.equal(contact.ok, clear);
       assert.deepEqual(contact, baseline.collision.checkPlacement(layout, movedIds));
-      const response = await request({type: 'drop', candidate: layout, source: moved, moved: movedIds});
+      const response = await request({type: 'drop', generation, candidate: layout, source: moved, moved: movedIds});
       assert.deepEqual(response.contact, {ok: contact.ok, other: contact.other});
       if (clear) {
         const sweep = collision.limit(moved, layout, movedIds);

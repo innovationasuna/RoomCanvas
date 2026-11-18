@@ -62,7 +62,8 @@ for (const id of ids) {
 }
 
 check('initial placement collisions', () => {
-  // Without the editor's allowance, to list what the reconstruction itself overlaps.
+  // Scanned overlaps remain displayable/restorable. A new placement must pass the
+  // same geometry check; the recovery option must never exempt an entire mesh pair.
   const strict = createCollision(THREE, room, entities, config.placement, {label: config.label});
   const overlaps = [];
   for (const id of ids) {
@@ -70,7 +71,7 @@ check('initial placement collisions', () => {
     if (!result.ok) overlaps.push(`${id}↔${result.other?.id || result.other}`);
   }
   if (overlaps.length) note(`touching or overlapping in the reconstruction: ${overlaps.join(', ')}`);
-  for (const id of ids) assert(collision.checkPlacement(initial, [id]).ok, `${id} cannot be confirmed where the reconstruction put it`);
+  for (const id of ids) assert.deepEqual(collision.checkPlacement(initial, [id]), strict.checkPlacement(initial, [id]), `${id} bypassed placement validation because it originally overlapped`);
   return {overlaps: overlaps.length};
 });
 

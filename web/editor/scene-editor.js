@@ -9,12 +9,14 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {VERSION, initialLayout, copyLayout, encodeLayout, decodeLayout, groundBasis, wallBasis, move, rotate, History} from './layout.mjs';
 import {applyEntityPose} from './entity-geometry.mjs';
-import {createPlacement} from './placement.mjs';
+import {createSceneGeometry} from './scene-geometry.mjs';
 import {updatePlacementPanel, bindPlacementPanel, updateFurnitureReadouts} from './placement-ui.mjs';
 import {PlacementSession} from './placement-session.mjs';
-import {collisionOwners, buildCollision, packOwners} from './collision.mjs';
 import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs';
-import {roomConfig, flattenObjects, topMembers} from './room-catalog.mjs';
+import {roomConfig, flattenObjects} from './room-catalog.mjs';
+import {groupRoomEntities} from './scene-entities.mjs';
+import {createImportedEntity} from './import-entity.mjs';
+import {warehouseRow} from './warehouse-row.mjs';
 
 import {mountJoysticks} from './joystick-ui.mjs';
 import {analogDelta} from './placement-motion.mjs';
@@ -25,12 +27,11 @@ import {createGestureCamera} from './gesture-camera.mjs';
 import {mountGestureFeedback} from './gesture-feedback.mjs';
 import {canGestureActivate, isExplicitExport} from './gesture-target.mjs';
 import {Openings, openableOf, ridersOf} from './joints.mjs';
-import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, placementMatrix, sizeInMeters} from './object-import.mjs';
+import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, sizeInMeters} from './object-import.mjs';
 import {mountAddObject} from './add-object-dialog.mjs';
 import {shadowSettings} from './lighting-settings.mjs';
 import {lightingProfile} from './lighting-profiles.mjs';
 import {createRenderMetrics} from './render-metrics.mjs';
-import {createImportMaterials} from './import-materials.mjs';
 import {forgetImportedObject} from './imported-objects.mjs';
 import {disposeObjectTree} from './object-dimensions.mjs';
 import {mountWarehouseDrawer} from './warehouse-drawer.mjs';
@@ -89,6 +90,7 @@ let previewSerial = 0;
 const previewLayers = new Map();
 
 let sceneKey, storageKey, room, floorY, ceilingY, center, roomSize, roomBounds, placement, collision, wallVisibility;
+let rayQueries = null, geometryServices = null;
 let hinged = null, walk = null, walkFrom = 'edit', walkAimAt = 0;
 let motionNotice = null;
 let wallRelocation = null, wallGhost = null;
@@ -731,7 +733,7 @@ function editObject(change, direction) {
   layout = contact.layout;
   if (contact.blocked) {
     const name = typeof contact.other === 'string' ? (entities.get(contact.other)?.name || contact.other) : contact.other?.name || '其他物品';
-    motionNotice = {id: selected, contactInvalid: !!installing, message: installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
+    motionNotice = {id: selected, contactInvalid: !!installing, message: contact.reason === 'overlap-recovery-limited' ? '原始扫描存在重叠，请向外移开后再旋转；仍受阻时先收起，再放到空处' : installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
     showToast(motionNotice.message);
   }
   applyLayout();
@@ -843,7 +845,9 @@ function openableAt(at, view = camera) {
   if (!ready || !hinged) return null;
   view.updateMatrixWorld();
   raycaster.setFromCamera(new THREE.Vector2(at.x, at.y), view);
-  for (const hit of raycaster.intersectObject(room, true)) if (solidHit(hit)) return openableOf(hit.object);
+  rayQueries.refresh();
+  const hit = rayQueries.nearest(raycaster.ray.origin, raycaster.ray.direction, Infinity, solidHit);
+  if (hit) return openableOf(hit.object);
   return null;
 }
 
@@ -1072,64 +1076,18 @@ function bindEvents() {
 }
 
 function groupScene(gltf, originalMatrices) {
-  // Validate all required names first; never silently publish a partly editable scene.
-  const assigned = new Set();
-  for (const spec of config.catalog) for (const name of spec.roots) {
-    if (assigned.has(name)) throw new Error(`物品重复归组 ${name}`);
-    assigned.add(name);
-  }
-  const members = new Map(config.catalog.map((spec) => [spec.id, topMembers(room, spec.roots)]));
-  for (const spec of config.catalog) {
-    const bounds = new THREE.Box3();
-    members.get(spec.id).forEach((object) => bounds.expandByObject(object));
-    const origin = bounds.getCenter(new THREE.Vector3());
-    origin.y = floorY;
-    const group = new THREE.Group();
-    group.name = `Editable_${spec.id}`;
-    group.position.copy(origin);
-    room.add(group);
-    group.updateMatrixWorld(true);
-    for (const object of members.get(spec.id)) group.attach(object);
-    group.traverse((object) => {if (object.isMesh) object.userData.editorId = spec.id;});
-    const dimensions = bounds.getSize(new THREE.Vector3());
-    const sizeLabel = `${dimensions.x.toFixed(2)} × ${dimensions.z.toFixed(2)} × ${dimensions.y.toFixed(2)} ${config.units}`;
-    entities.set(spec.id, {...spec, group, origin, sizeLabel, dimensions: dimensions.toArray()});
-  }
-  room.updateMatrixWorld(true);
-  let groupingError = 0;
-  for (const [object, matrix] of originalMatrices) {
-    matrix.elements.forEach((value, i) => {groupingError = Math.max(groupingError, Math.abs(value - object.matrixWorld.elements[i]));});
-  }
-  if (groupingError > 1e-6) throw new Error('物品归组改变了原始位置');
+  const grouped = groupRoomEntities(THREE, {room, config, floorY, originalMatrices});
+  for (const [id, entity] of grouped.entities) entities.set(id, entity);
   sceneKey = `${config.sceneId}:v2:${gltf.parser.json.buffers.map((buffer) => buffer.byteLength).join('-')}:${gltf.parser.json.nodes.length}`;
   storageKey = `roomcanvas:layout:${sceneKey}`;
   for (const entity of entities.values()) appendWarehouseRow(entity);
   $('#object-count').textContent = `${entities.size}`;
-  return {groupingError, groupedRoots: assigned.size, meshes: originalMatrices.size};
+  return grouped.audit;
 }
 
 function appendWarehouseRow(entity, first = false) {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'object-row'; row.dataset.object = entity.id;
-    row.setAttribute('aria-pressed', 'false');
-    row.setAttribute('aria-label', `${entity.name}，查看与布置`);
-    row.innerHTML = `<span class="warehouse-state">在房间</span><img class="object-thumb" alt="" width="${THUMBNAIL_SIZE.width}" height="${THUMBNAIL_SIZE.height}"><span class="object-copy"><strong>${entity.name}</strong><small>${entity.category}</small></span><span class="object-dot" aria-hidden="true"></span>`;
-    row.onclick = () => {
-      inspectObject(entity.id);
-    };
-    let card = row;
-    if (entity.added) {
-      card = document.createElement('div'); card.className = 'rc-imported-card';
-      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'rc-remove-object';
-      remove.dataset.removeObject = entity.id;
-      remove.setAttribute('aria-label', `删除${entity.name}这一份`);
-      remove.title = '删除这一份物品，保留重建结果';
-      remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
-      remove.onclick = () => removeImportedObject(entity.id);
-      card.append(row, remove);
-    }
-    if (first) $('#object-list').prepend(card); else $('#object-list').appendChild(card);
+  const card = warehouseRow(entity, {inspectObject, removeImportedObject, thumbnailSize: THUMBNAIL_SIZE});
+  if (first) $('#object-list').prepend(card); else $('#object-list').appendChild(card);
 }
 
 function inspectObject(id) {
@@ -1223,28 +1181,6 @@ function planDrop(options) {
 // the room or the hand. Until its answer for this exact layout arrives the plan is unchecked: shown
 // as the expected landing, not confirmable. Only the latest request is kept while one runs.
 let background = null;
-function startBackgroundCollision(owners) {
-  const generation = (background?.generation || 0) + 1;
-  background ||= {worker: new Worker(new URL('./collision-worker.mjs', import.meta.url), {type: 'module'}), tickets: 0, busy: null, queued: null};
-  Object.assign(background, {generation, ready: false, busy: null, queued: null});
-  const {owners: packed, transfer} = packOwners(owners);
-  background.worker.onmessage = ({data}) => {
-    if (data.generation !== background.generation) return;
-    if (data.type === 'built') {background.ready = true; return;}
-    const job = background.busy;
-    background.busy = null;
-    if (job?.ticket === data.ticket) job.resolve(data);
-    sendBackground();
-  };
-  background.worker.onerror = (error) => {console.error(error); background.ready = false;};
-  background.worker.postMessage({type: 'build', generation, owners: packed, keepAuthoredOverlaps: true}, transfer);
-}
-function sendBackground() {
-  if (background.busy || !background.queued) return;
-  const job = background.busy = background.queued;
-  background.queued = null;
-  background.worker.postMessage({type: 'drop', generation: background.generation, ticket: job.ticket, candidate: job.candidate, moved: job.moved, source: job.source});
-}
 function backgroundDrop() {
   const key = JSON.stringify([selected, layout]);
   if (pending.verdict?.key === key) return pending.verdict.plan;
@@ -1254,8 +1190,7 @@ function backgroundDrop() {
   if (session.checking !== key) {
     // A confirmation waiting for an earlier pose does not carry over to a new one.
     session.checking = key; session.placeWhenChecked = false;
-    background.queued?.resolve(null);
-    new Promise((resolve) => {background.queued = {ticket: ++background.tickets, candidate: base.candidate, moved: base.moved, source: copyLayout(layout), resolve}; sendBackground();})
+    background.request(base.candidate, base.moved, copyLayout(layout))
       .then((answer) => {
         if (!answer || pending !== session || session.checking !== key) return;
         session.checking = null;
@@ -1994,37 +1929,17 @@ async function importRun(run, base, scale, capabilities) {
   finishStage('import', 'modelReadAndParse', modelStarted);
   cancelSession(false);
   const id = `added-${++addedCount}`, contact = `${id}:contact`;
-  const shape = new THREE.Group();
-  shape.applyMatrix4(new THREE.Matrix4().fromArray(placementMatrix(base, scale)));
-  full.scene.traverse((mesh) => {
-    if (!mesh.isMesh) return;
-    mesh.userData.collision = false; mesh.raycast = () => {};
-    mesh.castShadow = true;
-  });
-  const importMaterials = createImportMaterials(THREE, full.scene, {mode: $('#import-lighting').checked ? 'pbr' : 'original',
-    preservePBR: capabilities?.material_mode === 'pbr'});
-  light.scene.name = light.scene.userData.name = contact;
-  light.scene.traverse((mesh) => {
-    if (!mesh.isMesh) return;
-    mesh.material = new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false});
-    mesh.userData.contactOnly = true; mesh.castShadow = mesh.receiveShadow = false;
-  });
-  shape.add(full.scene, light.scene);
-  const origin = new THREE.Vector3(center.x, floorY, center.z);
-  const group = new THREE.Group();
-  group.name = `Editable_${id}`; group.position.copy(origin);
-  group.add(shape); room.add(group); room.updateMatrixWorld(true);
-  group.traverse((object) => {if (object.isMesh) object.userData.editorId = id;});
-  const size = sizeInMeters(base, scale), name = objectLabel(run);
-  const entity = {id, name, category: '导入物品 · 真实尺寸', roots: [contact], group, origin, added: true, importMaterials, dimensions: size,
-    sizeLabel: `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} ${config.units}`};
+  const entity = createImportedEntity(THREE, {id, contact, full, light, base, scale, run, capabilities,
+    at: [center.x, floorY, center.z], units: config.units, mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+  const {group, name} = entity;
+  room.add(group); room.updateMatrixWorld(true);
   entities.set(id, entity); ids.push(id);
   placementSpecs[id] = {body: [contact]};
   layout[id] = stored();
   for (const past of [...history.past, ...history.future]) past[id] = stored();
   appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity], 'import');
   group.visible = false;
-  // Placement and collision index every piece once; rebuild them with the new one (a few seconds).
+  // Refresh membership; immutable geometry and indexes of existing pieces are reused.
   rebuildAfterAssetChange('import');
   renderer.shadowMap.needsUpdate = true;
   beginSession(id);
@@ -2135,6 +2050,7 @@ async function load() {
   const audit = groupScene(gltf, originalMatrices);
   progress.value = 92;
   ceilingY = new THREE.Box3().setFromObject(room.getObjectByName('Wall0')).max.y;
+  geometryServices = createSceneGeometry(THREE, {room, entities, specs: placementSpecs, floorY, ceilingY, openings: config.openings, label: config.label, startStage, finishStage});
   rebuildPlacement('initial');
   groundGrid = createGroundGrid(THREE, {floorY, target: controls.target, walls: placement.wallTargets()});
   scene.add(groundGrid);
@@ -2171,7 +2087,7 @@ async function load() {
   audit.openParts = hinged.parts.length;
   // The floor's own box keeps the walk indoors where a door or a window has no wall to stop it.
   const floorBox = new THREE.Box3().setFromObject(room.getObjectByName('Floor0'));
-  walk = createWalk(THREE, {canvas: renderer.domElement, room, floorY, solid: solidHit,
+  walk = createWalk(THREE, {canvas: renderer.domElement, room, floorY, solid: solidHit, queries: rayQueries,
     bounds: {min: [floorBox.min.x, floorBox.min.z], max: [floorBox.max.x, floorBox.max.z]},
     // Looking around or walking leaves the hint behind; it comes back when the mouse moves again.
     onChange: () => {hideOpenHint(); requestRender();}, onHover: walkAim, onExit: () => setMode(walkFrom),
@@ -2275,7 +2191,7 @@ async function load() {
     },
   });
   if (query.has('lightingLab')) installLightingLab();
-  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
+  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); geometryServices?.dispose(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
   // Load the optional effect after the editor works. Missing addons must never prevent editing.
   if (enhancedLighting) void (async () => {
     if (query.get('env') !== 'off') {
@@ -2317,6 +2233,23 @@ function installLightingLab() {
   }
   window.roomLightingLab = Object.freeze({
     captureState,
+    geometryStatus: () => ({workerReady: !!background?.ready, generation: background?.generation, collision: {...collision.audit}}),
+    async queryBenchmark() {
+      const {benchmarkQueries} = await import('./query-benchmark.mjs');
+      return benchmarkQueries(THREE, {room, queries: rayQueries, solid: solidHit, floorY, hinged});
+    },
+    async collisionProbe(id, pose) {
+      if (!entities.has(id) || !background?.ready) throw new Error('碰撞索引尚未就绪');
+      const source = copyLayout(layout), candidate = copyLayout(layout);
+      Object.assign(candidate[id], pose);
+      const carried = placement.carry(id, source, candidate);
+      if (!carried.ok) throw new Error(carried.message);
+      const contact = collision.checkPlacement(candidate, carried.moved);
+      const sweep = contact.ok ? collision.limit(source, candidate, carried.moved) : null;
+      return {moved: carried.moved, generation: background.generation,
+        main: {contact: {ok: contact.ok, other: contact.other}, sweep: sweep && {blocked: sweep.blocked, fraction: sweep.fraction, other: sweep.other}},
+        worker: await background.request(candidate, carried.moved, source)};
+    },
     restoreState(state) {
       if (state?.version !== 1 || state.scene !== sceneKey) throw new Error('基线与当前模型不匹配');
       const pose = state.camera;
@@ -2397,23 +2330,11 @@ function installLightingLab() {
 }
 
 function rebuildPlacement(operation) {
-  const started = startStage();
-  placement = createPlacement(THREE, room, entities, placementSpecs, floorY, ceilingY, {openings: config.openings});
-  finishStage(operation, 'placement', started);
+  placement = geometryServices.rebuildPlacement(operation);
 }
 
 function rebuildCollision(operation) {
-  const geometryStarted = startStage();
-  const owners = collisionOwners(THREE, room, entities, {label: config.label});
-  finishStage(operation, 'collisionGeometry', geometryStarted);
-  const buildStarted = startStage();
-  collision = buildCollision(owners, {keepAuthoredOverlaps: true});
-  finishStage(operation, 'collisionMainBuild', buildStarted);
-  try {
-    const submitStarted = startStage();
-    startBackgroundCollision(owners);
-    finishStage(operation, 'collisionWorkerSubmit', submitStarted);
-  } catch (error) {console.error(error); background = null;}
+  ({collision, background, queries: rayQueries} = geometryServices.rebuildCollision(operation));
 }
 
 function rebuildAfterAssetChange(operation) {

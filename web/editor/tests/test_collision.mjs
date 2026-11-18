@@ -81,6 +81,39 @@ test('authored penetration allows escape but not deepening, without ignoring lat
   assert.equal(c.limit({chair:pose()},{chair:pose(2)},['chair']).fraction,0,'long step does not skip initial penetration');
 });
 
+test('scan overlap never grants the pair a permanent collision exemption', () => {
+  const c = buildCollision([owner('chair', box(-.1, 0, -.1, .1, .5, .1)), owner('wall', box(.09, -1, -1, .3, 1, 1))], {keepAuthoredOverlaps: true});
+  const original = {chair: pose()}, clear = {chair: pose(-.2)};
+  assert.equal(c.limit(original, clear, ['chair']).blocked, false);
+  assert.equal(c.limit(original, {chair: pose(.05)}, ['chair']).fraction, 0);
+  assert.equal(c.limit(clear, {chair: pose(2)}, ['chair']).blocked, true);
+  assert.equal(c.checkPlacement({chair: pose(.2)}, ['chair']).ok, false);
+  // Undo restores poses only; repeating the same departure produces the same answer.
+  assert.equal(c.limit(original, clear, ['chair']).blocked, false);
+  assert.equal(c.limit(original, {chair: pose(0, 0, 0, .2)}, ['chair']).reason, 'overlap-recovery-limited');
+});
+
+test('coincident solids and concave interlocks require a clear placement', () => {
+  const c = buildCollision([owner('a', box(0, 0, 0, 1, 1, 1)), owner('b', box(0, 0, 0, 1, 1, 1))], {keepAuthoredOverlaps: true});
+  assert.equal(c.checkPlacement({a: pose()}, ['a']).ok, false);
+  assert.equal(c.limit({a: pose()}, {a: pose(.1)}, ['a']).fraction, 0);
+  assert.equal(c.checkPlacement({a: pose(2)}, ['a']).ok, true);
+  const concave = [...box(-.3, 0, -.3, -.09, 1, .3), ...box(.09, 0, -.3, .3, 1, .3)];
+  const interlock = buildCollision([owner('a', box(-.1, 0, -.1, .1, .5, .1)), owner('b', concave)], {keepAuthoredOverlaps: true});
+  assert.equal(interlock.limit({a: pose()}, {a: pose(-.2)}, ['a']).blocked, true);
+});
+
+test('shallow open-sheet recovery and carried scans check every stationary mesh', () => {
+  const wall = [[[.09, -1, -1], [.09, 1, -1], [.09, 1, 1]], [[.09, -1, -1], [.09, 1, 1], [.09, -1, 1]]];
+  const c = buildCollision([owner('table', box(-.1, 0, -.1, .1, .5, .1)), owner('payload', box(-.1, .5, -.1, .1, .8, .1)), owner('wall', wall), owner('other', box(-.5, .6, -.2, -.4, 1, .2))], {keepAuthoredOverlaps: true});
+  const initial = {table: pose(), payload: pose()};
+  assert.equal(c.limit(initial, {table: pose(-.2), payload: pose(-.2)}, ['table', 'payload']).blocked, false);
+  const stop = c.limit(initial, {table: pose(-1), payload: pose(-1)}, ['table', 'payload']);
+  assert.equal(stop.blocked, true);
+  assert.equal(stop.other.movingId, 'payload');
+  near(stop.layout.table.x, stop.layout.payload.x);
+});
+
 test('all members of an assembly stop together when a carried object contacts a wall', () => {
   const c=buildCollision([owner('table',box(-.2,0,-.2,.2,.5,.2)),owner('payload',box(-.3,.5,-.3,.3,1,.3)),owner('wall',box(.8,.8,-1,1,2,1))]);
   const before={table:pose(),payload:pose()}, next={table:pose(2),payload:pose(2)};
