@@ -1,4 +1,5 @@
 """RoomCanvas's photos → object API: upload checks, masks, reconstruction gate, GPU queue."""
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import io
 import json
@@ -18,6 +19,7 @@ from starlette.middleware import Middleware
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
+import import_photos
 import objects
 from objects import ObjectsMiddleware
 from prepare_masks import prepare
@@ -104,7 +106,55 @@ class ObjectsTests(unittest.TestCase):
         self.assertEqual(created['images'], ['我的椅子_001', '我的椅子_002', '我的椅子_003'])
         self.assertEqual(len(list((self.root/'data/inputs/我的椅子/originals').iterdir())), 3)
         self.assertEqual(self.create(name='我的椅子').status_code, 400)
-        self.assertEqual(list((self.root/'cache/uploads').iterdir()), [])
+        self.assertEqual(list((self.root/'cache/uploads').glob('*')), [])
+
+    def test_truncated_jpeg_can_retry_and_mixed_batch_keeps_only_valid_photos(self):
+        truncated = photo()[:-7]  # Has a JPEG header but fails when Pillow loads its pixels.
+        rejected = [('photos', ('broken.jpg', truncated, 'image/jpeg'))]
+        response = self.client.post('/viewforge/objects/create', data={'name': 'chair'}, files=rejected)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('broken.jpg', response.json()['error'])
+        self.assertFalse((self.root/'data/inputs/chair').exists())
+        self.assertEqual(list((self.root/'data').rglob('.import-*')), [])
+        mixed = rejected + [('photos', ('ok.jpg', photo(), 'image/jpeg'))]
+        result = self.client.post('/viewforge/objects/create', data={'name': 'chair'}, files=mixed).json()
+        self.assertEqual(result['images'], ['chair_002'])
+        self.assertEqual([row['filename'] for row in result['errors']], ['broken.jpg'])
+        inputs = self.root/'data/inputs/chair'
+        self.assertEqual({p.name for p in inputs.rglob('*') if p.is_file()},
+                         {'chair_002.json', 'chair_002.png', 'chair_002.jpg'})
+        metadata = json.loads((inputs/'imports/chair_002.json').read_text())
+        self.assertEqual(metadata['original_filename'], 'ok.jpg')
+        self.assertEqual(Path(metadata['original']).read_bytes(), photo())
+
+    def test_streamed_upload_without_length_obeys_same_limit(self):
+        with patch.object(objects, 'MAX_UPLOAD', 32):
+            response = self.client.post('/viewforge/objects/create', content=iter([b'x' * 33]),
+                                        headers={'Content-Type': 'multipart/form-data; boundary=test'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('过大', response.json()['error'])
+        self.assertFalse((self.root/'data').exists())
+
+    def test_copy_does_not_block_job_queries_and_failed_write_releases_name(self):
+        entered, release = threading.Event(), threading.Event()
+        def stall(*args):
+            entered.set()
+            if not release.wait(8):
+                raise RuntimeError('timed out waiting to release photo copy')
+            raise OSError('disk full')
+
+        with self.client, patch.object(import_photos.shutil, 'copyfileobj', side_effect=stall), ThreadPoolExecutor(2) as pool:
+            upload = pool.submit(self.create, photos=1)
+            try:
+                self.assertTrue(entered.wait(4))
+                query = pool.submit(self.client.get, '/viewforge/objects/jobs/' + 'a' * 32)
+                self.assertEqual(query.result(2).status_code, 404)
+            finally:
+                release.set()
+            self.assertEqual(upload.result().status_code, 500)
+        self.assertFalse((self.root/'data/inputs/chair').exists())
+        self.assertEqual(list((self.root/'data').rglob('.import-*')), [])
+        self.assertEqual(self.create(photos=1).status_code, 200)
 
     def test_masks_then_reconstruction_of_the_kept_photos(self):
         images = self.create().json()['images']
@@ -150,6 +200,23 @@ class ObjectsTests(unittest.TestCase):
         command = self.commands[-1]
         self.assertEqual(command[command.index('--parent-run') + 1], first['run'])
 
+    def test_failed_capture_publish_preserves_previous_object(self):
+        parent = self.build(self.create(photos=1).json()['images'])['run']
+        directory = self.root/'data/inputs/chair'
+        before = {p.relative_to(directory): p.read_bytes() for p in directory.rglob('*') if p.is_file()}
+        link = os.link
+        def fail_publishing_image(source, target):
+            if target.parent.name == 'images':
+                raise OSError('disk full')
+            link(source, target)
+
+        with patch.object(import_photos.os, 'link', side_effect=fail_publishing_image):
+            response = self.capture(parent)
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual({p.relative_to(directory): p.read_bytes() for p in directory.rglob('*') if p.is_file()}, before)
+        self.assertEqual(list(directory.glob('.import-*')), [])
+        self.assertEqual(len(self.capture(parent, photos=1).json()['added']), 1)
+
     def test_capture_needs_a_finished_run(self):
         self.assertIn('不能补拍', self.capture('20261018_chair_nothing').json()['error'])
         self.assertIn('不能补拍', self.capture('../x').json()['error'])
@@ -168,6 +235,7 @@ class ObjectsTests(unittest.TestCase):
 
     def test_jobs_wait_for_the_gpu(self):
         images = self.create().json()['images']
+        (self.root/'cache').mkdir(exist_ok=True)
         lock = (self.root/'cache/gpu.lock').open('a')
         fcntl.flock(lock, fcntl.LOCK_EX)
         job = self.client.post('/viewforge/objects/masks', json=dict(object='chair', images=images)).json()
@@ -206,6 +274,7 @@ class ObjectsTests(unittest.TestCase):
     def test_previewing_existing_masks_does_not_wait_for_the_gpu(self):
         images = self.create().json()['images']
         self.assertEqual(self.build(images)['status'], 'complete')
+        (self.root/'cache').mkdir(exist_ok=True)
         lock = (self.root/'cache/gpu.lock').open('a')
         fcntl.flock(lock, fcntl.LOCK_EX)  # a reconstruction is running
         try:

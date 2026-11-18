@@ -112,6 +112,9 @@ export function mountAddObject({onReady, toast}) {
       state.files.forEach((entry) => URL.revokeObjectURL(entry.url));
       state = {step: 'masks', files: [], object: created.object, images: created.images, excluded: new Set(),
         parent: created.parent || null, kept: new Set(created.kept || [])};
+      const skipped = (created.errors || []).map(({filename}) => filename);
+      $('#add-import-errors').textContent = skipped.length ? `以下照片未能导入：${skipped.join('、')}` : '';
+      $('#add-import-errors').hidden = !skipped.length;
       await runMasks();
     } catch (error) {
       uploading = false; renderPhotos();
