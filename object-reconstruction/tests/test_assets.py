@@ -20,12 +20,12 @@ from asset_state import publish_asset
 from cover_scene import preview_manifest
 
 
-def gaussian_ply(path):
+def gaussian_ply(path, text=False):
     fields = ['x', 'y', 'z', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3',
               'opacity', 'f_dc_0', 'f_dc_1', 'f_dc_2']
     rows = np.zeros(8, dtype=[(name, 'f4') for name in fields])
     rows['rot_0'] = 1
-    PlyData([PlyElement.describe(rows, 'vertex')]).write(str(path))
+    PlyData([PlyElement.describe(rows, 'vertex')], text=text).write(str(path))
 
 
 class AssetsTests(unittest.TestCase):
@@ -204,6 +204,17 @@ class AssetsTests(unittest.TestCase):
             data = publish_asset(run)
         self.assertTrue(data['assets']['glb']['transform'])
         self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+
+    def test_a_cut_text_gaussian_model_is_not_served(self):
+        run = self.prepare_publication()
+        gaussian = run/'reconstruction/result.ply'
+        gaussian_ply(gaussian, text=True)
+        self.publish(run)
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 200)
+        whole = gaussian.read_bytes()
+        gaussian.write_bytes(whole[:whole.index(b'end_header\n') + len(b'end_header\n') + 1])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 409)
 
     def test_a_damaged_gaussian_model_blocks_publication(self):
         run = self.prepare_publication()
