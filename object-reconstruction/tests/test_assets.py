@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from plyfile import PlyData, PlyElement
 import trimesh
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -17,6 +18,14 @@ from assets import AssetsMiddleware
 from dimensions import DimensionsMiddleware
 from asset_state import publish_asset
 from cover_scene import preview_manifest
+
+
+def gaussian_ply(path):
+    fields = ['x', 'y', 'z', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3',
+              'opacity', 'f_dc_0', 'f_dc_1', 'f_dc_2']
+    rows = np.zeros(8, dtype=[(name, 'f4') for name in fields])
+    rows['rot_0'] = 1
+    PlyData([PlyElement.describe(rows, 'vertex')]).write(str(path))
 
 
 class AssetsTests(unittest.TestCase):
@@ -79,7 +88,7 @@ class AssetsTests(unittest.TestCase):
         light = run/'reconstruction/preview.glb'
         light.write_bytes((run/'reconstruction/result.glb').read_bytes())
         gaussian = run/'reconstruction/result.ply'
-        gaussian.write_bytes(b'ply\nfixture')
+        gaussian_ply(gaussian)
         metadata = self.client.get('/viewforge/assets/toy').json()
         self.assertNotIn('viewer_url', metadata)
         adapted = self.client.get(metadata['manifest_url']).json()
@@ -115,7 +124,7 @@ class AssetsTests(unittest.TestCase):
 
     def prepare_publication(self):
         run = self.model('published')
-        (run/'reconstruction/result.ply').write_bytes(b'ply fixture')
+        gaussian_ply(run/'reconstruction/result.ply')
         (run/'config.yaml').write_text('mesh_export: {mode: baked_pbr}\n')
         (run/'reconstruction/materials.json').write_text(json.dumps(dict(
             status='complete', method='native_gaussian_colour_baking')))
@@ -171,6 +180,10 @@ class AssetsTests(unittest.TestCase):
         (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb')[:-8])
         self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
         self.assertEqual(self.client.get(url).status_code, 409)
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb'))
+        (run/'reconstruction/result.ply').write_bytes(b'partial')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 409)
 
     def test_runs_from_before_publication_are_served_while_their_model_is_whole(self):
         for name, state in [('failed', '{"status": "failed"}'), ('interrupted', '{"status": "running"}'),
@@ -179,9 +192,11 @@ class AssetsTests(unittest.TestCase):
         torn = self.model('torn')
         (torn/'result.json').write_text('{"status": "failed"}')
         (torn/'reconstruction/result.glb').write_bytes((torn/'reconstruction/result.glb').read_bytes()[:-8])
+        (self.model('imported')/'reconstruction/result.glb').write_bytes(b'glTF\x02\x00\x00\x00')
         self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['unreadable', 'interrupted', 'failed'])
         self.assertEqual(self.client.get('/viewforge/assets/failed/result.glb').status_code, 200)
-        self.assertEqual(self.client.get('/viewforge/assets/torn/result.glb').status_code, 409)
+        for name in ('torn', 'imported'):
+            self.assertEqual(self.client.get(f'/viewforge/assets/{name}/result.glb').status_code, 409)
 
     def test_a_model_without_a_usable_camera_fit_is_still_published(self):
         run = self.prepare_publication()
@@ -189,6 +204,16 @@ class AssetsTests(unittest.TestCase):
             data = publish_asset(run)
         self.assertTrue(data['assets']['glb']['transform'])
         self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+
+    def test_a_damaged_gaussian_model_blocks_publication(self):
+        run = self.prepare_publication()
+        gaussian = run/'reconstruction/result.ply'
+        whole = gaussian.read_bytes()
+        for damaged in (whole[:-4], whole.replace(b'property float opacity', b'property float opaque!')):
+            gaussian.write_bytes(damaged)
+            with self.subTest(size=len(damaged)), self.assertRaises((ValueError, KeyError)):
+                publish_asset(run)  # the real camera fit fails too; it must not hide the damaged PLY
+            self.assertFalse((run/'asset.json').exists())
 
     def test_failed_material_bake_cannot_publish_a_glb(self):
         run = self.prepare_publication()
