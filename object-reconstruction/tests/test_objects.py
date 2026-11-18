@@ -21,6 +21,7 @@ from starlette.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 import import_photos
 import objects
+import roomcanvas_gpu
 from objects import ObjectsMiddleware
 from prepare_masks import prepare
 
@@ -48,7 +49,7 @@ class ObjectsTests(unittest.TestCase):
         self.env.start()
         self.spawn = patch.object(objects.subprocess, 'run', side_effect=self.fake_run)
         self.spawn.start()
-        self.poll = patch.object(objects, 'GPU_POLL_SECONDS', .01)
+        self.poll = patch.object(roomcanvas_gpu, 'POLL_SECONDS', .01)
         self.poll.start()
         self.client = TestClient(Starlette(middleware=[Middleware(ObjectsMiddleware, root=self.root)]))
         self.commands, self.inferred = [], []
@@ -63,10 +64,12 @@ class ObjectsTests(unittest.TestCase):
         """prepare_masks.py → the real prepare() with a fake BiRefNet; run.py → a finished run."""
         self.commands.append(command)
         args = command[2:]
+        lock_fd = int(args[args.index('--lock-fd') + 1]) if '--lock-fd' in args else None
         name = args[args.index('--object') + 1]
         images = args[args.index('--images') + 1:-1]
         if command[1].endswith('prepare_masks.py'):
-            record = prepare(self.root, name, images, infer=lambda rows: (self.inferred.extend(r['name'] for r in rows), fake_infer(rows)))
+            record = prepare(self.root, name, images, lock_fd=lock_fd,
+                             infer=lambda rows: (self.inferred.extend(r['name'] for r in rows), fake_infer(rows)))
             return subprocess.CompletedProcess(command, 0, json.dumps(record))
         attempt = args[args.index('--attempt') + 1]
         run = self.root/'runs'/f'20261018_{name}_{attempt}'
@@ -245,6 +248,23 @@ class ObjectsTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         lock.close()
         self.assertEqual(self.wait(job['id'])['status'], 'complete')
+        # One wait, here: the script runs on the lease the job already holds.
+        self.assertIn('--lock-fd', self.commands[0])
+
+    def test_gpu_wait_is_bounded_while_the_job_shows_queued(self):
+        images = self.create().json()['images']
+        (self.root/'cache').mkdir(exist_ok=True)
+        lock = (self.root/'cache/gpu.lock').open('a')
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with patch.object(roomcanvas_gpu, 'WAIT_SECONDS', .2):
+                job = self.client.post('/viewforge/objects/masks', json=dict(object='chair', images=images)).json()
+                state = self.wait(job['id'])
+        finally:
+            lock.close()
+        self.assertEqual(state['status'], 'failed')
+        self.assertIn('GPU 被其他任务占用', state['error'])
+        self.assertEqual(self.commands, [])
 
     def test_longest_name_can_still_be_captured(self):
         # Ids built from the name (photo <name>_001, run <date>_<name>_web_<time>) stay valid.

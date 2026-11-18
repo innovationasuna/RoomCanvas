@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import time
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,8 +88,12 @@ def acquire(uuid, env, legacy_path, *, shared_legacy=False, wait=False):
         yield lease
 
 
-def object_lease(root, *, wait=False):
+def object_lease(root, *, wait=False, inherited=None):
     uuid = device_uuid(os.environ.get("CUDA_VISIBLE_DEVICES", ""))
+    if inherited is not None:
+        # The web worker already waited for this card and holds it until this process exits.
+        inherited_fd(uuid, inherited)
+        return nullcontext(Lease(uuid, inherited, (inherited,)))
     legacy = os.environ.get("VIEWFORGE_GPU_LOCK")
     # Old workers and destructive input changes take the default lock exclusively.
     # Shared mode lets new jobs on different physical cards use the same data root.
