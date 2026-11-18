@@ -264,8 +264,7 @@ flowchart LR
 以下网页基础检查使用 Node.js 24 和 Python 3，无需安装前端依赖：
 
 ```bash
-node --test 'web/editor/tests/*.mjs'                         # 编辑器单测
-node --test web/scripts/test_room_reconstruction.mjs        # 网页房间重建流程
+node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'  # 编辑器与网页流程
 python3 -m unittest discover -s web/scripts                  # 本机服务、物品清单
 node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型检查碰撞、支撑、关节
 ```

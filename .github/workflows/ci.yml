@@ -56,13 +56,14 @@ jobs:
         with:
           node-version: 24
       - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs web/replay/*.mjs web/*.mjs; do node --check "$f"; done
-      - run: node --test 'web/editor/tests/*.mjs'
+      - run: node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
       - name: Check the sample rooms with their real models (CPU)
         run: |
           for check in collision wall_mount seat_support gravity; do node web/scripts/check_$check.mjs --scene-dir samples/office; done
           node web/scripts/check_room.mjs --scene-dir samples/office
           node web/scripts/check_room.mjs --scene-dir samples/room3
+          node web/scripts/check_room.mjs --scene-dir samples/room-3934
 
   object-api:
     runs-on: ubuntu-latest

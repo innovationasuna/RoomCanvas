@@ -6,7 +6,7 @@
 2. 提交前运行与 CI 相同的检查（只需运行改动涉及的部分）：
    ```bash
    # 网页（Node 24、Python 3，不用装依赖）
-   node --test 'web/editor/tests/*.mjs'
+   node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
    python3 -m unittest discover -s web/scripts
    node web/scripts/check_room.mjs --scene-dir samples/room3
    # 房间重建（在 room-reconstruction/ 下）
