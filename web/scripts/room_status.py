@@ -27,11 +27,15 @@ def describe(folder, record, state):
         enhancement = {**summary, **enhancement}
     if enhancement.get('status') == 'failed':
         warnings.append('可动部件增强未完成，已保留可用的房间模型。')
+    timings = sorted((folder / 'run').glob('attempt-*/runtime-timing.json'))
+    launch = read_json(timings[-1]) if timings else {}
     return {
         'execution': record['status'], 'artifact_validity': 'valid' if available else 'unavailable',
         'usable': available, 'quality': {'status': quality_status}, 'warnings': warnings,
         'enhancement': enhancement or {'status': 'unknown'},
         'error_category': category,
+        # The launcher has no GPU yet: the job is waiting for the card, not reconstructing.
+        'gpu_waiting': record['status'] == 'running' and 'gpu_waiting_since' in launch,
         # Stage `retryable` only governs immediate re-runs inside a run. A job can be retried unless
         # its input is known to be at fault, as before; old records have no category.
         'retryable': category != 'input',

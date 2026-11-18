@@ -2,16 +2,24 @@
 from __future__ import annotations
 
 import fcntl
+import functools
 import os
 import re
 import subprocess
+import sys
+import time
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 UUID = re.compile(r"GPU-[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+# A waiting job polls instead of blocking in flock: it holds nothing while it waits, it can be
+# stopped like any process, and it gives up with a clear error instead of hanging for a room's hours.
+WAIT_SECONDS = 30 * 60
+POLL_SECONDS = 2
 
 
+@functools.cache  # waiting jobs ask every poll; the index-to-UUID mapping does not change
 def device_uuid(selector):
     """Resolve nvidia-smi's physical index or UUID prefix before starting a CUDA process."""
     if UUID.fullmatch(selector):
@@ -39,9 +47,7 @@ class Lease:
     fds: tuple[int, ...]
 
 
-@contextmanager
-def acquire(uuid, env, legacy_path, *, shared_legacy=False, wait=False):
-    """Hold the physical card and a compatibility lock until the last inheriting child exits."""
+def _hold(uuid, env, legacy_path, shared_legacy):
     physical = lock_path(uuid, env).resolve()
     modes = {Path(legacy_path).resolve(): fcntl.LOCK_SH if shared_legacy else fcntl.LOCK_EX,
              physical: fcntl.LOCK_EX}
@@ -53,12 +59,33 @@ def acquire(uuid, env, legacy_path, *, shared_legacy=False, wait=False):
             fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
             stack.callback(os.close, fd)
             try:
-                fcntl.flock(fd, modes[path] | (0 if wait else fcntl.LOCK_NB))
+                fcntl.flock(fd, modes[path] | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise BlockingIOError(f"GPU {uuid} is locked by another job ({path})") from None
             files[path] = fd
-        # close(), without LOCK_UN, preserves a lease still in use by a subprocess.
-        yield Lease(uuid, files[physical], tuple(files.values()))
+        return stack.pop_all(), Lease(uuid, files[physical], tuple(files.values()))
+
+
+@contextmanager
+def acquire(uuid, env, legacy_path, *, shared_legacy=False, wait=False):
+    """Hold the physical card and a compatibility lock until the last inheriting child exits."""
+    deadline, reported = time.monotonic() + WAIT_SECONDS, False
+    while True:
+        try:
+            held, lease = _hold(uuid, env, legacy_path, shared_legacy)
+            break
+        except BlockingIOError as error:
+            if not wait:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{error}; gave up after waiting {WAIT_SECONDS // 60} min") from None
+            if not reported:
+                print(f"Waiting up to {WAIT_SECONDS // 60} min: {error}", file=sys.stderr, flush=True)
+                reported = True
+            time.sleep(POLL_SECONDS)
+    # close(), without LOCK_UN, preserves a lease still in use by a subprocess.
+    with held:
+        yield lease
 
 
 def object_lease(root, *, wait=False):

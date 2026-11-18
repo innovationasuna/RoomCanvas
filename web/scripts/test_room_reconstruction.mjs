@@ -78,6 +78,7 @@ test('progress reflects real stages and keeps errors distinct from completion', 
   assert.match(jobDescription({status: 'queued'}), /等待/);
   assert.match(jobDescription({status: 'running', stages: [{name: 'ingest', status: 'reused'}]}), /重建场景物体/);
   assert.match(jobDescription({status: 'preparing'}), /整理/);
+  assert.match(jobDescription({status: 'running', gpu_waiting: true, stages: []}), /等待 GPU/);
   assert.equal(jobDescription({status: 'failed', error: '模型不可用'}), '模型不可用');
   assert.match(jobDescription({status: 'completed'}), /已加入房间列表/);
   assert.match(jobDescription({status: 'completed', usable: false}), /产物暂不可用/);

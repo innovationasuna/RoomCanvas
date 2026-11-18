@@ -199,14 +199,24 @@ def save_timing():
 def measured_lease():
     waiting = time.monotonic()
     acquired = None
+    # Until the lease is ours this attempt only waits; the web job status reads this marker.
+    timing["gpu_waiting_since"] = time.time()
+    save_timing()
     try:
         with room_lease(runtime, env, wait=a.wait_gpu) as selected:
             acquired = time.monotonic()
+            del timing["gpu_waiting_since"]
             timing.update(gpu_wait_seconds=acquired-waiting, gpu_uuid=selected[0].uuid)
             save_timing()
             yield selected
+    except RuntimeError as error:
+        if acquired is not None:
+            raise
+        timing["gpu_error"] = str(error)
+        raise SystemExit(f"GPU not acquired: {error}") from None
     finally:
         if acquired is None:
+            timing.pop("gpu_waiting_since", None)
             timing.update(gpu_wait_seconds=time.monotonic()-waiting, gpu_lease_seconds=0.)
         else:
             timing["gpu_lease_seconds"] = time.monotonic()-acquired

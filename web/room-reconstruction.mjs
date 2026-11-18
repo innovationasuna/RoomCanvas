@@ -29,6 +29,7 @@ export function jobDescription(job) {
   }
   if (job.status === 'queued') return '已提交，等待服务器开始重建。';
   if (job.status === 'preparing') return '正在整理模型与可布置的物品。';
+  if (job.gpu_waiting) return '正在等待 GPU 空闲，轮到后自动开始重建。';
   const stages = job.stages || [];
   const names = Object.keys(labels).filter(name => name !== 'articulate' || stages.some(stage => stage.name === name));
   const next = names.find(name => !stages.some(stage => stage.name === name && ['completed', 'reused'].includes(stage.status)));
