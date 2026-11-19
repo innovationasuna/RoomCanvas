@@ -156,7 +156,9 @@ if "-c" in sys.argv:
     print(Path(os.environ["LR_REPO_ROOT"]) / "src/litereality_agent/__init__.py")
     sys.exit()
 out = Path(sys.argv[sys.argv.index("--out") + 1])
-if "--through" not in sys.argv:
+if sys.argv[2].endswith(".premake"):
+    (out / "TissueBox.glb").write_bytes(b"premade")
+elif "--through" not in sys.argv:
     (out / "room_preview").mkdir(parents=True, exist_ok=True)
     (out / "room_preview" / "Room.glb").write_bytes(b"room of " + out.name.encode())
 """)
@@ -201,3 +203,18 @@ def test_passes_run_alone_write_the_records_a_full_run_writes(tmp_path):
     launch(tmp_path, "--articulate", str(scene), str(run / "articulate"), "--through", "views")
     launch(tmp_path, "--small-objects", str(scene), str(run / "small-objects"), "--through", "evidence")
     assert len(rows()) == 4
+
+
+def test_premake_mode_runs_the_premake_module_with_its_own_attempt_record(tmp_path):
+    photos, models = tmp_path / "by-kind", tmp_path / "models"
+    (photos / "TissueBox").mkdir(parents=True)
+    launch(tmp_path, "--premake-small-objects", str(photos), str(models), "--only", "TissueBox")
+    attempt = models / "attempt-01"
+    config = json.loads((attempt / "run-config.json").read_text())
+    assert config["command"] == [
+        str(tmp_path / "runtime/litereality-env/bin/python"), "-m",
+        "litereality_agent.pipeline.realism_authoring.small_objects.premake", str(photos.resolve()),
+        "--out", str(models.resolve()), "--only", "TissueBox"]
+    assert "then" not in config  # no openable-parts pass after it
+    assert (attempt / "exit").read_text().strip() == "0" and (attempt / "pipeline.log").is_file()
+    assert (models / "TissueBox.glb").read_bytes() == b"premade"

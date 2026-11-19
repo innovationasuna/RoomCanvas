@@ -5,6 +5,7 @@ usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-round
                    [--set KEY=VALUE ...] [--no-articulate] [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
        run_room.py --articulate SCENE_DIR OUT_DIR [--through STEP] [--only ID ...] [--check]
+       run_room.py --premake-small-objects PHOTOS_DIR OUT_DIR [--only KIND ...] [--check]
 
 The code that runs is this checkout's room-reconstruction/. Runtimes, model weights and the private
 .env come from $ROOMCANVAS_HOME. --set records each configuration workaround explicitly in
@@ -15,6 +16,9 @@ one repair runs and its rebuilt room is the result (--repair-rounds 0 only check
 (runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
 --articulate does the same for openable parts: Astra decides per object whether it has parts that
 open and where, Blender cuts them out and hinges them (see realism_authoring/articulate/).
+--premake-small-objects makes OUT_DIR/<Kind>.glb from PHOTOS_DIR/<Kind>/*.jpg before the author
+stage, so the GPU is free again while it runs; the pass later takes them through
+--set LR_SMALL_OBJECTS_MODELS=OUT_DIR (see small_objects/premake.py).
 
 A full run does that pass by default once author has written its room: into RUN_DIR/articulate/
 (its room_preview/ is the room to use; the author's own and the published one stay without the
@@ -83,12 +87,16 @@ p.add_argument("--set", action="append", default=[])
 p.add_argument("--repair-rounds", default="1", choices="01", help="repair once when the check fails (0: check only)")
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
+p.add_argument("--premake-small-objects", action="store_true",
+               help="make small-object models from photos by kind instead")
 p.add_argument("--only", nargs="*", help="with a pass: only these objects")
 p.add_argument("--no-articulate", action="store_true",
                help="a full run: do not run the openable-parts pass after author")
 p.add_argument("--wait-gpu", action="store_true", help="wait until an allowed GPU is available")
 p.add_argument("--check", action="store_true", help="print the configuration and exit")
 a = p.parse_args()
+if a.premake_small_objects and a.through:
+    p.error("--premake-small-objects has no --through")
 
 env = dict(os.environ)
 env.update(read_env_file(HOME / ".env"))  # keys and image settings only
@@ -143,8 +151,9 @@ if a.from_stage:
     cmd += ["--from", a.from_stage]
 if a.through:
     cmd += ["--through", a.through]
-if a.small_objects or a.articulate:
-    module = "small_objects" if a.small_objects else "articulate"
+if a.small_objects or a.articulate or a.premake_small_objects:
+    module = ("small_objects.premake" if a.premake_small_objects
+              else "small_objects" if a.small_objects else "articulate")
     cmd = [str(runtime / "litereality-env/bin/python"), "-m",
            f"litereality_agent.pipeline.realism_authoring.{module}", str(a.scan.resolve()),
            "--out", str(a.run_dir.resolve())]
@@ -157,7 +166,7 @@ record = {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--por
                              if k.startswith(("LR_", "HARNESS_")) and not SECRET_NAME.search(k)}}
 # A full run that reaches author is followed by the openable-parts pass on the author's room.
 articulate = None
-if not (a.small_objects or a.articulate or a.no_articulate) and \
+if not (a.small_objects or a.articulate or a.premake_small_objects or a.no_articulate) and \
         a.through not in ("ingest", "reconstruct", "seed"):
     articulate = [str(runtime / "litereality-env/bin/python"), "-m",
                   "litereality_agent.pipeline.realism_authoring.articulate",

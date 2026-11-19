@@ -25,8 +25,12 @@ The operator may steer it through the environment (all optional):
     LR_SMALL_OBJECTS_FORCE=ID=trellis,...   overrides Astra's decision for these items
     LR_SMALL_OBJECTS_PHOTOS=<dir>           <dir>/<item id>/*.jpg: close-ups of that item, shown to
                                             Astra and leading its reference sheet
-Photos and policy are part of each item's own inputs: changing them judges and rebuilds again only
-the items they concern. Each item's outcome is traced as `small_object_done` when it is settled.
+    LR_SMALL_OBJECTS_MODELS=<dir>           <dir>/<Kind>.glb from `premake` (or <dir>/<id>.glb):
+                                            used for item <Kind>, <Kind>0, <Kind>12 ... as if
+                                            TRELLIS had rebuilt it; Astra is not asked about it
+Photos, policy and a supplied model are part of each item's own inputs: changing them judges and
+rebuilds again only the items they concern. Each item's outcome is traced as `small_object_done`
+when it is settled.
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -83,6 +88,10 @@ class Pass:
         self.photo_root = Path(photos).expanduser().resolve() if photos else None
         if self.photo_root and not self.photo_root.is_dir():
             raise FileNotFoundError(f"LR_SMALL_OBJECTS_PHOTOS={photos} is not a directory")
+        models = os.environ.get("LR_SMALL_OBJECTS_MODELS", "").strip()
+        self.model_root = Path(models).expanduser().resolve() if models else None
+        if self.model_root and not self.model_root.is_dir():
+            raise FileNotFoundError(f"LR_SMALL_OBJECTS_MODELS={models} is not a directory")
         self.run_id = os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex
         self.reported: set[str] = set()  # items whose small_object_done this run has written
 
@@ -120,8 +129,10 @@ class Pass:
         method = {"drop": "dropped", "procedural": "procedural"}.get(decision, "kept")
         if decision == "trellis" and item.get("glb"):
             method = "trellis"
+        source = item["decision"].get("source") if method == "trellis" else None
         self.record("small_object_done", name=item["id"], method=method,
-                    status="failed" if method == "kept" else "ok", reused=reused)
+                    status="failed" if method == "kept" else "ok", reused=reused,
+                    **({"source": source} if source else {}))
 
     def photos(self, item) -> list[Path]:
         """The operator's close-ups of this item, <LR_SMALL_OBJECTS_PHOTOS>/<id>/*.jpg."""
@@ -131,14 +142,26 @@ class Pass:
         return sorted(p for p in folder.iterdir()
                       if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg"))
 
-    def inputs(self, item) -> str | None:
-        """What decides an item besides the room: its photos and the policy. None when there is
-        neither, so an item judged before either existed keeps its results."""
-        photos = self.photos(item)
-        if not photos and not self.policy:
+    def model(self, item) -> Path | None:
+        """The operator's premade mesh for this item: <LR_SMALL_OBJECTS_MODELS>/<id>.glb, else
+        <Kind>.glb for an id that is <Kind> followed only by digits (TissueBox0, TissueBox12)."""
+        if self.model_root is None:
             return None
-        return cache.fingerprint({"policy": self.policy,
-                                  "photos": {p.name: cache.file_hash(p) for p in photos}})
+        for name in (item["id"], item["id"].rstrip("0123456789")):
+            if name and (self.model_root / f"{name}.glb").is_file():
+                return self.model_root / f"{name}.glb"
+        return None
+
+    def inputs(self, item) -> str | None:
+        """What decides an item besides the room: its photos, the policy and a supplied model.
+        None when there is none of them, so an item judged before they existed keeps its results."""
+        photos, model = self.photos(item), self.model(item)
+        if not photos and not self.policy and not model:
+            return None
+        key = {"policy": self.policy, "photos": {p.name: cache.file_hash(p) for p in photos}}
+        if model:  # only then, so the key of an item without one stays what it was
+            key["model"] = cache.file_hash(model)
+        return cache.fingerprint(key)
 
     def refresh(self):
         """Judge and rebuild again only the items whose own inputs changed. The room-wide key
@@ -153,6 +176,11 @@ class Pass:
                            if p.is_dir() and p.name not in ids)
             if stray:
                 self.log(f"photos for no candidate (ignored): {', '.join(stray)}")
+        if self.model_root:  # the author may not have placed every thing the operator modelled
+            used = {self.model(item) for item in self.items}
+            unused = sorted(p.name for p in self.model_root.glob("*.glb") if p not in used)
+            if unused:
+                self.log(f"models for no candidate (ignored): {', '.join(unused)}")
         changed = False
         for item in self.items:
             key = self.inputs(item)
@@ -160,7 +188,7 @@ class Pass:
                 continue
             changed = True
             if any(name in item for name in DERIVED):
-                self.log(f"{item['id']}: photos or policy changed; judged and rebuilt again")
+                self.log(f"{item['id']}: photos, policy or model changed; judged and rebuilt again")
                 cache.retire([self.out / "rebuild" / item["id"],
                               self.out / "rebuild" / "_trellis" / "glb" / f"{item['id']}.glb"],
                              self.out)
@@ -180,7 +208,8 @@ class Pass:
             return False
         judged = answer.get("judged", answer["decision"])
         want = self.force.get(item["id"], judged)
-        if want == "trellis" and not item.get("views") and not self.photos(item):
+        if (want == "trellis" and not item.get("views") and not self.photos(item)
+                and not self.model(item)):
             self.log(f"{item['id']}: no photo to rebuild it from; LR_SMALL_OBJECTS_FORCE ignored")
             want = judged
         if want == answer["decision"]:
@@ -308,6 +337,12 @@ class Pass:
         for item in self.active():
             if "decision" in item:
                 continue
+            model = self.model(item)
+            if model:  # the operator made it up front (premake); seen in the scan or not
+                item["decision"] = {"decision": "trellis", "reason": "the operator supplied a "
+                                    "model", "description": "", "forced": True,
+                                    "source": str(model)}
+                continue
             photos = self.photos(item)
             if not item["views"] and not photos:
                 item["decision"] = {"decision": "drop", "reason": "not visible in any capture "
@@ -336,8 +371,19 @@ class Pass:
         from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
 
         wanted = [i for i in self.active() if i.get("decision", {}).get("decision") == "trellis"]
-        todo = [i for i in wanted if "reference" not in i]
         known = {i["id"] for i in wanted if "material" in i}
+        for item in wanted:
+            source = item["decision"].get("source")
+            if source and "glb" not in item:
+                # A premade mesh stands where TRELLIS's corrected one would: no reference, no
+                # TRELLIS, and premake already cleaned it and corrected its material.
+                model = self.out / "rebuild" / item["id"] / "model.glb"
+                model.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, model)
+                item.update(glb=str(model), material={"supplied": source})
+                self.log(f"{item['id']}: the operator's model {source}")
+                self.save()
+        todo = [i for i in wanted if "reference" not in i and "glb" not in i]
 
         def reference(item):
             folder = self.out / "rebuild" / item["id"]
@@ -445,6 +491,8 @@ class Pass:
             return "kept procedural"
         if decision == "drop":
             return "dropped"
+        if item["decision"].get("source") and item.get("glb"):
+            return "the operator's model " + Path(item["decision"]["source"]).name
         if not item.get("glb"):
             return "unchanged, rebuild failed (" + str(item.get("reference_error")
                                                       or item.get("glb_error")) + "); rerun to retry"

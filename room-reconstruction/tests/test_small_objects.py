@@ -513,3 +513,202 @@ def test_a_rebuild_that_failed_is_traced_as_kept(scene, monkeypatch):
     run.rebuild()
     (row,) = [r for r in trace(scene) if r["kind"] == "small_object_done"]
     assert (row["name"], row["method"], row["status"], row["reused"]) == ("Pillow", "kept", "failed", False)
+
+
+# ── models made up front (premake) and adopted by the pass (LR_SMALL_OBJECTS_MODELS) ─────
+
+
+def fake_steps(monkeypatch, fail=()):
+    """make_reference, TRELLIS and the mesh steps as files that say where they came from; returns
+    the calls made, so a test can tell which kinds or items reached the image model and TRELLIS."""
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    calls = {"reference": [], "trellis": []}
+
+    def make_reference(item, tiles, description, folder):
+        calls["reference"].append((item, tiles, description))
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "reference.png").write_bytes(b"reference of " + item["id"].encode())
+        return {"cost_usd": 0.1}
+
+    def run_trellis(references, work, log):
+        calls["trellis"].append(sorted(references))
+        (work / "glb").mkdir(parents=True, exist_ok=True)
+        made = {}
+        for oid, reference in references.items():
+            if oid not in fail:
+                (work / "glb" / f"{oid}.glb").write_bytes(b"mesh from " + reference.read_bytes())
+                made[oid] = {"glb": work / "glb" / f"{oid}.glb", "pipeline": "default"}
+        return made
+
+    def drop_fragments(source, target):
+        target.write_bytes(Path(source).read_bytes() + b", cleaned")
+        return {"pieces_before": 2, "pieces_after": 1}
+
+    def correct_material(source, reference, category, target):
+        target.write_bytes(Path(source).read_bytes() + b", coloured")
+        return {"category": category}
+
+    for name, fake in (("make_reference", make_reference), ("run_trellis", run_trellis),
+                       ("drop_fragments", drop_fragments), ("correct_material", correct_material)):
+        monkeypatch.setattr(rebuild, name, fake)
+    monkeypatch.setattr(evidence, "generator_inputs", lambda *args: [])  # no capture crops on disk
+    return calls
+
+
+def test_premake_makes_one_model_per_kind_and_skips_unchanged_kinds(tmp_path, monkeypatch, capsys):
+    from litereality_agent.pipeline.realism_authoring.small_objects import premake
+
+    photos, out = tmp_path / "by-kind", tmp_path / "models"
+    photo(photos / "TissueBox" / "a.jpg")
+    photo(photos / "TissueBox" / "b.JPEG")
+    photo(photos / "WaterBottle" / "x.jpg")
+    (photos / "WaterBottle" / "description.txt").write_text("a clear plastic bottle, blue cap\n")
+    calls = fake_steps(monkeypatch)
+    assert premake.main([str(photos), "--out", str(out)]) == 0
+    assert calls["trellis"] == [["TissueBox", "WaterBottle"]]  # one TRELLIS process for all
+    asked = {item["id"]: (item, tiles, text) for item, tiles, text in calls["reference"]}
+    item, tiles, text = asked["TissueBox"]
+    assert (item["label"], item["category"], text) == ("tissue box", "box", "a tissue box")
+    assert [Path(t["image"]).name for t in tiles] == ["photo_tile0.jpg", "photo_tile1.jpg"]
+    assert asked["WaterBottle"][2] == "a clear plastic bottle, blue cap"
+    assert (out / "TissueBox.glb").read_bytes() == b"mesh from reference of TissueBox, cleaned, coloured"
+    receipt = json.loads((out / "TissueBox.json").read_text())
+    assert set(receipt["inputs"]["photos"]) == {"a.jpg", "b.JPEG"}
+    assert receipt["inputs"]["description"] == "a tissue box" and "image_model" in receipt["inputs"]["settings"]
+    assert receipt["material"] == {"category": "box"} and receipt["fragments"]["pieces_after"] == 1
+    printed = capsys.readouterr().out
+    assert f"[premake] TissueBox: 2 photos, {out / 'TissueBox.glb'}" in printed
+
+    calls["reference"].clear()
+    assert premake.main([str(photos), "--out", str(out)]) == 0
+    assert calls == {"reference": [], "trellis": [["TissueBox", "WaterBottle"]]}
+    assert "TissueBox: 2 photos, reused" in capsys.readouterr().out
+
+    photo(photos / "TissueBox" / "a.jpg", size=(80, 60))  # a new photo of one kind
+    calls["trellis"].clear()
+    assert premake.main([str(photos), "--out", str(out)]) == 0
+    assert [item["id"] for item, *_ in calls["reference"]] == ["TissueBox"]
+    assert calls["trellis"] == [["TissueBox"]]
+
+    calls["reference"].clear()
+    photo(photos / "PotPlant" / "p.jpg")
+    assert premake.main([str(photos), "--out", str(out), "--only", "PotPlant"]) == 0
+    assert [item["id"] for item, *_ in calls["reference"]] == ["PotPlant"]
+    assert (out / "PotPlant.glb").is_file()
+
+
+def test_premake_leaves_nothing_of_a_failed_kind_and_exits_non_zero(tmp_path, monkeypatch, capsys):
+    from litereality_agent.pipeline.realism_authoring.small_objects import premake
+
+    photos, out = tmp_path / "by-kind", tmp_path / "models"
+    photo(photos / "TissueBox" / "a.jpg")
+    photo(photos / "WaterBottle" / "x.jpg")
+    fake_steps(monkeypatch)
+    assert premake.main([str(photos), "--out", str(out)]) == 0
+    photo(photos / "TissueBox" / "a.jpg", size=(80, 60))
+    (photos / "CardboardBox").mkdir()  # no photos
+    fake_steps(monkeypatch, fail={"TissueBox"})
+    assert premake.main([str(photos), "--out", str(out)]) == 1
+    # The older model of the failed kind is not left for the pass to adopt.
+    assert sorted(p.name for p in out.glob("*.glb")) == ["WaterBottle.glb"]
+    assert not (out / "TissueBox.json").exists() and not list(out.glob(".*.part"))
+    printed = capsys.readouterr().out
+    assert "TissueBox: 1 photos, FAILED: RuntimeError: TRELLIS wrote no mesh" in printed
+    assert "CardboardBox: 0 photos, FAILED: no .jpg/.jpeg" in printed
+
+
+def models_dir(tmp_path, **models):
+    folder = tmp_path / "models"
+    folder.mkdir(exist_ok=True)
+    for name, data in models.items():
+        (folder / f"{name}.glb").write_bytes(data)
+    return folder
+
+
+def test_a_supplied_model_is_found_by_exact_id_or_by_kind_and_digits(scene, monkeypatch, tmp_path):
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models_dir(tmp_path, TissueBox=b"t", Book=b"b",
+                                                                 Book0=b"b0")))
+    run = Pass(scene)
+    found = {oid: run.model({"id": oid}) for oid in
+             ("TissueBox", "TissueBox0", "TissueBox12", "TissueBoxes", "Tissue0", "Book0", "Book1", "12")}
+    assert {oid: path and path.name for oid, path in found.items()} == {
+        "TissueBox": "TissueBox.glb", "TissueBox0": "TissueBox.glb", "TissueBox12": "TissueBox.glb",
+        "TissueBoxes": None, "Tissue0": None, "Book0": "Book0.glb", "Book1": "Book.glb", "12": None}
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(tmp_path / "missing"))
+    with pytest.raises(FileNotFoundError, match="LR_SMALL_OBJECTS_MODELS"):
+        Pass(scene)
+
+
+def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeypatch, tmp_path, capsys):
+    from litereality_agent import artifact_cache as cache
+
+    models = models_dir(tmp_path, Book=b"premade book", Cup=b"premade cup", Lamp=b"lamp")
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+    calls = fake_steps(monkeypatch)
+    applied = []
+
+    def full_run(run_id):
+        monkeypatch.setenv("LITEREALITY_RUN_ID", run_id)
+        run = Pass(scene)
+        monkeypatch.setattr(run, "gather_evidence", lambda: seen(run, "Cup", "Pillow"))
+        monkeypatch.setattr(run, "render_pairs", lambda *args: None)
+
+        def blender(_blend, request, _label):
+            applied.append(request)
+            for name in ("Room.blend", "Room.glb", "room_layout.json"):
+                Path(request["out_dir"], name).parent.mkdir(parents=True, exist_ok=True)
+                Path(request["out_dir"], name).write_bytes(b"room")
+
+        monkeypatch.setattr(run, "blender", blender)
+        asked = {}
+        answer(run, monkeypatch, {"Pillow": "procedural"}, asked)
+        run.run()
+        return run, asked
+
+    run, asked = full_run("attempt-01")
+    assert set(asked) == {"Pillow"}  # Book0 (by kind, seen in no frame) and Cup are not asked
+    assert calls == {"reference": [], "trellis": []}
+    items = {item["id"]: item for item in run.items}
+    assert items["Book0"]["decision"] == {"decision": "trellis", "reason": "the operator supplied a model",
+                                          "description": "", "forced": True,
+                                          "source": str(models.resolve() / "Book.glb")}
+    assert items["Book0"]["inputs"] == cache.fingerprint(
+        {"policy": None, "photos": {}, "model": cache.file_hash(models / "Book.glb")})
+    replace = {entry["id"]: entry for entry in applied[-1]["replace"]}
+    assert set(replace) == {"Book0", "Cup"}
+    assert replace["Book0"]["glb"] == str(run.out / "rebuild" / "Book0" / "model.glb")
+    assert Path(replace["Book0"]["glb"]).read_bytes() == b"premade book"
+    assert replace["Book0"]["camera"] is None and replace["Cup"]["camera"] == [0, 0, 1.5]
+    assert [line for line in capsys.readouterr().out.splitlines()
+            if "models for no candidate" in line] == ["[small-objects] models for no candidate (ignored): Lamp.glb"]
+
+    (models / "Cup.glb").write_bytes(b"premade cup, better")
+    run, asked = full_run("attempt-02")
+    assert asked == {} and calls == {"reference": [], "trellis": []}
+    assert Path(run.out / "rebuild" / "Cup" / "model.glb").read_bytes() == b"premade cup, better"
+    for run_id, reused in (("attempt-01", {"Book0": False, "Cup": False}),
+                           ("attempt-02", {"Book0": True, "Cup": False})):
+        done = {r["name"]: r for r in trace(scene) if r["run"] == run_id and r["kind"] == "small_object_done"}
+        for oid, again in reused.items():
+            assert (done[oid]["method"], done[oid]["status"], done[oid]["reused"]) == ("trellis", "ok", again)
+        assert done["Book0"]["source"] == str(models.resolve() / "Book.glb")
+        assert "source" not in done["Pillow"]
+    final = [r for r in trace(scene) if r["kind"] == "small_objects_done"][-1]
+    assert (final["rebuilt"], final["dropped"], final["kept"]) == (2, 1, 1)
+
+
+def test_supplied_and_rebuilt_items_share_one_pass(scene, monkeypatch, tmp_path):
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models_dir(tmp_path, Cup=b"premade cup")))
+    calls = fake_steps(monkeypatch)
+    run = Pass(scene)
+    run.find()
+    seen(run, "Cup", "Pillow")
+    answer(run, monkeypatch, {"Pillow": "trellis"})
+    run.decide()
+    run.rebuild()
+    assert [item["id"] for item, *_ in calls["reference"]] == ["Pillow"]
+    assert calls["trellis"] == [["Pillow"]]
+    items = {item["id"]: item for item in run.items}
+    assert items["Cup"]["material"] == {"supplied": str(tmp_path.resolve() / "models" / "Cup.glb")}
+    assert Path(items["Pillow"]["glb"]).name == "model.glb" and items["Pillow"]["material"]

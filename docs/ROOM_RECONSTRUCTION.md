@@ -251,8 +251,20 @@ python3 web/scripts/serve.py
 | `LR_SMALL_OBJECTS_POLICY=trellis-first` | 尽量用 TRELLIS 重建：只有任何图里都看不出来才删，只有规整到 TRELLIS 帮不上忙的才保留原模型；不设时判断标准不变 |
 | `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（仍会问一次，用于取得重建所需的描述）；id 不在候选里时报错 |
 | `LR_SMALL_OBJECTS_PHOTOS=<目录>` | `<目录>/<id>/*.jpg` 是该物件的近照，交给判断模型，并作为参考图的前几格；扫描里看不到但有近照的物件也会被判断 |
+| `LR_SMALL_OBJECTS_MODELS=<目录>` | 预先做好的模型（见下）：id 为 `<种类>` 或 `<种类>` 加数字的物件（`TissueBox0`、`TissueBox12`）直接用 `<目录>/<种类>.glb`，`<目录>/<id>.glb` 优先；不问判断模型、不生成参考图、不启动 TRELLIS，扫描里看不到也照样替换，之后和自己重建的一样贴合原位置、朝向并放回房间。记录里 `decision` 带 `forced` 和 `source`，`small_object_done` 带 `source`；换了某个模型只重做用它的物件；目录里没有对应物件的模型只在日志里列一次；目录不存在时报错 |
 
 近照和策略按物件记在它自己的输入里：重建前放进去就会用上，重建后再加或换某个物件的近照，只重新判断、重建这一个，其他物件和整个结果不作废。完整流程建议两步：先 `--through evidence` 看 `candidates.md`，按 id 整理近照，再去掉 `--through` 正式运行。每次运行在场景的 `trace.jsonl` 里记下 `small_objects_start`、每个物件定下结果时的 `small_object_done`（`method` 为 `trellis`、`procedural`、`dropped` 或 `kept`，沿用上次结果时 `reused` 为 true，时间仍是这次的）和 `small_objects_done`（重建、删除、保留的件数）；完整跑完时 `run_room.py` 再记 `model_saved`（`model` 为 `small_objects`）。
+
+### 预先做好小物件模型
+
+小物件这一步在 author 之后才跑，而 author 要几个小时；TRELLIS 要用 GPU。已经知道房间里有哪些小东西（在 author 的说明里让它按 `TissueBox0`、`WaterBottle0`、`PotPlant0` 等命名占位）时，可以在 author 之前先用近照把模型做好，GPU 随即可以交还，几小时后小物件这一步直接用这些模型，不再需要 TRELLIS：
+
+```bash
+"$PY" room-reconstruction/server/run_room.py --premake-small-objects '<近照目录>' '<模型目录>' --check
+"$PY" room-reconstruction/server/run_room.py --premake-small-objects '<近照目录>' '<模型目录>' [--only TissueBox ...]
+```
+
+近照按种类分目录：`<近照目录>/<种类>/*.jpg`（或 `.jpeg`），例如 `TissueBox/`、`WaterBottle/`，同一种类的几件（两包纸巾）共用一个模型；可选 `<近照目录>/<种类>/description.txt`，一行写这是什么，没有时按种类名写成 “a tissue box”。每个种类走小物件重建的同一套步骤，只去掉需要房间的部分：近照拼成参考底图、图像模型生成参考图（设置取服务器 `.env`）、TRELLIS（经 `run_room.py` 取得 GPU 和 TRELLIS 环境）、去掉漂浮碎片、按参考图校正色相并把非金属物件的金属度归零。结果是 `<模型目录>/<种类>.glb`，旁边的 `<种类>.json` 记下近照哈希、描述和模型设置；重跑时输入没变的种类直接跳过，换了近照的重做。失败的种类不留下 `.glb`，命令以非零退出；终端打印每个种类用了几张近照、结果路径和用时。运行记录在 `<模型目录>/attempt-NN/`，不写回放记录。之后跑小物件时加 `--set LR_SMALL_OBJECTS_MODELS=<模型目录>`；这一步仍经 `run_room.py` 取 GPU（扫描照片里找物件、渲染对比图），只是这些物件不再跑 TRELLIS。
 
 ## 可动部件
 
