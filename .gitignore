@@ -23,5 +23,9 @@ gesture/docs/DEV_HISTORY.md
 /runs/
 /backends/
 
+# 示例房间的模型是 sample-rooms release 的附件（清单 samples/models.json），用 scripts/fetch_samples.py 获取
+/samples/*/Room.glb
+/samples/*/Room.glb.part
+
 # Local room list removals
 .roomcanvas/

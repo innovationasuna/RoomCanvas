@@ -58,6 +58,16 @@ jobs:
       - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs web/replay/*.mjs web/*.mjs; do node --check "$f"; done
       - run: node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
+      # The models are assets of the sample-rooms release, not files in git (samples/models.json);
+      # the cache keeps their ~195 MB from being downloaded on every run.
+      - uses: actions/cache@v4
+        with:
+          path: samples/*/Room.glb
+          key: sample-models-${{ hashFiles('samples/models.json') }}
+      - name: Fetch the sample rooms' models
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch_samples.py --verify
       - name: Check the sample rooms with their real models (CPU)
         run: |
           for check in collision wall_mount seat_support gravity; do node web/scripts/check_$check.mjs --scene-dir samples/office; done

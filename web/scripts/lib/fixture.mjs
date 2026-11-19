@@ -10,6 +10,8 @@ import {roomConfig, flattenObjects, topMembers} from '../../editor/room-catalog.
 // Decode only authored positions/indices/transforms. Ignoring material and image data
 // makes this fixture loader deterministic in Node without mocking a browser or WebGL.
 export function loadGeometry(THREE, file) {
+  // The sample rooms' models are not in git (samples/models.json).
+  if (!fs.existsSync(file)) throw new Error(`${file} is missing; a sample room's model comes from: python3 scripts/fetch_samples.py`);
   const bytes = fs.readFileSync(file);
   assert.equal(bytes.readUInt32LE(0), 0x46546c67, 'fixture is GLB');
   assert.equal(bytes.readUInt32LE(4), 2, 'fixture is GLB v2');

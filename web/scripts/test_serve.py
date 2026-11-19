@@ -203,5 +203,20 @@ class Tunnel(unittest.TestCase):
         self.assertIn(f'Port {port} is already in use', str(stop.exception.code))
 
 
+class SampleModels(unittest.TestCase):
+    def test_start_up_fetches_only_missing_models_and_never_stops_the_server(self):
+        from unittest.mock import patch
+        import serve
+        lines = []
+        with patch.object(serve.fetch_samples, 'fetch', return_value=[]) as fetch:
+            serve.fetch_sample_models(log=lines.append)
+            serve.fetch_sample_models(download=False, log=lines.append)  # --no-download
+        self.assertEqual([call.kwargs for call in fetch.call_args_list],
+                         [{'check': check, 'missing_only': True, 'log': lines.append} for check in (False, True)])
+        with patch.object(serve.fetch_samples, 'fetch', side_effect=FileNotFoundError('samples/models.json')):
+            self.assertIsNone(serve.fetch_sample_models(log=lines.append))
+        self.assertEqual(lines, ['Sample models not checked (samples/models.json): samples/models.json'])
+
+
 if __name__ == '__main__':
     unittest.main()

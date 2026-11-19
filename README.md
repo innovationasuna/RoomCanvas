@@ -135,6 +135,8 @@ python3 web/scripts/serve.py --ssh <SSH 主机>
 
 打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office` 或 `Room_3934`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
+示例房间的模型（`samples/*/Room.glb`，三个共约 195 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件。`serve.py` 启动时在后台下载缺少的模型，下载完刷新页面即可；也可以先运行 `python3 scripts/fetch_samples.py`。仓库是私有的，下载前要先 `gh auth login`，或把能读本仓库的令牌放进 `GH_TOKEN`；两样都没有时，终端会列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后放到对应路径。详见 [示例房间的模型](web/README.md#示例房间的模型)。
+
 **服务器启动**：安装完成后，一条命令启动房间服务、物体服务和网关（已在运行的会跳过）；`status` 只查看状态。
 
 ```bash
@@ -145,7 +147,7 @@ python3 web/scripts/serve.py --ssh <SSH 主机> --server-dir <服务器仓库目
 ```
 
 - **本机一条命令**：加 `--server-dir`（如 AutoDL 上的 `/root/autodl-tmp/RoomCanvas`）后，`serve.py` 用同一条 SSH 连接在服务器上运行 `scripts/start_server.sh`（已在运行的服务不动），只输一次密码。
-- **已完成的房间和重建回放存到本机**：`serve.py --ssh` 在后台把服务器上已完成任务的回放（点云、各版房间模型、配图）和房间文件下载到本机 `runs/room-cache/`（终端显示进度，每 5 分钟检查一次新任务），页面优先读本机副本，不再经隧道。之后不加 `--ssh` 启动，或服务器关机时，这些房间和回放照样能打开。还在重建的任务不缓存；任务重试后旧副本会删掉重新下载。加 `--no-download` 不下载，`--cache <目录>` 换位置。
+- **已完成的房间和重建回放存到本机**：`serve.py --ssh` 在后台把服务器上已完成任务的回放（点云、各版房间模型、配图）和房间文件下载到本机 `runs/room-cache/`（终端显示进度，每 5 分钟检查一次新任务），页面优先读本机副本，不再经隧道。之后不加 `--ssh` 启动，或服务器关机时，这些房间和回放照样能打开。还在重建的任务不缓存；任务重试后旧副本会删掉重新下载。加 `--no-download` 不下载（缺少的示例房间模型也只提示、不下载），`--cache <目录>` 换位置。
 
 - 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
 - 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。
@@ -178,7 +180,7 @@ cd android-app
 ./gradlew :app:assembleDebug    # JDK 17 + Android SDK，产出 app/build/outputs/apk/debug/
 ```
 
-装到手机上，导入 `samples/office/Room.glb` 之类的房间模型即可。华为手机可用 AR Engine 的运动跟踪；其他手机提示一次后照常用方向键漫游。
+装到手机上，导入 `samples/office/Room.glb` 之类的房间模型即可（示例模型先用 `python3 scripts/fetch_samples.py` 取回）。华为手机可用 AR Engine 的运动跟踪；其他手机提示一次后照常用方向键漫游。
 
 ### 4. 重建自己的房间
 
@@ -257,7 +259,7 @@ flowchart LR
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
-| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934） | |
+| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934）；模型在 `sample-rooms` release，清单是 `samples/models.json` | |
 
 ## 开发与测试
 
@@ -266,6 +268,7 @@ flowchart LR
 ```bash
 node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'  # 编辑器与网页流程
 python3 -m unittest discover -s web/scripts                  # 本机服务、物品清单
+python3 scripts/fetch_samples.py                             # 取回示例房间的模型（已有的不重复下载）
 node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型检查碰撞、支撑、关节
 ```
 
