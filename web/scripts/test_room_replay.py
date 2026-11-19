@@ -3,6 +3,7 @@ Synthetic runs only; no GPU, model or codex calls."""
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import threading
@@ -70,6 +71,20 @@ def make_run(root):
         write(folder / 'Room.glb', t=T0 + 990 + k * 100)
     write(scene / replay.FINAL, t=T0 + 1150)
     return scene
+
+
+def next_session(scene, t, role='author', rows=None):
+    """Start another session of the agent at time t: the trace writer first moves the current one to
+    traces/history/authoring_trace.<role>.run_NNN.jsonl (its step numbers restart)."""
+    traces = scene / replay.TRACES
+    current = traces / f'authoring_trace.{role}.jsonl'
+    if current.is_file():
+        (traces / 'history').mkdir(exist_ok=True)
+        n = len(list((traces / 'history').glob(f'authoring_trace.{role}.run_*.jsonl'))) + 1
+        current.replace(traces / 'history' / f'authoring_trace.{role}.run_{n:03d}.jsonl')
+    rows = rows or [{'seq': 1, 't': t, 'kind': 'session_start'}, {'seq': 2, 't': t + 10, 'kind': 'think', 'text': 'Go on.'},
+                    {'seq': 3, 't': t + 20, 'kind': 'tool', 'tool': 'Bash', 'hint': 'python Room.py'}]
+    write(current, ''.join(json.dumps(r) + '\n' for r in rows))
 
 
 class Events(unittest.TestCase):
@@ -186,9 +201,15 @@ class Events(unittest.TestCase):
     def test_a_slim_copy_replays_the_same_without_the_bulk(self):
         bulk = 'scene_init/obj_stage/reconstructed_objs/Storage0/mesh.glb'
         write(self.scene / bulk, 'x' * 1000)
+        next_session(self.scene, T0 + 2000)  # the first session is archived, with its raw log
+        history = f'{replay.TRACES}/history/authoring_trace.author'
+        write(self.scene / f'{history}.raw.run_001.jsonl', '{}\n')
         dest = self.root / 'slim'
         replay.slim(self.root / 'run', dest)
         self.assertFalse((dest / 'pipeline' / 'demo' / bulk).exists())
+        self.assertTrue((dest / 'pipeline' / 'demo' / f'{history}.run_001.jsonl').is_file())
+        self.assertFalse((dest / 'pipeline' / 'demo' / f'{history}.raw.run_001.jsonl').exists())
+        self.assertEqual({r['session'] for r in replay.agent_records(dest / 'pipeline' / 'demo')}, {0, 1})
 
         def replayed(run):
             job = self.root / ('job-' + run.name)
@@ -520,6 +541,38 @@ class PhasedRun(unittest.TestCase):
         self.assertEqual(list(data['models']), ['seed', 'round0', 'round1', 'final'])
         self.assertEqual(replay.timeline(self.root / 'none')['stages'], replay.stages_of([]))
 
+    def test_a_later_pass_replaces_an_earlier_one(self):
+        # The passes number their runs on their own: attempt-01 and attempt-02 again, as the main run did (whose
+        # attempt-02 tried the openable parts itself and failed).
+        rows = [
+            {'t': T0 + 3900, 'kind': 'small_objects_start', 'through': 'evidence', 'run': 'attempt-01'},
+            {'t': T0 + 4000, 'kind': 'small_objects_start', 'run': 'attempt-01'},
+            {'t': T0 + 4100, 'kind': 'small_object_done', 'name': 'WaterBottle1', 'method': 'trellis', 'status': 'ok', 'run': 'attempt-01'},
+            {'t': T0 + 4110, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'kept', 'status': 'ok', 'run': 'attempt-01'},
+            {'t': T0 + 4200, 'kind': 'small_objects_done', 'rebuilt': 1, 'kept': 1, 'run': 'attempt-01'},
+            {'t': T0 + 4210, 'kind': 'model_saved', 'model': 'small_objects', 'run': 'attempt-01'},
+            {'t': T0 + 4500, 'kind': 'articulate_start', 'run': 'attempt-02'},
+            {'t': T0 + 4800, 'kind': 'articulate_done', 'status': 'ok', 'run': 'attempt-02'},
+            {'t': T0 + 4800, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-02'},
+        ]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        events = replay.timeline(self.root, 'completed', T0 + 5000)['events']
+        self.assertEqual([(e['t'], e['stage'], e['say']) for e in events if e['t'] > T0 + 1140], [
+            (T0 + 4000, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的'),
+            (T0 + 4100, 'small_objects', '瓶子换成了按照片重建的模型'),
+            (T0 + 4210, 'small_objects', '小物品处理好了：按照片重做 1 件，1 件保持原样'),
+            (T0 + 4500, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨'),
+            (T0 + 4800, 'articulate', '装好可开合部件，这就是发布的房间')])
+        # Before the openable parts are made again, the earlier openable-parts room does not end the replay.
+        events = replay.timeline(self.root, 'running', T0 + 4150)['events']
+        self.assertEqual([(e['t'], e['stage']) for e in events if e['t'] > T0 + 1140],
+                         [(T0 + 4000, 'small_objects'), (T0 + 4100, 'small_objects')])
+        # Only the evidence run so far: no line of the pass before it is left.
+        events = replay.timeline(self.root, 'running', T0 + 3950)['events']
+        self.assertEqual([(e['t'], e['say']) for e in events if e['stage'] == 'small_objects'],
+                         [(T0 + 3900, '逐个看房间里的小物品，挑出需要按照片重做的')])
+
     def test_the_room_is_found_where_its_record_says(self):
         (self.run / replay.SMALL_OBJECTS).unlink()
         inside = write(self.scene / 'realism_authoring/small_objects/room_preview/Room.glb', b'small', T0 + 2505)
@@ -598,6 +651,17 @@ class BuildSchedule(unittest.TestCase):
             self.assertEqual(schedule['base'], T0 + 300)
             self.assertIsNone(replay.build_schedule(scene, T0 + 1100))  # final model not there yet
 
+    def test_parts_named_in_an_earlier_session_appear_then(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = make_run(Path(tmp) / 'run')
+            glb(scene / replay.SEED, {'@roots': ['Floor0']}, T0 + 100)
+            glb(scene / replay.FINAL, {'@roots': ['Floor0', 'Curtain', 'Lamp']}, T0 + 1150)
+            with (scene / replay.TRACES / 'authoring_trace.author.jsonl').open('a') as f:
+                f.write(json.dumps({'seq': 7, 't': T0 + 300, 'kind': 'tool', 'tool': 'Bash', 'hint': 'add Curtain'}) + '\n')
+            next_session(scene, T0 + 2000, rows=[{'seq': 1, 't': T0 + 2010, 'kind': 'tool', 'tool': 'Bash', 'hint': 'add Lamp'}])
+            times = {r['node']: r['t'] for r in replay.build_schedule(scene, T0 + 3000)['reveal']}
+            self.assertEqual(times, {'Curtain': T0 + 300, 'Lamp': T0 + 2010})  # Curtain is named by the archived session
+
 
 class Condensing(unittest.TestCase):
     def setUp(self):
@@ -660,6 +724,181 @@ class Condensing(unittest.TestCase):
         order = [replay.STAGE_IDS.index(e['stage']) for e in events]
         self.assertEqual(order, sorted(order))
         self.assertEqual(events[0]['minute'], 0)
+
+
+class Sessions(unittest.TestCase):
+    """A room built in several sessions of the modelling agent (resumed; asked for changes after it was
+    published): each session is replayed in order, with the cached condensation kept where it belongs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.job = Path(self.tmp.name) / 'job'
+        self.scene = make_run(self.job / 'run')
+        self.first = replay.agent_records(self.scene)  # seq 0..4
+        self.calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def append(self, rows):
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+
+    def run_(self, stage):
+        """A condensation that sums up each batch in one line."""
+        def run(prompt):
+            self.calls.append(prompt)
+            seqs = [int(n) for n in re.findall(r'"seq": (\d+)', prompt.split('本段记录：')[1])]
+            return json.dumps([{'from': seqs[0], 'to': seqs[-1], 'stage': stage, 'kind': 'tool', 'say': f'第 {len(self.calls)} 段'}])
+        return run
+
+    def test_a_later_session_is_numbered_on_from_the_earlier_ones(self):
+        next_session(self.scene, T0 + 2000)
+        records = replay.agent_records(self.scene)
+        same = lambda r: {k: v for k, v in r.items() if k != 'key'}
+        self.assertEqual([same(r) for r in records[:5]], [same(r) for r in self.first])  # the first keeps its numbers
+        self.assertEqual([(r['seq'], r['session'], r['session_t']) for r in records[5:]],
+                         [(5, 1, T0 + 2000), (6, 1, T0 + 2000), (7, 1, T0 + 2000)])
+        self.assertEqual(len({r['key'] for r in records}), len(records))
+        next_session(self.scene, T0 + 3000)
+        self.assertEqual([r['seq'] for r in replay.agent_records(self.scene) if r['session'] == 2], [8, 9, 10])
+
+    def test_a_cached_condensation_stays_with_its_session(self):
+        replay.Summary(self.job).condense(self.first, self.run_('adjust'), T0, final=True)  # while it was the only one
+        next_session(self.scene, T0 + 2000)
+        events = replay.timeline(self.job, 'completed', T0 + 2100)['events']
+        self.assertEqual([(e['id'], e['say']) for e in events if e['id'].startswith('a')],
+                         [('a0', '第 1 段'), ('a6', '建模 agent 继续工作：执行了 1 次操作')])
+        self.assertEqual(len({e['id'] for e in events}), len(events))
+        self.assertNotIn('revise', [s['id'] for s in replay.timeline(self.job)['stages']])  # not published yet
+        # The next batch is the new session's, and one batch never runs into the next session.
+        next_session(self.scene, T0 + 3000)
+        summary = replay.Summary(self.job)
+        summary.condense(replay.agent_records(self.scene), self.run_('adjust'), T0, final=True)
+        self.assertEqual([(b['from'], b['to']) for b in summary.data['batches']], [(0, 4), (5, 7), (8, 10)])
+
+    def test_an_earlier_moment_replays_as_it_did_then(self):
+        before = replay.timeline(self.job, 'completed', T0 + 1300)
+        next_session(self.scene, T0 + 2000)
+        next_session(self.scene, T0 + 2500, 'repair')
+        next_session(self.scene, T0 + 2600, 'repair')
+        self.assertEqual(replay.timeline(self.job, 'completed', T0 + 1300)['events'], before['events'])
+
+    def test_a_picture_belongs_to_the_session_that_made_it(self):
+        picture = f'{replay.TRACES}/img/author_0004_a.jpg'
+        next_session(self.scene, T0 + 2000, rows=[{'seq': 4, 't': T0 + 2010, 'kind': 'images', 'saved': ['img/author_0004_a.jpg']}])
+        self.assertEqual([r['img'] for r in replay.agent_records(self.scene) if r['kind'] == 'images'], [picture, picture])
+        os.utime(self.scene / picture, (T0 + 2010, T0 + 2010))  # the second session wrote its own over it
+        self.assertEqual([r['img'] for r in replay.agent_records(self.scene) if r['kind'] == 'images'], [None, picture])
+
+    def test_a_session_on_the_published_room_is_its_own_stage(self):
+        self.append([
+            {'t': T0 + 985, 'kind': 'review_done', 'reviewed': True, 'run': 'attempt-01', 'attempt': 'x', 'round': 0,
+             'folder': 'realism_authoring/acceptance/attempt-x/round_00'},
+            {'t': T0 + 990, 'kind': 'repair_start', 'run': 'attempt-01'},
+            {'t': T0 + 1100, 'kind': 'repair_done', 'status': 'repaired', 'run': 'attempt-01'},
+            {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'},
+            # asked for changes: a new author session on the published room, checked, repaired, published again
+            {'t': T0 + 2100, 'kind': 'review_done', 'reviewed': True, 'run': 'attempt-02', 'attempt': 'y', 'round': 0,
+             'folder': 'realism_authoring/acceptance/attempt-x/round_01'},
+            {'t': T0 + 2105, 'kind': 'repair_start', 'run': 'attempt-02'},
+            {'t': T0 + 2150, 'kind': 'repair_done', 'status': 'repaired', 'run': 'attempt-02'},
+            {'t': T0 + 2200, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-02'},
+            {'t': T0 + 2300, 'kind': 'small_objects_start', 'run': 'attempt-01'},
+        ])
+        next_session(self.scene, T0 + 1000, 'repair')
+        replay.Summary(self.job).condense(self.first, self.run_('check'), T0, final=True)
+        next_session(self.scene, T0 + 2000)
+        next_session(self.scene, T0 + 2110, 'repair')
+        summary = replay.Summary(self.job)
+        summary.condense(replay.agent_records(self.scene), self.run_('assemble'), T0, final=True)
+        self.assertFalse([p for p in self.calls if 'revise' in p or 'small_objects' in p])  # not offered to the model
+        data = replay.timeline(self.job, 'completed', T0 + 2400)
+        self.assertEqual([s['id'] for s in data['stages']], ELEVEN[:-1] + ['revise', 'small_objects', 'articulate'])
+        # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
+        self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
+            (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
+            (1020, 'review2', '修复 agent 继续工作：执行了 1 次操作', None), (1100, 'review2', '按检查出的问题修好了房间', None),
+            (2020, 'revise', '第 2 段', None), (2100, 'revise', '检查房间：通过', 'round1'),
+            (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '修复 agent 继续工作：执行了 1 次操作', None),
+            (2150, 'revise', '按检查出的问题修好了房间', None), (2200, 'revise', '导出最终房间', 'final'),
+            (2300, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', None)])
+        self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
+        self.assertEqual(len({e['id'] for e in data['events']}), len(data['events']))
+        # The first session, before the room was published, keeps its stage.
+        self.assertEqual([e['stage'] for e in data['events'] if e['id'] == 'a0'], ['check'])
+
+
+    def test_passes_before_a_revision_are_replaced(self):
+        run = self.job / 'run'
+        write(run / replay.SMALL_OBJECTS, t=T0 + 1270)
+        write(run / replay.ARTICULATED, t=T0 + 1400)
+        self.append([
+            {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-01'},
+            {'t': T0 + 1200, 'kind': 'small_objects_start', 'run': 'attempt-01'},
+            {'t': T0 + 1250, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'trellis', 'status': 'ok', 'run': 'attempt-01'},
+            {'t': T0 + 1270, 'kind': 'model_saved', 'model': 'small_objects', 'run': 'attempt-01'},
+            {'t': T0 + 1300, 'kind': 'articulate_start', 'run': 'attempt-01'},
+            {'t': T0 + 1400, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-01'},
+        ])
+        next_session(self.scene, T0 + 2000)  # asked for changes after the passes
+        data = replay.timeline(self.job, 'running', T0 + 2050)
+        self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140], [(T0 + 2020, 'revise')])
+        self.assertEqual([s['id'] for s in data['stages']][-2:], ['revise', 'articulate'])
+        self.assertIn('articulated', data['models'])  # the earlier rooms stay listed; their lines go
+        self.append([{'t': T0 + 2300, 'kind': 'small_objects_start', 'run': 'attempt-02'},
+                     {'t': T0 + 2400, 'kind': 'articulate_start', 'run': 'attempt-02'},
+                     {'t': T0 + 2500, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-02'}])
+        data = replay.timeline(self.job, 'completed', T0 + 3000)
+        self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140],
+                         [(T0 + 2020, 'revise'), (T0 + 2300, 'small_objects'), (T0 + 2400, 'articulate'), (T0 + 2500, 'articulate')])
+
+    def old_cache(self, batches):
+        """summary.json as the code before the sessions were numbered on wrote it (no 'numbering')."""
+        write(self.job / 'replay' / 'summary.json', json.dumps({'version': replay.SUMMARY_VERSION, 'batches': batches, 'reviews': {}}))
+
+    def test_an_old_cache_across_sessions_is_renumbered_by_time(self):
+        # Session 1 (seq 0..4) condensed; then session 2 counted from 0 again, condensed only past 4.
+        self.old_cache([{'from': 0, 'to': 4, 'items': [{'from': 0, 'to': 4, 't': T0 + 600, 'stage': 'adjust', 'kind': 'tool', 'say': '第一段'}]}])
+        next_session(self.scene, T0 + 2000, rows=[{'seq': k + 1, 't': T0 + 2000 + 10 * k, 'kind': 'think', 'text': 'x'} for k in range(8)])
+        summary = replay.Summary(self.job)
+        summary.data['batches'].append({'from': 5, 'to': 7, 'items': [
+            {'from': 5, 'to': 7, 't': T0 + 2070, 'stage': 'check', 'kind': 'tool', 'say': '第二段'}]})
+        self.old_cache(summary.data['batches'])
+        events = replay.timeline(self.job, 'completed')['events']
+        self.assertEqual([(e['id'], e['t'], e['say']) for e in events if e['id'].startswith('a')],
+                         [('a0', T0 + 600, '第一段'), ('a10', T0 + 2070, '第二段')])  # what it left out stays out
+        self.assertEqual(len({e['id'] for e in events}), len(events))
+        self.assertNotIn('numbering', json.loads((self.job / 'replay' / 'summary.json').read_text()))  # read only
+        summary = replay.Summary(self.job)
+        self.assertTrue(summary.align(self.scene))
+        self.assertEqual([(b['from'], b['to']) for b in summary.data['batches']], [(0, 4), (10, 12)])
+        self.assertFalse(summary.condense(replay.agent_records(self.scene), self.run_('check'), T0, final=True))
+        self.assertEqual(self.calls, [])
+
+    def test_an_old_cache_of_the_first_session_leaves_the_later_ones_pending(self):
+        self.old_cache([{'from': 0, 'to': 4, 'items': [{'from': 0, 'to': 4, 't': T0 + 600, 'stage': 'adjust', 'kind': 'tool', 'say': '第一段'}]}])
+        next_session(self.scene, T0 + 2000)
+        events = replay.timeline(self.job, 'completed')['events']
+        self.assertEqual([(e['id'], e['say']) for e in events if e['id'].startswith('a')],
+                         [('a0', '第一段'), ('a6', '建模 agent 继续工作：执行了 1 次操作')])
+        summary = replay.Summary(self.job)
+        summary.align(self.scene)
+        summary.condense(replay.agent_records(self.scene), self.run_('check'), T0, final=True)
+        self.assertEqual([(b['from'], b['to']) for b in summary.data['batches']], [(0, 4), (5, 7)])
+
+    def test_a_cache_is_renumbered_once(self):
+        next_session(self.scene, T0 + 2000)
+        self.old_cache([{'from': 0, 'to': 2, 'items': [{'from': 0, 'to': 2, 't': T0 + 2020, 'stage': 'check', 'kind': 'tool', 'say': '第二段'}]}])
+        summary = replay.Summary(self.job)
+        self.assertTrue(summary.align(self.scene))
+        self.assertFalse(summary.align(self.scene))
+        summary.save()
+        saved = json.loads((self.job / 'replay' / 'summary.json').read_text())
+        self.assertEqual((saved['numbering'], saved['batches'][0]['from'], saved['batches'][0]['items'][0]['to']), ('sessions', 5, 7))
+        summary = replay.Summary(self.job)
+        self.assertFalse(summary.align(self.scene))  # marked: never moved again
+        self.assertEqual(summary.data['batches'][0]['from'], 5)
 
 
 class Service(unittest.TestCase):

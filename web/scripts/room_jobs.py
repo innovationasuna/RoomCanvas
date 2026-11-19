@@ -105,6 +105,8 @@ class Jobs:
                     until = record.get('until')
                     agent = room_replay.agent_records(scene, until)
                     summary = room_replay.Summary(folder)
+                    if summary.align(scene):  # a cache written before the sessions were numbered on
+                        summary.save()
                     start = min([r['t'] for r in agent] or [time.time()])
                     summary.condense(agent, run, start, final=record['status'] not in ('running', 'preparing'))
                     for event in room_replay.review_events(scene, until):
