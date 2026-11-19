@@ -22,7 +22,14 @@ object-reconstruction/
 ├── notebook/           │
 ├── preprocessing/      │ 多视角重建核心（MV-SAM3D）
 ├── run_inference*.py   ┘
-└── data/example/       示例照片
+└── data/example/       示例照片（不在仓库内，见下）
+```
+
+示例照片、蒙版和上游的效果演示体积大，不放在 git 里，是 `object-example-data` release 的附件。需要时下载并解压到 `data/`（私有仓库需先 `gh auth login`）：
+
+```bash
+gh release download object-example-data -R innovationasuna/RoomCanvas -p object-example-data.zip -D /tmp
+unzip /tmp/object-example-data.zip -d object-reconstruction/data/   # 在仓库根目录执行
 ```
 
 源码由 RoomCanvas 仓库统一管理。运行环境、权重、照片和结果不在仓库内，由 `VIEWFORGE_ROOT` 指向的外部目录提供，结构见 [物体重建](../../docs/OBJECT_RECONSTRUCTION.md#数据目录)。
