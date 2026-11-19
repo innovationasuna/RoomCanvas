@@ -28,7 +28,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from litereality_agent import artifact_cache
 from litereality_agent.pipeline.scene_init import paths as config
+from litereality_agent.pipeline.scene_init.reconstruct import provided
 from litereality_agent.pipeline.scene_init.reconstruct.classify import classification
 
 # Each worker is one hosted vision call, so the ceiling is the provider's rate limit rather than
@@ -61,6 +63,16 @@ Choose one of two generation methods:
 Strong prior: chairs, sofas, and abstract/organic objects almost always need "trellis". Regular furniture and box/slab/revolve appliances should be "procedural".
 
 Judge from the actual shape in the image, not just the category name. Return JSON with: route, complexity (low/medium/high), is_organic, primitive_buildable, a one-sentence reason, and (only if route=procedural) a short primitive_plan describing the primitives to build it from."""
+
+# Asked only under $LR_ROUTE_POLICY=trellis-first, which needs to tell a plain table from the rest;
+# without a policy the question and its answers stay exactly as they were.
+FOOTPRINT_SCHEMA = {**ROUTE_SCHEMA, "properties": {
+    **ROUTE_SCHEMA["properties"],
+    "footprint": {"type": "string", "enum": ["rectangular", "round", "irregular"]},
+}}
+FOOTPRINT_PROMPT = """
+
+Also give footprint: "rectangular" only for plain rectangular furniture (a rectangular top or body on straight legs or panels, no curved or sculpted parts), "round" for a round or oval top, otherwise "irregular"."""
 
 
 def _dims_str(meta: dict) -> str:
@@ -132,8 +144,36 @@ def category_from_name(name: str, kind: str) -> str:
 # Everything else follows the VLM (regular box/slab/revolve geometry -> procedural).
 ORGANIC_CATEGORIES = {"sofa", "couch", "armchair", "chair", "plant", "person"}
 
+# $LR_ROUTE_POLICY=trellis-first: image-to-3D for nearly everything, procedural only for the most
+# regular furniture — storage of any kind (a merged "sink storage" included) and tables/desks the
+# classifier calls plainly rectangular. Unset keeps the classifier's call as above.
+ROUTE_POLICIES = ("", "trellis-first")
+STORAGE_CATEGORIES = ("storage", "cabinet", "shelf", "wardrobe")  # "bookshelf" contains "shelf"
+TABLE_CATEGORIES = ("table", "desk")
+ROUTES = ("trellis", "procedural")
 
-def apply_policy(kind: str, category: str, decision: dict) -> dict:
+
+def route_policy() -> str:
+    policy = os.environ.get("LR_ROUTE_POLICY", "").strip()
+    if policy not in ROUTE_POLICIES:
+        raise ValueError(f"LR_ROUTE_POLICY: unknown policy {policy!r} (known: trellis-first)")
+    return policy
+
+
+def route_overrides(names: set[str]) -> dict[str, str]:
+    """$LR_ROUTE_OVERRIDE=Name=route,...: the operator's fixed route for single objects."""
+    overrides = provided.pairs(os.environ.get("LR_ROUTE_OVERRIDE"), "LR_ROUTE_OVERRIDE")
+    bad = {n: r for n, r in overrides.items() if r not in ROUTES}
+    if bad:
+        raise ValueError(f"LR_ROUTE_OVERRIDE: unknown route(s) {bad} (routes: {', '.join(ROUTES)})")
+    unknown = sorted(set(overrides) - names)
+    if unknown:
+        raise ValueError(f"LR_ROUTE_OVERRIDE: {', '.join(unknown)} not routed objects of this scan; "
+                         f"valid names: {', '.join(sorted(names)) or '(none)'}")
+    return overrides
+
+
+def apply_policy(kind: str, category: str, decision: dict, policy: str = "") -> dict:
     forced = (
         kind == "chairs"
         or any(c in category for c in ORGANIC_CATEGORIES)
@@ -144,7 +184,24 @@ def apply_policy(kind: str, category: str, decision: dict) -> dict:
     if forced and decision.get("route") != "trellis":
         decision["route"] = "trellis"
         decision["forced_by_policy"] = "chairs/sofas/abstract -> trellis"
+    if policy == "trellis-first" and not forced:
+        regular = any(c in category for c in STORAGE_CATEGORIES) or (
+            any(c in category for c in TABLE_CATEGORIES)
+            and decision.get("footprint") == "rectangular"
+        )
+        route = "procedural" if regular else "trellis"
+        if decision.get("route") != route:
+            decision["route"] = route
+            decision["forced_by_policy"] = "trellis-first: procedural only for storage/rectangular tables"
     return decision
+
+
+def _read_records(path: Path) -> list[dict]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
 
 
 def classify_for_scan(scan: str, *, model: str | None = None, include_chairs: bool = True) -> dict:
@@ -163,14 +220,34 @@ def classify_for_scan(scan: str, *, model: str | None = None, include_chairs: bo
 
     items = [it for it in collect(work, [scan], include_chairs)]
     print(f"[classify] {scan}: {len(items)} object(s)...", flush=True)
+    policy = route_policy()
+    overrides = route_overrides({it[2] for it in items})
+    supplied = provided.find(scan)
+    # A rerun used to re-ask the model for every object, and a flipped answer after a partial
+    # failure built the same object twice, once per route. Keep a decision while what it was made
+    # from — the reference image, the policy, the override — is unchanged.
+    previous = {r.get("name"): r for r in _read_records(routing_root / scan / "routing.json")}
 
     def classify_one(item) -> dict:
         _scan, kind, name, ref, meta = item
         category = category_from_name(name, kind)
         dims = _dims_str(meta)
+        base = {"scan": scan, "kind": kind, "name": name, "category": category, "dims": dims,
+                "reference": str(ref)}
+        if name in supplied:  # never a TRELLIS or procedural job: see reconstruct/provided.py
+            return {**base, "route": "provided", "provided": str(supplied[name]),
+                    "reason": "operator-provided model"}
+        decided_from = {"reference": artifact_cache.file_hash(ref), "policy": policy,
+                        "override": overrides.get(name)}
+        kept = previous.get(name) or {}
+        if kept.get("decided_from") == decided_from and kept.get("route") in ROUTES:
+            return {**kept, **base, "kept": True}
         prompt = PROMPT_TEMPLATE.format(category=category, dims=dims)
+        if policy:
+            prompt += FOOTPRINT_PROMPT
         try:
-            decision = classification.classify_image(ref, prompt, ROUTE_SCHEMA, model=model)
+            decision = classification.classify_image(
+                ref, prompt, FOOTPRINT_SCHEMA if policy else ROUTE_SCHEMA, model=model)
         except Exception as exc:  # noqa: BLE001
             decision = {
                 "route": "trellis",
@@ -178,16 +255,12 @@ def classify_for_scan(scan: str, *, model: str | None = None, include_chairs: bo
                 "is_organic": True,
                 "reason": f"classify error, default trellis: {exc}",
             }
-        decision = apply_policy(kind, category, decision)
-        return {
-            "scan": scan,
-            "kind": kind,
-            "name": name,
-            "category": category,
-            "dims": dims,
-            "reference": str(ref),
-            **decision,
-        }
+            decided_from = None  # an error is not a decision worth keeping
+        decision = apply_policy(kind, category, decision, policy)
+        if name in overrides:
+            decision["route"] = overrides[name]
+            decision["forced_by_override"] = True
+        return {**base, **decision, "decided_from": decided_from}
 
     # One independent vision call per object, each ~9s. Run them together: the stage was serial
     # and cost 46s on a 5-object room for no reason. `map` keeps routing order stable, and the
@@ -196,7 +269,8 @@ def classify_for_scan(scan: str, *, model: str | None = None, include_chairs: bo
         recs: list[dict] = list(pool.map(classify_one, items))
 
     for record in recs:
-        flag = " [policy]" if record.get("forced_by_policy") else ""
+        flag = next((f" [{why}]" for why in ("provided", "override", "policy", "kept")
+                     if record.get(why) or record.get(f"forced_by_{why}")), "")
         print(
             f"  {record['name']:16s} -> {record['route']:10s}{flag:9s} "
             f"({record.get('complexity', '?')}) {record.get('reason', '')[:60]}"
@@ -211,9 +285,11 @@ def classify_for_scan(scan: str, *, model: str | None = None, include_chairs: bo
 
     n_proc = sum(1 for r in recs if r["route"] == "procedural")
     n_trellis = sum(1 for r in recs if r["route"] == "trellis")
+    n_provided = sum(1 for r in recs if r["route"] == "provided")
     print(
-        f"[classify] {scan}: {n_proc} procedural, {n_trellis} trellis "
-        f"-> {routing_root / 'routing_manifest.json'}"
+        f"[classify] {scan}: {n_proc} procedural, {n_trellis} trellis"
+        + (f", {n_provided} provided" if n_provided else "")
+        + f" -> {routing_root / 'routing_manifest.json'}"
     )
     telemetry.event("classify", scan=scan, procedural=n_proc, trellis=n_trellis, total=len(recs))
     return {
