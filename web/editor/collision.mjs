@@ -204,19 +204,21 @@ function makeBVH(faces) {
 // Exact support projections of mesh vertices. BVH bounds only prune branches;
 // the returned extrema always come from real triangle vertices, including concave meshes.
 // Written out in scalars: a drag asks for hundreds of these on large meshes. With a floor, only
-// whether some vertex lies above it is wanted: below the floor the result is not exact.
-function support(mesh, [x, y, z], floor = -Infinity) {
-  let best = -Infinity;
+// whether some vertex lies above it is wanted: below the floor the result is not exact. found, if
+// given, receives the vertex that reaches furthest.
+function support(mesh, [x, y, z], floor = -Infinity, found = null) {
+  let best = -Infinity, point = null;
   const ix = x >= 0 ? 3 : 0, iy = y >= 0 ? 4 : 1, iz = z >= 0 ? 5 : 2;
   const upper = ({box}) => x * box[ix] + y * box[iy] + z * box[iz];
   function visit(node) {
     if (best > floor && floor > -Infinity || upper(node) <= Math.max(best, floor)) return;
     if (node.faces) {
-      for (const face of node.faces) for (const p of face.triangle) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) best = value;}
+      for (const face of node.faces) for (const p of face.triangle) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; point = p;}}
     } else if (upper(node.left) >= upper(node.right)) {visit(node.left); visit(node.right);}
     else {visit(node.right); visit(node.left);}
   }
   visit(mesh.tree);
+  if (found) found[0] = point;
   return best;
 }
 const projection = (mesh, axis, offset = 0) => [-support(mesh, axis.map((v) => -v)) + offset, support(mesh, axis) + offset];
@@ -267,8 +269,12 @@ function pieces(mesh) {
         if (support(piece, n, e + EPS) <= e + EPS) {directions.add(direction); planes.push({n, d: e});}
       }
       // A small piece (a wall, a box) is projected through its few vertices rather than its tree.
+      // The vertices furthest out along the axes and diagonals are a first guess for any other.
       const points = piece.faces.length <= 64 ? [...new Set(piece.faces.flatMap((face) => face.triangle))] : null;
-      return {...piece, planes, points};
+      const samples = points || [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => [x, y, z]))).filter((u) => u.some(Boolean)).map((u) => {
+        const found = []; support(piece, u, -Infinity, found); return found[0];
+      });
+      return {...piece, planes, points, samples};
     }));
   }
   return pieceCache.get(mesh.tree);
@@ -303,7 +309,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     meshIndexes.set(mesh.triangles, index);
     return {...mesh, ...index};
   }).filter((mesh) => mesh.tree)}));
-  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started};
+  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started, projections: 0};
 
   function fixedMesh(meshA, ownerA, poseA, meshB, ownerB, poseB) {
     const relative = (point) => localPoint(worldPoint(point, ownerA, poseA), ownerB, poseB);
@@ -387,26 +393,88 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
 
   // How far pieces a and b reach past each other's outer planes. The least is their depth: the
   // shortest push that parts them along one of those planes, the same whichever of the two moves.
-  // Their extents along the planes depend only on how they are turned to each other, so a drag
-  // reuses them; only the two latest turns are kept, for the two ends of a turning step.
+  // How far a piece reaches along a plane depends only on how the two are turned to each other,
+  // so a drag reuses it; the two latest turns are kept, for the two ends of a turning step. A
+  // turn finds it only for the planes that can matter: any vertex of a piece bounds how far it
+  // reaches from below, and the vertex that reached furthest last time bounds it closely, so a
+  // plane whose bound is already past the depth in question is not searched.
   const extents = new WeakMap();
+  const extent = (piece, [x, y, z], found) => {
+    if (!piece.points) return support(piece, [x, y, z], -Infinity, found);
+    let best = -Infinity;
+    for (const p of piece.points) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; found[0] = p;}}
+    return best;
+  };
   function penetrations(a, ownerA, poseA, b, ownerB, poseB) {
     const turn = wrap(poseA.yaw - poseB.yaw);
     if (!extents.has(a)) extents.set(a, new Map());
-    const kept = extents.get(a).get(b) || [];
-    let known = kept.find((entry) => entry.turn === turn);
+    if (!extents.get(a).has(b)) extents.get(a).set(b, {turns: [], near: [[], []]});
+    const pair = extents.get(a).get(b);
+    const zeros = [localPoint(worldPoint([0, 0, 0], ownerA, poseA), ownerB, poseB), localPoint(worldPoint([0, 0, 0], ownerB, poseB), ownerA, poseA)];
+    let known = pair.turns.find((entry) => entry.turn === turn);
     if (!known) {
-      // b's normals in a's frame, and a's in b's frame.
+      // b's normals turned into a's frame, and a's into b's, pointing back.
       const c = Math.cos(turn), s = Math.sin(turn);
-      const inA = ([x, y, z]) => [s * z - c * x, -y, -s * x - c * z], inB = ([x, y, z]) => [-c * x - s * z, -y, s * x - c * z];
-      const extent = (piece, [x, y, z]) => piece.points ? piece.points.reduce((best, p) => Math.max(best, x * p[0] + y * p[1] + z * p[2]), -Infinity) : support(piece, [x, y, z]);
-      known = {turn, a: b.planes.map(({n}) => -extent(a, inA(n))), b: a.planes.map(({n}) => -extent(b, inB(n)))};
-      extents.get(a).set(b, [known, ...kept].slice(0, 2));
+      const turned = [([x, y, z]) => [s * z - c * x, -y, -s * x - c * z], ([x, y, z]) => [-c * x - s * z, -y, s * x - c * z]];
+      known = {turn, sides: [[b.planes, a], [a.planes, b]].map(([planes, piece], k) => {
+        // Lower bounds of the penetrations at this pose, from the vertex that reached furthest before.
+        // turned[k] written out, without an array per plane.
+        const near = pair.near[k], low = new Float64Array(planes.length), sign = k ? -1 : 1;
+        planes.forEach(({n: [x, y, z], d}, j) => {
+          const u0 = sign * s * z - c * x, u2 = -sign * s * x - c * z;
+          if (!near[j]) {const u = [u0, -y, u2]; near[j] = piece.samples.reduce((best, p) => dot(u, p) > dot(u, best) ? p : best);}
+          const p = near[j], z0 = zeros[k];
+          low[j] = d - (x * z0[0] + y * z0[1] + z * z0[2]) + u0 * p[0] - y * p[1] + u2 * p[2];
+        });
+        return {planes, piece, turned: turned[k], zero: zeros[k], low, reach: []};
+      })};
+      pair.turns = [known, ...pair.turns].slice(0, 2);
     }
-    const zeroB = localPoint(worldPoint([0, 0, 0], ownerA, poseA), ownerB, poseB), zeroA = localPoint(worldPoint([0, 0, 0], ownerB, poseB), ownerA, poseA);
-    return [...b.planes.map(({n, d}, i) => d - known.a[i] - dot(n, zeroB)), ...a.planes.map(({n, d}, i) => d - known.b[i] - dot(n, zeroA))];
+    // A move of distance m within the turn changes every penetration by at most m. After a longer
+    // drag the bounds are moved along with it, which is cheaper than passing over more planes.
+    known.sides.forEach((side, k) => {
+      const shift = subtract(side.zero, zeros[k]);
+      if (Math.hypot(...shift) <= .01) return;
+      side.planes.forEach(({n}, j) => {side.low[j] += dot(n, shift);});
+      side.zero = zeros[k];
+    });
+    // The penetration past plane i: exact when it is at most floor, otherwise a bound above floor.
+    function value(i, floor = Infinity) {
+      const k = i < b.planes.length ? 0 : 1, j = k ? i - b.planes.length : i, side = known.sides[k], {n, d} = side.planes[j];
+      const moved = dot(n, side.zero) - dot(n, zeros[k]);
+      if (side.reach[j] === undefined) {
+        if (side.low[j] + moved > floor) return side.low[j] + moved;
+        const found = [];
+        side.reach[j] = extent(side.piece, side.turned(n), found);
+        audit.projections++;
+        pair.near[k][j] = found[0];
+      }
+      return d - dot(n, zeros[k]) + side.reach[j];
+    }
+    // The planes whose penetration may be at most floor; every other one is past it.
+    function near(floor) {
+      const found = [];
+      known.sides.forEach(({low}, k) => {
+        // Measured when asked: another pose of the same turn may have moved the bounds since.
+        const cut = floor + Math.hypot(...subtract(zeros[k], known.sides[k].zero)), offset = k ? b.planes.length : 0;
+        for (let j = 0; j < low.length; j++) if (low[j] <= cut) found.push(j + offset);
+      });
+      return found;
+    }
+    // The least penetration and its plane when it is at most floor; otherwise some value above
+    // floor. The plane with the least bound is looked at first, so that most others can be passed over.
+    function depth(floor = Infinity) {
+      const candidates = near(floor);
+      if (!candidates.length) return [Infinity, -1];
+      let at = candidates.reduce((best, i) => value(i, -Infinity) < value(best, -Infinity) ? i : best), least = value(at, floor);
+      for (const i of candidates) {
+        const found = value(i, Math.min(floor, least));
+        if (found < least) [least, at] = [found, i];
+      }
+      return [least, at];
+    }
+    return {value, near, depth};
   }
-  const depth = (values) => values.reduce((a, b) => Math.min(a, b), Infinity);
   const pieceBox = (piece, owner, pose) => bounds(corners(piece.tree.box).map((p) => worldPoint(p, owner, pose)));
 
   // A mesh pair that already intersects in the scan (a desk against the wall it was scanned
@@ -427,7 +495,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
         const whole = pieces(meshA).length === 1 && pieces(meshB).length === 1;
         for (const a of pieces(meshA)) for (const b of pieces(meshB)) {
           if (!whole && (!overlap(pieceBox(a, ownerA, IDENTITY), pieceBox(b, ownerB, IDENTITY)) || !fixedMesh(a, ownerA, IDENTITY, b, ownerB, IDENTITY))) continue;
-          found.push({a, b, allowed: Math.max(depth(penetrations(a, ownerA, IDENTITY, b, ownerB, IDENTITY)), 0) + DEPTH_TOLERANCE});
+          found.push({a, b, allowed: Math.max(penetrations(a, ownerA, IDENTITY, b, ownerB, IDENTITY).depth()[0], 0) + DEPTH_TOLERANCE});
         }
       }
       authored.get(meshA).set(meshB, found);
@@ -442,7 +510,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   function scannedContact(meshA, ownerA, poseA, meshB, ownerB, poseB, scan) {
     for (const a of pieces(meshA)) for (const b of pieces(meshB)) {
       const pair = scanPair(scan, a, b);
-      if (pair) {if (depth(penetrations(a, ownerA, poseA, b, ownerB, poseB)) > pair.allowed) return 'deeper';}
+      if (pair) {if (penetrations(a, ownerA, poseA, b, ownerB, poseB).depth(pair.allowed)[0] > pair.allowed) return 'deeper';}
       else if (overlap(pieceBox(a, ownerA, poseA), pieceBox(b, ownerB, poseB))) {
         const reason = fixedMesh(a, ownerA, poseA, b, ownerB, poseB);
         if (reason) return reason;
@@ -457,14 +525,20 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   // than allowed may not go deeper still.
   function deepens(a, ownerA, start, end, b, ownerB, poseB, allowed) {
     const from = penetrations(a, ownerA, start, b, ownerB, poseB), to = penetrations(a, ownerA, end, b, ownerB, poseB);
-    const limit = Math.max(allowed, depth(from));
+    let [least, at] = from.depth(allowed);
+    if (least > allowed) [least, at] = from.depth();
+    const limit = Math.max(allowed, least);
+    // A plane at most the limit at both ends stays so along the step, so the step never gets too deep.
+    if (to.value(at, limit) <= limit) return 1;
     let enter = 0, exit = 1;
-    from.forEach((value, i) => {
-      const rate = to[i] - value;
+    // A plane past the limit at both ends of the step stays past it: it bounds nothing.
+    for (const i of new Set([...from.near(limit), ...to.near(limit)])) {
+      if (from.value(i, limit) > limit && to.value(i, limit) > limit) continue;
+      const value = from.value(i), rate = to.value(i) - value;
       if (Math.abs(rate) < 1e-14) {if (value <= limit) exit = -1;}
       else if (rate > 0) enter = Math.max(enter, (limit - value) / rate);
       else exit = Math.min(exit, (limit - value) / rate);
-    });
+    }
     return enter < exit ? enter : 1;
   }
 

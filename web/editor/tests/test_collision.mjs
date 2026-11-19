@@ -162,6 +162,42 @@ test('against a slightly slanted wall, a scanned overlap slides along it but not
   }
 });
 
+test('a long push into a scanned neighbour stops at the tolerance, not before it, whichever moves', () => {
+  for (const angle of [0, .05]) {
+    // Scanned 5 mm in, pushed 5 cm further along the wall's normal: it may go 5 mm deeper, as close as the clearance lets it.
+    const turn = ([x, y, z]) => [Math.cos(angle) * x + Math.sin(angle) * z, y, -Math.sin(angle) * x + Math.cos(angle) * z];
+    const turned = (triangles) => triangles.map((triangle) => triangle.map(turn)), [nx, , nz] = turn([1, 0, 0]);
+    const c = buildCollision([owner('item', turned(box(-.2, 0, -.1, .005, .5, .1))), owner('wall', turned(box(0, -1, -2, .2, 1, 2)))], {keepAuthoredOverlaps: true});
+    const scanned = {item: pose(), wall: pose()};
+    const item = c.limit(scanned, {...scanned, item: pose(nx * .05, 0, nz * .05)}, ['item']), back = c.limit(scanned, {...scanned, wall: pose(-nx * .05, 0, -nz * .05)}, ['wall']);
+    near(item.layout.item.x * nx + item.layout.item.z * nz, .005 - .0002, 1e-4);
+    near(back.fraction, item.fraction, 1e-9);
+  }
+});
+
+test('turning a large scanned pair projects only the planes near its depth, not all of them', () => {
+  const ball = (r) => {
+    const lat = 41, lon = 40, rows = Array.from({length: lat}, (_, i) => Array.from({length: lon}, (_, j) => {const t = Math.PI * i / (lat - 1), q = 2 * Math.PI * j / lon; return [r * Math.sin(t) * Math.cos(q), r * Math.cos(t), r * Math.sin(t) * Math.sin(q)];}));
+    const triangles = [];
+    for (let i = 0; i < lat - 1; i++) for (let j = 0; j < lon; j++) {
+      const [a, b, c, d] = [rows[i][j], rows[i][(j + 1) % lon], rows[i + 1][j], rows[i + 1][(j + 1) % lon]];
+      if (i > 0) triangles.push([a, c, b]);
+      if (i < lat - 2) triangles.push([b, c, d]);
+    }
+    return triangles;
+  };
+  // Two 3k-triangle spheres 1 cm into each other, one turned 0.01 rad a step about an off-centre origin.
+  const c = buildCollision([owner('a', ball(.3).map((t) => t.map(([x, y, z]) => [x + .05, y + .4, z]))), owner('b', ball(.3).map((t) => t.map(([x, y, z]) => [x + .64, y + .4, z])))], {keepAuthoredOverlaps: true});
+  c.prepare('a');
+  const scanning = c.audit.projections;
+  let before = {a: pose(), b: pose()};
+  for (let step = 0; step < 10; step++) before = c.limit(before, {...before, a: {...before.a, yaw: before.a.yaw + .01}}, ['a']).layout;
+  assert.ok(Math.abs(before.a.yaw - .1) < 1e-9, 'turns freely');
+  // About twenty new turns. Each sphere has about 1,600 outer planes: projecting all of them at
+  // every turn would be some 60,000 projections, counted here rather than timed.
+  assert.ok(c.audit.projections - scanning < 400, `${c.audit.projections - scanning} projections for ten steps`);
+});
+
 test('coincident solids stay where scanned; an interlock cannot be pushed into one side', () => {
   const c = buildCollision([owner('a', box(0, 0, 0, 1, 1, 1)), owner('b', box(0, 0, 0, 1, 1, 1))], {keepAuthoredOverlaps: true});
   assert.equal(c.checkPlacement({a: pose()}, ['a']).ok, true);
