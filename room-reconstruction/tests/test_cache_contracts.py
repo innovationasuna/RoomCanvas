@@ -297,6 +297,44 @@ def test_reconstruct_fingerprint_covers_chair_references_and_the_procedural_agen
     assert input_fingerprint(context(codex_model="other"), "reconstruct", {}) != second
 
 
+def test_reconstruct_fingerprint_covers_route_choices_and_provided_models_only_when_set(
+        tmp_path, monkeypatch):
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.fingerprint import input_fingerprint
+    from litereality_agent.settings import LiteRealitySettings
+
+    def fingerprint(stage="reconstruct"):
+        values = LiteRealitySettings(_env_file=None, repo_root=tmp_path)
+        context = RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run",
+                             settings=values)
+        return input_fingerprint(context, stage, {})
+
+    names = ("LR_ROUTE_POLICY", "LR_ROUTE_OVERRIDE", "LR_PROVIDED_MODELS", "LR_PROVIDED_TURN")
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+    plain, ingest = fingerprint(), fingerprint("ingest")
+    monkeypatch.setenv("LR_ROUTE_POLICY", "")  # set but empty is the same as unset
+    assert fingerprint() == plain
+    seen = {plain}
+    monkeypatch.setenv("LR_ROUTE_POLICY", "trellis-first")
+    seen.add(fingerprint())
+    monkeypatch.setenv("LR_ROUTE_OVERRIDE", "Table0=trellis")
+    seen.add(fingerprint())
+    models = tmp_path / "provided"
+    models.mkdir()
+    (models / "Sofa0.glb").write_bytes(b"first")
+    monkeypatch.setenv("LR_PROVIDED_MODELS", str(models))
+    seen.add(fingerprint())
+    overwrite_preserving_metadata(models / "Sofa0.glb", b"second")
+    seen.add(fingerprint())
+    monkeypatch.setenv("LR_PROVIDED_TURN", "Sofa0=90")
+    seen.add(fingerprint())
+    assert len(seen) == 6 and fingerprint("ingest") == ingest
+    for name in names:
+        monkeypatch.delenv(name)
+    assert fingerprint() == plain
+
+
 def test_author_checkpoint_restores_matching_source_and_resources(tmp_path):
     from litereality_agent.agent import author_checkpoint as checkpoint
 

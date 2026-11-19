@@ -29,6 +29,7 @@ from pathlib import Path
 
 from litereality_agent import PACKAGE_ROOT, REPO_ROOT, artifact_cache, telemetry
 from litereality_agent.pipeline.scene_init import paths as config
+from litereality_agent.pipeline.scene_init.reconstruct import provided
 
 LAUNCHER = PACKAGE_ROOT / "models" / "trellis" / "inference.py"
 PROC_MODULE = "litereality_agent.models.object_generation.generate"
@@ -218,10 +219,12 @@ def collect_references(scan: str) -> list[tuple[str, Path]]:
 
     When routing exists, only route==trellis objects/chairs are returned and openings
     are left to the procedural openings stage. With no routing, every reference
-    (objects + chairs + openings) is reconstructed as a fallback.
+    (objects + chairs + openings) is reconstructed as a fallback. An operator-provided model is
+    never returned: its GLB has no TRELLIS receipt, so building it would retire and replace it.
     """
     refs: list[tuple[str, Path]] = []
     want = _trellis_route(scan)  # None -> no routing, take everything
+    supplied = provided.adopted(config.reconstruct_dir(scan))
 
     obj_root = config.object_refs_root() / scan
     if obj_root.is_dir():
@@ -249,7 +252,7 @@ def collect_references(scan: str) -> list[tuple[str, Path]]:
                 if ref.exists():
                     refs.append((op_dir.name, ref))
 
-    return refs
+    return [(aid, ref) for aid, ref in refs if aid not in supplied]
 
 
 def run_for_scan(

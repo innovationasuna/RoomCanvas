@@ -40,6 +40,7 @@ from litereality_agent.pipeline.scene_init.ingest.references import (
     opening_references,
 )
 from litereality_agent.pipeline.scene_init.reconstruct import flow as reconstruct
+from litereality_agent.pipeline.scene_init.reconstruct import provided
 from litereality_agent.pipeline.scene_init.reconstruct.classify import classify_complexity
 from litereality_agent.pipeline.scene_init.reconstruct.mesh_qc import chair_repair
 
@@ -504,6 +505,14 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
     # process-global and would cross the streams with three workers running.
     console.capture_stages(None)
 
+    # Operator-provided models land before any branch starts, forced or not: every builder reads
+    # the record this writes and leaves those names alone, and they are traced here, once. Not on
+    # an ingest-only run, which passes the same settings while the models are still being chosen.
+    building = full or args.reconstruct or args.chair_qc or args.procedural or args.build_openings
+    supplied = provided.adopt(scan) if building else {}
+    if supplied:
+        result["provided"] = sorted(supplied)
+
     def trellis_branch():
         if args.reconstruct or full:
             telemetry.stage("reconstruct", scan, "start")
@@ -543,7 +552,8 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
         result[stage_name] = out
         telemetry.stage(stage_name, scan, "done", n_glb=out.get("generated", 0))
 
-    per_branch = _expected_by_branch(scan)
+    per_branch = {branch: [n for n in names if n not in supplied]
+                  for branch, names in _expected_by_branch(scan).items()}
     workers = {name: branch_concurrency(len(per_branch.get(name, [])), args.concurrency)
                for name in ("procedural", "openings")}
     branches = [
@@ -561,7 +571,7 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
 
     logs = config.traces_dir(scan) / "build"
     logs.mkdir(parents=True, exist_ok=True)
-    expected = _expected_assets(scan)
+    expected = [n for n in _expected_assets(scan) if n not in supplied]
     plan = " · ".join(f"{n} ×{workers.get(n, 1)}" for n in ("procedural", "openings")
                       if per_branch.get(n))
     print(console.rule(f"reconstruction · {len(expected)} objects · trellis + {plan}"))
@@ -575,7 +585,7 @@ def _reconstruction_phase(scan: str, args: argparse.Namespace, result: dict, ful
         for name, _ in branches
     }
 
-    recorded: set[str] = set()
+    recorded: set[str] = set(supplied)  # traced as `provided` on adoption, not as built here
 
     def record_built(branch: str, names: list[str]) -> None:
         """Trace each object when it is first seen finished, timed by its files, so a live replay

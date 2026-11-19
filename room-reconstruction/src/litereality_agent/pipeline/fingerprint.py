@@ -21,6 +21,10 @@ SETTINGS = {
     # Authoring and its refine/materials/quality passes.
     "author": (*AGENT, "author_provider", "refine_provider", "materials_provider", "quality_provider"),
 }
+# Operator choices a stage reads straight from its environment (`run_room.py --set`): they decide
+# which objects are generated and how. Only a value that is set enters the identity, so a run that
+# never used them keeps the fingerprint it already recorded.
+ENVIRONMENT = {"reconstruct": ("LR_ROUTE_POLICY", "LR_ROUTE_OVERRIDE", "LR_PROVIDED_TURN")}
 
 
 def _files(path: Path) -> dict:
@@ -62,8 +66,15 @@ def input_fingerprint(context: RunContext, stage: str, options: dict) -> str:
     }
     if stage not in inputs:
         raise ValueError(f"unknown pipeline stage: {stage}")
-    return artifact_cache.fingerprint({
+    environment = context.environment
+    if stage == "reconstruct" and environment.get("LR_PROVIDED_MODELS"):
+        inputs[stage].append(Path(environment["LR_PROVIDED_MODELS"]))  # the models, not the path
+    identity = {
         "version": 2, "stage": stage,
         "inputs": {_key(context, path): _files(path) for path in inputs[stage]},
         "settings": {key: getattr(context.settings, key) for key in SETTINGS.get(stage, ())},
-    })
+    }
+    chosen = {key: environment[key] for key in ENVIRONMENT.get(stage, ()) if environment.get(key)}
+    if chosen:
+        identity["environment"] = chosen
+    return artifact_cache.fingerprint(identity)

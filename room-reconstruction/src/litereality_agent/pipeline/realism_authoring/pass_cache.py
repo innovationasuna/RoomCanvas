@@ -51,3 +51,18 @@ def record_bundle(folder: Path, key: str, names: tuple[str, ...]) -> None:
 
 
 ROOM_FILES = ("Room.blend", "Room.glb", "room_layout.json")
+
+
+def published_room(folder: Path, author_preview: Path) -> Path:
+    """A pass's room_preview another pass may start from: complete as its receipt says, and made
+    from the author's current preview (whose room the later pass still takes its Objects from)."""
+    receipt = cache.read_json(folder / "bundle.json")
+    if not (isinstance(receipt, dict) and bundle_matches(folder, receipt.get("key"), ROOM_FILES)):
+        raise ValueError(f"{folder} is not a published room preview (no matching bundle.json)")
+    made = cache.read_json(folder.parent / "dependencies.json")
+    current = {name: cache.file_hash(author_preview / name)
+               for name in ("Room.blend", "Room.glb", "room_layout.json")}
+    if isinstance(made, dict) and (made.get("dependencies") or {}).get("preview") != current:
+        raise ValueError(f"{folder} was made from another author room than {author_preview}; "
+                         "run its pass again first")
+    return folder

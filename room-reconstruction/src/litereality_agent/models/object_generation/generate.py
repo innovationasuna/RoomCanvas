@@ -138,17 +138,29 @@ def load_scene_objects(work: Path, scan: str) -> dict:
     return out
 
 
+def provided_names(out_root: Path) -> set[str]:
+    """Models the operator supplied (``provided.json``, written by the reconstruct stage before
+    this runs). They are never a job, not even with --skip-existing off: rebuilding one would
+    replace the model the operator chose with a generated one."""
+    try:
+        data = json.loads((out_root / "provided.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return set(data.get("models", {})) if isinstance(data, dict) else set()
+
+
 def collect_jobs(
     work: Path, scans: list[str] | None, only_cats: set[str] | None, out_root: Path
 ) -> list[Job]:
     manifest = json.loads((work / "routing" / "routing_manifest.json").read_text())
+    supplied = provided_names(out_root)
     jobs = []
     for scan, recs in manifest["scans"].items():
         if scans and scan not in scans:
             continue
         meta_by_name = load_scene_objects(work, scan)
         for r in recs:
-            if r.get("route") != "procedural":
+            if r.get("route") != "procedural" or r["name"] in supplied:
                 continue
             cat = r["category"]
             if only_cats and cat not in only_cats:
@@ -196,6 +208,7 @@ def collect_opening_jobs(
     `*_Window_*`)."""
     jobs = []
     refs_root = work / "opening_refs"
+    supplied = provided_names(out_root)
     if not refs_root.exists():
         return jobs
     for scan_dir in sorted(refs_root.iterdir()):
@@ -203,7 +216,7 @@ def collect_opening_jobs(
             continue
         for op_dir in sorted(scan_dir.iterdir()):
             ref = op_dir / "reference_1024.png"
-            if not op_dir.is_dir() or not ref.exists():
+            if not op_dir.is_dir() or not ref.exists() or op_dir.name in supplied:
                 continue
             name = op_dir.name
             cat = "door" if "_Door_" in name else "window" if "_Window_" in name else "door"

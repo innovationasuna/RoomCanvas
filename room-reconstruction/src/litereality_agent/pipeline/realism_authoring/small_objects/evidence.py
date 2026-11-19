@@ -12,7 +12,7 @@ import math
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 MAX_VIEWS = 4  # crops kept per item (one primary + three supporting views)
 RANKED = 8  # frames the detector looks at per item
@@ -230,5 +230,25 @@ def generator_inputs(views: list[dict], out: Path) -> list[dict]:
         path = out / f"sheet_tile{n}.jpg"
         with Image.open(view["image"]) as crop:
             crop.convert("RGB").transpose(Image.Transpose.ROTATE_90).save(path, quality=95)
+        items.append({"image": str(path)})
+    return items
+
+
+def photo_inputs(photos: list[Path], out: Path, long_side: int = 2048) -> list[dict]:
+    """The operator's close-ups as sheet tiles, oriented like `generator_inputs`' crops.
+
+    A phone photo is upright once its EXIF orientation is applied; from there it takes the same
+    quarter turn counter-clockwise as an upright crop, so the sheet turns it upright again.
+    """
+    if not photos:
+        return []
+    out.mkdir(parents=True, exist_ok=True)
+    items = []
+    for n, photo in enumerate(photos):
+        path = out / f"photo_tile{n}.jpg"
+        with Image.open(photo) as image:
+            tile = ImageOps.exif_transpose(image).convert("RGB")
+        tile.thumbnail((long_side, long_side), Image.Resampling.LANCZOS)
+        tile.transpose(Image.Transpose.ROTATE_90).save(path, quality=95)
         items.append({"image": str(path)})
     return items

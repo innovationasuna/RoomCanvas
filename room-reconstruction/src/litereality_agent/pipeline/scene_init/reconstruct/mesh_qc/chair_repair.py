@@ -24,6 +24,7 @@ from litereality_agent import telemetry
 from litereality_agent.pipeline.scene_init import paths as config
 from litereality_agent.pipeline.scene_init.ingest.references import chair_clusters
 from litereality_agent.pipeline.scene_init.reconstruct import flow as reconstruct
+from litereality_agent.pipeline.scene_init.reconstruct import provided
 
 from . import checks
 
@@ -105,7 +106,9 @@ def repair_scan(
     chair_root = config.chair_clusters_root()
     model = model or config.DEFAULT_IMAGE_MODEL
 
-    chairs = sorted(recon.glob("ChairCluster*.glb"))
+    # A provided chair is the operator's choice; a re-roll would replace it with a generated one.
+    supplied = provided.adopted(recon)
+    chairs = sorted(g for g in recon.glob("ChairCluster*.glb") if g.stem not in supplied)
     results = []
     print(f"[chair-qc] {scan}: {len(chairs)} chair(s)", flush=True)
     for glb in chairs:
