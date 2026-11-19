@@ -11,6 +11,18 @@ class AssetsMiddleware:
     def __init__(self, app, root):
         self.app, self.root = app, Path(root)
 
+    def catalog(self):
+        runs = self.root/'runs'
+        names = []
+        if runs.is_dir():
+            for run in sorted(runs.iterdir(), reverse=True):
+                try:
+                    result_directory(self.root, run.name)
+                except (ValueError, FileNotFoundError):
+                    continue
+                names.append(run.name)
+        return names
+
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
@@ -40,25 +52,17 @@ class AssetsMiddleware:
             elif request.method != 'GET':
                 response = JSONResponse(dict(error='物体资产仅支持读取'), status_code=405)
             elif route == 'catalog':
-                runs = self.root/'runs'
-                names = []
-                if runs.is_dir():
-                    for run in sorted(runs.iterdir(), reverse=True):
-                        try:
-                            result_directory(self.root, run.name)
-                        except (ValueError, FileNotFoundError):
-                            continue
-                        names.append(run.name)
-                response = JSONResponse(dict(runs=names))
+                response = JSONResponse(dict(runs=await run_in_threadpool(self.catalog)))
             else:
                 parts = route.split('/')
                 if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ('result.glb', 'preview.glb', 'collision.glb', 'result.ply', 'preview.json')):
                     raise FileNotFoundError('无效的物体资产地址')
-                run = result_directory(self.root, parts[0])
+                # Checking a model may parse it (a text PLY): never on the event loop.
+                run = await run_in_threadpool(result_directory, self.root, parts[0])
                 if len(parts) == 2 and parts[1] == 'preview.json':
                     # Historical manifests may contain old UI file URLs. Serve a copy with
                     # controlled asset URLs; preserve transforms, recommendations and disk data.
-                    data = preview_manifest(run)
+                    data = await run_in_threadpool(preview_manifest, run)
                     if not data:
                         raise FileNotFoundError('没有这个模型的预览信息')
                     for kind, filename in [('glb', 'result.glb'), ('glb_preview', 'preview.glb'), ('collision', 'collision.glb'), ('gaussian', 'result.ply')]:
@@ -68,15 +72,15 @@ class AssetsMiddleware:
                     response = JSONResponse(data)
                 elif len(parts) == 2:
                     file = run/'reconstruction'/parts[1]
-                    published = require_asset(run)
+                    published = await run_in_threadpool(require_asset, run)
                     if not file.is_file() or (published and parts[1] not in published['files']):
                         raise FileNotFoundError('没有这个模型文件')
-                    if not complete(file):
+                    if not await run_in_threadpool(complete, file):
                         raise AssetUnavailableError('asset_failed', '模型文件不完整，请重新重建')
                     response = FileResponse(file, media_type='model/gltf-binary' if parts[1].endswith('.glb') else 'application/octet-stream')
                 else:
                     data = await run_in_threadpool(read_dimensions, run)
-                    published = require_asset(run)
+                    published = await run_in_threadpool(require_asset, run)
                     info = published.get('capabilities') if published else material_capabilities(run)
                     if info:
                         data['capabilities'] = info

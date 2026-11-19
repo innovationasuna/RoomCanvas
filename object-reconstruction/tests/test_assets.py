@@ -136,6 +136,47 @@ class AssetsTests(unittest.TestCase):
         with patch('cover_scene.load_scene', return_value=scene):
             return publish_asset(run)
 
+    def test_a_slow_model_check_never_holds_up_other_requests(self):
+        import asyncio
+        import threading
+        import httpx
+        run = self.prepare_publication()
+        self.publish(run)
+        gaussian_ply(run/'reconstruction/result.ply', text=True)  # rewritten whole: checking it means parsing it
+        app = Starlette(middleware=[Middleware(AssetsMiddleware, root=self.root),
+                                    Middleware(DimensionsMiddleware, root=self.root)])
+        turned = threading.Event()
+
+        def parse(*key):
+            # A long parse that ends as soon as the event loop has run meanwhile; on a blocked loop it fails.
+            return turned.wait(5)
+
+        async def request(url):
+            turned.clear()
+            done = False
+
+            async def tick():
+                while not done:
+                    await asyncio.sleep(.01)
+                    turned.set()
+            ticker = asyncio.create_task(tick())
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+                response = await client.get(url)
+            done = True
+            await ticker
+            return response
+
+        with patch('asset_state._parses', side_effect=parse) as parses:
+            for url in ('/viewforge/assets/published/result.ply', '/viewforge/assets/catalog', '/viewforge/assets/published',
+                        '/viewforge/assets/published/preview.json', '/viewforge/dimensions/published'):
+                parses.reset_mock()
+                with self.subTest(url=url):
+                    response = asyncio.run(request(url))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(parses.called)
+                    if url.endswith('catalog'):
+                        self.assertEqual(response.json()['runs'], ['published'])
+
     def test_partial_mesh_and_interrupted_publication_are_not_importable(self):
         run = self.prepare_publication()
         for stage in ('running', 'complete', 'failed'):
