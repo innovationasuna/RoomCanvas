@@ -99,7 +99,8 @@ export function sceneAt(tl, t) {
   const scan = by.scan?.replay, layout = by.layout?.replay;
   return {
     points: scan ? clamp((t - scan[0]) / Math.max(scan[1] - scan[0] - 0.5, 0.5)) : past.length ? 1 : 0,
-    pointsDim: layout ? t >= layout[0] : false,
+    // The scan shows while it is read; it fades out as the layout stage draws the walls and boxes over it.
+    pointsFade: layout ? 1 - clamp(t - layout[0]) : 1,
     walls: layout ? clamp((t - layout[0]) / 2) : model ? 1 : 0,
     boxes: built.has('@boxes') || (layout ? t >= layout[1] - 0.5 : false),
     // From the modelling stage on, the room shell shows and finished objects appear in place.
