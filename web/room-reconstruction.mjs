@@ -3,6 +3,12 @@ const API = '/room-reconstruction';
 const labels = {ingest: '读取扫描与提取素材', reconstruct: '重建场景物体', seed: '建立房间结构', author: '生成完整房间', publish: '导出房间模型', articulate: '生成可动部件'};
 // The scanner app exports a tar; a zipped scan folder works too (the service reads either).
 const SCAN_ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i;
+const jointReasons = {
+  'no candidate objects': '没有需要新增关节的候选物品。',
+  'no new joints accepted; some candidate checks failed': '本次未新增关节，部分候选未通过检查。',
+  'candidates contain no additional openable parts': '候选物品没有需要补充的可动部件。',
+  'all proposed new parts were rejected by the check': '本次未新增关节，候选部件均未通过检查。',
+};
 export function scanError(file, name) {
   if (!name.trim() || name.trim().length > 80) return '请填写房间名称（最多 80 个字符）。';
   if (!file || !SCAN_ARCHIVE.test(file.name)) return '请选择完整的房间扫描包（ZIP、TAR、TAR.GZ 或 TGZ）。';
@@ -12,9 +18,18 @@ export function scanError(file, name) {
 export function jobDescription(job) {
   if (job.status === 'failed') return job.error || '重建未完成，可以重试。';
   if (job.replay_only) return '已有的重建记录，可以回看过程。';
-  if (job.status === 'completed') return '重建完成，已加入房间列表。';
+  if (job.status === 'completed') {
+    if (job.usable === false) return '执行已结束，房间产物暂不可用，请检查任务记录。';
+    const notes = ['重建完成，已加入房间列表。'];
+    if (job.quality?.status === 'warnings') notes.push('质量检查仍有待改善项。');
+    if (job.warnings?.length) notes.push(job.warnings.join(' '));
+    if (Number.isInteger(job.enhancement?.added)) notes.push(`可动关节已有 ${job.enhancement.existing || 0} 个，本次新增 ${job.enhancement.added} 个。`);
+    if (job.enhancement?.added === 0 && job.enhancement.zero_added_reason) notes.push(jointReasons[job.enhancement.zero_added_reason] || job.enhancement.zero_added_reason);
+    return notes.join(' ');
+  }
   if (job.status === 'queued') return '已提交，等待服务器开始重建。';
   if (job.status === 'preparing') return '正在整理模型与可布置的物品。';
+  if (job.gpu_waiting) return '正在等待 GPU 空闲，轮到后自动开始重建。';
   const stages = job.stages || [];
   const names = Object.keys(labels).filter(name => name !== 'articulate' || stages.some(stage => stage.name === name));
   const next = names.find(name => !stages.some(stage => stage.name === name && ['completed', 'reused'].includes(stage.status)));
@@ -24,7 +39,8 @@ async function request(path, options = {}) {
   const response = await fetch(API + path, {...options, signal: AbortSignal.timeout(15000)});
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || (response.status === 404 ? '网页服务尚未启用房间重建接口，请更新并重启网页服务。' : '暂时无法连接房间重建服务，请稍后重试。'));
-  return data;
+  // While the reconstruction service is unreachable the web service answers with the last kept state.
+  return response.headers?.get('X-RoomCanvas-Cache') === 'stale' ? {...data, stale: true} : data;
 }
 
 export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async () => {}, isRoomHidden = () => false}) {
@@ -130,11 +146,11 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
     if (polling) return;
     polling = true; $('refresh-jobs').disabled = true;
     try {
-      let {jobs} = await request('/jobs');
+      let {jobs, stale} = await request('/jobs');
       if (!Array.isArray(jobs)) throw new Error('任务列表格式无效，请检查重建服务版本。');
       await onJobsChanged(jobs);
       jobs = jobs.filter(job => !isRoomHidden(`scan-${job.id}`));
-      $('jobs-message').textContent = '';
+      $('jobs-message').textContent = stale ? '暂时连不上房间重建服务，以下是上次获取的任务状态。' : '';
       $('reconstruction-jobs').hidden = !jobs.length;
       const roomIDs = jobs.filter(j => j.status === 'completed').map(j => j.id).sort().join(',');
       if (completed !== null && completed !== roomIDs) await onRoomsChanged();
@@ -160,7 +176,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
           if (job.status === 'completed' && job.room) {
             const link = document.createElement('a'); link.className = 'home-button'; link.textContent = '进入布置';
             link.href = `editor/?room=${encodeURIComponent(job.room.id)}`; row.append(link);
-          } else if (job.status === 'failed') {
+          } else if (job.status === 'failed' && job.retryable !== false) {
             const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'home-button'; retry.textContent = '重试';
             retry.onclick = async () => {
               retry.disabled = true;

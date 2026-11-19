@@ -1,36 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from '../../vendor/build/three.module.js';
 import {
   convexHull, sampleHull, sampleContactGeometry, coverage, inTriangle, polygonsOverlap, transformPoint, carryPose, createPlacement, seatBand,
 } from '../placement.mjs';
 
 const EPSILON = 1e-10;
 
-// A small authored triangle fixture exercises support lookup without a renderer
-// or a machine-specific Three.js dependency. Its world matrices are identity.
+// A table supports a payload, both built from the same horizontal faces as a room mesh.
 function inventorySupportFixture() {
   const horizontal = (size, y) => [[[-size, y, -size], [size, y, -size], [size, y, size]], [[-size, y, -size], [size, y, size], [-size, y, size]]];
   const mesh = (name, triangles) => {
-    const values = triangles.flat();
-    const object = {name, userData: {}, isMesh: true, matrixWorld: null,
-      geometry: {attributes: {position: {count: values.length, values}}},
-      traverse(callback) {callback(this);}};
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(triangles.flat(2), 3));
+    const object = new THREE.Mesh(geometry);
+    object.name = name;
     return object;
   };
   const floor = mesh('Floor0', horizontal(3, 0));
   const table = mesh('Table', [...horizontal(1, 0), ...horizontal(1, 1)]);
   const payload = mesh('Payload', [...horizontal(.1, 1), ...horizontal(.1, 1.4)]);
-  const room = {children: [floor, table, payload], updateMatrixWorld() {}, traverse(callback) {callback(this); this.children.forEach((child) => child.traverse(callback));}, userData: {}};
-  class Vector3 {
-    fromBufferAttribute(attribute, i) {this.value = attribute.values[i]; return this;}
-    applyMatrix4() {return this;}
-    toArray() {return this.value;}
-  }
-  class Box3 {
-    setFromObject(object) {const ys = object.geometry.attributes.position.values.map((p) => p[1]); this.min = {y: Math.min(...ys)}; this.max = {y: Math.max(...ys)}; return this;}
-  }
-  const entities = new Map([['table', {name: 'table', group: table, origin: {toArray: () => [0, 0, 0]}}], ['payload', {name: 'payload', group: payload, origin: {toArray: () => [0, 0, 0]}}]]);
-  const placement = createPlacement({Vector3, Box3}, room, entities, {table: {body: ['Table'], surfaces: ['Table']}, payload: {body: ['Payload']}}, 0, 4);
+  const room = new THREE.Group();
+  room.add(floor, table, payload);
+  const entities = new Map([['table', {name: 'table', group: table, origin: new THREE.Vector3()}],
+    ['payload', {name: 'payload', group: payload, origin: new THREE.Vector3()}]]);
+  const placement = createPlacement(THREE, room, entities, {table: {body: ['Table'], surfaces: ['Table']}, payload: {body: ['Payload']}}, 0, 4);
   return {placement, layout: {table: {x: 0, y: 0, z: 0, yaw: 0}, payload: {x: 0, y: 0, z: 0, yaw: 0}}};
 }
 
@@ -275,4 +269,14 @@ test('support coverage on a binned surface matches testing every triangle', () =
   assert.equal(result.covered, brute);
   assert.ok(brute > 500 && brute < points.length);
   for (const p of points.slice(0, 600)) assert.equal(coverage([p], triangles).covered, triangles.some((t) => inTriangle(p, t)) ? 1 : 0);
+});
+
+test('coverage of 200,000 support triangles preserves the mesh edges, gaps and far corner', () => {
+  const triangles = [];
+  for (let x = 0; x < 400; x++) for (let z = 0; z < 250; z++) {
+    // Separate tiles leave real gaps inside the overall bounds.
+    triangles.push(...rectangle(x, z, x + .8, z + .8));
+  }
+  const points = [[0, 0], [120.4, 40.4], [399.8, 249.8], [.9, .9], [400, 250]];
+  assert.deepEqual(coverage(points, triangles), {covered: 3, total: 5, full: false});
 });

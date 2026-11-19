@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime, timezone
 
 import numpy as np
+from asset_state import AssetUnavailableError, base_manifest, require_asset
 
 UNITS = {'mm': .001, 'cm': .01, 'm': 1.}
 # User-facing right-handed Z-up frame: X=display +X, Y=display -Z, Z=display +Y.
@@ -34,6 +35,7 @@ def result_directory(root, name):
     run = (runs/name).resolve()
     if run.parent != runs or not (run/'reconstruction/result.glb').is_file():
         raise FileNotFoundError('找不到重建模型')
+    require_asset(run)
     return run
 
 
@@ -44,11 +46,10 @@ def locked(run):
         yield
 
 
-def geometry(run):
+def geometry(run, *, manifest=None):
     """Measure the FULL mesh in display coordinates, never the simplified mesh."""
     source = run/'reconstruction/result.glb'
-    manifest_path = run/'cover/preview.json'
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+    manifest = base_manifest(run) if manifest is None else manifest
     values = manifest.get('assets', {}).get('glb', {}).get('transform', np.eye(4).flatten().tolist())
     transform = np.asarray(values, dtype=float).reshape(4, 4, order='F')
     if not np.isfinite(transform).all() or not np.allclose(transform[3], [0, 0, 0, 1]):
@@ -184,7 +185,8 @@ class DimensionsMiddleware:
         try:
             if len(parts) > 2 or (len(parts) == 2 and parts[1] != 'model.glb'):
                 raise FileNotFoundError('找不到接口')
-            run = result_directory(self.root, parts[0])
+            # Checking a model may parse it (a text PLY): never on the event loop.
+            run = await run_in_threadpool(result_directory, self.root, parts[0])
             if request.method == 'GET' and len(parts) == 2:
                 path = await run_in_threadpool(metric_glb, run)
                 response = FileResponse(path, media_type='model/gltf-binary', filename=f'{run.name}-scaled.glb', headers={'Cache-Control': 'no-store'})
@@ -209,6 +211,8 @@ class DimensionsMiddleware:
                 response = JSONResponse(result, headers={'Cache-Control': 'no-store'})
             else:
                 response = JSONResponse({'error': '不支持的请求方法'}, status_code=405)
+        except AssetUnavailableError as exc:
+            response = JSONResponse({'error': str(exc), 'state': exc.state}, status_code=409)
         except FileNotFoundError as exc:
             response = JSONResponse({'error': str(exc)}, status_code=404)
         except (ValueError, TypeError) as exc:

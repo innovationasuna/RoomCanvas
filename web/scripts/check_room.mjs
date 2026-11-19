@@ -62,7 +62,8 @@ for (const id of ids) {
 }
 
 check('initial placement collisions', () => {
-  // Without the editor's allowance, to list what the reconstruction itself overlaps.
+  // Without the editor's allowance, to list what the reconstruction itself overlaps. With it, an
+  // overlap no deeper than in the scan is allowed, so every piece can be confirmed where it is.
   const strict = createCollision(THREE, room, entities, config.placement, {label: config.label});
   const overlaps = [];
   for (const id of ids) {

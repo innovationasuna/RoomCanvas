@@ -1,7 +1,6 @@
 """Reuse valid masks; generate only missing masks, then prepare CPU previews."""
 import argparse
 from datetime import datetime
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -14,7 +13,7 @@ import yaml
 
 from PIL import Image
 
-from run import CODE, check_gpu, selected_images, match_masks, write_json
+from run import CODE, check_gpu, object_lease, selected_images, match_masks, write_json
 from mask_images import preview
 
 
@@ -24,7 +23,7 @@ def file_signatures(rows):
             for row in rows]
 
 
-def infer_missing(root, rows, work):
+def infer_missing(root, rows, work, lease):
     request = work/'request.json'
     write_json(request, dict(images=rows))
     env = os.environ.copy()
@@ -32,12 +31,12 @@ def infer_missing(root, rows, work):
     # isolated segmenter. The selected GPU and shared cache remain inherited.
     for key in ('PYTHONPATH', 'PYTHONHOME', 'CONDA_PREFIX', 'CUDA_HOME', 'CPATH', 'LIBRARY_PATH', 'LD_LIBRARY_PATH'):
         env.pop(key, None)
-    env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
+    env.update(CUDA_VISIBLE_DEVICES=lease.uuid, HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
     with (work/'inference.log').open('x') as log:
         completed = subprocess.run([str(root/'envs/birefnet/bin/python'),
             str(CODE/'scripts/birefnet_worker.py'), '--request', str(request),
             '--metrics', str(work/'inference.json')], env=env, stdout=log,
-            stderr=subprocess.STDOUT, cwd=CODE)
+            stderr=subprocess.STDOUT, cwd=CODE, pass_fds=lease.fds)
     if completed.returncode:
         detail = ''
         if (work/'inference.json').exists():
@@ -45,7 +44,7 @@ def infer_missing(root, rows, work):
         raise RuntimeError(f'BiRefNet 推理失败：{detail or "请查看服务器 inference.log"}')
 
 
-def prepare(root, name, selected, *, infer=None, wait_gpu=False):
+def prepare(root, name, selected, *, infer=None, wait_gpu=False, lock_fd=None):
     root = Path(root)
     task_id = datetime.now().strftime('%Y%m%d_%H%M%S_') + uuid.uuid4().hex[:8]
     work = root/'logs/masks'/task_id
@@ -67,10 +66,7 @@ def prepare(root, name, selected, *, infer=None, wait_gpu=False):
         missing = [dict(r, mask=str(Path(inputs['input_dir'])/'masks'/f'{r["name"]}.png'))
                    for r in inputs['images'] if not r['mask']]
         if missing:
-            lock_path = Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            with lock_path.open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait_gpu else fcntl.LOCK_NB))
+            with object_lease(root, wait=wait_gpu, inherited=lock_fd) as lease:
                 # Another preparation might have completed between the first
                 # inspection and lock acquisition. Never overwrite its masks.
                 inputs = match_masks(selected_images(root, name, selected), allow_missing=True)
@@ -80,10 +76,13 @@ def prepare(root, name, selected, *, infer=None, wait_gpu=False):
                 if missing:
                     if infer is None:
                         runtime = yaml.safe_load((CODE/'configs/default.yaml').read_text())['runtime']
-                        record['gpu'] = check_gpu(runtime['min_free_gib'])
+                        record['gpu'] = check_gpu(runtime['min_free_gib'], lease.uuid)
                     Path(inputs['input_dir'], 'masks').mkdir(parents=True, exist_ok=True)
                     write_json(work/'result.json', record)
-                    (infer or (lambda rows: infer_missing(root, rows, work)))(missing)
+                    if infer is None:
+                        infer_missing(root, missing, work, lease)
+                    else:
+                        infer(missing)
                 # subprocess.run has waited for the process to exit; release the
                 # same GPU lock used by reconstruction before displaying previews.
         inputs = match_masks(selected_images(root, name, selected))
@@ -115,9 +114,11 @@ def main():
     parser.add_argument('--object', required=True)
     parser.add_argument('--images', nargs='+', required=True, help='Photo stems, without extensions')
     parser.add_argument('--wait-gpu', action='store_true', help='Wait for the GPU lock instead of failing')
+    parser.add_argument('--lock-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
-        result = prepare(Path(os.environ['VIEWFORGE_ROOT']).resolve(), args.object, args.images, wait_gpu=args.wait_gpu)
+        result = prepare(Path(os.environ['VIEWFORGE_ROOT']).resolve(), args.object, args.images,
+                         wait_gpu=args.wait_gpu, lock_fd=args.lock_fd)
     except Exception as exc:
         print(json.dumps(dict(status='failed', error=str(exc)), ensure_ascii=False), flush=True)
         sys.exit(1)

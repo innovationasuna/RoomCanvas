@@ -86,7 +86,6 @@ def run_trellis(references: dict[str, Path], work: Path, log: Path) -> dict[str,
             subprocess.run(cmd, env=env, stdout=handle, stderr=subprocess.STDOUT)
         collect(pipeline)
 
-    collect("default")
     set_aside: list[str] = []
     while todo := sorted(oid for oid in references if oid not in result and oid not in set_aside):
         run(todo, "default")

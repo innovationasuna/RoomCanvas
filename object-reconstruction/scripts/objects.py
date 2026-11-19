@@ -9,22 +9,21 @@ The service and job validation are independent of any reconstruction UI.
 Jobs wait their turn for the GPU instead of failing while another job holds the lock.
 Measured size is saved afterwards through /viewforge/dimensions/<run>.
 """
+import asyncio
+from contextlib import ExitStack
 from datetime import datetime
-import fcntl
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import threading
 import time
 import uuid
 
-from PIL import Image
-
-from run import CODE, component, input_manifest, match_masks, selected_images
+from run import CODE, component, input_manifest, match_masks, object_lease, selected_images
+from roomcanvas_gpu import WAIT_SECONDS
 from prepare_masks import file_signatures
 from import_photos import import_photos, parent_selection
 
@@ -33,38 +32,17 @@ MIN_PHOTOS, MAX_PHOTOS = 1, 40
 # runs are <date>_<name>_web_<time> (27 more), photos <name>_001 (4 more).
 MAX_NAME = 53
 MAX_UPLOAD = 400 * 1024 * 1024
-GPU_POLL_SECONDS = 2
 JOBS, JOBS_LOCK = {}, threading.Lock()
 
 
-def gpu_lock(root):
-    return Path(os.environ.get('VIEWFORGE_GPU_LOCK', str(root/'cache/gpu.lock')))
-
-
-def gpu_free(root):
-    path = gpu_lock(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        return True
-
-
-def check_photos(uploads, room=MAX_PHOTOS):
-    """uploads: [(filename, path)]. Every photo is checked before anything is written."""
+def import_uploads(root, name, uploads, room=MAX_PHOTOS, **options):
     if not MIN_PHOTOS <= len(uploads) <= room:
         raise ValueError(f'请上传 {MIN_PHOTOS}–{room} 张照片')
-    for filename, path in uploads:
-        try:
-            with Image.open(path) as image:
-                if image.format not in ('JPEG', 'PNG'):
-                    raise ValueError
-                image.verify()
-        except Exception as exc:
-            raise ValueError(f'{filename}：不是 JPEG 或 PNG 照片') from exc
+    filenames, paths = zip(*uploads)
+    record = import_photos(root, name, paths, filenames=filenames, **options)
+    if not record['images']:
+        raise ValueError('；'.join(f"{row['filename']}：{row['error']}" for row in record['errors']))
+    return record
 
 
 def create_object(root, name, uploads):
@@ -74,14 +52,7 @@ def create_object(root, name, uploads):
             raise ValueError
     except ValueError as exc:
         raise ValueError(f'名称须为 1–{MAX_NAME} 个中文、字母、数字、下划线或连字符') from exc
-    check_photos(uploads)
-    directory = root/'data/inputs'/name
-    try:  # not exist_ok: of two uploads under one name, only one gets it
-        directory.mkdir(parents=True)
-    except FileExistsError:
-        raise ValueError('这个名称已经有了，换一个') from None
-    (directory/'images').mkdir()
-    record = import_photos(root, name, [path for _, path in uploads], image_prefix=name)
+    record = import_uploads(root, name, uploads, image_prefix=name, create=True)
     return dict(object=name, images=[r['name'] for r in record['images']], errors=record['errors'])
 
 
@@ -98,10 +69,9 @@ def parent_photos(root, run_id):
 
 def add_capture(root, run_id, uploads):
     run_id, name, kept = parent_photos(root, run_id)
-    check_photos(uploads, MAX_PHOTOS - len(kept))
     # Named in upload order (capture_<time>_001…), after the object's earlier photos.
     prefix = f'capture_{datetime.now():%Y%m%d_%H%M%S_%f}'
-    record = import_photos(root, name, [path for _, path in uploads], parent_run_id=run_id, image_prefix=prefix)
+    record = import_uploads(root, name, uploads, MAX_PHOTOS - len(kept), parent_run_id=run_id, image_prefix=prefix)
     added = [r['name'] for r in record['images']]
     return dict(object=name, parent=run_id, kept=kept, images=kept + added, added=added, errors=record['errors'])
 
@@ -150,22 +120,27 @@ class Job:
             return True  # prepare_masks.py reports it
         return any(row['mask'] is None for row in rows)
 
-    def wait_for_gpu(self):
-        # Whoever holds the lock (a CLI run or another job) finishes first. The script
-        # then takes the lock with --wait-gpu, so losing a race to it only waits a bit longer.
-        while not gpu_free(self.root):
-            time.sleep(GPU_POLL_SECONDS)
+    def hold_gpu(self, stack):
+        """Wait here, while the job still shows as queued, behind whoever holds the card (a CLI run,
+        a room or another job). The script inherits the held lease and never waits again."""
+        try:
+            return stack.enter_context(object_lease(self.root, wait=True))
+        except TimeoutError:
+            raise RuntimeError(f'GPU 被其他任务占用已超过 {WAIT_SECONDS // 60} 分钟，请稍后重试') from None
 
     def work(self):
         try:
-            if self.needs_gpu():
-                self.wait_for_gpu()
-            self.status = 'running'
-            logs = self.root/'logs'
-            logs.mkdir(parents=True, exist_ok=True)
-            with (logs/f'rc_{self.kind}_{self.object}_{datetime.now():%Y%m%d_%H%M%S_%f}.log').open('x') as log:
-                process = subprocess.run(self.command, cwd=CODE, stdout=subprocess.PIPE, stderr=log, text=True)
-                log.write(process.stdout)
+            with ExitStack() as stack:
+                lease = self.hold_gpu(stack) if self.needs_gpu() else None
+                command = self.command if lease is None else [
+                    *self.command[:2], '--lock-fd', str(lease.fd), *self.command[2:]]
+                self.status = 'running'
+                logs = self.root/'logs'
+                logs.mkdir(parents=True, exist_ok=True)
+                with (logs/f'rc_{self.kind}_{self.object}_{datetime.now():%Y%m%d_%H%M%S_%f}.log').open('x') as log:
+                    process = subprocess.run(command, cwd=CODE, stdout=subprocess.PIPE, stderr=log, text=True,
+                                             pass_fds=lease.fds if lease else ())
+                    log.write(process.stdout)
             self.finish(process)
         except Exception as exc:
             self.status, self.error = 'failed', str(exc)
@@ -239,12 +214,26 @@ def start_reconstruction(root, payload):
 class ObjectsMiddleware:
     def __init__(self, app, root):
         self.app, self.root = app, Path(root)
+        self.upload_slots = asyncio.Semaphore(2)
+
+    def import_form(self, route, form):
+        from starlette.datastructures import UploadFile
+        files = form.getlist('photos')
+        if any(not isinstance(upload, UploadFile) for upload in files):
+            raise ValueError('请上传照片文件')
+        # Starlette already spooled these streams. The worker copies each accepted original just once.
+        uploads = [(Path(upload.filename or 'photo').name, upload.file) for upload in files]
+        if route == 'create':
+            return create_object(self.root, str(form.get('name', '')), uploads)
+        return add_capture(self.root, str(form.get('run', '')), uploads)
 
     async def __call__(self, scope, receive, send):
         prefix = '/viewforge/objects/'
         if scope['type'] != 'http' or not scope['path'].startswith(prefix):
             return await self.app(scope, receive, send)
         from starlette.requests import Request
+        from starlette.formparsers import MultiPartException
+        from starlette.exceptions import HTTPException
         from starlette.responses import JSONResponse, FileResponse
         from starlette.concurrency import run_in_threadpool
         from urllib.parse import urlsplit
@@ -258,25 +247,29 @@ class ObjectsMiddleware:
             if request.method == 'POST' and route in ('create', 'capture'):
                 if int(request.headers.get('content-length') or 0) > MAX_UPLOAD:
                     raise ValueError('照片总量过大')
-                form = await request.form(max_files=MAX_PHOTOS + 1, max_fields=4, max_part_size=1024)
-                staging = self.root/'cache/uploads'/uuid.uuid4().hex
-                staging.mkdir(parents=True)
-                try:
-                    uploads = []
-                    for index, upload in enumerate(form.getlist('photos')):
-                        filename = Path(upload.filename or 'photo').name
-                        path = staging/(f'{index:03d}_' + re.sub(r'[^\w.-]', '_', filename))
-                        with path.open('xb') as out:
-                            shutil.copyfileobj(upload.file, out)
-                        uploads.append((filename, path))
-                    if route == 'create':
-                        result = await run_in_threadpool(create_object, self.root, str(form.get('name', '')), uploads)
-                    else:
-                        result = await run_in_threadpool(add_capture, self.root, str(form.get('run', '')), uploads)
-                finally:
-                    await form.close()
-                    shutil.rmtree(staging, ignore_errors=True)
-                response = JSONResponse(result)
+                received = 0
+                async def read_upload():
+                    nonlocal received
+                    message = await receive()
+                    # Multipart parsing handles this exception by closing its partial spool files.
+                    if message['type'] == 'http.disconnect':
+                        raise MultiPartException('上传中断，请重新提交')
+                    received += len(message.get('body', b''))
+                    if received > MAX_UPLOAD:
+                        raise MultiPartException('照片总量过大')
+                    return message
+
+                upload = Request(scope, read_upload)
+                async with self.upload_slots:
+                    try:
+                        async with upload.form(max_files=MAX_PHOTOS + 1, max_fields=4, max_part_size=1024) as form:
+                            result = await run_in_threadpool(self.import_form, route, form)
+                        response = JSONResponse(result)
+                    except (MultiPartException, HTTPException) as exc:
+                        message = exc.message if isinstance(exc, MultiPartException) else exc.detail
+                        raise ValueError(message) from exc
+                    except OSError:
+                        response = JSONResponse(dict(error='照片未保存，请检查存储后重试'), status_code=500)
             elif request.method == 'POST' and route in ('masks', 'reconstruct'):
                 if request.headers.get('content-type', '').split(';')[0] != 'application/json':
                     raise ValueError('需要 JSON')

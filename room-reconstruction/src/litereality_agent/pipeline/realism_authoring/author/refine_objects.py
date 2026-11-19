@@ -25,12 +25,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from litereality_agent import PACKAGE_ROOT, REPO_ROOT
+from litereality_agent import artifact_cache as cache
 from litereality_agent.agent.tool_narration import hint_for
 from litereality_agent.fonts import font as _shared_font
 
@@ -39,6 +41,7 @@ OBJVIEW = str(PACKAGE_ROOT / "room_ops" / "rendering" / "object_turntable.py")
 
 OBJECTS = ["Table0", "Table1", "Wall1_Door_0", "Wall5_Window_0"]
 RESULTS = Path("output/_results/obj_refine")
+_RENDER_LOCK = threading.Lock()  # moving Blender off the event loop must not multiply GPU jobs
 _SEM = None       # concurrency cap over object sessions (set in main)
 _RETRIES = 3      # per-object SDK retry attempts
 _BUDGET = 8.0     # per-object USD budget cap
@@ -152,7 +155,86 @@ def _montage(views_dir: Path, targets: list, out: Path, open_views: Path | None 
     sheet.save(out)
 
 
-def _snapshot_views(obj_dir: Path, blender: str, views_dir: Path, open_frac: float = 0.0) -> bool:
+def _run_blender(cmd, *, cancel_event=None, **kwargs):
+    if cancel_event is None:
+        return subprocess.run(cmd, **kwargs)
+    if cancel_event.is_set():
+        raise RuntimeError("render cancelled")
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.2)
+                return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                if cancel_event.is_set():
+                    process.terminate()
+                    try:
+                        process.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate()
+                    raise RuntimeError("render cancelled") from None
+
+
+async def _background_render(function, *args, **kwargs):
+    cancel_event = threading.Event()
+    task = asyncio.create_task(asyncio.to_thread(function, *args, cancel_event=cancel_event, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        cancel_event.set()
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            pass
+        raise
+
+
+def _build_object(obj_dir: Path, blender: str, cancel_event=None) -> tuple[Path, str]:
+    """Compile once per source/texture content, shared by closed and open render poses."""
+    from litereality_agent.room_ops.compile.fetch_textures import materialize
+
+    built = obj_dir / "_refine_built.glb"
+
+    def key():
+        sources = [p for p in obj_dir.rglob("*") if p.is_file()
+                   and not any(part.startswith(("_", ".")) for part in p.relative_to(obj_dir).parts)
+                   and (p.suffix in {".py", ".json"} or "textures" in p.relative_to(obj_dir).parts)]
+        return cache.fingerprint({"files": {str(p.relative_to(obj_dir)): cache.file_hash(p)
+                                           for p in sorted(sources)}, "blender": blender,
+                                  "version": 1})
+
+    current = key()
+    if cache.matches(built, current):
+        return built, ""
+    cache.invalidate(built)
+    recipe = obj_dir / "textures.json"
+    if recipe.is_file():
+        try:
+            materialize(json.loads(recipe.read_text()), obj_dir / "textures")
+        except Exception:  # noqa: BLE001 — build still reports missing required resources
+            pass
+    current = key()
+    result = _run_blender([blender, "-b", "--python", str(obj_dir / "object.py"), "--",
+                             str(obj_dir / "textures"), str(built)], capture_output=True, text=True, cancel_event=cancel_event)
+    if result.returncode or not built.is_file() or not built.stat().st_size:
+        cache.invalidate(built)
+        return built, f"build rc={result.returncode}: {(result.stderr or result.stdout or '')[-500:]}"
+    if current != key():
+        cache.invalidate(built)
+        return built, "source changed during build; render again after saving the edit"
+    cache.record(built, current)
+    return built, ""
+
+
+def _snapshot_views(obj_dir: Path, blender: str, views_dir: Path, open_frac: float = 0.0,
+                    cancel_event=None) -> bool:
+    with _RENDER_LOCK:
+        return _snapshot_views_locked(obj_dir, blender, views_dir, open_frac, cancel_event)
+
+
+def _snapshot_views_locked(obj_dir: Path, blender: str, views_dir: Path, open_frac: float = 0.0,
+                           cancel_event=None) -> bool:
     """Build the CURRENT object.py and render 4 turntable views into `views_dir` — isolated from the
     agent's live `_refine_views` dir so a before/after snapshot never clobbers an in-flight render.
     `open_frac` poses the articulation (0=closed, 1=most open) so the opening can be checked.
@@ -161,23 +243,14 @@ def _snapshot_views(obj_dir: Path, blender: str, views_dir: Path, open_frac: flo
     symptom was a missing before/after image, with nothing in the log connecting the two."""
     why = ""
     try:
-        from litereality_agent.room_ops.compile.fetch_textures import materialize
-        tj = obj_dir / "textures.json"
-        if tj.is_file():
-            try:
-                materialize(json.loads(tj.read_text()), obj_dir / "textures")
-            except Exception:  # noqa: BLE001
-                pass
         views_dir.mkdir(parents=True, exist_ok=True)
-        built = views_dir.parent / f"{views_dir.name}_built.glb"
-        b = subprocess.run([blender, "-b", "--python", str(obj_dir / "object.py"), "--",
-                            str(obj_dir / "textures"), str(built)], capture_output=True, text=True)
-        if b.returncode != 0 or not built.is_file():
-            why = f"build rc={b.returncode}: {(b.stderr or b.stdout or '').strip()[-300:]}"
-        else:
-            r = subprocess.run([blender, "-b", "--python", str(OBJVIEW), "--",
+        built, why = _build_object(obj_dir, blender, cancel_event)
+        for old in views_dir.glob("view_*.png"):
+            old.unlink()
+        if not why:
+            r = _run_blender([blender, "-b", "--python", str(OBJVIEW), "--",
                                 str(built), str(views_dir), "4", str(open_frac)],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, cancel_event=cancel_event)
             if r.returncode == 0 and (views_dir / "view_0.png").is_file():
                 return True
             why = f"render rc={r.returncode}: {(r.stderr or r.stdout or '').strip()[-300:]}"
@@ -223,24 +296,21 @@ def _beforeafter_sheet(name: str, targets: list, before: Path | None, after: Pat
     sheet.save(out)
 
 
-def _render_object_sync(obj_dir: Path, targets: list, blender: str, tag: str, counter: dict) -> dict:
+def _render_object_sync(obj_dir: Path, targets: list, blender: str, tag: str, counter: dict,
+                        cancel_event=None) -> dict:
     """Materialize textures -> build object.py -> 4-view render -> montage vs reference. Returns paths."""
-    from litereality_agent.room_ops.compile.fetch_textures import materialize
-    tj = obj_dir / "textures.json"
-    if tj.is_file():
-        try:
-            materialize(json.loads(tj.read_text()), obj_dir / "textures")
-        except Exception:  # noqa: BLE001
-            pass
-    built = obj_dir / "_refine_built.glb"
-    b = subprocess.run([blender, "-b", "--python", str(obj_dir / "object.py"), "--",
-                        str(obj_dir / "textures"), str(built)], capture_output=True, text=True)
-    if b.returncode != 0 or not built.is_file():
-        tail = (b.stdout + b.stderr).splitlines()[-6:]
-        return {"error": "object.py failed to BUILD — fix it:\n" + "\n".join(tail)}
+    with _RENDER_LOCK:
+        return _render_object_locked(obj_dir, targets, blender, tag, counter, cancel_event)
+
+
+def _render_object_locked(obj_dir: Path, targets: list, blender: str, tag: str, counter: dict,
+                          cancel_event=None) -> dict:
+    built, error = _build_object(obj_dir, blender, cancel_event)
+    if error:
+        return {"error": "object.py failed to BUILD — fix it:\n" + error}
     views = obj_dir / "_refine_views"
-    r = subprocess.run([blender, "-b", "--python", str(OBJVIEW), "--",
-                        str(built), str(views), "4", "0.0"], capture_output=True, text=True)
+    r = _run_blender([blender, "-b", "--python", str(OBJVIEW), "--",
+                        str(built), str(views), "4", "0.0"], capture_output=True, text=True, cancel_event=cancel_event)
     if r.returncode != 0 or not (views / "view_0.png").is_file():
         return {"error": "render failed:\n" + (r.stdout + r.stderr)[-500:]}
     # articulated object (door/window/drawer): also render the OPEN pose so the swing is checkable
@@ -248,8 +318,8 @@ def _render_object_sync(obj_dir: Path, targets: list, blender: str, tag: str, co
     note_open = ""
     if _is_articulated(obj_dir):
         ov = obj_dir / "_refine_views_open"
-        ro = subprocess.run([blender, "-b", "--python", str(OBJVIEW), "--",
-                             str(built), str(ov), "4", "1.0"], capture_output=True, text=True)
+        ro = _run_blender([blender, "-b", "--python", str(OBJVIEW), "--",
+                             str(built), str(ov), "4", "1.0"], capture_output=True, text=True, cancel_event=cancel_event)
         if ro.returncode == 0 and (ov / "view_0.png").is_file():
             open_views = ov
             note_open = (" The THIRD panel shows your build fully OPENED — check the opening: hinge on "
@@ -272,7 +342,7 @@ def build_server(obj_dir: Path, targets: list, blender: str, tag: str, counter: 
     @sdk_tool("render_object", "Build the current object.py and return a montage: the REAL capture "
                               "photo(s) next to 4 turntable views of your build. Read it to compare.", {})
     async def render_object(args):
-        res = await asyncio.to_thread(_render_object_sync, obj_dir, targets, blender, tag, counter)
+        res = await _background_render(_render_object_sync, obj_dir, targets, blender, tag, counter)
         return {"content": [{"type": "text", "text": json.dumps(res)}], "is_error": "error" in res}
 
     server = create_sdk_mcp_server(name="obj", version="1.0.0", tools=[render_object])
@@ -325,7 +395,7 @@ async def refine_one(name: str, room: Path, refroot: Path, scan: Path, blender: 
     # refinement session is auditable afterwards (visual before/after + a code diff).
     badir = RESULTS / "_beforeafter"
     before_views = badir / f"{name}_before_views"
-    have_before = _snapshot_views(obj_dir, blender, before_views)
+    have_before = await _background_render(_snapshot_views, obj_dir, blender, before_views)
     code_before = (obj_dir / "object.py").read_text()
 
     artic = _ARTIC_CLAUSE.format(cat=cat) if _is_articulated(obj_dir) else ""
@@ -392,11 +462,11 @@ async def refine_one(name: str, room: Path, refroot: Path, scan: Path, blender: 
     dt = round(time.monotonic() - t0, 1)
     # AFTER snapshot: render the refined build, write the before/after visual + a unified code diff.
     after_views = badir / f"{name}_after_views"
-    have_after = _snapshot_views(obj_dir, blender, after_views)
+    have_after = await _background_render(_snapshot_views, obj_dir, blender, after_views)
     after_open = None
     if _is_articulated(obj_dir):  # also capture the OPEN pose so the opening is shown before/after
         aov = badir / f"{name}_after_open_views"
-        if _snapshot_views(obj_dir, blender, aov, open_frac=1.0):
+        if await _background_render(_snapshot_views, obj_dir, blender, aov, open_frac=1.0):
             after_open = aov
     ba_png = badir / f"{name}_beforeafter.png"
     try:

@@ -5,6 +5,7 @@ import copy
 import importlib
 import json
 import pickle
+import zipfile
 
 import pytest
 from PIL import Image
@@ -19,9 +20,30 @@ from litereality_agent.pipeline.scene_init.layout import adapter, agent, evidenc
 from litereality_agent.settings import LiteRealitySettings
 
 
+@pytest.fixture
+def capture(tmp_path):
+    root = tmp_path / "capture"
+    root.mkdir()
+    # One valid uncompressed, 64-byte-aligned USDZ member. Extraction is replaced below,
+    # but the public ingest boundary still receives the same complete capture as production.
+    entry = zipfile.ZipInfo("scene.usda")
+    entry.extra = b"\xff\xff\x14\x00" + bytes(20)
+    with zipfile.ZipFile(root / "room.usdz", "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr(entry, '#usda 1.0\n(\n    defaultPrim = "Room"\n)\ndef Xform "Room" {}\n')
+    identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    (root / "frame_00000.json").write_text(json.dumps({
+        "intrinsics": [100, 0, 50, 0, 100, 50, 0, 0, 1],
+        "cameraPoseARFrame": identity,
+        "projectionMatrix": identity,
+    }))
+    Image.new("RGB", (100, 100), "blue").save(root / "frame_00000.jpg")
+    Image.new("I;16", (100, 100), 1000).save(root / "depth_00000.png")
+    return root
+
+
 @pytest.mark.parametrize("command", ["run", "stage"])
 @pytest.mark.parametrize("failure", [None, "unresolved", "dino_unavailable"])
-def test_main_entry_reaches_layout_agent_and_modal(tmp_path, monkeypatch, command, failure):
+def test_main_entry_reaches_layout_agent_and_modal(tmp_path, monkeypatch, capture, command, failure):
     monkeypatch.chdir(tmp_path)  # restore cwd after flow.enter_work_root
     monkeypatch.setenv("LR_LAYOUT_AGENT", "1")
     monkeypatch.setenv("LR_LAYOUT", "1")
@@ -33,7 +55,7 @@ def test_main_entry_reaches_layout_agent_and_modal(tmp_path, monkeypatch, comman
         dino_backend="auto", dino_python="/must-not-start/python", modal_profile="test-profile",
         modal_token_id="test-token", modal_token_secret="test-secret",
     )
-    context = RunContext("Room", tmp_path / "capture", tmp_path / "run/Room",
+    context = RunContext("Room", capture, tmp_path / "run/Room",
                          tmp_path / "run", settings=settings)
     monkeypatch.setattr(cli, "_context", lambda args: context)
     monkeypatch.setattr(cli, "_live_viewer", lambda *args: contextlib.nullcontext(lambda *args: None))

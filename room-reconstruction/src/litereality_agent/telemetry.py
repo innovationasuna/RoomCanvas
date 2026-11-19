@@ -16,10 +16,14 @@ telemetry is active.
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
 import os
+import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from litereality_agent import REPO_ROOT, console
@@ -81,10 +85,88 @@ def record(directory: str | Path, kind: str, *, at: float | None = None, **data)
 
 
 def _append(d: Path, rec: dict) -> None:
-    line = json.dumps(rec, default=str)
-    with _lock:
-        with (d / "trace.jsonl").open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+    explicit_id = rec.get("event_id")
+    rec.setdefault("schema_version", 2)
+    rec.setdefault("event_id", uuid.uuid4().hex)
+    rec.setdefault("run_id", rec.get("run") or os.environ.get("LITEREALITY_RUN_ID"))
+    rec.setdefault("job_id", os.environ.get("LITEREALITY_JOB_ID"))
+    rec.setdefault("attempt_id", os.environ.get("LITEREALITY_ATTEMPT_ID") or rec["run_id"])
+    rec.setdefault("stage", os.environ.get("LITEREALITY_STAGE"))
+    rec.setdefault("outcome", rec.get("status", "recorded"))
+    rec.setdefault("artifact_digest", None)
+    try:
+        with _lock:
+            with (d / "trace.jsonl").open("a+b") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                # Recover an interrupted writer before appending. Read backwards so ordinary events
+                # remain O(last line), even after a long agent session.
+                f.seek(0, os.SEEK_END)
+                end = f.tell()
+                tail = b""
+                position = end
+                while position and tail.count(b"\n") < 2:
+                    size = min(position, 8192)
+                    position -= size
+                    f.seek(position)
+                    tail = f.read(size) + tail
+                if tail and not tail.endswith(b"\n"):
+                    end -= len(tail) - tail.rfind(b"\n") - 1
+                    f.truncate(end)
+                    tail = tail[:tail.rfind(b"\n") + 1]
+                previous = {}
+                for line in reversed(tail.splitlines()):
+                    try:
+                        value = json.loads(line)
+                        if isinstance(value, dict):
+                            previous = value
+                            break
+                    except (ValueError, UnicodeError):
+                        continue
+                # Callers may retry a terminal publication with the same ID. Generated IDs need no
+                # full scan. Keep this exceptional path on the same lock as sequence allocation.
+                sequence = _sequence(previous)
+                if explicit_id or (end and sequence is None):
+                    f.seek(0)
+                    for line in f:
+                        try:
+                            existing = json.loads(line)
+                            if not isinstance(existing, dict):
+                                continue
+                            sequence = max(sequence or 0, _sequence(existing) or 0)
+                            if explicit_id and existing.get("event_id") == explicit_id:
+                                return
+                        except (ValueError, UnicodeError):
+                            continue
+                rec["sequence"] = (sequence or 0) + 1
+                f.seek(0, os.SEEK_END)
+                f.write((json.dumps(rec, default=str) + "\n").encode())
+                f.flush()
+                if rec["outcome"] in {"done", "completed", "failed", "reused"} or rec["kind"] in {
+                    "model_saved", "room_built", "review_done", "artifact_published"
+                }:
+                    os.fsync(f.fileno())
+    except Exception as exc:  # noqa: BLE001 — an event log never fails the work it describes
+        print(f"warning: {rec['kind']} event not written: {exc}", file=sys.stderr)
+
+
+def _sequence(row: dict) -> int | None:
+    value = row.get("sequence")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def artifact_digest(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def record_artifact(directory: str | Path, kind: str, artifact_path: str | Path, **data) -> None:
+    """Record content identity at publication, independently of later copies or mtime changes."""
+    path = Path(artifact_path)
+    record(directory, kind, artifact_digest=artifact_digest(path),
+           artifact_size=path.stat().st_size, outcome="completed", **data)
 
 
 # ── convenience hooks ────────────────────────────────────────────────────────
@@ -139,7 +221,10 @@ def agent_step(agent: str, step: str, *, payload: dict | None = None, **data) ->
     ref = None
     d = _state["dir"]
     if payload is not None and d is not None:
-        n = sum(1 for _ in (d / "agent").glob("*.json"))
-        ref = f"agent/{n:05d}_{agent}_{step}.json"
-        (d / ref).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        ref = f"agent/{uuid.uuid4().hex}_{agent}_{step}.json"
+        try:
+            (d / ref).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 — like the event itself, never fails the agent
+            print(f"warning: agent_step payload not written: {exc}", file=sys.stderr)
+            ref = None
     event("agent_step", agent=agent, step=step, payload_ref=ref, **data)

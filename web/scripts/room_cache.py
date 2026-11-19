@@ -7,10 +7,12 @@ missing: every finished job's replay (scaffold, room models, pictures) and every
 The JSON answers (job list, a replay's timeline, the room catalog) are always asked live; the last answer is
 kept, and used when the service cannot be reached, so cached rooms and replays open with the server off.
 """
+from contextlib import contextmanager
 import http.client
 import json
 import mimetypes
 import shutil
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -37,9 +39,42 @@ def local(cache, path):
 
 def save(target, data):
     target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + '.part')
-    part.write_bytes(data)
-    part.replace(target)
+    temporary = tempfile.NamedTemporaryFile(dir=target.parent, delete=False)
+    part = Path(temporary.name)
+    try:
+        with temporary:
+            temporary.write(data)
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+_answer_lock = threading.Lock()
+_inflight = {}
+
+
+@contextmanager
+def answer_writer(target):
+    """If successful GETs overlap, keep the answer from the most recently started one."""
+    with _answer_lock:
+        state = _inflight.setdefault(target, {'started': 0, 'saved': 0, 'active': 0, 'lock': threading.Lock()})
+        state['started'] += 1
+        state['active'] += 1
+        order = state['started']
+
+    def publish(data):
+        with state['lock']:
+            if order > state['saved']:
+                save(target, data)
+                state['saved'] = order
+
+    try:
+        yield publish
+    finally:
+        with _answer_lock:
+            state['active'] -= 1
+            if not state['active']:
+                del _inflight[target]
 
 
 def job_files(job, replay):
@@ -72,9 +107,11 @@ class Sync:
             return response.read()
 
     def answer(self, path):
-        data = self.get(path)
-        save(local(self.cache, path), data)
-        return json.loads(data)
+        with answer_writer(local(self.cache, path)) as publish:
+            data = self.get(path)
+            answer = json.loads(data)
+            publish(data)
+            return answer
 
     def run(self):
         while not self.stopped.is_set():
@@ -126,8 +163,12 @@ class Sync:
         stamp = folder / 'stamp.json'
         seen = json.loads(stamp.read_text()).get('updated') if stamp.exists() else None
         if seen is not None and seen != job.get('updated'):
+            prefixes = (f'{PREFIX}jobs/{job["id"]}/', f'{PREFIX}assets/{job["id"]}/')
+            self.absent = {path for path in self.absent if not path.startswith(prefixes)}
             for old in (folder / 'replay/files', folder / 'replay/scaffold', self.cache / 'assets' / job['id']):
                 shutil.rmtree(old, ignore_errors=True)
+            (folder / 'replay' / ANSWER).unlink(missing_ok=True)
+            (folder / ANSWER).unlink(missing_ok=True)
             stamp.unlink()
         if job.get('status') in LIVE:
             return True

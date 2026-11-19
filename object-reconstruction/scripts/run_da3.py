@@ -50,60 +50,7 @@ sys.path.insert(0, str(DA3_ROOT / "src"))
 from depth_anything_3.api import DepthAnything3
 
 
-def depth_to_pointmap(
-    depth: np.ndarray, 
-    intrinsics: np.ndarray,
-) -> np.ndarray:
-    """
-    Convert depth map to pointmap (3D coordinates in camera space).
-    
-    NOTE: This outputs in STANDARD CAMERA SPACE (same as MoGe raw output):
-        - x: right direction
-        - y: down direction  
-        - z: forward direction (away from camera, positive depth)
-    
-    SAM3D's compute_pointmap() will apply the PyTorch3D coordinate transform
-    internally, so we should NOT do the transform here.
-    
-    Args:
-        depth: (H, W) depth map, values are distances from camera
-        intrinsics: (3, 3) camera intrinsic matrix
-            [[fx,  0, cx],
-             [ 0, fy, cy],
-             [ 0,  0,  1]]
-    
-    Returns:
-        pointmap: (H, W, 3) point cloud map, each pixel is (x, y, z) coordinate
-    """
-    H, W = depth.shape
-    fx, fy = intrinsics[0, 0], intrinsics[1, 1]
-    cx, cy = intrinsics[0, 2], intrinsics[1, 2]
-    
-    # Create pixel coordinate grids
-    v, u = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
-    
-    # Unproject to 3D (standard camera space)
-    # z is positive (depth values are positive, pointing away from camera)
-    x = (u - cx) * depth / fx
-    y = (v - cy) * depth / fy
-    z = depth
-    
-    pointmap = np.stack([x, y, z], axis=-1)  # (H, W, 3)
-    return pointmap
-
-
-def pointmap_to_sam3d_format(pointmap: np.ndarray) -> np.ndarray:
-    """
-    Convert pointmap to SAM3D expected format.
-    
-    Args:
-        pointmap: (H, W, 3) pointmap in PyTorch3D coordinates
-        
-    Returns:
-        pointmap_sam3d: (3, H, W) pointmap ready for SAM3D
-    """
-    # SAM3D expects (3, H, W) format (channel-first)
-    return pointmap.transpose(2, 0, 1)  # (H, W, 3) -> (3, H, W)
+from da3_arrays import depth_to_pointmap, pointmap_to_sam3d_format, pointmaps_from_depth
 
 
 def run_da3_inference(
@@ -199,9 +146,9 @@ def run_da3_inference(
     )
     
     # Extract results
-    depth = prediction.depth           # (N, H, W)
-    extrinsics = prediction.extrinsics # (N, 3, 4) or (N, 4, 4)
-    intrinsics = prediction.intrinsics # (N, 3, 3)
+    depth = np.asarray(prediction.depth, dtype=np.float32)  # (N, H, W)
+    extrinsics = np.asarray(prediction.extrinsics, dtype=np.float32)  # (N, 3, 4) or (N, 4, 4)
+    intrinsics = np.asarray(prediction.intrinsics, dtype=np.float32)  # (N, 3, 3)
     
     print(f"\nDA3 Output:")
     print(f"  Depth shape: {depth.shape}")
@@ -209,36 +156,21 @@ def run_da3_inference(
     print(f"  Extrinsics shape: {extrinsics.shape}")
     print(f"  Intrinsics shape: {intrinsics.shape}")
     
-    # Convert depth to pointmaps
-    # Two formats:
-    # 1. pointmaps: (N, H, W, 3) - standard camera space, for visualization
-    # 2. pointmaps_sam3d: (N, 3, H, W) - channel-first format for SAM3D input
-    # 
-    # NOTE: We output in STANDARD CAMERA SPACE (z positive = away from camera)
-    # SAM3D's compute_pointmap() applies the PyTorch3D transform internally
+    # Store one NHWC float32 array. Channel-first access is a transpose view.
+    # Coordinates stay in OpenCV space; SAM3D performs its axis transform once.
     N = depth.shape[0]
-    pointmaps = []
-    pointmaps_sam3d = []
-    for i in range(N):
-        # Convert depth to pointmap (standard camera space, no coordinate transform)
-        pm = depth_to_pointmap(depth[i], intrinsics[i])
-        pointmaps.append(pm)
-        pointmaps_sam3d.append(pointmap_to_sam3d_format(pm))
-    
-    pointmaps = np.stack(pointmaps, axis=0)  # (N, H, W, 3)
-    pointmaps_sam3d = np.stack(pointmaps_sam3d, axis=0)  # (N, 3, H, W)
-    
-    print(f"  Pointmaps shape: {pointmaps.shape} (standard camera space)")
-    print(f"  Pointmaps SAM3D shape: {pointmaps_sam3d.shape} (channel-first for SAM3D)")
-    print(f"  Z range: [{pointmaps[:, :, :, 2].min():.4f}, {pointmaps[:, :, :, 2].max():.4f}] (should be positive)")
-    
+    pointmaps = pointmaps_from_depth(depth, intrinsics)
+    pointmaps_sam3d = pointmaps.transpose(0, 3, 1, 2)
+    print(f"  Pointmaps shape: {pointmaps.shape} (float32, OpenCV camera space)")
+    print(f"  Z range: [{pointmaps[..., 2].min():.4f}, {pointmaps[..., 2].max():.4f}]")
+
     # Save comprehensive output
     output_file = output_path / "da3_output.npz"
     np.savez(
         output_file,
         depth=depth,                          # (N, H, W)
-        pointmaps=pointmaps,                  # (N, H, W, 3) - PyTorch3D coords, for visualization
-        pointmaps_sam3d=pointmaps_sam3d,      # (N, 3, H, W) - SAM3D format, ready to use
+        schema_version=2, pointmap_layout="NHWC", coordinate_system="opencv",
+        pointmaps=pointmaps,                  # (N, H, W, 3), float32; no duplicate NCHW data
         extrinsics=extrinsics,                # (N, 3, 4) or (N, 4, 4)
         intrinsics=intrinsics,                # (N, 3, 3)
         image_files=np.array([str(f) for f in image_files]),
@@ -246,8 +178,8 @@ def run_da3_inference(
     )
     print(f"\nResults saved to: {output_file}")
     print(f"  - depth: {depth.shape}")
-    print(f"  - pointmaps: {pointmaps.shape} (PyTorch3D coords, for visualization)")
-    print(f"  - pointmaps_sam3d: {pointmaps_sam3d.shape} (SAM3D format, ready to use)")
+    print(f"  - pointmaps: {pointmaps.shape} (float32, OpenCV camera space)")
+    print(f"  - pointmaps_sam3d: {pointmaps_sam3d.shape} (transpose view in memory only)")
     print(f"  - extrinsics: {extrinsics.shape}")
     print(f"  - intrinsics: {intrinsics.shape}")
     

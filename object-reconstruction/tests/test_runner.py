@@ -1,6 +1,7 @@
 import fcntl
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -95,15 +96,19 @@ class RunnerTests(unittest.TestCase):
                 command = ['fake-reconstruction']
                 outcomes = [subprocess.CompletedProcess(command, exit_code)]
                 result = {}
-                with patch.object(runner.subprocess, 'run', side_effect=outcomes) as mocked:
+                with patch.object(runner.subprocess, 'run', side_effect=outcomes) as mocked, \
+                     patch.object(runner, 'publish_asset') as publish:
                     if exit_code:
                         with self.assertRaises(RuntimeError):
                             runner.execute(run, [('reconstruction', command)], result)
                     else:
                         runner.execute(run, [('reconstruction', command)], result)
                     self.assertEqual(mocked.call_count, 1)
+                    self.assertEqual(publish.call_count, 0 if exit_code else 1)
                 saved = json.loads((run/'result.json').read_text())
                 self.assertEqual(saved['status'], 'failed' if exit_code else 'complete')
+                self.assertEqual(saved['asset_ready'], exit_code == 0)
+                self.assertFalse(saved['recommendation_ready'])
     def test_options_pass_through_without_benchmark_restrictions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -122,6 +127,27 @@ class RunnerTests(unittest.TestCase):
                 for key, value in options.items():
                     self.assertEqual(call.call_args.kwargs[key], value)
 
+    def test_cover_uses_the_same_physical_lease_standalone_and_from_its_parent(self):
+        import run_cover
+        from roomcanvas_gpu import object_lease
+
+        uuid = 'GPU-00000000-0000-0000-0000-000000000001'
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, CUDA_VISIBLE_DEVICES=uuid,
+                ROOMCANVAS_GPU_LOCK_DIR=temp, VIEWFORGE_ROOT=temp, VIEWFORGE_GPU_LOCK=''):
+            def score(*args):
+                with self.assertRaises(BlockingIOError), object_lease(Path(temp)):
+                    self.fail('COVER released the selected GPU while scoring')
+
+            command = ['run_cover.py', '--run-dir', temp]
+            with patch.object(run_cover, 'run_cover', side_effect=score) as observed, \
+                 patch('run.check_gpu', return_value=uuid):
+                with patch.object(sys, 'argv', command):
+                    run_cover.main()
+                with object_lease(Path(temp)) as parent:
+                    with patch.object(sys, 'argv', command + ['--lock-fd', str(parent.fd)]):
+                        run_cover.main()
+                self.assertEqual(observed.call_count, 2)
+
     def test_gpu_memory_is_checked_once_the_lock_is_ours(self):
         """While another job holds the lock it also holds the memory; --wait-gpu waits for it."""
         with tempfile.TemporaryDirectory() as temporary:
@@ -134,7 +160,7 @@ class RunnerTests(unittest.TestCase):
             holder = lock_path.open('a')
             fcntl.flock(holder, fcntl.LOCK_EX)
             checked, errors = [], []
-            def check_gpu(_):
+            def check_gpu(_, uuid):
                 checked.append(holder.closed)
                 return 'GPU-test'
             def main():
@@ -143,7 +169,8 @@ class RunnerTests(unittest.TestCase):
                 except RuntimeError as exc:
                     errors.append(str(exc))
             argv = ['run.py', '--object', 'chair', '--attempt', 'a01', '--wait-gpu']
-            env = dict(VIEWFORGE_ROOT=str(root), VIEWFORGE_GPU_LOCK=str(lock_path))
+            env = dict(VIEWFORGE_ROOT=str(root), VIEWFORGE_GPU_LOCK=str(lock_path),
+                       CUDA_VISIBLE_DEVICES="GPU-00000000-0000-0000-0000-000000000001", ROOMCANVAS_GPU_LOCK_DIR=str(root/"locks"))
             with patch.dict(runner.os.environ, env), patch.object(sys, 'argv', argv), \
                  patch.object(runner, 'input_manifest', return_value=dict(images=[{}])), \
                  patch.object(runner, 'check_gpu', side_effect=check_gpu), \

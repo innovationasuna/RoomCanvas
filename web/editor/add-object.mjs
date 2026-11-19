@@ -15,7 +15,7 @@ export function objectName(text) {
 
 export const STAGES = [
   ['queued', '排队等 GPU'], ['preparing', '准备输入'], ['da3', '估计深度与相机'],
-  ['reconstruction', '重建三维模型'], ['cover', '计算补拍建议'],
+  ['reconstruction', '重建三维模型'], ['publishing', '准备完整物体资产'], ['cover', '计算补拍建议'],
 ];
 export function stageLabel(job) {
   if (job.status === 'queued') return STAGES[0][1];

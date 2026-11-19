@@ -26,13 +26,18 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from litereality_agent import artifact_cache as cache
+from litereality_agent import telemetry
+from litereality_agent.pipeline.realism_authoring import pass_cache
 from litereality_agent.pipeline.realism_authoring.articulate import candidates, judge, urdf
 from litereality_agent.pipeline.realism_authoring.small_objects import evidence
 from litereality_agent.room_ops.paths import find_blender
@@ -112,6 +117,8 @@ class Pass:
         self.only = set(only or [])
         self.concurrency = concurrency
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
+        self.dependency_key = pass_cache.prepare(
+            self.out, self.preview, self.frames, self.layout, Path(__file__).parent)
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
@@ -242,21 +249,30 @@ class Pass:
 
     def cut(self, target: Path, plan: list[dict], name: str):
         """Cut `plan` from the author's Room.blend into target/, unless it is already there."""
-        record = target / "plan.json"
-        if record.exists() and json.loads(record.read_text()) == plan and \
-                (target / "Room.glb").exists():
-            return
-        if target.exists():
-            shutil.rmtree(target)
-        self.blender(self.preview / "Room.blend",
-                     {"op": "apply", "out_dir": str(target), "items": plan}, name)
-        record.write_text(json.dumps(plan, indent=1))
+        key = cache.fingerprint({"source": self.dependency_key, "plan": plan})
+        if pass_cache.bundle_matches(target, key, ("Room.blend", "Room.glb", "apply.json")):
+            return False
+        cache.retire([target], self.out)
+        try:
+            self.blender(self.preview / "Room.blend",
+                         {"op": "apply", "out_dir": str(target), "items": plan}, name)
+            pass_cache.record_bundle(target, key, ("Room.blend", "Room.glb", "apply.json"))
+            cache.atomic_json(target / "plan.json", plan)
+        except BaseException:
+            cache.retire([target], self.out)
+            raise
+        return True
 
     def draft(self):
         plan = self.planned()
         if not plan:
             return
-        self.cut(self.out / "draft", plan, "draft")
+        if self.cut(self.out / "draft", plan, "draft"):
+            cache.retire([self.out / "check", self.out / "room_preview"], self.out)
+            for item in self.items:
+                item.pop("check", None)
+                item.pop("check_error", None)
+            self.save()
         todo = [p["id"] for p in plan
                 if not (self.out / "check" / p["id"] / "open_3.png").exists()]
         if todo:
@@ -292,15 +308,17 @@ class Pass:
         """The kept parts, cut again from the author's room; joints written beside it."""
         final = self.out / "room_preview"
         kept = self.planned("kept")
-        if kept == self.planned() and (self.out / "draft" / "Room.glb").exists():
-            if not (final / "plan.json").exists() or \
-                    json.loads((final / "plan.json").read_text()) != kept:
-                shutil.rmtree(final, ignore_errors=True)
-                shutil.copytree(self.out / "draft", final)
-        elif kept:
-            self.cut(final, kept, "final")
+        if kept:
+            key = cache.fingerprint({"source": self.dependency_key, "plan": kept})
+            draft = self.out / "draft"
+            if pass_cache.bundle_matches(draft, key, ("Room.blend", "Room.glb", "apply.json")):
+                if not pass_cache.bundle_matches(final, key, ("Room.blend", "Room.glb", "apply.json")):
+                    cache.retire([final], self.out)
+                    shutil.copytree(draft, final)
+            else:
+                self.cut(final, kept, "final")
         else:
-            shutil.rmtree(final, ignore_errors=True)
+            cache.retire([final], self.out)
             final.mkdir(parents=True)
             for name in ("Room.blend", "Room.glb"):
                 shutil.copyfile(self.preview / name, final / name)
@@ -313,6 +331,16 @@ class Pass:
                 (objects / source.name).symlink_to(source)
         for row in kept:
             urdf.write(row["id"], row["parts"], objects)
+        # Direct CLI passes need publication evidence too. The launcher owns model_saved,
+        # which selects the replay's displayed model; this lower-level receipt does not.
+        traces = self.scene_dir / "scene_init/obj_stage/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        telemetry.record_artifact(
+            traces, "artifact_published", final / "Room.glb",
+            path=os.path.relpath(final / "Room.glb", self.scene_dir), phase="articulate", stage="articulate",
+            run=os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex,
+            job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir),
+        )
         self.log(f"kept {sum(len(r['parts']) for r in kept)} parts on {len(kept)} objects")
 
     def summarize(self):
@@ -339,6 +367,29 @@ class Pass:
                 f"{len(self.items)} candidates, {calls} Astra calls, "
                 f"{sum(len(r['parts']) for r in kept)} parts kept on {len(kept)} objects.", "",
                 "| object | category | result |", "|---|---|---|", *rows, ""]
+        failed = [i["id"] for i in self.items if i.get("plan_error") or i.get("check_error")]
+        skipped = [i["id"] for i in self.items if i.get("skip") or
+                   ("plan" in i and not (i.get("plan") or {}).get("parts"))]
+        added = sum(len(row["parts"]) for row in kept)
+        existing = sum(len(i.get("existing") or []) for i in self.items)
+        if added:
+            reason = ""
+        elif not self.items:
+            reason = "no candidate objects"
+        elif failed:
+            reason = "no new joints accepted; some candidate checks failed"
+        elif not self.planned():
+            reason = "candidates contain no additional openable parts"
+        else:
+            reason = "all proposed new parts were rejected by the check"
+        cache.atomic_json(self.out / "summary.json", {
+            "attempt_id": os.environ.get("LITEREALITY_RUN_ID"),
+            "schema_version": 1, "existing": existing, "candidates": len(self.items),
+            "added": added, "skipped": len(skipped), "failed": len(failed),
+            "units": {"existing": "joints", "added": "joints", "candidates": "objects",
+                      "skipped": "objects", "failed": "objects"},
+            "zero_added_reason": reason, "failed_objects": failed, "skipped_objects": skipped,
+        })
         (self.out / "summary.md").write_text("\n".join(text), encoding="utf-8")
         self.overview()
         self.log(f"done: {self.out / 'summary.md'}")

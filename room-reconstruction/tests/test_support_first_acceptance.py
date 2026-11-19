@@ -127,7 +127,7 @@ def test_publish_does_not_check_again(tmp_path, monkeypatch):
     authored.mkdir(parents=True)
     (authored / "author_acceptance.json").write_text(json.dumps({"accepted": False, "status": "repaired"}))
     monkeypatch.setattr(publish, "run_module", run)
-    monkeypatch.setattr("litereality_agent.room_ops.api.bake_room", lambda *a: 0)
+    monkeypatch.setattr("litereality_agent.room_ops.api.bake_room", lambda *a, **kw: 0)
     monkeypatch.setattr(A, "assess", lambda *a: pytest.fail("checked again at publish"))
     result = publish.run(c, {"compare_frames": 0})
     assert result.status is not StageStatus.FAILED

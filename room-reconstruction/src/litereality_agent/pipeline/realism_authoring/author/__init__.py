@@ -2,10 +2,11 @@
 
 import json
 import shutil
-import tempfile
-from pathlib import Path
+import uuid
 
+from litereality_agent import artifact_cache as cache
 from litereality_agent.pipeline.context import RunContext
+from litereality_agent.pipeline.fingerprint import input_fingerprint
 from litereality_agent.pipeline.result import StageResult, StageStatus
 from litereality_agent.pipeline.support import command_result, run_module
 
@@ -20,8 +21,20 @@ def complete(context: RunContext) -> bool:
 def run(context: RunContext, options: dict) -> StageResult:
     if not (context.seed_room / "Room.py").is_file():
         return StageResult("author", StageStatus.FAILED, error=f"missing seed room at {context.seed_room}")
+    # The room records the inputs it was copied for. Starting over is committed to disk first
+    # (`.author_pending`) and lasts until the new room is in place, so a failure or kill at any
+    # step makes the next run start over again, whatever its options, instead of resuming.
+    inputs = context.authoring_root / ".author_inputs"
+    pending = context.authoring_root / ".author_pending"
+    current = input_fingerprint(context, "author", options)
+    restart = (cache.read_json(pending) or {}) if pending.exists() else None  # unreadable: still pending
+    if (options.get("force") or (restart is not None and restart.get("inputs") != current)
+            or (restart is None and context.authored_room.exists() and inputs.is_file()
+                and inputs.read_text() != current)):
+        restart = {"inputs": current}
+        cache.atomic_json(pending, restart)
     evidence = context.authoring_root / "surface_ref" / "surface_ref_manifest.json"
-    if not evidence.is_file() or options.get("force"):
+    if not evidence.is_file() or (restart is not None and not restart.get("evidence")):
         evidence_rc, evidence_log = run_module(
             context,
             "litereality_agent.pipeline.realism_authoring.author.evidence",
@@ -34,12 +47,33 @@ def run(context: RunContext, options: dict) -> StageResult:
                 StageStatus.FAILED,
                 error=f"scene evidence failed; see {evidence_log}",
             )
-    if context.authored_room.exists() and options.get("force"):
-        backup = Path(tempfile.mkdtemp(prefix="before-author-", dir=context.authored_room.parent))
-        shutil.move(str(context.authored_room), str(backup / "room"))
+        if restart is not None:
+            cache.atomic_json(pending, restart := {**restart, "evidence": True})
+    if restart is not None and not restart.get("set_aside"):
+        # The old room and its session files go to one backup, named before anything moves, so an
+        # interrupted set-aside continues into the same folder instead of splitting or stacking.
+        saved = [path for path in (context.authored_room, *(context.authoring_root / name for name in (
+            ".room_checkpoint.py", ".room_checkpoint.d", ".author_resume.json", ".author_result.json",
+            ".author_restore_pending.json", ".author_inputs"))) if path.exists()]
+        if saved and not restart.get("backup"):
+            name = f"before-author-{uuid.uuid4().hex[:8]}"
+            cache.atomic_json(pending, restart := {**restart, "backup": name})
+        for path in saved:
+            backup = context.authoring_root / restart["backup"]
+            backup.mkdir(exist_ok=True)
+            shutil.move(str(path), str(backup / path.name))
+        cache.atomic_json(pending, restart := {**restart, "set_aside": True})
     context.authored_room.parent.mkdir(parents=True, exist_ok=True)
     if not context.authored_room.exists():
-        shutil.copytree(context.seed_room, context.authored_room)
+        # Copy aside and rename into place: a half-copied seed is never taken for the room.
+        copying = context.authored_room.with_name(".room-copying")
+        shutil.rmtree(copying, ignore_errors=True)
+        shutil.copytree(context.seed_room, copying)
+        copying.rename(context.authored_room)
+        inputs.write_text(current)
+    elif restart is not None:
+        inputs.write_text(current)  # renamed into place by the run that was then interrupted
+    pending.unlink(missing_ok=True)
     args: list[object] = [
         "--scene", context.scene_dir,
         "--room", context.authored_room,

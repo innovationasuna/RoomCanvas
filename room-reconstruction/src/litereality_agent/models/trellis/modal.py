@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from litereality_agent import artifact_cache as cache
 from litereality_agent.runtimes.modal import ModalClient
 
 
@@ -57,6 +58,7 @@ class ModalTrellisService:
         credentials: tuple[str, str] | None = None,
         client: Any = None,
     ) -> None:
+        self.identity = {"app": app_name, "function": function_name, "environment": environment_name}
         self.client = client or ModalClient(
             app_name,
             function_name,
@@ -81,6 +83,8 @@ class ModalTrellisService:
         simplify: float = 0.95,
         texture_size: int = 1024,
         pipeline_type: str | None = None,
+        decimation: int | None = None,
+        skip_existing: bool = True,
     ) -> dict[str, str]:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -96,6 +100,28 @@ class ModalTrellisService:
             for asset_id in asset_ids
         ]
 
+        if decimation is not None:
+            for payload in payloads:
+                payload["decimation"] = decimation
+        keys = {aid: cache.fingerprint({"version": 1, "request": payload,
+                    "service": self.identity, "code": cache.file_hash(Path(__file__)),
+                    "model_revision": os.environ.get("LITEREALITY_TRELLIS_REVISION", "default")})
+                for aid, payload in zip(asset_ids, payloads, strict=True)}
+        results = {}
+        pending_ids, pending_payloads = [], []
+        for aid, payload in zip(asset_ids, payloads, strict=True):
+            path = out / f"{aid}.glb"
+            if skip_existing and cache.matches(path, keys[aid]):
+                results[aid] = str(path)
+            else:
+                cache.invalidate(path)
+                pending_ids.append(aid)
+                pending_payloads.append(payload)
+        reused = [AssetReport(aid, True, 0, glb_path=path) for aid, path in results.items()]
+        asset_ids, payloads = pending_ids, pending_payloads
+        if not asset_ids:
+            self.last_report = BatchReport(assets=reused)
+            return results
         started = time.monotonic()
         outputs = self.client.map(payloads)
         elapsed = time.monotonic() - started
@@ -104,8 +130,7 @@ class ModalTrellisService:
                 f"Modal TRELLIS returned {len(outputs)} results for {len(asset_ids)} inputs"
             )
 
-        results: dict[str, str] = {}
-        report = BatchReport(wall_s=elapsed)
+        report = BatchReport(assets=reused, wall_s=elapsed)
         for asset_id, output in zip(asset_ids, outputs, strict=True):
             path = out / f"{asset_id}.glb"
             if isinstance(output, BaseException):
@@ -125,7 +150,16 @@ class ModalTrellisService:
                 report.assets.append(AssetReport(asset_id, False, elapsed, error=str(error)))
                 continue
             try:
-                path.write_bytes(base64.b64decode(output["glb_b64"], validate=True))
+                data = base64.b64decode(output["glb_b64"], validate=True)
+                if not data:
+                    raise ValueError("empty GLB")
+                temporary = path.with_suffix(".glb.partial")
+                try:
+                    temporary.write_bytes(data)
+                    temporary.replace(path)
+                    cache.record(path, keys[asset_id])
+                finally:
+                    temporary.unlink(missing_ok=True)
             except (KeyError, ValueError) as exc:
                 results[asset_id] = ""
                 report.assets.append(

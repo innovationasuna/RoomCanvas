@@ -264,8 +264,7 @@ flowchart LR
 以下网页基础检查使用 Node.js 24 和 Python 3，无需安装前端依赖：
 
 ```bash
-node --test 'web/editor/tests/*.mjs'                         # 编辑器单测
-node --test web/scripts/test_room_reconstruction.mjs        # 网页房间重建流程
+node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'  # 编辑器与网页流程
 python3 -m unittest discover -s web/scripts                  # 本机服务、物品清单
 node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型检查碰撞、支撑、关节
 ```
@@ -299,6 +298,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | [物体重建](docs/OBJECT_RECONSTRUCTION.md) | 物体重建服务的部署、接口和本机连接 |
 | [手势接入](gesture/docs/roomcanvas-integration.md) | 手势识别、协议和操作细节 |
 | [参与开发](CONTRIBUTING.md) | 分支、检查、合并流程 |
+| [本次重构说明](docs/refactor/README.md) | 主要改动、实施计划、验收证据与维护契约 |
 
 ## 数据与隐私
 

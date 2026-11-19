@@ -4,6 +4,7 @@
 // camera follows smoothly; near walls fade so the room stays readable.
 import * as THREE from 'three';
 import {Materializer, prefetch} from './materialize.mjs';
+import {disposeModel} from './resources.mjs';
 import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {lightingProfile} from '../editor/lighting-profiles.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -66,7 +67,10 @@ export class RoomView {
     r.domElement.style.display = 'block';
     const scene = this.scene = new THREE.Scene();
     scene.background = new THREE.Color(background);
-    scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+    const environment = new RoomEnvironment(), generator = new THREE.PMREMGenerator(r);
+    this.environmentTarget = generator.fromScene(environment, 0.04);
+    scene.environment = this.environmentTarget.texture;
+    environment.dispose(); generator.dispose();
     scene.environmentIntensity = 0.55;
     const hemisphere = new THREE.HemisphereLight(0xffffff, 0x8a8170, 1.1);
     scene.add(hemisphere);
@@ -103,6 +107,7 @@ export class RoomView {
     this.focusTo = null;
     this.wallFades = [];
     this.models = {};       // key -> {root, mask}
+    this.retiring = new Set(); // bounded by in-flight shader compilation
     this.retryAt = {};      // key -> when a failed model load may be tried again
     this.current = null;    // model key fully shown
     this.incoming = null;   // model key fading in
@@ -113,11 +118,13 @@ export class RoomView {
     this.calm = matchMedia('(prefers-reduced-motion: reduce)');
     this.formTag = Object.assign(document.createElement('div'), {className: 'forming', hidden: true});
     container.appendChild(this.formTag);
-    new ResizeObserver(() => this.resize()).observe(container);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(container);
+    this.scaffoldController = new AbortController();
     this.resize();
     this.scaffoldUrls = scaffold;
     this.ensureScaffold();
-    const loop = () => {requestAnimationFrame(loop); this.tick();};
+    const loop = () => {if (this.disposed) return; this.animationFrame = requestAnimationFrame(loop); this.tick();};
     loop();
   }
 
@@ -144,17 +151,18 @@ export class RoomView {
 
   // Load the point cloud and layout once they exist; a live job may not have them yet, so callers retry.
   ensureScaffold() {
-    if (!this.scaffoldUrls || this.scaffoldReady || this.scaffoldLoading) return;
+    if (this.disposed || !this.scaffoldUrls || this.scaffoldReady || this.scaffoldLoading) return;
     this.scaffoldLoading = this.loadScaffold(this.scaffoldUrls).catch(() => {}).finally(() => (this.scaffoldLoading = null));
   }
 
   async loadScaffold({points, layout, colors}) {
     const get = async (url) => {
-      const r = await fetch(url);
+      const r = await fetch(url, {signal: this.scaffoldController.signal});
       if (!r.ok) throw new Error(`${url}: ${r.status}`);
       return r;
     };
     const [buf, plan] = await Promise.all([get(points).then((r) => r.arrayBuffer()), get(layout).then((r) => r.json())]);
+    if (this.disposed) return;
     this.wallFaces = wallFaces(plan);
     const room = new THREE.Box3();
     plan.walls.forEach((w) => room.expandByPoint(new THREE.Vector3(w.a[0], plan.floor, w.a[1])).expandByPoint(new THREE.Vector3(w.b[0], plan.floor + w.h, w.b[1])));
@@ -172,8 +180,8 @@ export class RoomView {
     this.points = new THREE.Points(g, this.unfolding(g, room.isEmpty() ? new THREE.Box3().setFromBufferAttribute(g.attributes.position) : room));
     this.pointCount = n;
     // The scan's own colours, taken from its photos (made on the server the first time, so they may come later).
-    if (colors) fetch(colors).then((r) => (r.ok ? r.arrayBuffer() : null)).then((rgb) => {
-      if (!rgb || rgb.byteLength !== n * 3) return;
+    if (colors) fetch(colors, {signal: this.scaffoldController.signal}).then((r) => (r.ok ? r.arrayBuffer() : null)).then((rgb) => {
+      if (this.disposed || !rgb || rgb.byteLength !== n * 3) return;
       const bytes = new Uint8Array(rgb), c = new THREE.Color();
       for (let i = 0; i < n; i++) c.setRGB(bytes[i * 3] / 255, bytes[i * 3 + 1] / 255, bytes[i * 3 + 2] / 255, THREE.SRGBColorSpace).toArray(col, i * 3);
       g.attributes.color.needsUpdate = true;
@@ -232,21 +240,28 @@ export class RoomView {
 
   // ---------- room models ----------
   async model(key, url) {
+    if (this.disposed) return null;
     if (this.models[key]) return this.models[key].promise;
     // A live job can list a model while it is still being written: after a failed load, try again later.
     if (performance.now() < (this.retryAt[key] || 0)) throw new Error(`retry ${key} later`);
-    const entry = this.models[key] = {};
+    const entry = this.models[key] = {controller: new AbortController()};
     entry.promise = new GLTFLoader().loadAsync(url).catch((error) => {
-      delete this.models[key];
-      this.retryAt[key] = performance.now() + 5000;
+      if (this.models[key] === entry) {
+        delete this.models[key];
+        this.retryAt[key] = performance.now() + 5000;
+      }
       throw error;
     }).then((gltf) => {
+      if (this.disposed || entry.controller.signal.aborted || this.models[key] !== entry) {
+        disposeModel(gltf.scene);
+        return null;
+      }
       const root = this.prepare(gltf.scene);
       root.visible = false;
       this.scene.add(root);
       entry.root = root;
-      this.warm(root);
-      prefetch(root).catch(() => {});
+      entry.warming = this.warm(root, entry.controller.signal).catch(() => {});
+      entry.prefetching = prefetch(root, {signal: entry.controller.signal}).catch(() => {});
       if (!this.modelsFramed && !this.scaffoldReady) {this.frame(new THREE.Box3().setFromObject(root)); this.modelsFramed = true;}
       return entry;
     });
@@ -254,6 +269,10 @@ export class RoomView {
   }
 
   prepare(root) {
+    root.userData.replayRoot = true;
+    const sources = new Set();
+    root.traverse(o => {if (o.isMesh) [o.material].flat().forEach(m => sources.add(m));});
+    root.userData.sourceMaterials = [...sources];
     const aniso = this.renderer.capabilities.getMaxAnisotropy();
     root.traverse((o) => {
       if (HIDDEN.test(o.name)) o.visible = false;
@@ -269,11 +288,13 @@ export class RoomView {
       const mats = [];
       part.traverse((o) => {
         if (!o.isMesh) return;
-        o.material = o.material.clone();
-        o.material.userData.base = o.material.opacity;
-        o.material.transparent = true;
-        mats.push(o.material);
-        wallMats.add(o.material);
+        const copies = [o.material].flat().map(material => {
+          const copy = material.clone();
+          copy.userData.base = copy.opacity; copy.transparent = true;
+          mats.push(copy); wallMats.add(copy);
+          return copy;
+        });
+        o.material = Array.isArray(o.material) ? copies : copies[0];
       });
       const c = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
       this.wallFades.push({mats, c, root, part, a: 1});
@@ -284,6 +305,7 @@ export class RoomView {
     root.userData.fade = 1;
     // Depth mask for fading in: only the outermost surfaces of the incoming model get colour.
     const mask = new THREE.MeshBasicMaterial({colorWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4});
+    root.userData.sourceMaterials.push(mask);
     root.userData.mask = [];
     const meshes = [];
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
@@ -301,8 +323,9 @@ export class RoomView {
 
   // Compile, in the background, the shaders of every object (also of the clipped copies it takes shape with),
   // and upload its textures, a few per frame: objects stay hidden until built, and would otherwise do both
-  // when they appear, stalling the page. The proxies stay alive: disposing them would drop the compiled programs.
-  async warm(root) {
+  // when they appear, stalling the page. Model materials and the view's effect pool retain shader programs;
+  // temporary proxies can be released once compilation finishes.
+  async warm(root, signal) {
     const group = new THREE.Group(), seen = new Map(), textures = new Set();
     root.updateWorldMatrix(true, true);
     root.traverse((o) => {
@@ -320,16 +343,23 @@ export class RoomView {
     };
     for (const [m, o] of seen) {
       add(new THREE.Mesh(o.geometry, m), o);
-      add(new THREE.Mesh(o.geometry, this.forming.clipped(m)), o);
+      add(new THREE.Mesh(o.geometry, this.forming.clipped(m, root)), o);
     }
     this.forming.standIns().forEach((x) => add(x));
     root.userData.warm = group;
     group.updateMatrixWorld(true);
-    this.renderer.compileAsync(group, this.camera, this.scene).catch(() => {});
-    let k = 0;
-    for (const t of textures) {
-      this.renderer.initTexture(t);
-      if (++k % 4 === 0) await new Promise((r) => requestAnimationFrame(r));
+    const compiling = this.renderer.compileAsync(group, this.camera, this.scene).catch(() => {});
+    try {
+      let k = 0;
+      for (const t of textures) {
+        if (signal?.aborted || this.disposed) break;
+        this.renderer.initTexture(t);
+        if (++k % 4 === 0) await new Promise((r) => requestAnimationFrame(r));
+      }
+      await compiling;
+    } finally {
+      group.clear();
+      if (root.userData.warm === group) delete root.userData.warm;
     }
   }
 
@@ -350,12 +380,13 @@ export class RoomView {
 
   // Bring a model in: it fades in over the one shown now (quiet: switch at once, e.g. while scrubbing).
   async show(key, url, quiet) {
+    this.wanted = key;
     if (!key) {this.swap(null); return;}
     if (key === this.current || key === this.incoming) return;
-    this.wanted = key;
-    const entry = await this.model(key, url).catch(() => null);
-    if (!entry && this.wanted === key) this.wanted = null;  // apply() asks for it again
-    if (!entry || this.wanted !== key) return;
+    const pending = this.model(key, url), requested = this.models[key];
+    const entry = await pending.catch(() => null);
+    if (!entry && this.wanted === key && (!this.models[key] || this.models[key] === requested)) this.wanted = null;  // apply() retries this generation
+    if (!entry || this.wanted !== key || this.disposed || this.models[key] !== entry) return;
     if (quiet) this.swap(key);
     else {
       this.incoming = key;
@@ -376,6 +407,7 @@ export class RoomView {
     if (on === !!this.rig) return;
     const {hemisphere, sun, fill} = this.lights;
     if (!on) {
+      this.forming.finishAll();
       this.rig.dispose();
       this.rig = null;
       Object.assign(hemisphere, {visible: true, intensity: this.saved.hemisphere});
@@ -390,6 +422,7 @@ export class RoomView {
     }
     const root = !this.incoming && this.models[this.current]?.root;
     if (!root) return;
+    this.forming.finishAll();
     this.saved = {hemisphere: hemisphere.intensity, sun: sun.intensity, sunColor: sun.color.clone(), sunAt: sun.position.clone(),
       environment: this.scene.environmentIntensity, background: this.scene.background.clone()};
     root.updateWorldMatrix(true, true);
@@ -426,21 +459,35 @@ export class RoomView {
     this.incoming = null;
     this.mix = 1;
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
-    for (const [k, e] of Object.entries(this.models)) if (k.startsWith('draft') && k !== key && e.root) this.drop(k);
+    for (const k of Object.keys(this.models)) if (k.startsWith('draft') && k !== key) this.drop(k);
   }
 
   drop(key) {
-    const root = this.models[key].root;
-    root.removeFromParent();
-    root.traverse((o) => {
-      if (!o.isMesh) return;
-      o.geometry.dispose();
-      for (const m of [o.material].flat()) {
-        for (const v of Object.values(m)) if (v?.isTexture) v.dispose();
-        m.dispose();
-      }
-    });
+    const entry = this.models[key];
+    if (!entry) return;
+    entry.controller.abort();
     delete this.models[key];
+    const root = entry.root;
+    if (this.rig && this.current === key) this.physical(false);
+    if (this.current === key) this.current = null;
+    if (this.incoming === key) this.incoming = null;
+    if (this.wanted === key) this.wanted = null;
+    if (!root) return;
+    this.forming.finishModel(root);
+    this.wallFades = this.wallFades.filter(wall => wall.root !== root);
+    if (this.partsShown === root) this.partsShown = null;
+    root.userData.warm?.clear();
+    root.removeFromParent();
+    entry.root = null;
+    // Three's compileAsync polls live material properties. Disposing a material
+    // during that poll leaves an unresolved promise and a late timer exception.
+    // Detach now, then release GPU resources once that already-started work ends.
+    const retiring = Promise.resolve(entry.warming).then(() => {
+      this.forming.releaseModel(root);
+      disposeModel(root);
+    }).finally(() => this.retiring.delete(retiring));
+    this.retiring.add(retiring);
+    return retiring;
   }
 
   // partial: show the room as it is being built (shell + finished objects of the assembled room);
@@ -479,7 +526,7 @@ export class RoomView {
     // While the assembled room shows, fetch the final model in the background so the switch starts on time.
     if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
     if (key !== this.wanted && key && modelUrl) this.show(key, modelUrl(key), quiet);
-    else if (!key && this.current) {this.wanted = null; this.swap(null);}
+    else if (!key && (this.current || this.incoming || this.wanted)) {this.wanted = null; this.swap(null);}
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
@@ -649,6 +696,7 @@ export class RoomView {
   }
 
   tick() {
+    if (this.disposed) return;
     const now = performance.now();
     const elapsed = (now - (this.lastTick ?? now)) / 1000;
     // Sped up, the replay still runs at normal speed while the camera moves in, only a little faster while
@@ -715,6 +763,29 @@ export class RoomView {
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose() {
+    if (this.disposed) return this.disposal;
+    this.disposed = true;
+    cancelAnimationFrame(this.animationFrame);
+    this.resizeObserver.disconnect(); this.scaffoldController.abort();
+    if (this.rig) this.physical(false);
+    for (const key of Object.keys(this.models)) this.drop(key);
+    if (this.points) disposeModel(this.points);
+    if (this.wallLines) disposeModel(this.wallLines);
+    Object.values(this.boxes).forEach(disposeModel);
+    this.boxes = {}; this.wallFades = []; this.retryAt = {};
+    this.controls.dispose();
+    this.renderer.domElement.remove(); this.formTag.remove();
+    this.disposal = Promise.allSettled([...this.retiring]).then(() => {
+      this.forming.dispose(); this.environmentTarget.dispose();
+      Object.values(this.lights).forEach(light => light.dispose?.());
+      this.scene.clear(); this.scene.environment = null;
+      this.points = this.wallLines = this.partsShown = null;
+      this.renderer.dispose();
+    });
+    return this.disposal;
   }
 }
 
