@@ -32,7 +32,7 @@ python3 web/scripts/serve.py --ssh '<SSH 主机>' --remote '<监听地址>:7862'
 python3 web/scripts/serve.py
 ```
 
-无需服务器也能打开示例房间、调整布局，之前用 `--ssh` 启动时缓存到 `runs/room-cache/` 的重建房间和回放也能打开；[添加与导入物品](#添加与导入物品) 需要物体服务在线，[重建房间](#重建房间) 需要房间重建服务在线。如果已有外部隧道，同样省略 `--ssh`，并确保隧道在 `127.0.0.1:7865` / `7866`，或用 `--viewforge` / `--room-backend` 指向它。
+无需服务器也能打开示例房间、调整布局（示例房间的模型不在 Git 里，`serve.py` 启动时在后台下载缺少的，见 [示例房间的模型](#示例房间的模型)），之前用 `--ssh` 启动时缓存到 `runs/room-cache/` 的重建房间和回放也能打开；[添加与导入物品](#添加与导入物品) 需要物体服务在线，[重建房间](#重建房间) 需要房间重建服务在线。如果已有外部隧道，同样省略 `--ssh`，并确保隧道在 `127.0.0.1:7865` / `7866`，或用 `--viewforge` / `--room-backend` 指向它。
 
 ## 界面
 
@@ -70,6 +70,31 @@ python3 web/scripts/serve.py
 打开方式：列表里的房间是 `editor/?room=<id>`；任意房间目录用 `editor/?scene=<相对 editor/ 的路径>`，例如 `editor/?scene=../../samples/room3`。要把编辑器发布到仓库外某个房间目录旁边，运行 `python3 web/scripts/publish.py --scene-dir <房间目录>`。
 
 房间选择页与编辑器共用 `theme.css` 中的配色（`--rc-*` 变量）和 Manrope 字体；选择页布局在 `home.css` / `home.mjs`，编辑器布局在 `editor/form-workspace.css`。
+
+### 示例房间的模型
+
+示例房间的 `Room.glb`（三个共约 195 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
+
+```bash
+python3 scripts/fetch_samples.py            # 下载缺少或大小不对的模型
+python3 scripts/fetch_samples.py office     # 只取指定房间（samples/ 下的目录名）
+python3 scripts/fetch_samples.py --check    # 只报告缺什么，不下载；有缺失时退出码为 1
+python3 scripts/fetch_samples.py --verify   # 已有的模型也核对 sha256
+```
+
+仓库是私有的，不能匿名下载：脚本先用已登录的 `gh`（`gh auth login`），没有时用环境变量 `GH_TOKEN` 或 `GITHUB_TOKEN` 中能读本仓库的令牌；两样都没有时列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后按所列路径存放。下载先写到同目录的 `Room.glb.part`，大小和 sha256 都对上才替换 `Room.glb`。
+
+`serve.py` 启动时在后台下载缺少的模型（加 `--no-download` 只提示），下载不了不影响首页和其他房间，缺模型的房间在编辑器里提示“找不到房间模型”。本机已有但与清单不同的模型只提示、不覆盖；要换回清单里的版本，运行 `python3 scripts/fetch_samples.py <房间>`。
+
+新增示例房间或更换模型：把模型上传为 release 附件，再在 `samples/models.json` 增加或修改对应的一条。
+
+```bash
+cp samples/<房间>/Room.glb /tmp/<房间>-Room.glb    # 附件名就是上传的文件名
+gh release upload sample-rooms /tmp/<房间>-Room.glb -R innovationasuna/RoomCanvas
+wc -c < samples/<房间>/Room.glb && shasum -a 256 samples/<房间>/Room.glb    # 填入 bytes 和 sha256
+```
+
+更换模型时建议换一个附件名而不是覆盖原附件，旧提交才能继续取到当时的模型。
 
 ## 重建房间
 
@@ -192,11 +217,12 @@ python3 web/scripts/serve.py
 
 ## 测试
 
-单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行：
+单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行。模型检查读示例房间的 `Room.glb`，先取回模型（见 [示例房间的模型](#示例房间的模型)；CI 按 `samples/models.json` 缓存）：
 
 ```bash
 node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
 python3 -m unittest discover -s web/scripts
+python3 scripts/fetch_samples.py
 node web/scripts/check_room.mjs --scene-dir samples/room3
 node web/scripts/check_room.mjs --scene-dir samples/room-3934  # 57 件可编辑物品
 for c in collision wall_mount seat_support gravity; do node web/scripts/check_$c.mjs --scene-dir samples/office; done
