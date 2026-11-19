@@ -5,7 +5,6 @@ python3 web/scripts/room_service.py --data-dir /path/to/roomcanvas-jobs
 Only loopback is exposed; use SSH forwarding to access a remote worker.
 """
 import argparse
-import fcntl
 import gzip
 import json
 import mimetypes
@@ -180,10 +179,10 @@ def main():
     parser.add_argument('--no-replay-summary', action='store_true', help='do not condense agent logs with codex (rule wording only)')
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
-    # Prevent two service processes from sharing this job store / queue.
-    lockfile = (args.data_dir / '.service.lock').open('w')
-    fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    Handler.jobs = Jobs(args.data_dir, args.pipeline_dir, args.uv, args.timeout, args.runner, args.python)
+    try:  # Jobs refuses a data directory another service process is using.
+        Handler.jobs = Jobs(args.data_dir, args.pipeline_dir, args.uv, args.timeout, args.runner, args.python)
+    except RuntimeError as error:
+        raise SystemExit(str(error))
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     Handler.preview = args.preview
     if not args.preview:

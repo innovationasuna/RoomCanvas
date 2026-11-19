@@ -12,7 +12,7 @@ source scripts/env.sh
 python scripts/run_cover.py --run-dir "$VIEWFORGE_ROOT/runs/<run-id>"
 ```
 
-单次作业使用配置中的一张 GPU，自动取得与重建相同的 GPU 锁。`--lock-held` 只供已持有锁的运行器内部调用。
+单次作业使用配置中的一张 GPU，自动取得与重建相同的 GPU 锁；加 `--wait-gpu` 可在 GPU 被占用时等待。由重建触发的 COVER 沿用重建已持有的锁，不需要额外参数。
 
 ## 方法
 

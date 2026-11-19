@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -125,3 +126,42 @@ Path({str(called)!r}).write_text("unexpected articulation")
     assert not (attempt / "articulate.log").exists()
     assert traces.read_text() == original_trace, "failed attempt must not publish model_saved or enhancement events"
     assert articulated.read_bytes() == b"previous articulated model"
+
+
+def test_a_room_waiting_for_the_gpu_says_so_until_it_starts(tmp_path):
+    runtime = tmp_path / "runtime"
+    executable(runtime / "bin/nvidia-smi", f"""
+import sys
+if "--query-gpu=index,uuid,memory.used" in sys.argv:
+    print("0,{CARD},12")
+""")
+    stage = """
+import os, sys
+from pathlib import Path
+if "-c" in sys.argv:
+    print(Path(os.environ["LR_REPO_ROOT"]) / "src/litereality_agent/__init__.py")
+"""
+    for name in ("python", "litereality"):
+        executable(runtime / "litereality-env/bin" / name, stage)
+    env = dict(os.environ, ROOMCANVAS_HOME=str(tmp_path), CUDA_VISIBLE_DEVICES=CARD, ROOMCANVAS_GPU=CARD,
+               ROOMCANVAS_GPU_LOCK_DIR=str(tmp_path / "locks"), PATH=str(runtime / "bin") + os.pathsep + os.environ["PATH"])
+    env.pop("VIEWFORGE_GPU_LOCK", None)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from roomcanvas_gpu import acquire
+    run, timing = tmp_path / "run", tmp_path / "run/attempt-01/runtime-timing.json"
+    command = [sys.executable, str(ROOT / "room-reconstruction/server/run_room.py"), str(tmp_path / "scan"), str(run),
+               "--no-articulate"]
+    with acquire(CARD, env, tmp_path / "objects/cache/gpu.lock"):
+        refused = subprocess.run(command, env=env, timeout=20, capture_output=True, text=True)
+        assert refused.returncode and "GPU not acquired" in refused.stderr
+        assert "gpu_error" in json.loads(timing.read_text())
+        waiting = subprocess.Popen(command + ["--wait-gpu"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        marker = run / "attempt-02/runtime-timing.json"
+        for _ in range(100):
+            if marker.is_file() and "gpu_waiting_since" in json.loads(marker.read_text()):
+                break
+            time.sleep(.1)
+        else:
+            raise AssertionError("a waiting room never said it was waiting")
+    assert waiting.wait(timeout=20) == 0, waiting.stdout.read()
+    assert "gpu_waiting_since" not in json.loads(marker.read_text())

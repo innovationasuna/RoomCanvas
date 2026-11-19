@@ -199,14 +199,24 @@ def save_timing():
 def measured_lease():
     waiting = time.monotonic()
     acquired = None
+    # Until the lease is ours this attempt only waits; the web job status reads this marker.
+    timing["gpu_waiting_since"] = time.time()
+    save_timing()
     try:
         with room_lease(runtime, env, wait=a.wait_gpu) as selected:
             acquired = time.monotonic()
+            del timing["gpu_waiting_since"]
             timing.update(gpu_wait_seconds=acquired-waiting, gpu_uuid=selected[0].uuid)
             save_timing()
             yield selected
+    except RuntimeError as error:
+        if acquired is not None:
+            raise
+        timing["gpu_error"] = str(error)
+        raise SystemExit(f"GPU not acquired: {error}") from None
     finally:
         if acquired is None:
+            timing.pop("gpu_waiting_since", None)
             timing.update(gpu_wait_seconds=time.monotonic()-waiting, gpu_lease_seconds=0.)
         else:
             timing["gpu_lease_seconds"] = time.monotonic()-acquired
@@ -231,7 +241,7 @@ with measured_lease() as (gpu, lease):
     # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
     env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu.uuid,
                LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
-    record = {"started": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+    record = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
               "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
     (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
     with (attempt / "pipeline.log").open("w") as log:
