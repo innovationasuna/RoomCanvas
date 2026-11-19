@@ -11,6 +11,7 @@ The Blender build itself is `-m blender`.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -144,6 +145,8 @@ def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monk
     assert asyncio.run(inv.execute()).is_success()
     assert compile_is_fresh(room)
 
+    # File times come from a coarser clock than time.time(), or from another machine's.
+    monkeypatch.setattr(time, "time", lambda now=time.time: now() + 1)
     failed = asyncio.run(inv.execute())
     assert failed.build == {"status": "error", "glb_path": None}
     assert "bake.log" in failed.error and ("script failed" in failed.error) == (failure == "nonzero")
@@ -157,6 +160,24 @@ def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monk
     assert compile_is_fresh(room)
     assert records == [b"baked", b"baked"]
     assert calls == ["assemble", "bake"] * 3
+
+
+def test_a_failed_assembly_shows_its_own_log_not_an_earlier_bake(room, monkeypatch):
+    from litereality_agent.room_ops import api
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    (preview / "bake.log").write_text("an earlier bake\n")
+
+    def run(cmd, **kwargs):
+        (preview / "build.log").write_text("assembly broke\n")
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(api.subprocess, "run", run)
+    inv = CompileInvocation(CompileParams())
+    inv.bind(str(room), None)
+    failed = asyncio.run(inv.execute())
+    assert "assembly broke" in failed.error and "an earlier bake" not in failed.error
 
 
 @pytest.mark.parametrize("old_blend", [False, True])
