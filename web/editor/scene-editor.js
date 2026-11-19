@@ -2007,7 +2007,10 @@ async function load() {
   Object.assign(placementSpecs, config.placement);
   const modelURL = await versionedModelURL();
   const modelStarted = startStage();
-  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80));
+  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80)).catch((error) => {
+    // The sample rooms' models are not in git: serve.py fetches them at start-up (samples/models.json).
+    throw error.response?.status === 404 ? new Error('找不到房间模型 Room.glb；示例房间的模型在 serve.py 启动时下载（进度见终端），也可运行 python3 scripts/fetch_samples.py') : error;
+  });
   finishStage('initial', 'modelReadAndParse', modelStarted);
   progress.value = 80;
   room = gltf.scene;
