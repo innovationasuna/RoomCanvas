@@ -399,8 +399,9 @@ and the coordinate conventions once.
                     (a feature clicked in 2+ photos), `measure.height_profile` (the horizontal
                     surfaces inside a footprint — desk and shelf heights), `measure.pcd_slice` (a
                     plan of everything at one height), `rectify.rectify_region` (a screen, board or
-                    picture lifted out of a photo as a texture), and `arkit_cameras` (inside
-                    Blender: the capture cameras, already present in Room.py as cam_NNNNN).
+                    picture lifted out of a photo as a texture; `rectify.rectify_image` does the
+                    same for any image file), and `arkit_cameras` (inside Blender: the capture
+                    cameras, already present in Room.py as cam_NNNNN).
 Measure, don't guess: a desk height, a shelf elevation, a table diameter, a monitor width are all
 in the depth maps and the cloud. Where LiDAR fails (dark fabric, glass, thin legs) triangulate
 from two photographs.
@@ -545,13 +546,20 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
     # Images the model MAKES to look at are evidence; give it somewhere durable to put them.
     from litereality_agent.agent import scratch
     scratch_at = scratch.bind(near=room)
+    # Material the operator prepared for this room (LR_AUTHOR_EXTRA), for every profile.
+    from litereality_agent.agent import evidence_pack
+    try:
+        operator = evidence_pack.operator_material()
+    except FileNotFoundError as exc:
+        print(f"author: {exc}", flush=True)
+        return 1
     # The open brief hands the model the whole capture plus measurement helpers, packed once
     # beside the room (see evidence_pack). The other profiles keep to stitches + raw frames.
     evidence: Path | None = None
     if profile == "open":
-        from litereality_agent.agent import evidence_pack
         # room = <scene>/realism_authoring/room, so the scene package is two levels up.
         evidence = evidence_pack.build(room.parent, Path(scan), surface_ref, scene_dir=room.parents[1])
+        evidence_pack.link_operator(evidence, operator)
     fills = dict(stitch_lines=stitch_lines, scan=scan, surface_list=", ".join(surfaces), rhythm=RHYTHM,
                  evidence=str(evidence) if evidence else "",
                  n_frames=_n_frames(evidence / "scan" if evidence else Path(scan)),
@@ -564,6 +572,9 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
         if previous.get("source_resources") != recovery.inventory(room):
             resume_check += "; source/resources changed since the saved summary"
     prompt = PROFILES.get(profile, PROMPT).format(**fills)
+    if operator is not None:
+        prompt += "\n" + evidence_pack.OPERATOR.format(
+            path=evidence / "operator" if evidence else operator)
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "
@@ -588,6 +599,8 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
     if evidence is not None:
         dirs.add(str(evidence))
         dirs.add(str(os.path.realpath(scan)))
+    if operator is not None:
+        dirs.add(str(operator))
     # Step budget: a graceful landing at `step_budget` tool-calls (wind-down then stop). The Claude
     # Code harness enforces it with a PreToolUse hook; Codex has no such hook and degrades to a hard
     # stop (`providers.describe` says which you got). `--max-turns` is the backstop below it.
@@ -635,9 +648,13 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
     # (Codex takes its own). Record both, or a gpt-6 session is filed under claude-opus-5 — which is
     # exactly what happened to the Office_room run this profile was measured against.
     used = harness.effective_model(spec) if hasattr(harness, "effective_model") else model
+    # What the operator handed over is not an input identity (see evidence_pack.OPERATOR), so the
+    # trace is where a later look finds which material, in which state, this session was given.
+    extra = ({"operator": str(operator), "operator_digest": evidence_pack.operator_digest(operator)}
+             if operator is not None else {})
     tr.start(model=used, role_model=model, room=str(room), profile=profile, stitches=len(present),
              max_turns=max_turns, scratch=str(scratch_at) if scratch_at else None, prompt=prompt,
-             evidence=str(evidence) if evidence else None, provider=harness.name)
+             evidence=str(evidence) if evidence else None, provider=harness.name, **extra)
     # Kept OUTSIDE the room: the room dir is copied and scanned wholesale downstream, and a
     # stray second Room-ish file in it is a trap.
     checkpoint(room, last_good)

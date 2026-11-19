@@ -140,6 +140,62 @@ def test_rectify_writes_a_texture_of_the_requested_size(scan, tmp_path):
     assert Image.open(out).size == (256, 200)
 
 
+def test_rectify_region_is_unchanged_now_that_it_goes_through_rectify_image(scan, tmp_path):
+    S = Scan(str(scan))
+    quad = [(100, 100), (300, 110), (290, 300), (110, 290)]
+    out = rectify.rectify_region(S, 0, quad, str(tmp_path / "t.png"), (256, 200))
+    # The implementation rectify_region had before rectify_image existed, inline.
+    W, Hh = 256, 200
+    Hm = rectify._homography([(0, 0), (W - 1, 0), (W - 1, Hh - 1), (0, Hh - 1)], [tuple(map(float, p)) for p in quad])
+    before = Image.open(S.rgb_path(0)).convert("RGB").transform(
+        (W, Hh), Image.PERSPECTIVE, tuple((Hm / Hm[2, 2]).flatten()[:8]), Image.BICUBIC)
+    assert np.array_equal(np.asarray(Image.open(out)), np.asarray(before))
+
+
+def _quadrants(size=200):
+    """A flat texture of four coloured quarters: red, green / blue, yellow."""
+    image = Image.new("RGB", (size, size))
+    for (x, y), colour in zip([(0, 0), (1, 0), (0, 1), (1, 1)], ["red", "lime", "blue", "yellow"]):
+        image.paste(colour, (x * size // 2, y * size // 2, (x + 1) * size // 2, (y + 1) * size // 2))
+    return image
+
+
+def test_rectify_image_maps_a_quad_of_any_photo_onto_the_rectangle(tmp_path):
+    from PIL import ImageDraw
+
+    # An unposed photo of a poster seen at an angle: its corners top-left, top-right,
+    # bottom-right, bottom-left, and each quarter drawn between the edges' midpoints.
+    tl, tr, br, bl = (120, 80), (420, 60), (440, 320), (100, 300)
+    mid = lambda a, b: ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)  # noqa: E731
+    centre = mid(mid(tl, br), mid(tr, bl))
+    photo = Image.new("RGB", (640, 400), "grey")
+    draw = ImageDraw.Draw(photo)
+    draw.polygon([tl, mid(tl, tr), centre, mid(tl, bl)], fill="red")
+    draw.polygon([mid(tl, tr), tr, mid(tr, br), centre], fill="lime")
+    draw.polygon([mid(tl, bl), centre, mid(bl, br), bl], fill="blue")
+    draw.polygon([centre, mid(tr, br), br, mid(bl, br)], fill="yellow")
+    photo.save(tmp_path / "poster.jpg", quality=95)
+    out = rectify.rectify_image(tmp_path / "poster.jpg", [tl, tr, br, bl], str(tmp_path / "flat" / "poster.png"), (300, 200))
+    flat = Image.open(out).convert("RGB")
+    assert flat.size == (300, 200)
+    truth = _quadrants().resize((300, 200))
+    for x, y in [(75, 50), (225, 50), (75, 150), (225, 150)]:  # the middle of each quarter
+        assert np.abs(np.subtract(flat.getpixel((x, y)), truth.getpixel((x, y)), dtype=int)).max() < 40
+
+
+def test_rectify_image_reads_a_phone_photo_upright(tmp_path):
+    """Corners are picked on the photo as it displays: its EXIF orientation applied."""
+    upright = _quadrants()
+    stored = upright.transpose(Image.Transpose.ROTATE_90)  # how a phone held portrait stores it
+    exif = Image.Exif()
+    exif[0x0112] = 6  # "rotate 90 CW to display"
+    stored.save(tmp_path / "phone.jpg", exif=exif, quality=95)
+    out = rectify.rectify_image(tmp_path / "phone.jpg", [(0, 0), (199, 0), (199, 199), (0, 199)], str(tmp_path / "t.png"), (200, 200))
+    flat = Image.open(out).convert("RGB")
+    for x, y in [(50, 50), (150, 50), (50, 150), (150, 150)]:
+        assert np.abs(np.subtract(flat.getpixel((x, y)), upright.getpixel((x, y)), dtype=int)).max() < 40
+
+
 def test_contact_sheets_cover_every_frame(scan, tmp_path):
     S = Scan(str(scan))
     sheets = contact_sheets.build(S, str(tmp_path / "cs"), per_sheet=1)

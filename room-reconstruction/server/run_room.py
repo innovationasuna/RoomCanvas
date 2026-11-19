@@ -19,6 +19,12 @@ open and where, Blender cuts them out and hinges them (see realism_authoring/art
 A full run does that pass by default once author has written its room: into RUN_DIR/articulate/
 (its room_preview/ is the room to use; the author's own and the published one stay without the
 new parts). --no-articulate skips it; a rerun picks it up where it stopped.
+
+Either way the replay sees the articulate pass by the same records (articulate_start,
+articulate_done, model_saved articulated); a complete --small-objects pass adds model_saved
+small_objects. To articulate the room WITH the small objects, run --small-objects into
+RUN_DIR/small-objects, then --articulate into RUN_DIR/articulate with
+--set LR_ARTICULATE_SOURCE=RUN_DIR/small-objects/room_preview.
 """
 
 import argparse
@@ -175,7 +181,8 @@ def trace(scene: Path, kind: str, **data) -> None:
     from litereality_agent import telemetry
 
     data.update(run=attempt.name, attempt_id=attempt.name,
-                job_id=env.get("LITEREALITY_JOB_ID") or str(a.run_dir.resolve()), stage="articulate")
+                job_id=env.get("LITEREALITY_JOB_ID") or str(a.run_dir.resolve()))
+    data.setdefault("stage", "articulate")
     if kind == "model_saved" and data.get("path"):
         telemetry.record_artifact(traces, kind, data["path"], **data)
     else:
@@ -237,6 +244,20 @@ def run_timed(command, log, phase, lease):
         save_timing()
 
 
+def articulated(scene: Path, command, out: Path, log_name: str, phase: str, lease) -> int:
+    """The openable-parts pass between the records the replay shows it by, after a full run and
+    as --articulate alike; its room is out/room_preview."""
+    source = env.get("LR_ARTICULATE_SOURCE")
+    trace(scene, "articulate_start", **({"source": source} if source else {}))
+    with (attempt / log_name).open("w") as log:
+        art = run_timed(command, log, phase, lease)
+    room = out / "room_preview/Room.glb"
+    trace(scene, "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
+    if not art and room.is_file():
+        trace(scene, "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
+    return art
+
+
 with measured_lease() as (gpu, lease):
     # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
     env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu.uuid,
@@ -244,10 +265,20 @@ with measured_lease() as (gpu, lease):
     record = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
               "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
     (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
-    with (attempt / "pipeline.log").open("w") as log:
-        rc = run_timed(cmd, log, "pipeline", lease)
+    # A pass that stops early (--through, --only) writes no room, so the replay is told nothing.
+    complete = not (a.through or a.only)
+    if a.articulate and complete:
+        rc = articulated(a.scan.resolve(), cmd, a.run_dir.resolve(), "pipeline.log", "pipeline", lease)
+    else:
+        with (attempt / "pipeline.log").open("w") as log:
+            rc = run_timed(cmd, log, "pipeline", lease)
     (attempt / "exit").write_text(f"{rc}\n")
     print(attempt.name, "exit", rc)
+    small = a.run_dir.resolve() / "room_preview/Room.glb"
+    if a.small_objects and complete and rc == 0 and small.is_file():
+        scene = a.scan.resolve()
+        trace(scene, "model_saved", model="small_objects", stage="small_objects", path=str(small),
+              run_path=os.path.relpath(small, scene.parents[1]), at=small.stat().st_mtime)
     # Only a successful current pipeline may feed enhancement. A failed retry can
     # leave yesterday's preview beside its partial source.
     scenes = [d for d in scene_dirs(a.run_dir)
@@ -258,13 +289,7 @@ with measured_lease() as (gpu, lease):
     art = 0
     if rc == 0 and articulate and len(scenes) == 1:
         articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
-        trace(scenes[0], "articulate_start")
-        with (attempt / "articulate.log").open("w") as log:
-            art = run_timed(articulate, log, "articulate", lease)
+        art = articulated(scenes[0], articulate, a.run_dir / "articulate", "articulate.log", "articulate", lease)
         (attempt / "articulate-exit").write_text(f"{art}\n")
-        room = a.run_dir / "articulate/room_preview/Room.glb"
-        trace(scenes[0], "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
-        if not art and room.is_file():
-            trace(scenes[0], "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
         print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
     raise SystemExit(rc or art)
