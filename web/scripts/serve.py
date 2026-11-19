@@ -19,6 +19,8 @@ computer, so the server's Codex can use the CLIProxyAPI (the user's own subscrip
 services alone), so one password starts everything.
 Finished rooms and replays are kept under runs/room-cache/ and read from there (room_cache.py); with --ssh the
 missing ones download in the background. Without the server the cached ones still open.
+The sample rooms' models (samples/*/Room.glb) are release assets, not files in git: the missing ones are fetched
+in the background at start-up (scripts/fetch_samples.py) while the page already works.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
@@ -41,7 +43,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
+import fetch_samples  # noqa: E402
 import room_cache  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -393,6 +396,15 @@ class Tunnel:
             self.process.kill()
 
 
+def fetch_sample_models(download=True, log=print):
+    """Fetch the sample rooms' models that are not here (scripts/fetch_samples.py), or only name them. The
+    server runs either way: a model that cannot be fetched is reported once, with how to get it."""
+    try:
+        return fetch_samples.fetch(check=not download, missing_only=True, log=log)
+    except (OSError, ValueError, KeyError) as error:
+        log(f'Sample models not checked (samples/models.json): {error}')
+
+
 class Server(ThreadingHTTPServer):
     # ES-module imports arrive in bursts; Python 3.12's five-entry default can reset local connections.
     request_queue_size = 64
@@ -413,7 +425,8 @@ def main():
                         help="with --ssh: forward this port on the server back to this computer's CLIProxyAPI (default 8317)")
     parser.add_argument('--server-dir', metavar='DIR', help='with --ssh: the RoomCanvas checkout on HOST; start its services there')
     parser.add_argument('--cache', type=Path, default=Handler.cache, help='local copies of finished rooms and replays (default: runs/room-cache)')
-    parser.add_argument('--no-download', action='store_true', help='with --ssh: do not download missing rooms and replays')
+    parser.add_argument('--no-download', action='store_true',
+                        help='do not download missing sample models, nor (with --ssh) missing rooms and replays')
     args = parser.parse_args()
     if args.server_dir and not args.ssh:
         parser.error('--server-dir needs --ssh')
@@ -445,6 +458,8 @@ def main():
         if not args.no_download:
             sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True)).start()
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
+    # Started once the tunnel is open, so its lines stay out of the SSH password prompt.
+    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)), daemon=True).start()
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
           + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')

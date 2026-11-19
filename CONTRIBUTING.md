@@ -8,6 +8,7 @@
    # 网页（Node 24、Python 3，不用装依赖）
    node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
    python3 -m unittest discover -s web/scripts
+   python3 scripts/fetch_samples.py   # 示例房间的模型在 sample-rooms release，已有的不重复下载；私有仓库先 gh auth login
    node web/scripts/check_room.mjs --scene-dir samples/room3
    # 房间重建（在 room-reconstruction/ 下）
    uv run ruff check . && uv run pytest -n auto
@@ -24,7 +25,7 @@
 ## 约定
 
 - **重建核心**：`room-reconstruction/` 和 `object-reconstruction/` 的重建核心文件尽量保持稳定；必要的修改遵循所在模块原有的代码风格，并同步更新对应模块的说明。
-- **不进仓库**：新的扫描数据、照片、运行结果、模型权重和 `.env`。现有的 `samples/`、`object-reconstruction/data/example/` 示例照片，以及手势模块随版本提供的识别模型和 WASM 资源保留，来源和规则见各模块 README。
+- **不进仓库**：新的扫描数据、照片、运行结果、模型权重和 `.env`。现有的 `samples/`（物品清单和缩略图）以及手势模块随版本提供的识别模型和 WASM 资源保留，来源和规则见各模块 README。物体重建的示例照片 `object-reconstruction/data/example/` 不进仓库，是 `object-example-data` release 的附件，获取方式见 [目录结构](object-reconstruction/docs/DIRECTORY_LAYOUT.md)。示例房间的模型 `samples/*/Room.glb` 不进仓库，是 `sample-rooms` release 的附件，仓库里只有清单 `samples/models.json`；新增或更换模型见 [示例房间的模型](web/README.md#示例房间的模型)。
 - **GPU 作业**：每个作业只使用一张空闲 GPU，通过共享的 GPU 锁排队；结果写到新目录，不覆盖已有结果。
 - **手势识别包**：修改 `gesture/src` 中被打包的代码后，按 [web/vendor/gesture](web/vendor/gesture/README.md) 的说明重新构建 `web/vendor/gesture/` 并一起提交。
 
