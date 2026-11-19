@@ -371,6 +371,30 @@ class LiveRecords(unittest.TestCase):
                          ['重新开始重建，接着上次做好的部分继续'])
         self.assertEqual([e['say'] for e in events if e['kind'] == 'review'], ['检查房间没通过', '检查房间：通过'])
 
+    def test_a_next_attempt_is_marked_only_after_one_that_did_not_finish(self):
+        self.append([{'t': T0 + 1050, 'kind': 'trace_start', 'run': 'attempt-02'}])
+        restarts = lambda: [e['t'] for e in replay.pipeline_events(self.scene, T0 + 1300) if e['say'].startswith('重新开始')]
+        self.assertEqual(restarts(), [T0 + 1050])  # no exit file (older runs): marked as before
+        write(self.scene.parent.parent / 'attempt-01' / 'exit', '0\n')
+        self.assertEqual(restarts(), [])  # that phase finished: the next one just follows
+        write(self.scene.parent.parent / 'attempt-01' / 'exit', '1\n')
+        self.assertEqual(restarts(), [T0 + 1050])
+
+    def test_a_web_retry_is_still_marked(self):
+        job = self.scene.parent.parent.parent  # <job>/run/pipeline/demo, as the room service runs it
+        write(job / 'run' / 'attempt-01' / 'exit', '2\n')
+        self.append([{'t': T0 + 1050, 'kind': 'trace_start', 'run': 'attempt-02'}])
+        says = [e['say'] for e in replay.timeline(job, 'running', T0 + 1300)['events']]
+        self.assertIn('重新开始重建，接着上次做好的部分继续', says)
+
+    def test_a_model_taken_over_from_an_earlier_reconstruction_is_said_so_once(self):
+        self.append([{'t': T0 + 41, 'kind': 'object_done', 'name': 'Storage1', 'method': 'provided', 'status': 'ok',
+                      'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-01'},
+                     {'t': T0 + 1100, 'kind': 'object_done', 'name': 'Storage1', 'method': 'trellis', 'status': 'ok',
+                      'reused': True, 'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-02'}])
+        shown = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('show') == ['Storage1']]
+        self.assertEqual([(e['t'], e['say']) for e in shown], [(T0 + 41, '沿用之前做好的柜子2模型')])
+
     def test_the_repair_session_shows_in_its_own_stage(self):
         self.append([{'t': T0 + 990, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'run': 'attempt-01',
                       'folder': 'realism_authoring/acceptance/attempt-x/round_00'},
@@ -406,6 +430,135 @@ class LiveRecords(unittest.TestCase):
         starts = [e['t'] for e in data['events'] if e['say'].startswith('找出柜门')]
         self.assertEqual(starts, [T0 + 1200])
         self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('articulate'), 0)
+
+
+ELEVEN = ['scan', 'layout', 'photos', 'plan', 'assemble', 'adjust', 'check', 'review', 'review2', 'review3', 'articulate']
+
+
+def phased(run):
+    """A run its operator launched in phases, each its own attempt: objects (one model taken over from an
+    earlier reconstruction), author (whose own openable-parts try failed), small objects, openable parts."""
+    scene = make_run(run)
+    rows = [
+        {'t': T0 + 5, 'kind': 'trace_start', 'run': 'attempt-01'},
+        {'t': T0 + 40, 'kind': 'object_done', 'name': 'Storage1', 'method': 'provided', 'status': 'ok',
+         'reused': True, 'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-01'},
+        {'t': T0 + 95, 'kind': 'model_saved', 'model': 'seed', 'run': 'attempt-01'},
+        {'t': T0 + 150, 'kind': 'trace_start', 'run': 'attempt-02'},
+        {'t': T0 + 1080, 'kind': 'model_saved', 'model': 'round', 'run': 'attempt-02'},
+        {'t': T0 + 1085, 'kind': 'review_done', 'reviewed': True, 'passed': True, 'run': 'attempt-02',
+         'folder': 'realism_authoring/acceptance/attempt-x/round_01'},
+        {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'run': 'attempt-02'},
+        {'t': T0 + 1150, 'kind': 'articulate_start', 'run': 'attempt-02'},
+        {'t': T0 + 1160, 'kind': 'articulate_done', 'status': 'failed', 'run': 'attempt-02'},
+        {'t': T0 + 2000, 'kind': 'trace_start', 'run': 'attempt-03'},
+        {'t': T0 + 2010, 'kind': 'small_objects_start', 'run': 'attempt-03'},
+        {'t': T0 + 2200, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'trellis', 'status': 'ok', 'run': 'attempt-03'},
+        {'t': T0 + 2300, 'kind': 'small_object_done', 'name': 'WaterBottle1', 'method': 'trellis', 'status': 'ok', 'run': 'attempt-03'},
+        {'t': T0 + 2310, 'kind': 'small_object_done', 'name': 'Mug0', 'method': 'dropped', 'status': 'ok', 'run': 'attempt-03'},
+        {'t': T0 + 2320, 'kind': 'small_object_done', 'name': 'Book0', 'method': 'kept', 'status': 'ok', 'run': 'attempt-03'},
+        {'t': T0 + 2500, 'kind': 'small_objects_done', 'rebuilt': 2, 'dropped': 1, 'kept': 1, 'run': 'attempt-03'},
+        {'t': T0 + 2510, 'kind': 'model_saved', 'model': 'small_objects', 'run': 'attempt-03',
+         'path': str((run / replay.SMALL_OBJECTS).resolve())},
+        {'t': T0 + 3000, 'kind': 'trace_start', 'run': 'attempt-04'},
+        {'t': T0 + 3010, 'kind': 'articulate_start', 'run': 'attempt-04'},
+        {'t': T0 + 3300, 'kind': 'articulate_done', 'status': 'ok', 'run': 'attempt-04'},
+        {'t': T0 + 3300, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-04'},
+    ]
+    with (scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in rows))
+    for k in range(1, 5):
+        write(run / f'attempt-0{k}' / 'exit', '0\n')
+    write(run / replay.SMALL_OBJECTS, b'small', T0 + 2505)
+    write(run / replay.ARTICULATED, b'articulated', T0 + 3290)
+    return scene
+
+
+class PhasedRun(unittest.TestCase):
+    """A run launched in phases reads as one reconstruction, with the small-object pass before the openable parts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.run = self.root / 'run'
+        self.scene = phased(self.run)
+        self.data = self.root / 'jobs'
+        self.data.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_phases_read_as_one_reconstruction(self):
+        job = self.data / replay.register(self.data, self.run, 'phased')  # the run through a symlink
+        data = replay.timeline(job, 'completed', json.loads((job / 'job.json').read_text())['until'])
+        events = data['events']
+        self.assertFalse([e for e in events if e['say'].startswith('重新开始')])
+        self.assertEqual([s['id'] for s in data['stages']], ELEVEN[:-1] + ['small_objects', 'articulate'])
+        self.assertEqual([e['stage'] for e in events if e['t'] > T0 + 1140], ['small_objects'] * 4 + ['articulate'] * 2)
+        self.assertEqual([e['say'] for e in events if e['stage'] == 'small_objects'],
+                         ['逐个看房间里的小物品，挑出需要按照片重做的', '纸巾盒换成了按照片重建的模型', '瓶子换成了按照片重建的模型',
+                          '小物品处理好了：按照片重做 2 件，去掉 1 件，1 件保持原样'])
+        self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'round0', 'final', 'small_objects', 'articulated'])
+        self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
+        self.assertEqual(data['models']['small_objects'], replay.SMALL_OBJECTS)
+        self.assertIn('沿用之前做好的柜子2模型', [e['say'] for e in events])
+        self.assertEqual(data['model_evidence']['small_objects']['time'], T0 + 2510)
+
+    def test_a_live_view_shows_the_pass_as_it_goes(self):
+        data = replay.timeline(self.root, 'running', T0 + 2400)  # <root>/run/pipeline/demo
+        self.assertEqual(data['stages'][-2]['id'], 'small_objects')
+        self.assertEqual(data['events'][-1]['say'], '瓶子换成了按照片重建的模型')
+        self.assertNotIn('small_objects', data['models'])
+        summary = replay.timeline(self.root, 'running', T0 + 2505)['events'][-1]  # counted, the room not saved yet
+        self.assertEqual((summary['t'], summary.get('model')), (T0 + 2500, None))
+
+    def test_a_run_without_the_pass_is_unchanged(self):
+        job = self.root / 'plain'
+        make_run(job / 'run')
+        data = replay.timeline(job, 'completed', T0 + 1300)
+        self.assertEqual([s['id'] for s in data['stages']], ELEVEN)
+        self.assertEqual(list(data['models']), ['seed', 'round0', 'round1', 'final'])
+        self.assertEqual(replay.timeline(self.root / 'none')['stages'], replay.stages_of([]))
+
+    def test_the_room_is_found_where_its_record_says(self):
+        (self.run / replay.SMALL_OBJECTS).unlink()
+        inside = write(self.scene / 'realism_authoring/small_objects/room_preview/Room.glb', b'small', T0 + 2505)
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps({'t': T0 + 2510, 'kind': 'model_saved', 'model': 'small_objects', 'run': 'attempt-03',
+                                'path': 'realism_authoring/small_objects/room_preview/Room.glb'}) + '\n')
+        self.assertEqual(replay.scene_file(self.scene, replay.SMALL_OBJECTS), inside.resolve())
+        outside = write(self.root / 'elsewhere/room_preview/Room.glb')
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps({'t': T0 + 2520, 'kind': 'model_saved', 'model': 'small_objects', 'path': str(outside)}) + '\n')
+        self.assertIsNone(replay.scene_file(self.scene, replay.SMALL_OBJECTS))  # outside the run: refused
+
+    def test_a_slim_copy_keeps_the_pass_and_how_each_attempt_ended(self):
+        dest = self.root / 'slim'
+        replay.slim(self.run, dest)
+        self.assertEqual((dest / 'attempt-02' / 'exit').read_text(), '0\n')
+        self.assertEqual((dest / replay.SMALL_OBJECTS).read_bytes(), b'small')
+        a = replay.timeline(self.data / replay.register(self.data, self.run, 'a'), 'completed', T0 + 4000)
+        b = replay.timeline(self.data / replay.register(self.data, dest, 'b'), 'completed', T0 + 4000)
+        self.assertEqual(a, b)
+        self.assertFalse([e for e in b['events'] if e['say'].startswith('重新开始')])
+
+    def test_the_replay_route_serves_the_pass(self):
+        jobs = service.Jobs(self.data, Path.cwd(), runner='cli')
+        identifier = replay.register(self.data, self.run, 'phased')
+        handler = type('H', (service.Handler,), {'jobs': jobs, 'log_message': lambda *a: None})
+        server = service.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            base = f'http://127.0.0.1:{server.server_port}/room-reconstruction/jobs'
+            urlopen(base, timeout=10).close()  # picks up the registered run
+            base += f'/{identifier}/replay'
+            with urlopen(base, timeout=10) as response:
+                data = json.loads(response.read())
+            self.assertEqual(list(data['models'])[-2:], ['small_objects', 'articulated'])
+            with urlopen(f'{base}/files/{data["models"]["small_objects"]}', timeout=10) as response:
+                self.assertEqual(response.read(), b'small')
+        finally:
+            server.shutdown(); server.server_close()
 
 
 def glb(path, tree, t):
