@@ -22,6 +22,6 @@
 ## 运维约束
 
 - Mutagen `roomcanvas-gynserver` 继续暂停；本次仅显式部署已审阅源码，不恢复双向同步。
-- 服务器 Git 保持 `main`（`b50b622`）并叠加本次源码；本机功能分支单独提交推送。不在服务器直接 `git pull` 覆盖工作区。
+- 服务器 Git 保持 `main`（`abbd001`）并叠加本次源码；本机功能分支单独提交推送。不在服务器直接 `git pull` 覆盖工作区。
 - 既有物体 API 已重载，`172.18.0.2:7862` 的健康检查与真实烘焙资产契约通过；本次临时回环 API 已停止。本机 `serve.py --ssh gynserver --remote 172.18.0.2:7862` 连接。房间服务在 7866，未重启。
 - GPU 继续使用 `configs/local.env` 指定的单卡与共享锁；CPU 测试应移除 `VIEWFORGE_GPU_LOCK`，防止误用正式作业锁。

@@ -2,7 +2,7 @@
 
 # 重构验收记录
 
-更新：2026-11-18。开发分支 `refactor/reliability-start`，基线为官方 `main@d8842f65c1c1e0d0a6abd0bd1f6b7fc134ca5b7e`。源码位于本地 `runs/refactor-worktrees/reliability`；服务器仅使用独立的验证 worktree。正式目录未部署本轮代码。
+更新：2026-11-18。开发分支 `refactor/reliability-start`，基线为官方 `main@c9a807eeebb44f6123ec889fa070c2307d8ddb58`。源码位于本地 `runs/refactor-worktrees/reliability`；服务器仅使用独立的验证 worktree。正式目录未部署本轮代码。
 
 ## 范围与结果
 
@@ -102,7 +102,7 @@ refine 对照冻结 `007a136` 与 `e707834` 模块，同一个 renderer 源码�
 - 初次大模型 BVH 仍约 2.7 秒；本轮改善了增删与查询，没有消除所有启动成本。扫描时相交的物品按穿入深度限制，同一凹形连通部分内部不做逐三角形扫掠。
 - 硬件验证覆盖物体完整链路、真实房间 seed 的编译/发布、TRELLIS、refine；未重新付费运行整房多 Agent 创作或完整 articulate 模型推理。相应恢复/缓存/错误路径有受控回归。模型质量对照使用一个双图 fixture，不外推所有物品。
 - Android、上游独立 walk、真人手势准确率未做设备验收；本轮未改变它们的交互算法。legacy 删除、大文件/LFS 迁移、历史重写、模型常驻、渲染器切换与正式部署均不在批准的默认实施范围。
-- 保留本地开发 worktree、服务器独立验证 worktree、复现脚本和原始报告供审查；合并审查及证据保全后可清理。正式目录保持 `main@d8842f6`。验证分支 README 保存服务器记录。
+- 保留本地开发 worktree、服务器独立验证 worktree、复现脚本和原始报告供审查；合并审查及证据保全后可清理。正式目录保持 `main@c9a807e`。验证分支 README 保存服务器记录。
 - 结束时已核对本次 GPU 验证进程退出；正式目录和验证目录的受版本控制文件无未提交改动。最终文档提交随后只更新独立验证分支。
 
 本机原始报告：`/private/tmp/RoomCanvas-editor-incremental/`、`RoomCanvas-editor-final/`、`RoomCanvas-editor-latency.json`、`RoomCanvas-replay-shaders.json`、`RoomCanvas-tracker-browser.json`、`RoomCanvas-proxy-benchmark/report.json`。均不含本次提交的模型/照片；私人模型和截图未加入 Git。
