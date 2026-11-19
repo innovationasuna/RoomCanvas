@@ -36,6 +36,15 @@ test('events sit inside their stage and the clock reads real time', () => {
   assert.equal(clock(122.5), '2:02:30');
 });
 
+test('the scan shows only while it is read, then fades out for good', () => {
+  const tl = buildTimeline({stages, events});
+  const [scan, layout] = [tl.stages[0].replay, tl.stages[1].replay];
+  assert.equal(sceneAt(tl, scan[0] + 0.1).pointsFade, 1);
+  assert.equal(sceneAt(tl, scan[1] - 0.01).pointsFade, 1);
+  assert.ok(sceneAt(tl, layout[0] + 0.5).pointsFade > 0 && sceneAt(tl, layout[0] + 0.5).pointsFade < 1);
+  for (const t of [layout[0] + 1, layout[1], tl.duration]) assert.equal(sceneAt(tl, t).pointsFade, 0);
+});
+
 test('the scene shows the latest model reached and the objects built so far', () => {
   const tl = buildTimeline({stages, events});
   const bed = tl.events.find((e) => e.say === 'bed');

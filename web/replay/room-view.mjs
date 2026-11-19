@@ -501,9 +501,9 @@ export class RoomView {
     const inRoom = !!key && !!this.models[key]?.root && (this.current === key || this.incoming === key);
     if (this.points) {
       this.points.material.userData.reveal.value = state.points;
-      this.points.material.opacity = state.pointsDim ? 0.22 : 1;
-      this.points.material.depthWrite = !state.pointsDim;
-      this.points.visible = !inRoom;
+      this.points.material.opacity = state.pointsFade;
+      this.points.material.depthWrite = state.pointsFade === 1;
+      this.points.visible = !inRoom && state.pointsFade > 0;
     }
     if (this.wallLines) {
       this.wallLines.visible = state.walls > 0 && !inRoom;
