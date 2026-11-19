@@ -18,7 +18,12 @@ def files(room: Path) -> list[Path]:
                        or {"materials", "textures"}.intersection(p.relative_to(room).parts)))
 
 
-def source_error(room: Path) -> str:
+def source_error(room: Path, *, resources: bool = False) -> str:
+    """Why the room's sources do not parse; with `resources`, also a path literal with no file.
+
+    The resource check is a heuristic (an optional texture or an output path looks the same), so
+    it only holds back a new checkpoint and never decides to restore over the room's sources.
+    """
     if not (room / "Room.py").is_file():
         return f"missing {room / 'Room.py'}"
     try:
@@ -27,12 +32,13 @@ def source_error(room: Path) -> str:
                 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
                 # Material tools may create files and edit Room.py in separate tool calls. Do
                 # not advance the checkpoint while its explicit local resource is absent.
-                for node in ast.walk(tree):
+                for node in ast.walk(tree) if resources else ():
                     if isinstance(node, ast.Constant) and isinstance(node.value, str):
                         resource = Path(node.value)
                         if (not resource.is_absolute() and resource.parts
                                 and resource.parts[0] in {"materials", "textures"}
-                                and resource.suffix and not (room / resource).is_file()
+                                and resource.suffix and not set("*?[").intersection(node.value)
+                                and not (room / resource).is_file()
                                 and not (path.parent / resource).is_file()):
                             return f"{path.name}: missing resource {resource}"
             elif path.suffix == ".json":
@@ -47,7 +53,7 @@ def inventory(room: Path) -> dict[str, str | None]:
 
 
 def save(room: Path, legacy: Path) -> bool:
-    if (room.parent / ".author_restore_pending.json").exists() or source_error(room):
+    if (room.parent / ".author_restore_pending.json").exists() or source_error(room, resources=True):
         return False
     store = legacy.with_suffix(".d")
     blobs = store / "blobs"
@@ -70,7 +76,7 @@ def save(room: Path, legacy: Path) -> bool:
                     tmp.unlink(missing_ok=True)
         # Both validation and the manifest are against the same file contents, not a mixture
         # of successive tool writes. Only this final pointer advertises the snapshot as valid.
-        if inventory(room) != mapping or source_error(room):
+        if inventory(room) != mapping or source_error(room, resources=True):
             return False
         cache.atomic_json(store / "manifest.json", {"version": 1, "files": mapping})
         temporary = legacy.with_suffix(".tmp")

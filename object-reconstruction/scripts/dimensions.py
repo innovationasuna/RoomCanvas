@@ -185,7 +185,8 @@ class DimensionsMiddleware:
         try:
             if len(parts) > 2 or (len(parts) == 2 and parts[1] != 'model.glb'):
                 raise FileNotFoundError('找不到接口')
-            run = result_directory(self.root, parts[0])
+            # Checking a model may parse it (a text PLY): never on the event loop.
+            run = await run_in_threadpool(result_directory, self.root, parts[0])
             if request.method == 'GET' and len(parts) == 2:
                 path = await run_in_threadpool(metric_glb, run)
                 response = FileResponse(path, media_type='model/gltf-binary', filename=f'{run.name}-scaled.glb', headers={'Cache-Control': 'no-store'})

@@ -139,3 +139,18 @@ def test_room_rechecks_card_occupancy_while_locked(machine, monkeypatch):
     assert len(reads) == 2
     with roomcanvas_gpu.object_lease(machine / "objects") as lease:
         assert lease.uuid == CARD0.uuid
+
+
+def test_waiting_for_a_held_card_is_bounded_with_a_clear_error(machine, monkeypatch):
+    for module in (roomcanvas_gpu, gpu):
+        monkeypatch.setattr(module, "WAIT_SECONDS", .3)
+        monkeypatch.setattr(module, "POLL_SECONDS", .05)
+    room = dict(os.environ, ROOMCANVAS_GPU=CARD0.uuid)
+    with gpu.room_lease(machine, room):
+        with pytest.raises(TimeoutError, match="locked by another job.*gave up after waiting"):
+            with roomcanvas_gpu.object_lease(machine / "objects", wait=True):
+                pytest.fail("an object job shared the card with a room")
+    with roomcanvas_gpu.object_lease(machine / "objects"):
+        with pytest.raises(RuntimeError, match="No GPU became available.*locked by another job"):
+            with gpu.room_lease(machine, room, wait=True):
+                pytest.fail("a room shared the card with an object job")

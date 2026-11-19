@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
+import os
 import shutil
 from pathlib import Path
 import stat
@@ -284,11 +285,51 @@ class APIIntegration(unittest.TestCase):
             self.jobs.run_one(self.identifier)
         self.assertEqual(self.request('/room-reconstruction/jobs')['jobs'][0]['status'], 'failed')
         self.assertEqual(self.request('/room-reconstruction/jobs/' + self.identifier + '/retry', b'')['status'], 'queued')
+        os.close(self.jobs.owner)  # the service stops
         restored = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restored.pending.get_nowait(), self.identifier)
         record = restored.records[self.identifier]; record['status'] = 'running'; restored.save(record)
+        os.close(restored.owner)
         restarted = service.Jobs(self.jobs.root, Path.cwd())
         self.assertEqual(restarted.records[self.identifier]['status'], 'failed')
+
+    def test_a_second_service_on_the_same_directory_does_not_start(self):
+        entered, release = threading.Event(), threading.Event()
+        extract = service.extract_scan
+
+        def pause(archive, destination):
+            unpacked = extract(archive, destination)
+            entered.set()
+            release.wait(10)
+            return unpacked
+
+        with patch.object(service, 'extract_scan', side_effect=pause), ThreadPoolExecutor(1) as pool:
+            upload = pool.submit(self.submit)
+            self.assertTrue(entered.wait(5))
+            with self.assertRaisesRegex(RuntimeError, '正在使用'):
+                service.Jobs(self.jobs.root, Path.cwd())  # a second start while this one still serves
+            release.set()
+            self.assertEqual(upload.result()['status'], 'queued')
+        (self.jobs.root / '.upload-x' / 'capture').mkdir(parents=True)
+        os.close(self.jobs.owner)  # the first service stops
+        service.Jobs(self.jobs.root, Path.cwd())
+        self.assertEqual(list(self.jobs.root.iterdir()), [self.jobs.root / self.identifier])
+
+    def test_only_a_failure_of_the_input_refuses_a_retry(self):
+        self.submit()
+        state = self.jobs.root / self.identifier / 'output/scan/.litereality/pipeline.json'
+        state.parent.mkdir(parents=True)
+        retry = '/room-reconstruction/jobs/' + self.identifier + '/retry'
+        for category, allowed in [('execution', True), ('input', False)]:
+            self.jobs.records[self.identifier]['status'] = 'failed'
+            state.write_text(json.dumps({'stages': {'author': {
+                'status': 'failed', 'error': 'command exited 1', 'error_category': category, 'retryable': False}}}))
+            if allowed:
+                self.assertEqual(self.request(retry, b'')['status'], 'queued')
+            else:
+                with self.assertRaises(HTTPError) as error:
+                    self.request(retry, b'')
+                self.assertEqual(error.exception.code, 409)
 
     def test_optional_enhancement_failure_preserves_a_valid_published_room(self):
         self.jobs.runner = 'server'
@@ -369,6 +410,16 @@ class APIIntegration(unittest.TestCase):
             self.jobs.run_one(self.identifier)
         self.assertEqual(self.jobs.records[self.identifier]['status'], 'failed')
         self.assertIn('可动部件', self.jobs.records[self.identifier]['error'])
+
+    def test_server_runner_says_when_the_time_limit_stopped_it(self):
+        self.jobs.runner = 'server'
+        self.submit()
+        def timed_out(args, log):
+            (Path(args[3]) / 'attempt-01').mkdir(parents=True)
+            raise RuntimeError('任务超过运行时限，请检查服务器日志后重试。')
+        with patch.object(self.jobs, 'execute', side_effect=timed_out):
+            self.jobs.run_one(self.identifier)
+        self.assertIn('运行时限', self.jobs.records[self.identifier]['error'])
 
     def test_server_runner_publishes_articulated_result(self):
         self.jobs.runner = 'server'

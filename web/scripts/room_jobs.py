@@ -1,6 +1,9 @@
 """Persistent job state and queue, independent of HTTP transport."""
+import fcntl
 import json
+import os
 import queue
+import shutil
 import sys
 import tempfile
 import threading
@@ -22,6 +25,16 @@ class Jobs:
         self.upload_lock = threading.Lock()
         self.pending = queue.Queue()
         self.records = {}
+        # One service owns the directory for as long as it runs; a second one would share its queue
+        # and could clear the uploads it is unpacking. Only the owner clears a stopped one's leftovers.
+        self.owner = os.open(self.root, os.O_RDONLY)
+        try:
+            fcntl.flock(self.owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(self.owner)
+            raise RuntimeError(f'另一个房间重建服务正在使用 {self.root}，请先停止它或换一个数据目录。') from None
+        for staged in self.root.glob('.upload-*'):
+            shutil.rmtree(staged, ignore_errors=True)
         for path in sorted(self.root.glob('*/job.json')):
             record = json.loads(path.read_text())
             self.records[record['id']] = record
@@ -114,7 +127,7 @@ class Jobs:
                 if identifier in self.records:
                     return self.public(self.records[identifier])
             folder = self.root / identifier
-            with tempfile.TemporaryDirectory(dir=self.root) as temp:
+            with tempfile.TemporaryDirectory(dir=self.root, prefix='.upload-') as temp:
                 staged = Path(temp) / identifier
                 capture = self.extract(archive, staged / 'capture')
                 now = time.time()

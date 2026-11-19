@@ -222,6 +222,7 @@ def main():
     parser.add_argument('--parent-run')
     parser.add_argument('--images', nargs='+', help='Image stems to reconstruct; default: all')
     parser.add_argument('--wait-gpu', action='store_true', help='Wait for the GPU lock instead of failing')
+    parser.add_argument('--lock-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     root = Path(os.environ['VIEWFORGE_ROOT']).resolve()
     name, attempt = component(args.object), component(args.attempt)
@@ -235,7 +236,7 @@ def main():
         gpu = check_gpu(cfg['runtime']['min_free_gib'])
         print(json.dumps(dict(status='preflight_passed', images=len(inputs['images']), gpu=gpu)))
         return
-    with object_lease(root, wait=args.wait_gpu) as lease:
+    with object_lease(root, wait=args.wait_gpu, inherited=args.lock_fd) as lease:
         # Free memory means something only once the lock is ours: before that, the job holding
         # it is using the memory, and --wait-gpu should wait for it rather than fail.
         gpu = check_gpu(cfg['runtime']['min_free_gib'], lease.uuid)

@@ -661,6 +661,8 @@ function select(id, announce = true) {
     $('#selection-label').classList.remove('just-selected');
     requestAnimationFrame(() => $('#selection-label').classList.add('just-selected'));
     if (announce) $('#status').textContent = `已选中${entities.get(id).name}，拖动或使用右侧连续拖动工具调整`;
+    // After this frame is drawn, not in the first frame of a drag.
+    setTimeout(() => {if (selected === id) collision?.prepare(id);});
   } else if (announce) $('#status').textContent = '点选物品，开始布置房间';
   updateInspector();
   requestRender();
@@ -733,7 +735,7 @@ function editObject(change, direction) {
   layout = contact.layout;
   if (contact.blocked) {
     const name = typeof contact.other === 'string' ? (entities.get(contact.other)?.name || contact.other) : contact.other?.name || '其他物品';
-    motionNotice = {id: selected, contactInvalid: !!installing, message: contact.reason === 'overlap-recovery-limited' ? '原始扫描存在重叠，请向外移开后再旋转；仍受阻时先收起，再放到空处' : installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
+    motionNotice = {id: selected, contactInvalid: !!installing, message: installing ? `这里会碰到${name}，请继续调整位置或高度` : restoringMount ? `原安装位置会碰到${name}，已保留当前位置` : `碰到${name}，已停止；请调整方向或高度`, other: contact.other, fraction: contact.fraction};
     showToast(motionNotice.message);
   }
   applyLayout();

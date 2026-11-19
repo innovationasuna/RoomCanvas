@@ -251,6 +251,52 @@ def test_stage_input_fingerprint_checks_content_with_preserved_timestamps(tmp_pa
     assert input_fingerprint(context, "ingest", {}) != first
 
 
+def test_stage_input_fingerprint_ignores_own_outputs_job_location_and_unused_settings(tmp_path):
+    import shutil
+
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.fingerprint import input_fingerprint
+    from litereality_agent.settings import LiteRealitySettings
+
+    def context(root, **settings):
+        values = LiteRealitySettings(_env_file=None, repo_root=root, **settings)
+        return RunContext("scan", root / "capture", root / "run" / "scan", root / "run", settings=values)
+
+    job = context(tmp_path / "job")
+    job.capture_dir.mkdir(parents=True)
+    (job.capture_dir / "room.usdz").write_bytes(b"scan")
+    job.seed_room.mkdir(parents=True)
+    (job.seed_room / "Room.py").write_text("seed = 1")
+    first = input_fingerprint(job, "author", {})
+    (job.authoring_root / "surface_ref").mkdir(parents=True)
+    (job.authoring_root / "surface_ref" / "surface_ref_manifest.json").write_text("{}")
+    assert input_fingerprint(job, "author", {}) == first
+    shutil.copytree(tmp_path / "job", tmp_path / "moved")
+    assert input_fingerprint(context(tmp_path / "moved"), "author", {}) == first
+    ingest = input_fingerprint(job, "ingest", {})
+    assert input_fingerprint(context(tmp_path / "job", codex_model="other"), "ingest", {}) == ingest
+    assert input_fingerprint(context(tmp_path / "job", codex_model="other"), "author", {}) != first
+
+
+def test_reconstruct_fingerprint_covers_chair_references_and_the_procedural_agent(tmp_path):
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.fingerprint import input_fingerprint
+    from litereality_agent.settings import LiteRealitySettings
+
+    def context(**settings):
+        values = LiteRealitySettings(_env_file=None, repo_root=tmp_path, **settings)
+        return RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run", settings=values)
+
+    chairs = context().object_root / "object_init/chair_clusters/scan"
+    (chairs / "references").mkdir(parents=True)
+    (chairs / "references/ChairCluster0.png").write_bytes(b"first")
+    first = input_fingerprint(context(), "reconstruct", {})
+    (chairs / "references/ChairCluster0.png").write_bytes(b"second")
+    assert input_fingerprint(context(), "reconstruct", {}) != first
+    second = input_fingerprint(context(), "reconstruct", {})
+    assert input_fingerprint(context(codex_model="other"), "reconstruct", {}) != second
+
+
 def test_author_checkpoint_restores_matching_source_and_resources(tmp_path):
     from litereality_agent.agent import author_checkpoint as checkpoint
 
@@ -270,6 +316,21 @@ def test_author_checkpoint_restores_matching_source_and_resources(tmp_path):
     assert (room / "Room.py").read_text() == "TEXTURE = 'materials/a.png'\n"
     assert (room / "materials" / "a.png").read_bytes() == b"old"
     assert json.loads((room / "textures.json").read_text()) == {"a": 1}
+
+
+def test_an_unresolved_path_literal_holds_back_a_checkpoint_but_never_restores_over_the_room(tmp_path):
+    from litereality_agent.agent import author_checkpoint as checkpoint
+
+    room = tmp_path / "room"
+    room.mkdir()
+    last_good = tmp_path / ".room_checkpoint.py"
+    (room / "Room.py").write_text("x = 1\n")
+    assert checkpoint.save(room, last_good)
+    (room / "Room.py").write_text("import glob\nTEX = glob.glob('materials/*.jpg')\n")
+    assert checkpoint.save(room, last_good), "a glob pattern is not a missing file"
+    (room / "Room.py").write_text("OUT = 'textures/baked_preview.png'\n")
+    assert not checkpoint.save(room, last_good)
+    assert checkpoint.source_error(room) == "", "valid sources must not be replaced by the checkpoint"
 
 
 def test_broken_checkpoint_blob_never_partially_restores_room(tmp_path):

@@ -146,7 +146,7 @@ def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monk
 
     failed = asyncio.run(inv.execute())
     assert failed.build == {"status": "error", "glb_path": None}
-    assert "bake.log" in failed.error
+    assert "bake.log" in failed.error and ("script failed" in failed.error) == (failure == "nonzero")
     assert (preview / "bake.log").read_text()
     assert glb.read_bytes() == b"assembled"
     assert not compile_is_fresh(room)

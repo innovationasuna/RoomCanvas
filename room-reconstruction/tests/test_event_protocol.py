@@ -47,3 +47,26 @@ def test_legacy_writer_between_versioned_events_does_not_reset_sequence(tmp_path
     telemetry.record(tmp_path, "stage")
     rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
     assert rows[-1]["sequence"] == 2
+
+
+def test_an_unwritable_or_malformed_trace_never_fails_the_caller(tmp_path, capsys):
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(json.dumps({"kind": "x", "sequence": 3}) + "\n" + json.dumps({"kind": "x", "sequence": None}) + "\n")
+    telemetry.record(tmp_path, "stage")
+    assert json.loads(trace.read_text().splitlines()[-1])["sequence"] == 4
+    trace.chmod(0o444)
+    telemetry.record(tmp_path, "stage")
+    assert "stage event not written" in capsys.readouterr().err
+
+
+def test_an_unwritable_agent_payload_still_records_the_step(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(telemetry, "_state", {"scan": None, "dir": None, "t0": None})
+    traces = telemetry.start("scan", tmp_path / "traces")
+    (traces / "agent").chmod(0o555)
+    try:
+        telemetry.agent_step("procedural", "plan", payload={"thought": "x"})
+    finally:
+        (traces / "agent").chmod(0o755)
+    row = json.loads((traces / "trace.jsonl").read_text().splitlines()[-1])
+    assert row["kind"] == "agent_step" and row["payload_ref"] is None
+    assert "payload not written" in capsys.readouterr().err
