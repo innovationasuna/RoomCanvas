@@ -282,8 +282,9 @@ function render(t, p, force = false) {
   const prevIdx = lastIdx;
   lastIdx = idx;
   const e = tl.events[idx];
-  // Once the room shell shows, a finished object takes shape in place: move in close to watch it.
-  if (idx === prevIdx + 1 && e?.show && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
+  // Once the room shell shows, a finished object takes shape in place: move in close to watch it (not to
+  // one made again, which is already there and passes in a moment).
+  if (idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   renderLog(idx);
 }
 
