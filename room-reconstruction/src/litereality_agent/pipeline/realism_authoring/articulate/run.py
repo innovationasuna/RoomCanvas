@@ -18,6 +18,10 @@
 Steps: candidates -> views -> photos -> Astra decides per object (does it open, where, how) ->
 cut everything planned (draft) -> render closed/open -> Astra checks each part -> the kept parts
 are cut again from the author's room (room_preview). Every step skips work already on disk.
+
+LR_ARTICULATE_SOURCE=<room_preview dir> takes the room from another pass instead, e.g. the
+small objects' `room_preview/`, so the published room has them. It must be that pass's complete
+output and made from the author's current room; a different source room reruns this pass.
 """
 
 from __future__ import annotations
@@ -112,6 +116,12 @@ class Pass:
         self.preview = self.scene_dir / scene["paths"]["authoring_preview"]
         self.room = self.scene_dir / scene["paths"]["authoring_room"]
         self.out = (out or self.scene_dir / scene["paths"]["authoring"] / "articulate").resolve()
+        source = os.environ.get("LR_ARTICULATE_SOURCE", "").strip()
+        if source:
+            # Another pass's published room (the small objects' room_preview) instead of the
+            # author's; the Objects the joints are written beside still come from the author's room.
+            self.preview = pass_cache.published_room(Path(source).expanduser().resolve(),
+                                                     self.preview)
         self.layout = json.loads((self.preview / "room_layout.json").read_text())
         self.cameras = list(self.layout["cameras"])
         self.only = set(only or [])
@@ -323,6 +333,8 @@ class Pass:
             for name in ("Room.blend", "Room.glb"):
                 shutil.copyfile(self.preview / name, final / name)
         shutil.copyfile(self.preview / "room_layout.json", final / "room_layout.json")
+        if (self.preview / "Object").is_dir():  # the small objects' meshes their layout names
+            shutil.copytree(self.preview / "Object", final / "Object", dirs_exist_ok=True)
         objects = self.out / "room" / "Objects"
         shutil.rmtree(objects, ignore_errors=True)
         objects.mkdir(parents=True)

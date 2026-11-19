@@ -84,3 +84,120 @@ def test_failed_pass_has_no_publication_event(tmp_path, monkeypatch, name):
     with pytest.raises(expected):
         publish()
     assert not (traces / "trace.jsonl").exists()
+
+
+def test_articulate_takes_its_room_from_the_published_small_objects(tmp_path, monkeypatch):
+    from litereality_agent import artifact_cache as cache
+    from litereality_agent.pipeline.realism_authoring.articulate.run import Pass
+
+    small, _, publish = make_pass(tmp_path, monkeypatch, "small_objects")
+    blender = small.blender
+
+    layout = '{"cameras": [], "objects": [{"id": "Cup0", "source_glb": "Cup0.glb"}]}'
+
+    def apply(blend, request, label):  # the small objects' own meshes beside their room
+        blender(blend, request, label)
+        (Path(request["out_dir"]) / "room_layout.json").write_text(layout)
+        (Path(request["out_dir"]) / "Object").mkdir()
+        (Path(request["out_dir"]) / "Object" / "Cup0.glb").write_bytes(b"cup")
+
+    monkeypatch.setattr(small, "blender", apply)
+    publish()
+    source = small.out / "room_preview"
+    monkeypatch.setenv("LR_ARTICULATE_SOURCE", str(source))
+    run = Pass(small.scene_dir, out=tmp_path / "articulate")
+    assert run.preview == source.resolve()
+    assert cache.read_json(run.out / "dependencies.json")["dependencies"]["preview"]["Room.glb"] == \
+        cache.file_hash(source / "Room.glb")
+    run.items = []
+    run.final()  # nothing to cut: the room as it came, small objects and all
+    final = run.out / "room_preview"
+    assert (final / "Room.glb").read_bytes() == b"modified room"
+    assert (final / "room_layout.json").read_text() == layout
+    assert (final / "Object" / "Cup0.glb").read_bytes() == b"cup"
+    assert (run.out / "room" / "Objects" / "Procedural").resolve() == (small.scene_dir / "room/Objects/Procedural")
+
+    (small.scene_dir / "preview" / "Room.blend").write_bytes(b"author built again")
+    with pytest.raises(ValueError, match="another author room"):
+        Pass(small.scene_dir, out=tmp_path / "articulate")
+    monkeypatch.setenv("LR_ARTICULATE_SOURCE", str(small.scene_dir / "preview"))  # no receipt
+    with pytest.raises(ValueError, match="not a published room preview"):
+        Pass(small.scene_dir, out=tmp_path / "articulate")
+
+
+# ── server/run_room.py in pass mode, with stand-ins at its process boundaries ──────────────
+
+ROOT = Path(__file__).resolve().parents[2]
+CARD = "GPU-00000000-0000-0000-0000-000000000001"
+
+
+def launch(tmp_path, *args):
+    import os
+    import subprocess
+    import sys
+
+    def executable(path, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"#!{sys.executable}\n" + source)
+        path.chmod(0o755)
+
+    runtime = tmp_path / "runtime"
+    executable(runtime / "bin/nvidia-smi", f"""
+import sys
+if "--query-gpu=uuid" in sys.argv:
+    print("{CARD}")
+elif "--query-gpu=index,uuid,memory.used" in sys.argv:
+    print("0,{CARD},12")
+""")
+    executable(runtime / "litereality-env/bin/python", """
+import os, sys
+from pathlib import Path
+if "-c" in sys.argv:
+    print(Path(os.environ["LR_REPO_ROOT"]) / "src/litereality_agent/__init__.py")
+    sys.exit()
+out = Path(sys.argv[sys.argv.index("--out") + 1])
+if "--through" not in sys.argv:
+    (out / "room_preview").mkdir(parents=True, exist_ok=True)
+    (out / "room_preview" / "Room.glb").write_bytes(b"room of " + out.name.encode())
+""")
+    env = dict(os.environ, ROOMCANVAS_HOME=str(tmp_path), CUDA_VISIBLE_DEVICES="0",
+               ROOMCANVAS_GPU="0", ROOMCANVAS_GPU_LOCK_DIR=str(tmp_path / "locks"),
+               PATH=str(runtime / "bin") + os.pathsep + os.environ["PATH"])
+    env.pop("VIEWFORGE_GPU_LOCK", None)
+    result = subprocess.run([sys.executable, str(ROOT / "room-reconstruction/server/run_room.py"), *args],
+                            env=env, timeout=20, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_passes_run_alone_write_the_records_a_full_run_writes(tmp_path):
+    run = tmp_path / "run"
+    scene = run / "pipeline" / "scan"
+    traces = scene / "scene_init/obj_stage/traces"
+    traces.mkdir(parents=True)
+    (scene / "scene.json").write_text("{}")
+
+    def rows():
+        return [json.loads(line) for line in (traces / "trace.jsonl").read_text().splitlines()]
+
+    launch(tmp_path, "--small-objects", str(scene), str(run / "small-objects"))
+    (saved,) = rows()
+    small = run / "small-objects/room_preview/Room.glb"
+    assert (saved["kind"], saved["model"], saved["stage"]) == ("model_saved", "small_objects", "small_objects")
+    assert saved["path"] == str(small.resolve()) and saved["run_path"] == "small-objects/room_preview/Room.glb"
+    assert saved["run"] == saved["attempt_id"] == "attempt-01"
+    assert saved["artifact_digest"] == telemetry.artifact_digest(small)
+
+    source = run / "small-objects/room_preview"
+    launch(tmp_path, "--articulate", str(scene), str(run / "articulate"), "--set", f"LR_ARTICULATE_SOURCE={source}")
+    start, done, model = rows()[1:]
+    articulated = run / "articulate/room_preview/Room.glb"
+    assert [start["kind"], done["kind"], model["kind"]] == ["articulate_start", "articulate_done", "model_saved"]
+    assert start["source"] == str(source) and (done["status"], done["exit"]) == ("ok", 0)
+    assert model["model"] == "articulated" and model["path"] == str(articulated.resolve())
+    assert {r["stage"] for r in (start, done, model)} == {"articulate"}
+    assert (run / "articulate/attempt-01/exit").read_text().strip() == "0"
+
+    # A pass stopped early publishes no room, and the replay hears nothing of it.
+    launch(tmp_path, "--articulate", str(scene), str(run / "articulate"), "--through", "views")
+    launch(tmp_path, "--small-objects", str(scene), str(run / "small-objects"), "--through", "evidence")
+    assert len(rows()) == 4

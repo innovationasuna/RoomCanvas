@@ -15,6 +15,7 @@ Modules (none import Blender except `arkit_cameras`, which only runs inside `bpy
   read_scan        Scan(dir): frames, poses, intrinsics, RGB, depth (m), confidence, point cloud
   measure          probe_depth, pcd_slice, height_profile, triangulate — all in Blender Z-up metres
   rectify          rectify_region: a photo quad → a straight-on texture image (screens, boards)
+                   rectify_image: the same for any image file (an unposed close-up photo)
   contact_sheets   every frame on a few sheets, so the whole capture is seen before anything is built
   arkit_cameras    (bpy) one Blender camera per photograph; render the scene from them
 """

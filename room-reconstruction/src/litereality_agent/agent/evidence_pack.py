@@ -7,6 +7,7 @@
       helpers/           a COPY of litereality_agent.evidence_kit — read_scan, measure, rectify,
                          contact_sheets, arkit_cameras — importable with sys.path.insert(0, "evidence/helpers")
       contact_sheets/    every photograph, upright, a dozen per sheet
+      operator/     ->   the operator's own material for this room, when `LR_AUTHOR_EXTRA` names it
 
 Why a directory of files rather than more MCP tools: a tool answers one question the way its
 author framed it; a helper is a function the model combines in a script of its own. The measured
@@ -24,6 +25,8 @@ import json
 import os
 import shutil
 from pathlib import Path
+
+from litereality_agent import artifact_cache as cache
 
 README = """\
 # Evidence pack — {scan_name}
@@ -59,13 +62,67 @@ measure.triangulate(S, [(12, (u, v)), (14, (u, v))]) # same feature in 2+ photos
 measure.height_profile(S, (x0, y0, x1, y1), floor_z=SHELL["floor_z"])   # peaks = horizontal surfaces
 measure.pcd_slice(S, 0.70, 0.80, out_png="slice.png", floor_z=SHELL["floor_z"])  # a plan at one height
 rectify.rectify_region(S, 12, quad_px, "textures/monitor.png", (1024, 640))     # photo quad -> texture
+rectify.rectify_image("photo.jpg", quad_px, "textures/board.png", (1200, 900))   # any image file, the same
 ```
+Unposed photos in the operator material (`operator/`, when there is one) become textures for flat
+things on walls — boards, pictures, panels, posters — the same way, with `rectify_image`.
 The cloud's own floor estimate is ±3 cm; `SHELL["floor_z"]` from `Room.py` is RoomPlan's and better.
 `arkit_cameras.py` runs inside Blender only (`blender -b Room.blend --python your_script.py`).
 
 ## contact_sheets/
 Every photograph, upright, numbered — look at all of them before building anything.
 """
+
+
+# The paragraph the brief gains when the operator hands over material of their own. It stays out of
+# every input identity (`.author_inputs`, the recovery key): editing the README must not restart a
+# paid session or retire its checkpoint, so material changed after the author ran is not reread.
+OPERATOR = """\
+OPERATOR MATERIAL for this room is at `{path}/`. Read its README.md before anything else and
+follow it where it is specific. Material from a previous reconstruction of this room is there to
+reuse its materials, textures and fixture code, never its coordinates: that scan had a different
+world frame, so every position comes from THIS capture. Unposed photos in it become textures for
+flat things on walls (boards, pictures, panels, posters) with the helpers'
+`rectify.rectify_image(photo, quad_px, out_png, size_px)`.
+"""
+
+
+def operator_material() -> Path | None:
+    """The folder `LR_AUTHOR_EXTRA` names (a README.md plus anything), resolved; None when unset."""
+    value = os.environ.get("LR_AUTHOR_EXTRA", "").strip()
+    if not value:
+        return None
+    folder = Path(os.path.realpath(Path(value).expanduser()))
+    if not (folder / "README.md").is_file():
+        raise FileNotFoundError(f"LR_AUTHOR_EXTRA={value} has no README.md")
+    return folder
+
+
+def operator_digest(folder: Path) -> str:
+    """One hash over every file of the operator's folder, symlinked folders included."""
+    files = {}
+    for root, _, names in os.walk(folder, followlinks=True):
+        for name in names:
+            path = Path(root) / name
+            files[str(path.relative_to(folder))] = cache.file_hash(path)
+    return cache.fingerprint(files)
+
+
+def link_operator(pack: Path, folder: Path | None) -> Path | None:
+    """`<pack>/operator` -> `folder`, also in a pack built before; gone again once unset."""
+    link = Path(pack) / "operator"
+    if folder is None:
+        if link.is_symlink():
+            link.unlink()
+        return None
+    _link(link, folder)
+    # A pack built by older code has older helpers; the paragraph names `rectify_image`.
+    from litereality_agent import evidence_kit
+    helpers = Path(pack) / "helpers"
+    shutil.rmtree(helpers, ignore_errors=True)
+    shutil.copytree(Path(evidence_kit.__file__).parent, helpers,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    return link
 
 
 def has_capture(d: Path) -> bool:

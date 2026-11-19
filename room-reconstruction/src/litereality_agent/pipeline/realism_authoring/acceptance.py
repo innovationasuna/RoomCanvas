@@ -94,12 +94,15 @@ def preserved_instances(seed: Path, room: Path) -> bool:
 async def repair(room: Path, scan: Path, report: Path, *, steps: int, seconds: int, provider: str | None = None,
                  traces: Path | None = None):
     """One bounded repair session; its steps go to ``traces``/authoring_trace.repair.jsonl for the replay."""
+    from litereality_agent.agent import evidence_pack
     from litereality_agent.agent.trace import AgentTrace
 
+    # The operator's material reaches the repair as it reached the author (see evidence_pack).
+    operator = evidence_pack.operator_material()
     harness = providers.resolve("author", provider)
     spec = providers.SessionSpec(
         cwd=room,
-        read_roots=(scan, report.parent),
+        read_roots=(scan, report.parent, *((operator,) if operator else ())),
         capability_scene=room,
         capability_tools=("render", "select_views", "check_collisions"),
         model="claude-opus-5",
@@ -116,10 +119,14 @@ Preserve manifest identities, represents_prims, source neural meshes and articul
 Do not delete difficult objects, add invisible supports, change checks or edit reports.
 Inspect renders against photographs. Save valid Room.py frequently. Do not launch another
 model. The supervisor will rebuild your result and use it as the room. Budget: {steps} tool
-calls / {seconds} seconds. Return a concise summary of fixes and unresolved problems.""",
+calls / {seconds} seconds. Return a concise summary of fixes and unresolved problems."""
+        + ("\n\n" + evidence_pack.OPERATOR.format(path=operator) if operator else ""),
     )
     tr = AgentTrace("repair", room=room, path=traces / "authoring_trace.repair.jsonl" if traces else None)
-    tr.start(model=spec.model, provider=getattr(harness, "name", None), room=str(room), steps=steps)
+    extra = ({"operator": str(operator), "operator_digest": evidence_pack.operator_digest(operator)}
+             if operator else {})
+    tr.start(model=spec.model, provider=getattr(harness, "name", None), room=str(room), steps=steps,
+             **extra)
     result = None
     async for event in harness.run(spec):
         tr.raw(getattr(event, "raw", None) if getattr(event, "raw", None) is not None else event)

@@ -11,12 +11,22 @@ goes to realism_authoring/small_objects/ and never touches room_preview/:
     rebuild/<id>/           evidence sheet, prompt, reference image, TRELLIS mesh (cleaned,
                             then model.glb: hue turned back to the reference, metal zeroed)
     room_preview/           the result: Room.blend, Room.glb, room_layout.json, apply.json
+    candidates.md           every item's id, the author's objects in it and its evidence folder
     summary.md, overview.jpg
 
 Every step skips work already on disk, so an interrupted run resumes where it stopped.
 Steps: candidates -> photo evidence -> render the current models -> Astra decides per item (one
 question each) -> TRELLIS rebuilds -> apply -> render the rebuilds beside the photos for people
 to review in overview.jpg.
+
+The operator may steer it through the environment (all optional):
+    LR_SMALL_OBJECTS_POLICY=trellis-first   Astra rebuilds what it can see and drops only what has
+                                            no usable evidence (judge.TRELLIS_FIRST)
+    LR_SMALL_OBJECTS_FORCE=ID=trellis,...   overrides Astra's decision for these items
+    LR_SMALL_OBJECTS_PHOTOS=<dir>           <dir>/<item id>/*.jpg: close-ups of that item, shown to
+                                            Astra and leading its reference sheet
+Photos and policy are part of each item's own inputs: changing them judges and rebuilds again only
+the items they concern. Each item's outcome is traced as `small_object_done` when it is settled.
 """
 
 from __future__ import annotations
@@ -42,6 +52,9 @@ from litereality_agent.room_ops.paths import find_blender
 
 BLENDER_OPS = Path(__file__).with_name("blender_ops.py")
 RES_DIV = 2  # renders at half the capture resolution are plenty for a side-by-side
+# What an item's judgement and rebuild leave in items.json; cleared when its own inputs change.
+DERIVED = ("decision", "decision_error", "reference", "reference_error", "glb", "glb_error",
+           "fragments", "trellis_pipeline", "material")
 
 
 class Pass:
@@ -62,6 +75,16 @@ class Pass:
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
+        self.policy = os.environ.get("LR_SMALL_OBJECTS_POLICY", "").strip() or None
+        if self.policy and self.policy not in judge.POLICIES:
+            raise ValueError(f"LR_SMALL_OBJECTS_POLICY={self.policy}: one of {judge.POLICIES}")
+        self.force = judge.parse_force(os.environ.get("LR_SMALL_OBJECTS_FORCE", ""))
+        photos = os.environ.get("LR_SMALL_OBJECTS_PHOTOS", "").strip()
+        self.photo_root = Path(photos).expanduser().resolve() if photos else None
+        if self.photo_root and not self.photo_root.is_dir():
+            raise FileNotFoundError(f"LR_SMALL_OBJECTS_PHOTOS={photos} is not a directory")
+        self.run_id = os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex
+        self.reported: set[str] = set()  # items whose small_object_done this run has written
 
     # ------------------------------------------------------------------ bookkeeping
     def save(self):
@@ -79,6 +102,109 @@ class Pass:
 
     def active(self):
         return [item for item in self.items if not self.only or item["id"] in self.only]
+
+    def record(self, kind: str, **data):
+        """One record in the scene's trace, where the replay reads the pipeline's own."""
+        traces = self.scene_dir / "scene_init/obj_stage/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        telemetry.record(traces, kind, run=self.run_id, stage="small_objects",
+                         job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir), **data)
+
+    def finished(self, item, reused: bool):
+        """`small_object_done` once per item and run, when its outcome is settled: now, also when
+        that outcome was already on disk (then `reused`)."""
+        if item["id"] in self.reported:
+            return
+        self.reported.add(item["id"])
+        decision = item.get("decision", {}).get("decision")
+        method = {"drop": "dropped", "procedural": "procedural"}.get(decision, "kept")
+        if decision == "trellis" and item.get("glb"):
+            method = "trellis"
+        self.record("small_object_done", name=item["id"], method=method,
+                    status="failed" if method == "kept" else "ok", reused=reused)
+
+    def photos(self, item) -> list[Path]:
+        """The operator's close-ups of this item, <LR_SMALL_OBJECTS_PHOTOS>/<id>/*.jpg."""
+        folder = self.photo_root / item["id"] if self.photo_root else None
+        if folder is None or not folder.is_dir():
+            return []
+        return sorted(p for p in folder.iterdir()
+                      if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg"))
+
+    def inputs(self, item) -> str | None:
+        """What decides an item besides the room: its photos and the policy. None when there is
+        neither, so an item judged before either existed keeps its results."""
+        photos = self.photos(item)
+        if not photos and not self.policy:
+            return None
+        return cache.fingerprint({"policy": self.policy,
+                                  "photos": {p.name: cache.file_hash(p) for p in photos}})
+
+    def refresh(self):
+        """Judge and rebuild again only the items whose own inputs changed. The room-wide key
+        (pass_cache.prepare) stays as it is, so the other items keep their results."""
+        ids = {item["id"] for item in self.items}
+        unknown = sorted(set(self.force) - ids)
+        if unknown:
+            raise ValueError(f"LR_SMALL_OBJECTS_FORCE names no candidate: {', '.join(unknown)} "
+                             f"(candidates: {', '.join(sorted(ids))})")
+        if self.photo_root:
+            stray = sorted(p.name for p in self.photo_root.iterdir()
+                           if p.is_dir() and p.name not in ids)
+            if stray:
+                self.log(f"photos for no candidate (ignored): {', '.join(stray)}")
+        changed = False
+        for item in self.items:
+            key = self.inputs(item)
+            if item.get("inputs") == key:
+                continue
+            changed = True
+            if any(name in item for name in DERIVED):
+                self.log(f"{item['id']}: photos or policy changed; judged and rebuilt again")
+                cache.retire([self.out / "rebuild" / item["id"],
+                              self.out / "rebuild" / "_trellis" / "glb" / f"{item['id']}.glb"],
+                             self.out)
+            for name in DERIVED:
+                item.pop(name, None)
+            if key is None:
+                item.pop("inputs", None)
+            else:
+                item["inputs"] = key
+        if changed:
+            self.save()
+
+    def enforce(self, item) -> bool:
+        """LR_SMALL_OBJECTS_FORCE over Astra's answer (kept as `judged`); True if it changed."""
+        answer = item.get("decision")
+        if not answer:
+            return False
+        judged = answer.get("judged", answer["decision"])
+        want = self.force.get(item["id"], judged)
+        if want == "trellis" and not item.get("views") and not self.photos(item):
+            self.log(f"{item['id']}: no photo to rebuild it from; LR_SMALL_OBJECTS_FORCE ignored")
+            want = judged
+        if want == answer["decision"]:
+            return False
+        item["decision"] = {**answer, "decision": want, "judged": judged, "forced": want != judged}
+        return True
+
+    def listing(self):
+        """candidates.md: the ids LR_SMALL_OBJECTS_FORCE and the photo folders are named by."""
+        rows = []
+        for item in self.items:
+            views = item.get("views") or []
+            rows.append(f"| {item['id']} | {', '.join(item['members'])} | {item['category']} | "
+                        f"{len(views)} ({sum(v['detected'] for v in views)} detected) | "
+                        f"{len(self.photos(item))} | {self.out / 'evidence' / item['id']} |")
+        text = ["# Small-object candidates", "",
+                "Ids for LR_SMALL_OBJECTS_FORCE and the folder names under "
+                "LR_SMALL_OBJECTS_PHOTOS.", "",
+                "| id | author's objects | category | capture views | operator photos | evidence |",
+                "|---|---|---|---|---|---|", *rows, ""]
+        (self.out / "candidates.md").write_text("\n".join(text), encoding="utf-8")
+        for row in rows:
+            self.log(row)
+        self.log(f"candidates: {self.out / 'candidates.md'}")
 
     def blender(self, blend: Path, request: dict, name: str):
         request_path = self.out / "logs" / f"{name}.json"
@@ -98,6 +224,7 @@ class Pass:
             self.items = candidates.find_candidates(self.layout)
             self.save()
         self.log(f"{len(self.items)} candidates: {', '.join(i['id'] for i in self.items)}")
+        self.refresh()
 
     def gather_evidence(self):
         todo = [item for item in self.active() if "views" not in item]
@@ -177,32 +304,46 @@ class Pass:
 
     def decide(self):
         jobs = []
+        known = {item["id"] for item in self.active() if "decision" in item}
         for item in self.active():
             if "decision" in item:
                 continue
-            if not item["views"]:
+            photos = self.photos(item)
+            if not item["views"] and not photos:
                 item["decision"] = {"decision": "drop", "reason": "not visible in any capture "
                                     "frame", "description": ""}
                 continue
             folder = self.out / "evidence" / item["id"]
+            folder.mkdir(parents=True, exist_ok=True)
             images = [folder / "context.jpg", folder / "pair_before.jpg",
-                      *[v["image"] for v in item["views"][1:]]]
+                      *[v["image"] for v in item["views"][1:]]] if item["views"] else []
             detected = any(v["detected"] for v in item["views"])
-            jobs.append((item, "decision", images, judge.decide_prompt(item, detected),
-                         judge.parse_decision))
+            # A forced or policy-made rebuild needs a description whatever Astra decides.
+            prompt = judge.decide_prompt(item, detected, len(photos), self.policy,
+                                         describe=bool(self.policy) or item["id"] in self.force)
+            jobs.append((item, "decision", [*images, *photos], prompt, judge.parse_decision))
         self.save()
         if jobs:
             asyncio.run(self._ask_all(jobs))
+        changed = {item["id"] for item in self.active() if self.enforce(item)}
+        if changed:
+            self.save()
+        for item in self.active():
+            if item.get("decision", {}).get("decision") != "trellis":
+                self.finished(item, reused=item["id"] in known - changed)
 
     def rebuild(self):
         from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
 
         wanted = [i for i in self.active() if i.get("decision", {}).get("decision") == "trellis"]
         todo = [i for i in wanted if "reference" not in i]
+        known = {i["id"] for i in wanted if "material" in i}
 
         def reference(item):
             folder = self.out / "rebuild" / item["id"]
-            tiles = evidence.generator_inputs(item["views"], folder / "tiles")
+            # The operator's close-ups lead: the first tile is the sheet's primary view.
+            tiles = [*evidence.photo_inputs(self.photos(item), folder / "tiles"),
+                     *evidence.generator_inputs(item["views"], folder / "tiles")]
             meta = rebuild.make_reference(item, tiles, item["decision"]["description"], folder)
             return str(folder / "reference.png"), (meta or {}).get("cost_usd") or 0
 
@@ -242,6 +383,8 @@ class Pass:
                 item["glb"] = str(model)
                 self.log(f"material {item['id']}: {item['material']}")
                 self.save()
+        for item in wanted:
+            self.finished(item, reused=item["id"] in known)
 
     def plan(self, items):
         drop, replace = [], []
@@ -250,7 +393,9 @@ class Pass:
             if decision == "drop":
                 drop.append({"id": item["id"], "members": item["members"]})
             elif decision == "trellis" and item.get("glb"):  # a failed rebuild keeps its model
-                camera = self.cameras[item["views"][0]["frame"]]["position"]
+                # Seen only in the operator's photos: no capture camera to face.
+                camera = (self.cameras[item["views"][0]["frame"]]["position"] if item["views"]
+                          else None)
                 replace.append({"id": item["id"], "members": item["members"],
                                 "category": item["category"], "glb": item["glb"],
                                 "camera": camera, "material": item.get("material")})
@@ -351,9 +496,11 @@ class Pass:
 
     def run(self, through: str | None = None):
         """All steps in order; `through` stops after evidence, decide or rebuild."""
+        self.record("small_objects_start", **({"through": through} if through else {}))
         self.find()
         self.gather_evidence()
         self.render_pairs(self.preview / "Room.blend", self.active(), "before")
+        self.listing()
         if through == "evidence":
             return
         self.decide()
@@ -365,6 +512,9 @@ class Pass:
             return
         self.apply()
         self.summarize()
+        drop, replace = self.plan(self.items)
+        self.record("small_objects_done", rebuilt=len(replace), dropped=len(drop),
+                    kept=len(self.items) - len(replace) - len(drop))
 
 
 def main(argv=None):
@@ -381,6 +531,7 @@ def main(argv=None):
     small = Pass(args.scene_dir, args.out, args.only, args.concurrency)
     if args.list:
         small.find()
+        small.listing()
         return 0
     small.run(args.through)
     return 0

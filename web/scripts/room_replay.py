@@ -5,8 +5,9 @@ the acceptance reviews) and drops models as they are finished (each object, the 
 each acceptance round, the final room). This module reads them, so the same data serves a live view
 while the job runs and a replay afterwards. Newer runs also record in trace.jsonl when each AI-made
 object was written (object_done), each room model was saved (model_saved), each acceptance round was
-judged (review_done) and what each build of the authored room added (room_built); older runs fall
-back to file times and to when the agent's log first names a part.
+judged (review_done) and what each build of the authored room added (room_built), and the small-object
+pass records each item it rebuilt and the room it saved (small_object_done, model_saved small_objects);
+older runs fall back to file times and to when the agent's log first names a part.
 
 Pipeline records become events with fixed Chinese wording. The modelling agent's own log (commands,
 results, thoughts, in English) is condensed into plain Chinese by a model in batches; the results are
@@ -33,6 +34,8 @@ STAGES = [
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
     {'id': 'review2', 'name': '修复问题', 'desc': '没通过检查时，按检查出的问题修一次，修好的房间就是结果。'},
     {'id': 'review3', 'name': '再次检查', 'desc': '以前的流程在修复后会再检查一次。'},
+    # Only listed for a run that went through the small-object pass (see timeline).
+    {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
@@ -55,9 +58,11 @@ FILES = re.compile(r'^(?:'
 SEED = 'scene_init/scene_stage/room_init/room_preview/Room.glb'
 FINAL = 'realism_authoring/room_preview/Room.glb'
 TRACES = 'scene_init/obj_stage/traces'
-# The openable-parts pass writes beside the scene (RUN/articulate, the scene is RUN/pipeline/<scene>);
-# the page names it by this path, which scene_file maps there.
+# The openable-parts and small-object passes write beside the scene (RUN/articulate, RUN/small-objects; the
+# scene is RUN/pipeline/<scene>); the page names their rooms by these paths, which scene_file maps there.
 ARTICULATED = 'articulate/room_preview/Room.glb'
+SMALL_OBJECTS = 'small-objects/room_preview/Room.glb'
+PASSES = ('small_objects', 'articulated')  # room models of those passes: timed by their records only
 
 
 def find_scene(job_dir):
@@ -89,10 +94,29 @@ def articulated_glb(scene):
     return Path(scene).parent.parent / ARTICULATED
 
 
-def scene_file(scene, rel):
-    """Resolve an allowlisted file inside the scene directory (or the openable-parts room), or None."""
+def model_path(scene, rel):
+    """The file of a room model named by its page path. The small-object room, when not beside the scene, is
+    where its last record says, if that is inside the run directory."""
+    scene = Path(scene)
     if rel == ARTICULATED:
-        path = articulated_glb(scene)
+        return articulated_glb(scene)
+    if rel != SMALL_OBJECTS:
+        return scene / rel
+    path = scene.parent.parent / SMALL_OBJECTS
+    if path.is_file():
+        return path
+    saved = [r.get('path') for r in trace_rows(scene) if r.get('kind') == 'model_saved' and r.get('model') == 'small_objects']
+    if saved and isinstance(saved[-1], str) and saved[-1].endswith('room_preview/Room.glb'):
+        recorded = (scene / saved[-1]).resolve()  # absolute, or relative to the scene
+        if scene.parent.parent.resolve() in recorded.parents:
+            return recorded
+    return path
+
+
+def scene_file(scene, rel):
+    """Resolve an allowlisted file inside the scene directory (or a later pass's room), or None."""
+    if rel in (ARTICULATED, SMALL_OBJECTS):
+        path = model_path(scene, rel)
         return path.resolve() if path.is_file() else None
     if not FILES.fullmatch(rel or '') or '..' in rel.split('/'):
         return None
@@ -162,6 +186,24 @@ def object_names(scene):
     return name
 
 
+# Small objects the pass rebuilds are named in English by the room (TissueBox0); the common ones in plain words.
+SMALL = [('tissue', '纸巾盒'), ('bottle', '瓶子'), ('plant|flower|succulent', '绿植'), ('vase', '花瓶'),
+         ('cardboard|carton', '纸箱'), ('book', '书'), ('cup|mug', '杯子'), ('lamp', '台灯'), ('pillow|cushion', '靠垫'),
+         ('slipper|shoe', '鞋'), ('basket', '篮子'), ('clock', '钟'), ('box', '盒子')]
+
+
+def small_name(key):
+    return next((word for pattern, word in SMALL if re.search(pattern, key, re.I)), '一件小物品')
+
+
+def finished(scene, attempt):
+    """Whether a launcher attempt ended its phase well (RUN/attempt-NN/exit holds 0); not known for older runs."""
+    try:
+        return (Path(scene).parent.parent / attempt / 'exit').read_text().strip() == '0'
+    except OSError:
+        return False
+
+
 def trace_rows(scene, until=None):
     rows = [r for r in read_jsonl(Path(scene) / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
     seen, keyed, last = set(), [], 0
@@ -193,7 +235,7 @@ def pipeline_events(scene, until=None):
     """Events from the pipeline's own trace, worded with fixed templates."""
     scene = Path(scene)
     rows = trace_rows(scene, until)
-    events, said = [], set()
+    events, said, small_done = [], set(), None
     name = object_names(scene)
     # Objects with a finished-model record; their per-attempt agent steps then only show retries and errors.
     done = {r['name'] for r in rows if r.get('kind') == 'object_done' and r.get('status') == 'ok' and r.get('name')}
@@ -218,7 +260,8 @@ def pipeline_events(scene, until=None):
         kind, stage, status = r.get('kind'), r.get('stage'), r.get('status')
         if kind == 'trace_start' and re.fullmatch(r'attempt-\d+', str(r.get('run', ''))) and r['run'] not in attempts:
             attempts.append(r['run'])
-            if len(attempts) > 1:  # a retry: the pipeline goes on from the work already done
+            # A retry goes on from the work already done; after a phase that ended well, the next one just follows.
+            if len(attempts) > 1 and not finished(scene, attempts[-2]):
                 add(r, 'scan', '重新开始重建，接着上次做好的部分继续', 'milestone')
         elif kind == 'scan_start':
             preview = _first(scene.glob('scene_init/obj_stage/object_init/input/scan_geometry/*/preview.jpg'))
@@ -241,9 +284,13 @@ def pipeline_events(scene, until=None):
             add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'], img=_object_image(scene, r['name']))
         elif kind == 'object_done' and status == 'ok' and r.get('name'):
             # Objects reconstructed by AI, each at the time its model was written; a resumed run
-            # records reused models again with the same time.
-            add(r, 'plan', f'做好{name(r["name"])}的模型', 'tool', once=f'obj:{r["name"]}:{round(r["t"])}',
-                show=[r['name']], img=_object_image(scene, r['name']))
+            # records reused models again with that time, so they read as made then. A model taken
+            # over from an earlier reconstruction (provided, or reused from a source) is said so, once.
+            if r.get('method') == 'provided' or (r.get('reused') and r.get('source')):
+                say, once = f'沿用之前做好的{name(r["name"])}模型', f'obj:{r["name"]}:provided'
+            else:
+                say, once = f'做好{name(r["name"])}的模型', f'obj:{r["name"]}:{round(r["t"])}'
+            add(r, 'plan', say, 'tool', once=once, show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'classify':
             add(r, 'plan', f'选好做法：{r.get("procedural", 0)} 件用程序建模，{r.get("trellis", 0)} 件交给 AI 重建', 'think')
         elif kind == 'agent_step' and r.get('name'):
@@ -270,8 +317,17 @@ def pipeline_events(scene, until=None):
             add(r, 'review2', '按检查出的问题开始修复房间', 'think')
         elif kind == 'articulate_start' and not later.get(r.get('run')):
             add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
-        elif kind == 'articulate_done' and r.get('status') != 'ok':
+        elif kind == 'articulate_done' and r.get('status') != 'ok' and not later.get(r.get('run')):
             add(r, 'articulate', '可开合部件没有装成，使用检查后的房间', 'error')
+        elif kind == 'small_objects_start':
+            add(r, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', 'think', once='small')
+        elif kind == 'small_object_done' and r.get('method') == 'trellis' and status == 'ok' and r.get('name'):
+            # One line per rebuilt item (a rerun records them again); kept and dropped ones only count below.
+            item = name(r['name'])
+            add(r, 'small_objects', f'{small_name(r["name"]) if item == r["name"] else item}换成了按照片重建的模型',
+                once='small:' + r['name'])
+        elif kind == 'small_objects_done':
+            small_done = r
 
     seed = _model_time(scene, rows, 'seed', SEED, until)
     if seed:
@@ -286,11 +342,26 @@ def pipeline_events(scene, until=None):
     if final:
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
+    # The small-object pass closes with its room, said with what it did to the items.
+    small = _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
+    if small or small_done:
+        events.append({'id': 'small_objects', 't': small or small_done['t'], 'stage': 'small_objects', 'kind': 'milestone',
+                       'say': small_summary(small_done), **({'model': 'small_objects'} if small else {})})
     articulated = _model_time(scene, rows, 'articulated', ARTICULATED, until)
     if articulated:
         events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
                        'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
     return events
+
+
+def small_summary(row):
+    """Closing words of the small-object pass, from its counts (numbers or lists of names) when recorded."""
+    def n(key):
+        value = (row or {}).get(key)
+        return len(value) if isinstance(value, list) else value if isinstance(value, int) else 0
+    parts = [text.format(n(key)) for key, text in (('rebuilt', '按照片重做 {} 件'), ('dropped', '去掉 {} 件'),
+                                                   ('kept', '{} 件保持原样')) if n(key)]
+    return '小物品处理好了' + ('：' + '，'.join(parts) if parts else '')
 
 
 # The room the agent is editing is rebuilt into FINAL many times and is ~100 MB, so a live page takes a
@@ -326,8 +397,7 @@ def _model_time(scene, rows, model, rel, until=None):
     Runs that record saved models are timed only by those records: the final model's file is rewritten
     by every build while the agent works, so its file time would show the room as finished early. Older
     runs without any such record fall back to the file's time."""
-    path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
-    if not path.is_file():
+    if not model_path(scene, rel).is_file():
         return None
     t = model_evidence(scene, rows, model, rel)['time']
     return t if t and (not until or t <= until) else None
@@ -338,15 +408,14 @@ def records_models(rows):
     small objects, a retry's pipeline stages) append to an older run do not count: its models stay
     timed by their files. Callers pass only the rows up to the replayed moment, so records written
     after it never change what an earlier moment shows."""
-    return any(r.get('kind') == 'model_saved' and r.get('model') != 'articulated' for r in rows)
+    return any(r.get('kind') == 'model_saved' and r.get('model') not in PASSES for r in rows)
 
 
 def model_evidence(scene, rows, model, rel):
     import replay_history
     recorded = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == model]
-    legacy = model != 'articulated' and not records_models(rows)
-    path = articulated_glb(scene) if rel == ARTICULATED else Path(scene) / rel
-    return replay_history.artifact_evidence(path, recorded[-1] if recorded else None, legacy=legacy)
+    legacy = model not in PASSES and not records_models(rows)
+    return replay_history.artifact_evidence(model_path(scene, rel), recorded[-1] if recorded else None, legacy=legacy)
 
 
 def _rounds(scene, until=None):
@@ -432,6 +501,8 @@ def models(scene, until=None):
         out[draft_key(draft)] = FINAL
     if _model_time(scene, rows, 'final', FINAL, until):
         out['final'] = FINAL
+    if _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until):
+        out['small_objects'] = SMALL_OBJECTS
     if _model_time(scene, rows, 'articulated', ARTICULATED, until):
         out['articulated'] = ARTICULATED
     return out
@@ -708,7 +779,7 @@ def timeline(job_dir, status='completed', until=None):
     """Everything the page needs: stages, ordered events, models and whether the job is still live."""
     scene = find_scene(job_dir)
     if not scene:
-        return {'live': status in ('queued', 'running', 'preparing'), 'stages': STAGES, 'events': [], 'models': {}}
+        return {'live': status in ('queued', 'running', 'preparing'), 'stages': stages_of([]), 'events': [], 'models': {}}
     events = pipeline_events(scene, until)
     records = agent_records(scene, until)
     summary = Summary(job_dir)
@@ -746,9 +817,15 @@ def timeline(job_dir, status='completed', until=None):
         build = {'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': STAGES, 'events': events, 'models': models(scene, until), 'build': build,
+            'stages': stages_of(events), 'events': events, 'models': models(scene, until), 'build': build,
             'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
-                               for model, rel in [('seed', SEED), ('final', FINAL), ('articulated', ARTICULATED)]}}
+                               for model, rel in [('seed', SEED), ('final', FINAL), ('small_objects', SMALL_OBJECTS),
+                                                  ('articulated', ARTICULATED)]}}
+
+
+def stages_of(events):
+    """The stages to list: all, but the small-object pass only for a run that went through it."""
+    return [s for s in STAGES if s['id'] != 'small_objects' or any(e['stage'] == 'small_objects' for e in events)]
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
@@ -911,11 +988,15 @@ def slim(run, dest):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)  # the replay orders review rounds by file time
                 total += path.stat().st_size
-    articulated = articulated_glb(scene)
-    if articulated.is_file():  # the room that was published, beside the scene
-        (dest / ARTICULATED).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(articulated, dest / ARTICULATED)
-        total += articulated.stat().st_size
+    # The later passes' rooms (the openable-parts one was published), beside the scene, and how each launcher
+    # attempt ended (whether a later one was a retry).
+    extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
+    extra += [(path, dest / path.relative_to(run)) for path in run.glob('attempt-*/exit')]
+    for path, target in extra:
+        if path.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            total += path.stat().st_size
     return total
 
 
@@ -930,7 +1011,8 @@ def register(data_dir, run, name, until=None):
     rows = [r for r in read_jsonl(scene / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
     if until is None:  # the run ends with its last review or final export; later records belong to other work
         ends = [r[0] for r in _rounds(scene)] + [_model_time(scene, rows, m, rel) for m, rel in
-                                                 (('final', FINAL), ('articulated', ARTICULATED))]
+                                                 (('final', FINAL), ('small_objects', SMALL_OBJECTS),
+                                                  ('articulated', ARTICULATED))]
         until = max(t for t in ends if t) + 120
     identifier = uuid.uuid4().hex
     folder = Path(data_dir) / identifier
