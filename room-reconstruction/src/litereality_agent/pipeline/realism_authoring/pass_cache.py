@@ -28,7 +28,9 @@ def prepare(out: Path, preview: Path, frames: Path, layout: dict, code_dir: Path
     if not isinstance(previous, dict) or previous.get("key") != key:
         # Legacy items without a receipt cannot prove which room they belong to. Preserve the
         # old run for inspection, but invalidate every derived stage together, before reuse.
-        cache.retire([p for p in out.iterdir() if p.name not in {".stale", "logs"}], out)
+        # attempt-NN is the server launcher's own record of this run, not a product of the pass.
+        cache.retire([p for p in out.iterdir()
+                      if p.name not in {".stale", "logs"} and not p.name.startswith("attempt-")], out)
         cache.atomic_json(marker, {"key": key, "dependencies": dependencies})
     return key
 

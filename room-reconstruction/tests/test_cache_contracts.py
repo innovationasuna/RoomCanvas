@@ -534,3 +534,21 @@ def test_simulate_fingerprint_uses_selected_source_and_ignores_viewer_cache(tmp_
     assert input_fingerprint(context, "simulate", {"from_seed": True}) == first
     (context.seed_room / "Room.py").write_text("seed = 2")
     assert input_fingerprint(context, "simulate", {"from_seed": True}) != first
+
+
+def test_a_pass_started_by_the_launcher_keeps_the_launchers_attempt_record(tmp_path):
+    from litereality_agent.pipeline.realism_authoring import pass_cache
+
+    out, preview = tmp_path / "out", tmp_path / "preview"
+    (out / "attempt-01").mkdir(parents=True)
+    (out / "attempt-01/run-config.json").write_text("{}")
+    (out / "old-item").mkdir()
+    preview.mkdir()
+    for name in ("Room.blend", "Room.glb", "room_layout.json"):
+        (preview / name).write_text(name)
+
+    pass_cache.prepare(out, preview, tmp_path, {}, tmp_path)
+
+    # run_room.py writes the exit code into its attempt folder after the pass returns.
+    assert (out / "attempt-01/run-config.json").is_file()
+    assert not (out / "old-item").exists() and list((out / ".stale").glob("*/old-item"))
