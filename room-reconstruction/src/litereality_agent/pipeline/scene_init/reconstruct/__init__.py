@@ -19,6 +19,9 @@ def run(context: RunContext, options: dict) -> StageResult:
         "--procedural", "--build-openings",
         "--agent-model", context.settings.procedural_model,
     ]
+    for key in ("seed", "decimation", "texture_size"):
+        if options.get(key) is not None:
+            args.extend(("--" + key.replace("_", "-"), options[key]))
     if options.get("chair_qc"):
         args.append("--chair-qc")
     if options.get("force"):

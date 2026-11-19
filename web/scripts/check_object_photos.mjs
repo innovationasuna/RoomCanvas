@@ -23,7 +23,7 @@ try {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path.endsWith('/create')) {
       uploaded = {body: [...request.postDataBuffer()], type: request.headers()['content-type']};
-      await route.fulfill({json: {object: 'test', images: ['one', 'two', 'three', 'four', 'five', 'six']}});
+      await route.fulfill({json: {object: 'test', images: ['one', 'two', 'three', 'four', 'five'], errors: [{filename: 'no-mime.png', error: '无法完整解码'}]}});
     } else if (path.endsWith('/masks')) await route.fulfill({json: {id: 'mask-test'}});
     else await route.fulfill({json: {status: 'complete', previews: []}});
   });
@@ -71,6 +71,7 @@ try {
   await page.locator('#add-upload').click();
   await page.waitForFunction(() => !document.querySelector('[data-panel="masks"]').hidden);
   assert.ok(uploaded);
+  assert.match(await page.locator('#add-import-errors').innerText(), /no-mime.png/);
   const files = await page.evaluate(async ({body, type}) => {
     const form = await new Response(new Uint8Array(body), {headers: {'Content-Type': type}}).formData();
     return Promise.all(form.getAll('photos').map(async file => ({name: file.name, type: file.type,

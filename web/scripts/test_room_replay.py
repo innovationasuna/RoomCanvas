@@ -110,6 +110,53 @@ class Events(unittest.TestCase):
         self.assertEqual([e['issues'] for e in reviews], [['The bed is too bright.'], ['The curtains are too stiff.']])
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
 
+    def test_a_later_pass_on_an_older_run_keeps_its_models(self):
+        rows = [{'t': T0 + 5000, 'kind': 'pipeline_stage', 'stage': 'ingest', 'schema_version': 2, 'event_id': 'e1'},
+                {'t': T0 + 5100, 'kind': 'artifact_published', 'path': replay.FINAL, 'schema_version': 2,
+                 'event_id': 'e2', 'artifact_digest': 'other'},
+                {'t': T0 + 5200, 'kind': 'model_saved', 'model': 'articulated', 'schema_version': 2, 'event_id': 'e3'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
+
+    def test_later_records_never_change_an_earlier_moment(self):
+        def replayed():
+            data = replay.timeline(self.root, 'completed', self.until)
+            return data['models'], [(e['t'], e['say'], e.get('model')) for e in data['events']]
+        before = replayed()
+        rows = [{'t': T0 + 5000, 'kind': 'model_saved', 'model': 'seed', 'path': replay.SEED, 'run': 'attempt-02'},
+                {'t': T0 + 5100, 'kind': 'model_saved', 'model': 'round', 'attempt': 'attempt-y', 'round': 0,
+                 'schema_version': 2, 'event_id': 'r', 'run': 'attempt-02'},
+                {'t': T0 + 5200, 'kind': 'review_done', 'attempt': 'attempt-y', 'round': 0, 'reviewed': True,
+                 'folder': 'realism_authoring/acceptance/attempt-x/round_01', 'run': 'attempt-02'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual(replayed(), before)
+        self.assertEqual(list(before[0]), ['seed', 'round0', 'round1', 'final'])
+
+    def test_rows_with_a_damaged_sequence_are_read_like_the_writer_reads_them(self):
+        # Damaged rows in a row keep the order they were written in, whatever their ids.
+        rows = [{'t': T0 + 5, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'a', 'sequence': 1},
+                {'t': T0 + 6, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'z', 'sequence': None},
+                {'t': T0 + 7, 'kind': 'trace_start', 'schema_version': 2, 'event_id': None, 'sequence': '3'},
+                {'t': T0 + 8, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'b', 'sequence': None},
+                {'t': T0 + 9, 'kind': 'trace_start', 'schema_version': 2, 'event_id': 'd', 'sequence': 4}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual([r['t'] for r in replay.trace_rows(self.scene) if r.get('schema_version') == 2],
+                         [T0 + 5, T0 + 6, T0 + 7, T0 + 8, T0 + 9])
+        self.assertEqual(list(replay.timeline(self.root, 'completed', self.until)['models'])[-1], 'final')
+
+    def test_a_model_rewritten_after_its_record_is_still_shown(self):
+        import hashlib
+        row = {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'path': replay.FINAL, 'schema_version': 2,
+               'event_id': 'f', 'artifact_digest': hashlib.sha256(b'before').hexdigest()}
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps(row) + '\n')
+        evidence = replay.model_evidence(self.scene, replay.trace_rows(self.scene), 'final', replay.FINAL)
+        self.assertEqual((evidence['time'], evidence['confidence']), (T0 + 1140, 'unknown'))
+        self.assertIn('final', replay.models(self.scene, self.until))
+
     def test_only_allowlisted_files_are_served(self):
         self.assertIsNotNone(replay.scene_file(self.scene, replay.SEED))
         self.assertIsNotNone(replay.scene_file(self.scene, 'scene_init/obj_stage/traces/img/author_0004_a.jpg'))

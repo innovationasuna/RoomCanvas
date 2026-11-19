@@ -55,6 +55,11 @@ class CompileInvocation(SceneToolInvocation):
             room_dir = room_dir_from(self.scene_path)
         except ValueError as e:
             return ToolResult(error=str(e))
+        # The bake runs only after a good assembly, so with the log of an earlier bake gone, a
+        # bake log found after a failure is this compile's and names the step. Told by presence,
+        # not by time: the clock that stamps files can run behind time.time().
+        preview = room_dir.parent / "room_preview"
+        (preview / "bake.log").unlink(missing_ok=True)
         try:
             glb = compile_room(room_dir, regenerate=self.params.regenerate)
         except Exception as e:  # noqa: BLE001
@@ -63,8 +68,11 @@ class CompileInvocation(SceneToolInvocation):
                 build={"status": "error", "error": str(e)},
             )
         if glb is None or not Path(glb).is_file():
+            logs = [p for p in (preview / "bake.log", preview / "build.log") if p.is_file()]
+            tail = "".join(f"\nLast lines of room_preview/{p.name}:\n" + "\n".join(
+                p.read_text(errors="replace").splitlines()[-20:]) for p in logs[:1])
             return ToolResult(
-                error="compile failed — Room.py did not produce Room.glb (see build errors).",
+                error="Room compilation failed. Check room_preview/build.log and room_preview/bake.log." + tail,
                 build={"status": "error", "glb_path": None},
             )
         _write_compile_stamp(room_dir)

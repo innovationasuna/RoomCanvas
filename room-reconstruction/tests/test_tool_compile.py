@@ -11,6 +11,8 @@ The Blender build itself is `-m blender`.
 from __future__ import annotations
 
 import asyncio
+import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -84,6 +86,15 @@ def test_compile_api_rejects_a_missing_glb(room, tmp_path, monkeypatch):
     assert api.compile_room(room, out_dir=tmp_path / "preview", bake=False) is None
 
 
+def test_standalone_bake_still_accepts_a_legacy_preview_without_a_blend(tmp_path):
+    from litereality_agent.room_ops import api
+
+    glb = tmp_path / "Room.glb"
+    glb.write_bytes(b"existing preview")
+    assert api.bake_room(tmp_path / "Room.blend", glb) == 0
+    assert glb.read_bytes() == b"existing preview"
+
+
 def test_compile_tool_does_not_stamp_a_missing_glb(room, tmp_path, monkeypatch):
     missing = tmp_path / "preview" / "Room.glb"
     monkeypatch.setattr("litereality_agent.room_ops.compile_room", lambda *_a, **_k: missing)
@@ -95,6 +106,135 @@ def test_compile_tool_does_not_stamp_a_missing_glb(room, tmp_path, monkeypatch):
     assert not result.is_success()
     assert result.build == {"status": "error", "glb_path": None}
     assert not (room / ".compile_stamp").exists()
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "no-output"])
+def test_failed_rebake_retains_assembly_invalidates_stamp_and_retries(room, monkeypatch, failure):
+    from litereality_agent.room_ops import api
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    glb = preview / "Room.glb"
+    outcomes = ["success", failure, "success"]
+    calls = []
+    records = []
+
+    def run(cmd, **kwargs):
+        if "--python" not in cmd:
+            calls.append("assemble")
+            glb.write_bytes(b"assembled")
+            (preview / "Room.blend").write_bytes(f"blend {len(calls)}".encode())
+            return SimpleNamespace(returncode=0)
+        calls.append("bake")
+        assert cmd[cmd.index("--python") - 2 : cmd.index("--python")] == ["--python-exit-code", "1"]
+        output = Path(cmd[cmd.index("--") + 1])
+        outcome = outcomes.pop(0)
+        if outcome == "success":
+            output.write_bytes(b"baked")
+        elif outcome == "nonzero":
+            output.write_bytes(b"partial")
+            print("script failed", file=kwargs["stdout"])
+            return SimpleNamespace(returncode=7)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(api.subprocess, "run", run)
+    monkeypatch.setattr(api, "blender_bin", lambda: "blender")
+    monkeypatch.setattr(api, "_record_build", lambda *args: records.append(glb.read_bytes()))
+    inv = CompileInvocation(CompileParams())
+    inv.bind(str(room), None)
+    assert asyncio.run(inv.execute()).is_success()
+    assert compile_is_fresh(room)
+
+    # File times come from a coarser clock than time.time(), or from another machine's.
+    monkeypatch.setattr(time, "time", lambda now=time.time: now() + 1)
+    failed = asyncio.run(inv.execute())
+    assert failed.build == {"status": "error", "glb_path": None}
+    assert "bake.log" in failed.error and ("script failed" in failed.error) == (failure == "nonzero")
+    assert (preview / "bake.log").read_text()
+    assert glb.read_bytes() == b"assembled"
+    assert not compile_is_fresh(room)
+    assert records == [b"baked"]
+    assert list(preview.glob(".bake-*")) == []
+
+    assert asyncio.run(inv.execute()).is_success()
+    assert compile_is_fresh(room)
+    assert records == [b"baked", b"baked"]
+    assert calls == ["assemble", "bake"] * 3
+
+
+def test_a_failed_assembly_shows_its_own_log_not_an_earlier_bake(room, monkeypatch):
+    from litereality_agent.room_ops import api
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    (preview / "bake.log").write_text("an earlier bake\n")
+
+    def run(cmd, **kwargs):
+        (preview / "build.log").write_text("assembly broke\n")
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(api.subprocess, "run", run)
+    inv = CompileInvocation(CompileParams())
+    inv.bind(str(room), None)
+    failed = asyncio.run(inv.execute())
+    assert "assembly broke" in failed.error and "an earlier bake" not in failed.error
+
+
+@pytest.mark.parametrize("old_blend", [False, True])
+def test_baked_compile_requires_the_current_blend(room, monkeypatch, old_blend):
+    from litereality_agent.room_ops import api
+    from litereality_agent.room_ops.compile import build_from_room
+
+    preview = room.parent / "room_preview"
+    preview.mkdir()
+    if old_blend:
+        (preview / "Room.blend").write_bytes(b"older scene")
+    layout = preview / "room_layout.json"
+    layout.write_text('{"objects": ["previous"]}')
+
+    def blender(*args):
+        (preview / "Room.glb").write_bytes(b"assembled")
+        return SimpleNamespace(returncode=0)
+
+    def assemble(cmd):
+        rc = build_from_room.run_assembly([], preview / "build.log", require_blend="--require-blend" in cmd)
+        return SimpleNamespace(returncode=rc)
+
+    monkeypatch.setattr(build_from_room.console, "run_logged", blender)
+    monkeypatch.setattr(api.subprocess, "run", assemble)
+    assert api.compile_room(room) is None
+    assert layout.read_text() == '{"objects": ["previous"]}'
+    if old_blend:
+        assert (preview / "Room.blend").read_bytes() == b"older scene"
+    assert api.compile_room(room, bake=False) == preview / "Room.glb"
+
+
+def test_assembly_accepts_identical_output_on_a_coarse_filesystem(tmp_path, monkeypatch):
+    from litereality_agent.room_ops.compile import build_from_room
+
+    blend = tmp_path / "Room.blend"
+    blend.write_bytes(b"same scene")
+    layout = tmp_path / "room_layout.json"
+    layout.write_text('{"objects": ["previous"]}')
+    original = Path.stat
+    stamp = blend.stat()
+
+    def coarse_stat(path, *args, **kwargs):
+        # Still raise when a file doesn't exist. Existing revisions have identical stat values.
+        actual = original(path, *args, **kwargs)
+        return stamp if path == blend else actual
+
+    def blender(*args):
+        assert not blend.exists()
+        blend.write_bytes(b"same scene")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(Path, "stat", coarse_stat)
+    monkeypatch.setattr(build_from_room.console, "run_logged", blender)
+    assert build_from_room.run_assembly([], tmp_path / "build.log", require_blend=True) == 0
+    assert blend.read_bytes() == b"same scene"
+    assert list(tmp_path.glob(".previous-assembly-*")) == []
+    assert not layout.exists()
 
 
 @pytest.mark.blender

@@ -76,7 +76,8 @@ with TestClient(create_app(sys.argv[2])) as client:
             return job.view()
 
         # Only replace GPU execution; request handling and job validation stay real.
-        with patch.object(objects, 'start', start), patch.dict('os.environ', VIEWFORGE_GPU_LOCK=str(self.root/'cache/gpu.lock')):
+        with patch.object(objects, 'start', start), patch.dict('os.environ', VIEWFORGE_GPU_LOCK=str(self.root/'cache/gpu.lock'),
+                CUDA_VISIBLE_DEVICES='GPU-00000000-0000-0000-0000-000000000001', ROOMCANVAS_GPU_LOCK_DIR=str(self.root/'locks')):
             masks = self.client.post('/viewforge/objects/masks', json={'object': '我的物体', 'images': images}).json()
             self.assertEqual(self.client.get('/viewforge/objects/jobs/' + masks['id']).json()['status'], 'complete')
             preview = self.client.get('/viewforge/objects/jobs/' + masks['id']).json()['previews'][0]['url']

@@ -27,10 +27,12 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
-from gpu import GpuLock, list_gpus, select_gpu
+from gpu import room_lease
 
 CHECKOUT = Path(__file__).resolve().parents[2]  # this RoomCanvas checkout
 RECON = CHECKOUT / "room-reconstruction"  # the LiteReality-based module inside it
@@ -78,11 +80,15 @@ p.add_argument("--articulate", action="store_true", help="run the openable-parts
 p.add_argument("--only", nargs="*", help="with a pass: only these objects")
 p.add_argument("--no-articulate", action="store_true",
                help="a full run: do not run the openable-parts pass after author")
+p.add_argument("--wait-gpu", action="store_true", help="wait until an allowed GPU is available")
 p.add_argument("--check", action="store_true", help="print the configuration and exit")
 a = p.parse_args()
 
 env = dict(os.environ)
 env.update(read_env_file(HOME / ".env"))  # keys and image settings only
+for key in ("ROOMCANVAS_GPU", "CUDA_VISIBLE_DEVICES", "ROOMCANVAS_GPU_LOCK_DIR", "ROOMCANVAS_GPU_SHARED_MIB"):
+    if key in os.environ:
+        env[key] = os.environ[key]  # the launcher's explicit device restrictions take precedence
 for key in ("LR_AGENT_PROVIDER",):  # leave provider choice to the code's defaults
     env.pop(key, None)
 runtime, weights = HOME / "runtime", HOME / "backends/weights"
@@ -162,41 +168,103 @@ attempt = a.run_dir / f"attempt-{len(attempts) + 1:02d}"
 attempt.mkdir()
 # A shared machine can name the card (ROOMCANVAS_GPU, default auto) and accept other people's light
 # use of it (ROOMCANVAS_GPU_SHARED_MIB, default 0: only a completely idle card).
-gpu = select_gpu(env.get("ROOMCANVAS_GPU", "auto"), list_gpus(), int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0")))
-# One run id for every stage process of this attempt: the replay tells a retried run from the one before.
-env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=str(gpu.index),
-           LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
-record = {"started": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-          "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
-(attempt / "run-config.json").write_text(json.dumps(record, indent=2))
-with GpuLock(runtime / "locks", gpu), (attempt / "pipeline.log").open("w") as log:
-    rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
-(attempt / "exit").write_text(f"{rc}\n")
-print(attempt.name, "exit", rc)
-# Author may stop short of publishing (its visual review) and still leave a usable room: take the
-# scene that has one.
-scenes = [d for d in scene_dirs(a.run_dir)
-          if (d / "realism_authoring/room_preview/Room.blend").is_file()
-          and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
-
-
 def trace(scene: Path, kind: str, **data) -> None:
     """One record in the scene's trace for the reconstruction replay (as telemetry.record writes it)."""
     traces = scene / "scene_init/obj_stage/traces"
-    if traces.is_dir():
-        row = {"t": round(data.pop("at", None) or time.time(), 3), "kind": kind, "run": attempt.name, **data}
-        with (traces / "trace.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+    sys.path.insert(0, str(RECON / "src"))
+    from litereality_agent import telemetry
+
+    data.update(run=attempt.name, attempt_id=attempt.name,
+                job_id=env.get("LITEREALITY_JOB_ID") or str(a.run_dir.resolve()), stage="articulate")
+    if kind == "model_saved" and data.get("path"):
+        telemetry.record_artifact(traces, kind, data["path"], **data)
+    else:
+        telemetry.record(traces, kind, **data)
 
 
-if articulate and len(scenes) == 1:
-    articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
-    trace(scenes[0], "articulate_start")
-    with (attempt / "articulate.log").open("w") as log:
-        art = subprocess.run(articulate, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
-    (attempt / "articulate-exit").write_text(f"{art}\n")
-    room = a.run_dir / "articulate/room_preview/Room.glb"
-    trace(scenes[0], "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
-    if not art and room.is_file():
-        trace(scenes[0], "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
-    print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
+timing = {"attempt_id": attempt.name, "phases": [], "gpu_kernel_seconds": None}
+
+
+def save_timing():
+    temporary = attempt / "runtime-timing.tmp"
+    try:
+        temporary.write_text(json.dumps(timing, indent=2))
+        temporary.replace(attempt / "runtime-timing.json")
+    except OSError:
+        # Observations must not turn an otherwise usable paid run into a failure.
+        print("Runtime timing could not be written", file=sys.stderr)
+
+
+@contextmanager
+def measured_lease():
+    waiting = time.monotonic()
+    acquired = None
+    # Until the lease is ours this attempt only waits; the web job status reads this marker.
+    timing["gpu_waiting_since"] = time.time()
+    save_timing()
+    try:
+        with room_lease(runtime, env, wait=a.wait_gpu) as selected:
+            acquired = time.monotonic()
+            del timing["gpu_waiting_since"]
+            timing.update(gpu_wait_seconds=acquired-waiting, gpu_uuid=selected[0].uuid)
+            save_timing()
+            yield selected
+    except RuntimeError as error:
+        if acquired is not None:
+            raise
+        timing["gpu_error"] = str(error)
+        raise SystemExit(f"GPU not acquired: {error}") from None
+    finally:
+        if acquired is None:
+            timing.pop("gpu_waiting_since", None)
+            timing.update(gpu_wait_seconds=time.monotonic()-waiting, gpu_lease_seconds=0.)
+        else:
+            timing["gpu_lease_seconds"] = time.monotonic()-acquired
+        save_timing()
+
+
+def run_timed(command, log, phase, lease):
+    sys.path.insert(0, str(RECON / "src"))
+    from litereality_agent.timing import Measurement
+    measurement = Measurement()
+    row = {"phase": phase, "exit": None}
+    try:
+        row["exit"] = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                     pass_fds=lease.fds).returncode
+        return row["exit"]
+    finally:
+        timing["phases"].append({**row, **measurement.finish()})
+        save_timing()
+
+
+with measured_lease() as (gpu, lease):
+    # One run id for every stage process of this attempt: the replay tells a retried run from the one before.
+    env.update(CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu.uuid,
+               LR_VISION_LOG_DIR=str(attempt / "vision"), LITEREALITY_RUN_ID=attempt.name)
+    record = {"started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+              "gpu": gpu.uuid, "gpu_used_by_others_mib": gpu.memory_used_mib, **record}
+    (attempt / "run-config.json").write_text(json.dumps(record, indent=2))
+    with (attempt / "pipeline.log").open("w") as log:
+        rc = run_timed(cmd, log, "pipeline", lease)
+    (attempt / "exit").write_text(f"{rc}\n")
+    print(attempt.name, "exit", rc)
+    # Only a successful current pipeline may feed enhancement. A failed retry can
+    # leave yesterday's preview beside its partial source.
+    scenes = [d for d in scene_dirs(a.run_dir)
+              if (d / "realism_authoring/room_preview/Room.blend").is_file()
+              and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
+
+
+    art = 0
+    if rc == 0 and articulate and len(scenes) == 1:
+        articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
+        trace(scenes[0], "articulate_start")
+        with (attempt / "articulate.log").open("w") as log:
+            art = run_timed(articulate, log, "articulate", lease)
+        (attempt / "articulate-exit").write_text(f"{art}\n")
+        room = a.run_dir / "articulate/room_preview/Room.glb"
+        trace(scenes[0], "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
+        if not art and room.is_file():
+            trace(scenes[0], "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
+        print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
+    raise SystemExit(rc or art)

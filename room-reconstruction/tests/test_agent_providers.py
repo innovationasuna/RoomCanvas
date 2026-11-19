@@ -203,11 +203,11 @@ def test_codex_unknown_events_do_not_raise():
     assert _normalise({"type": "turn.failed", "error": {"message": "nope"}}, {})[0].text
 
 
-def test_codex_without_the_cli_fails_with_an_actionable_message(monkeypatch):
+def test_codex_without_the_cli_fails_with_an_actionable_message(monkeypatch, tmp_path):
     from litereality_agent.agent.providers.codex import CodexHarness
 
     monkeypatch.setattr("shutil.which", lambda _: None)
-    spec = base.SessionSpec(prompt="hi", cwd=".")
+    spec = base.SessionSpec(prompt="hi", cwd=tmp_path)
 
     async def drain():
         async for _ in CodexHarness().run(spec):

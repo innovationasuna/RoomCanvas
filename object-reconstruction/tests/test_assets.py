@@ -4,7 +4,10 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import numpy as np
+from plyfile import PlyData, PlyElement
 import trimesh
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -13,6 +16,16 @@ from starlette.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from assets import AssetsMiddleware
 from dimensions import DimensionsMiddleware
+from asset_state import publish_asset
+from cover_scene import preview_manifest
+
+
+def gaussian_ply(path, text=False):
+    fields = ['x', 'y', 'z', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3',
+              'opacity', 'f_dc_0', 'f_dc_1', 'f_dc_2']
+    rows = np.zeros(8, dtype=[(name, 'f4') for name in fields])
+    rows['rot_0'] = 1
+    PlyData([PlyElement.describe(rows, 'vertex')], text=text).write(str(path))
 
 
 class AssetsTests(unittest.TestCase):
@@ -75,7 +88,7 @@ class AssetsTests(unittest.TestCase):
         light = run/'reconstruction/preview.glb'
         light.write_bytes((run/'reconstruction/result.glb').read_bytes())
         gaussian = run/'reconstruction/result.ply'
-        gaussian.write_bytes(b'ply\nfixture')
+        gaussian_ply(gaussian)
         metadata = self.client.get('/viewforge/assets/toy').json()
         self.assertNotIn('viewer_url', metadata)
         adapted = self.client.get(metadata['manifest_url']).json()
@@ -108,6 +121,158 @@ class AssetsTests(unittest.TestCase):
         self.assertFalse(info['predicted_material_maps'])
         receipt.write_text(json.dumps(dict(status='failed', method='native_gaussian_colour_baking')))
         self.assertNotIn('capabilities', self.client.get('/viewforge/assets/baked').json())
+
+    def prepare_publication(self):
+        run = self.model('published')
+        gaussian_ply(run/'reconstruction/result.ply')
+        (run/'config.yaml').write_text('mesh_export: {mode: baked_pbr}\n')
+        (run/'reconstruction/materials.json').write_text(json.dumps(dict(
+            status='complete', method='native_gaussian_colour_baking')))
+        (run/'result.json').write_text(json.dumps(dict(status='running', asset_schema_version=1)))
+        return run
+
+    def publish(self, run):
+        scene = dict(gaussian_transform=np.eye(4), mesh_transform=np.diag([2., 1., 1., 1.]), radius=1.)
+        with patch('cover_scene.load_scene', return_value=scene):
+            return publish_asset(run)
+
+    def test_a_slow_model_check_never_holds_up_other_requests(self):
+        import asyncio
+        import threading
+        import httpx
+        run = self.prepare_publication()
+        self.publish(run)
+        gaussian_ply(run/'reconstruction/result.ply', text=True)  # rewritten whole: checking it means parsing it
+        app = Starlette(middleware=[Middleware(AssetsMiddleware, root=self.root),
+                                    Middleware(DimensionsMiddleware, root=self.root)])
+        turned = threading.Event()
+
+        def parse(*key):
+            # A long parse that ends as soon as the event loop has run meanwhile; on a blocked loop it fails.
+            return turned.wait(5)
+
+        async def request(url):
+            turned.clear()
+            done = False
+
+            async def tick():
+                while not done:
+                    await asyncio.sleep(.01)
+                    turned.set()
+            ticker = asyncio.create_task(tick())
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+                response = await client.get(url)
+            done = True
+            await ticker
+            return response
+
+        with patch('asset_state._parses', side_effect=parse) as parses:
+            for url in ('/viewforge/assets/published/result.ply', '/viewforge/assets/catalog', '/viewforge/assets/published',
+                        '/viewforge/assets/published/preview.json', '/viewforge/dimensions/published'):
+                parses.reset_mock()
+                with self.subTest(url=url):
+                    response = asyncio.run(request(url))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(parses.called)
+                    if url.endswith('catalog'):
+                        self.assertEqual(response.json()['runs'], ['published'])
+
+    def test_partial_mesh_and_interrupted_publication_are_not_importable(self):
+        run = self.prepare_publication()
+        for stage in ('running', 'complete', 'failed'):
+            (run/'result.json').write_text(json.dumps(dict(status=stage, asset_schema_version=1)))
+            self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+            for route in ('assets/published', 'assets/published/result.glb', 'dimensions/published'):
+                response = self.client.get('/viewforge/' + route)
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json()['state'], 'asset_failed' if stage == 'failed' else 'asset_pending')
+        with patch('cover_scene.write_json', side_effect=OSError('interrupted atomic publication')):
+            with self.assertRaises(OSError):
+                self.publish(run)
+        self.assertFalse((run/'asset.json').exists())
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        # A pre-manifest historical success remains importable.
+        (run/'result.json').write_text('{"status":"complete"}')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+
+    def test_publication_freezes_transform_and_capabilities_across_recommendations(self):
+        run = self.prepare_publication()
+        base = self.publish(run)
+        url = '/viewforge/dimensions/published'
+        calibrated = self.client.post(url, json=dict(axis='X', value=120, unit='cm')).json()
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+        self.assertIn('manifest_url', self.client.get('/viewforge/assets/published').json())
+        # A delayed legacy-style COVER writer cannot replace the stable contract.
+        (run/'cover').mkdir()
+        (run/'cover/preview.json').write_text(json.dumps(dict(assets=dict(glb=dict(transform=np.eye(4).ravel().tolist())),
+            recommendation={'id': 'later'}, status='complete')))
+        (run/'reconstruction/materials.json').write_text('{"status":"failed"}')
+        self.assertEqual(self.client.get(url).json(), calibrated)
+        asset = self.client.get('/viewforge/assets/published').json()
+        self.assertEqual(asset['capabilities']['material_mode'], 'pbr')
+        manifest = self.client.get(asset['manifest_url']).json()
+        self.assertEqual(manifest['recommendation'], {'id': 'later'})
+        self.assertEqual(manifest['assets']['glb'], base['assets']['glb'])
+        self.assertEqual(preview_manifest(run)['assets'], base['assets'])
+        # A published file regenerated whole stays served; a torn one hides the set, even if its
+        # commit marker exists.
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb'))
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb')[:-8])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get(url).status_code, 409)
+        (run/'reconstruction/result.glb').write_bytes(trimesh.creation.icosphere().export(file_type='glb'))
+        (run/'reconstruction/result.ply').write_bytes(b'partial')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 409)
+
+    def test_runs_from_before_publication_are_served_while_their_model_is_whole(self):
+        for name, state in [('failed', '{"status": "failed"}'), ('interrupted', '{"status": "running"}'),
+                            ('unreadable', '{"status": "comp')]:
+            (self.model(name)/'result.json').write_text(state)
+        torn = self.model('torn')
+        (torn/'result.json').write_text('{"status": "failed"}')
+        (torn/'reconstruction/result.glb').write_bytes((torn/'reconstruction/result.glb').read_bytes()[:-8])
+        (self.model('imported')/'reconstruction/result.glb').write_bytes(b'glTF\x02\x00\x00\x00')
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['unreadable', 'interrupted', 'failed'])
+        self.assertEqual(self.client.get('/viewforge/assets/failed/result.glb').status_code, 200)
+        for name in ('torn', 'imported'):
+            self.assertEqual(self.client.get(f'/viewforge/assets/{name}/result.glb').status_code, 409)
+
+    def test_a_model_without_a_usable_camera_fit_is_still_published(self):
+        run = self.prepare_publication()
+        with patch('cover_scene.load_scene', side_effect=ValueError('DA3 camera rotation is not orthonormal')):
+            data = publish_asset(run)
+        self.assertTrue(data['assets']['glb']['transform'])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], ['published'])
+
+    def test_a_cut_text_gaussian_model_is_not_served(self):
+        run = self.prepare_publication()
+        gaussian = run/'reconstruction/result.ply'
+        gaussian_ply(gaussian, text=True)
+        self.publish(run)
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 200)
+        whole = gaussian.read_bytes()
+        gaussian.write_bytes(whole[:whole.index(b'end_header\n') + len(b'end_header\n') + 1])
+        self.assertEqual(self.client.get('/viewforge/assets/catalog').json()['runs'], [])
+        self.assertEqual(self.client.get('/viewforge/assets/published/result.ply').status_code, 409)
+
+    def test_a_damaged_gaussian_model_blocks_publication(self):
+        run = self.prepare_publication()
+        gaussian = run/'reconstruction/result.ply'
+        whole = gaussian.read_bytes()
+        for damaged in (whole[:-4], whole.replace(b'property float opacity', b'property float opaque!')):
+            gaussian.write_bytes(damaged)
+            with self.subTest(size=len(damaged)), self.assertRaises((ValueError, KeyError)):
+                publish_asset(run)  # the real camera fit fails too; it must not hide the damaged PLY
+            self.assertFalse((run/'asset.json').exists())
+
+    def test_failed_material_bake_cannot_publish_a_glb(self):
+        run = self.prepare_publication()
+        (run/'reconstruction/materials.json').write_text('{"status":"failed"}')
+        with self.assertRaisesRegex(ValueError, 'material baking'):
+            self.publish(run)
+        self.assertFalse((run/'asset.json').exists())
 
 
 if __name__ == '__main__':

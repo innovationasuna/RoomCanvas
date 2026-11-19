@@ -45,12 +45,36 @@ test('older results without a light preview still import with a separate contact
   const load = async (url) => url.endsWith('result.glb') ? full : light;
   assert.deepEqual(await loadModels('chair', load), {full, light});
   const fallback = await loadModels('chair', async (url) => {
-    if (url.endsWith('preview.glb')) throw new Error('preview 404');
+    if (!url.endsWith('result.glb')) throw new Error('proxy/preview 404');
     return full;
   });
   assert.equal(fallback.full, full);
   assert.equal(fallback.light.scene, contact);
   assert.notEqual(fallback.light.scene, full.scene);
+});
+
+test('independent collision geometry is preferred while display keeps the full PBR asset', async () => {
+  const calls = [], full = {scene: {material: 'PBR'}}, proxy = {scene: {material: null}};
+  const result = await loadModels('chair', async (url) => {
+    calls.push(url);
+    return url.endsWith('result.glb') ? full : proxy;
+  });
+  assert.deepEqual(result, {full, light: proxy});
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].endsWith('collision.glb'));
+  const legacy = await loadModels('chair', async (url) => {
+    if (url.endsWith('collision.glb')) throw new Error('legacy 404');
+    return url.endsWith('result.glb') ? full : proxy;
+  });
+  assert.equal(legacy.light, proxy);
+});
+
+test('asset publication errors retain their actionable pending or failed state', async () => {
+  for (const state of ['asset_pending', 'asset_failed']) {
+    await assert.rejects(readAsset('chair', async () => ({ok: false, status: 409,
+      json: async () => ({state, error: '模型尚未发布'})})),
+      error => error.state === state && error.message === '模型尚未发布');
+  }
 });
 
 test('an unavailable full model is still reported as an import failure', async () => {

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const {values} = parseArgs({options: {url: {type:'string', default:'http://127.0.0.1:7880/web/'},
   output: {type:'string'}, playwright: {type:'string'}, browser: {type:'string'}, rooms: {type:'string', default:'room3,office'},
-  variants: {type:'string', default:'original,initial,balanced,balanced-no-ao,balanced-n8ao'}, frames: {type:'string', default:'90'}}});
+  'asset-edits': {type:'boolean', default:false}, 'editor-queries': {type:'boolean', default:false}, variants: {type:'string', default:'original,initial,balanced,balanced-no-ao,balanced-n8ao'}, frames: {type:'string', default:'90'}}});
 if (!values.output) throw new Error('请指定 --output 到仓库外的结果目录（含私人房间截图）');
 const output = resolve(values.output), repo = fileURLToPath(new URL('../../', import.meta.url));
 if (output === repo || output.startsWith(repo + '/')) throw new Error('基线结果请写到仓库外，不提交私人截图');
@@ -25,9 +25,10 @@ const names = values.variants.split(',');
 for (const name of names) if (!(name in variants)) throw new Error('未知对照档位 ' + name);
 const frameCount = Number(values.frames);
 if (!Number.isInteger(frameCount) || frameCount < 10 || frameCount > 1200) throw new Error('--frames 应为 10–1200');
+const chair = values['asset-edits'] ? await readFile(new URL('../../gesture/public/models/furniture/chair.glb', import.meta.url)) : null;
 await mkdir(output, {recursive:true});
 const browser = await chromium.launch({headless:true, ...(values.browser ? {executablePath: values.browser} : {})});
-const report = {version:1, recordedAt:new Date().toISOString(), userAgent:null, conditions:{viewport:[1440,1000],dpr:1,handTracking:false,frameCount}, rooms:[]};
+const report = {version:1, recordedAt:new Date().toISOString(), userAgent:null, conditions:{viewport:[1440,1000],dpr:1,handTracking:false,frameCount,assetEditModelSha256:chair ? createHash('sha256').update(chair).digest('hex') : null}, rooms:[]};
 try {
   for (const id of values.rooms.split(',')) {
     const entry = manifest.rooms.find(room => room.id === id);
@@ -38,6 +39,26 @@ try {
     for (const name of names) {
       console.log(`检查 ${id}: ${name}`);
       const page = await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1});
+      // Capture startup as well as interaction without enabling observers in the shipped editor.
+      await page.addInitScript(() => {
+        const pageStates = [], longTasks = [];
+        const recordState = () => pageStates.push({atMs: performance.now(),
+          visibility: document.visibilityState, focused: document.hasFocus()});
+        recordState();
+        document.addEventListener('visibilitychange', recordState);
+        window.addEventListener('focus', recordState);
+        window.addEventListener('blur', recordState);
+        const collect = entries => {
+          for (const entry of entries) longTasks.push({atMs: entry.startTime, durationMs: entry.duration});
+        };
+        const observer = PerformanceObserver.supportedEntryTypes.includes('longtask')
+          ? new PerformanceObserver(list => collect(list.getEntries())) : null;
+        observer?.observe({type: 'longtask', buffered: true});
+        window.readBenchmarkActivity = () => {
+          if (observer) collect(observer.takeRecords());
+          return {pageStates, longTasks: observer ? longTasks : null};
+        };
+      });
       const errors = [];
       page.on('pageerror',error => errors.push(String(error)));
       page.on('console',message => {if (message.type()==='error') errors.push(message.text());});
@@ -102,6 +123,61 @@ try {
       const start = Date.now();
       while ((await page.evaluate(() => roomLightingLab.metrics())).pendingQueries && Date.now()-start<5000) await page.waitForTimeout(20);
       result.performance = await page.evaluate(() => roomLightingLab.metrics());
+      // Exercise asset edits after collecting lighting frames so the workloads can be compared separately.
+      const supportsStages = await page.evaluate(() => typeof roomLightingLab.stageTimings === 'function');
+      if (chair && supportsStages) {
+        await page.route('**/viewforge/assets/benchmark-chair/*.glb', route => route.fulfill({body: chair, contentType: 'model/gltf-binary'}));
+        await page.evaluate(async () => {
+          const base = {bounds: {min: [-.3275, 0, -.32], max: [.3275, 1.015, .31]},
+            transform: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]};
+          await roomLightingLab.importObject('benchmark-chair', base, 1);
+          const remove = document.querySelector('.rc-remove-object');
+          if (!remove) throw new Error('导入后未出现删除按钮');
+          remove.click();
+          if (remove.isConnected) throw new Error('删除后仍有物品卡片');
+        });
+      }
+      result.editorStages = supportsStages ? await page.evaluate(() => roomLightingLab.stageTimings()) : null;
+      if (result.editorStages) {
+        const has = (operation, stage) => result.editorStages.some(row =>
+          row.operation === operation && row.stage === stage && Number.isFinite(row.durationMs) && row.durationMs >= 0);
+        for (const stage of ['modelReadAndParse','placement','collisionGeometry','collisionMainBuild','collisionWorkerSubmit','thumbnails'])
+          assert.ok(has('initial', stage), '缺少初次加载计时 ' + stage);
+        if (chair) for (const [operation, stage] of [['import','rebuild'], ['import','floorSearch'], ['delete','rebuild']])
+          assert.ok(has(operation, stage), '缺少资产编辑计时 ' + operation + '/' + stage);
+      }
+      if (values['editor-queries']) {
+        result.editorQueries = await page.evaluate(() => roomLightingLab.queryBenchmark());
+        assert.equal(result.editorQueries.baseline.mismatches, 0, '原始姿态射线与 Three.js 不一致');
+        assert.equal(result.editorQueries.articulated.mismatches, 0, '开合部件射线与 Three.js 不一致');
+        await page.waitForFunction(() => roomLightingLab.geometryStatus().workerReady, null, {timeout: 60000});
+        result.collisionProbe = await page.evaluate(async () => {
+          const objects = roomEditor.snapshot().objects;
+          const object = objects.find((row) => /piano/i.test(row.id)) || objects.find((row) => /table|desk/i.test(row.id)) || objects[0];
+          return {id: object.id, ...await roomLightingLab.collisionProbe(object.id, {y: .12})};
+        });
+        assert.ok(result.collisionProbe.worker, 'Worker 请求被意外取消');
+        assert.deepEqual(result.collisionProbe.worker.contact, result.collisionProbe.main.contact);
+        assert.deepEqual(result.collisionProbe.worker.sweep, result.collisionProbe.main.sweep);
+        await page.locator('[data-mode="preview"]').click();
+        await page.locator('[data-mode="walk"]').click();
+        await page.waitForFunction(() => roomEditor.snapshot().walk.active);
+        result.walkStart = await page.evaluate(() => roomEditor.snapshot().walk);
+        await page.keyboard.down('KeyW');
+        try {
+          result.walkRafIntervalsMs = await page.evaluate(async () => {
+            const intervals = []; let last = await new Promise(requestAnimationFrame);
+            for (let i = 0; i < 30; i++) {const time = await new Promise(requestAnimationFrame); intervals.push(time - last); last = time;}
+            return intervals;
+          });
+        } finally {await page.keyboard.up('KeyW');}
+        result.walkEnd = await page.evaluate(() => roomEditor.snapshot().walk);
+        assert.ok([...result.walkStart.position, ...result.walkEnd.position].every(Number.isFinite));
+        await capture('walk');
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => !roomEditor.snapshot().walk.active);
+      }
+      result.activity = await page.evaluate(() => window.readBenchmarkActivity());
       assert.deepEqual(errors,[]);
       room.variants.push(result);
       await writeFile(join(output,'report.json'),JSON.stringify(report,null,2));

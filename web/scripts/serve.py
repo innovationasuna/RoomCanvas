@@ -22,6 +22,7 @@ missing ones download in the background. Without the server the cached ones stil
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
+import http.client
 import json
 import re
 import shlex
@@ -46,7 +47,7 @@ import room_cache  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
 # The reads the editor makes: catalog, assets/<run>[/result.glb|preview.glb], a job, a mask preview.
-READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
+READS = re.compile(rf'^/viewforge/(assets/(catalog|{NAME}(/((result|preview|collision)\.glb|result\.ply|preview\.json))?)'
                    rf'|layouts/(catalog|assets/{NAME}(/((result|preview)\.glb|result\.ply|preview\.json))?)'
                    rf'|objects/(jobs/[0-9a-f]{{32}}|previews/\w+/{NAME}\.png))$')
 # Its writes: new object with photos, more photos for a finished one (补拍), masks, reconstruction, measured size.
@@ -111,11 +112,13 @@ class Handler(SimpleHTTPRequestHandler):
     deletions = RoomDeletions(ROOT / '.roomcanvas/deleted-rooms.json')
     cache = ROOT / 'runs/room-cache'
 
-    def room_json(self, status, data):
+    def room_json(self, status, data, stale=False):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
+        if stale:
+            self.send_header('X-RoomCanvas-Cache', 'stale')
         self.end_headers()
         self.wfile.write(body)
 
@@ -128,7 +131,7 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in {'/web/rooms.json', '/web/rooms/trash'}:
             data = json.loads((ROOT / 'web/rooms.json').read_text())
-            status, body, _ = self.room_answer('/room-reconstruction/catalog', 2)
+            status, body, _, stale = self.room_answer('/room-reconstruction/catalog', 2)
             try:
                 data['rooms'].extend(json.loads(body)['rooms'] if status == 200 else [])
             except (ValueError, KeyError):
@@ -154,10 +157,10 @@ class Handler(SimpleHTTPRequestHandler):
                     'id': identifier, 'name': '扫描房间' if identifier.startswith('scan-') else identifier,
                     'summary': '暂时无法读取房间详情。恢复后，连接原服务即可查看。',
                 }) for identifier in sorted(deleted)]
-                return self.room_json(200, {'rooms': rooms})
+                return self.room_json(200, {'rooms': rooms}, stale=stale)
             data['rooms'] = [room for room in data['rooms'] if room['id'] not in deleted]
             data['deleted'] = sorted(deleted)
-            return self.room_json(200, data)
+            return self.room_json(200, data, stale=stale)
         room_target = room_forwarded(self.path)
         if room_target:
             return self.room_get(room_target)
@@ -194,31 +197,41 @@ class Handler(SimpleHTTPRequestHandler):
         if kept is None or room_cache.is_file(path):
             # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
             return self.relay(urllib.request.Request(self.room_backend + path), 60, room=True)
-        status, body, kind = self.room_answer(path, 8 if kept.is_file() else 60)
+        status, body, kind, stale = self.room_answer(path, 8 if kept.is_file() else 60)
         if status is None:
             return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
         self.send_response(status)
         self.send_header('Content-Type', kind)
         self.send_header('Content-Length', str(len(body)))
+        if stale:
+            self.send_header('X-RoomCanvas-Cache', 'stale')
         self.end_headers()
         self.wfile.write(body)
 
     def room_answer(self, path, timeout):
-        """(status, body, content type) of a JSON answer: asked live and kept, or the kept one when the
-        service cannot be reached; status None when there is neither."""
+        """Return status, bytes, content type and whether a temporary outage required the saved answer."""
         kept = room_cache.local(self.cache, path)
-        try:
-            with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
-                body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
-        except urllib.error.HTTPError as error:
-            return error.code, error.read(), error.headers.get('Content-Type', 'application/json')
-        except OSError:
-            if kept and kept.is_file():
-                return 200, kept.read_bytes(), 'application/json; charset=utf-8'
-            return None, b'', ''
-        if status == 200 and kept:
-            room_cache.save(kept, body)
-        return status, body, kind
+        with room_cache.answer_writer(kept) as publish:
+            try:
+                with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
+                    body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
+            except urllib.error.HTTPError as error:
+                with error:
+                    failure = error.code, error.read(), error.headers.get('Content-Type', 'application/json'), False
+                if error.code not in (502, 503, 504):
+                    return failure
+            except (OSError, http.client.IncompleteRead):
+                failure = None, b'', '', False
+            else:
+                if status == 200 and kept:
+                    publish(body)
+                return status, body, kind, False
+            if kept:
+                try:
+                    return 200, kept.read_bytes(), 'application/json; charset=utf-8', True
+                except FileNotFoundError:
+                    pass
+            return failure
 
     def send_kept(self, path, head=False):
         self.send_response(200)

@@ -45,12 +45,12 @@ var CameraSource = class {
 	}
 };
 //#endregion
-//#region src/embed/tracker.ts
-var visionBase = new URL("/vision/", location.href).href;
-function setVisionBase(url) {
-	visionBase = new URL(url, location.href).href.replace(/\/?$/, "/");
-}
-var Tracker = class {
+//#region src/tracking/tracker-core.ts
+var Tracker$1 = class {
+	options;
+	constructor(options) {
+		this.options = options;
+	}
 	worker;
 	busy = false;
 	generation = 0;
@@ -61,14 +61,21 @@ var Tracker = class {
 	async start() {
 		this.stop();
 		const generation = this.generation;
-		const worker = new Worker(new URL(
-			/* @vite-ignore */
-			new URL("gesture-worker.js", import.meta.url).href,
-			"" + import.meta.url
-		), { type: "module" });
+		const worker = this.options.createWorker();
 		this.worker = worker;
 		await new Promise((resolve, reject) => {
-			const timeout = window.setTimeout(() => reject(/* @__PURE__ */ new Error("识别资源加载超时，请检查 vision 资源")), 3e4);
+			const fail = (message) => {
+				if (generation !== this.generation) return;
+				this.ready = false;
+				this.busy = false;
+				clearTimeout(timeout);
+				this.cancelInit = void 0;
+				worker.terminate();
+				this.worker = void 0;
+				reject(new Error(message));
+				this.onError?.(message);
+			};
+			const timeout = globalThis.setTimeout(() => fail("识别资源加载超时，请检查 vision 资源"), 3e4);
 			this.cancelInit = (error) => {
 				clearTimeout(timeout);
 				reject(error);
@@ -83,23 +90,12 @@ var Tracker = class {
 				} else if (event.data.type === "result") {
 					this.busy = false;
 					this.onFrame?.(event.data.frame);
-				} else {
-					this.busy = false;
-					clearTimeout(timeout);
-					reject(new Error(event.data.error));
-					this.onError?.(event.data.error);
-				}
+				} else fail(event.data.error);
 			};
-			worker.onerror = (event) => {
-				this.busy = false;
-				clearTimeout(timeout);
-				reject(new Error(event.message));
-				this.onError?.(event.message);
-			};
+			worker.onerror = (event) => fail(event.message);
 			worker.postMessage({
 				type: "init",
-				wasm: new URL("wasm", visionBase).href,
-				model: new URL("hand_landmarker.task", visionBase).href
+				...this.options.resources()
 			});
 		});
 	}
@@ -107,8 +103,9 @@ var Tracker = class {
 		if (!this.ready || this.busy || video.readyState < 2) return;
 		this.busy = true;
 		const generation = this.generation;
+		let bitmap;
 		try {
-			const bitmap = await createImageBitmap(video);
+			bitmap = await createImageBitmap(video);
 			if (generation !== this.generation || !this.worker) {
 				bitmap.close();
 				return;
@@ -118,9 +115,13 @@ var Tracker = class {
 				bitmap,
 				timestamp
 			}, [bitmap]);
+			bitmap = void 0;
 		} catch (error) {
-			this.busy = false;
-			this.onError?.(String(error));
+			bitmap?.close();
+			if (generation === this.generation) {
+				this.busy = false;
+				this.onError?.(String(error));
+			}
 		}
 	}
 	stop() {
@@ -131,6 +132,27 @@ var Tracker = class {
 		this.worker = void 0;
 		this.ready = false;
 		this.busy = false;
+	}
+};
+//#endregion
+//#region src/embed/tracker.ts
+var visionBase = new URL("/vision/", location.href).href;
+function setVisionBase(url) {
+	visionBase = new URL(url, location.href).href.replace(/\/?$/, "/");
+}
+var Tracker = class extends Tracker$1 {
+	constructor() {
+		super({
+			createWorker: () => new Worker(new URL(
+				/* @vite-ignore */
+				new URL("gesture-worker.js", import.meta.url).href,
+				"" + import.meta.url
+			), { type: "module" }),
+			resources: () => ({
+				wasm: new URL("wasm", visionBase).href,
+				model: new URL("hand_landmarker.task", visionBase).href
+			})
+		});
 	}
 };
 //#endregion

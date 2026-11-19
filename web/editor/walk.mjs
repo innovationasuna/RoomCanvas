@@ -1,3 +1,4 @@
+import {createRayQueries} from './ray-queries.mjs';
 // 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, Q and E
 // raise and lower the eye, middle-button dragging looks and Esc leaves. The mouse is never locked: a locked
 // mouse brings the browser's own banner, and Esc would only give the mouse back. A click on a door,
@@ -57,21 +58,21 @@ export function* spots(center, bounds, step = .35) {
 
 // The body against the room: cast (for slide) and free (nothing on or around a spot).
 // room: the room's root; solid(hit): whether a ray hit counts (shown, not see-through).
-export function createBody(THREE, {room, floorY, solid}) {
-  const ray = new THREE.Raycaster(), origin = new THREE.Vector3(), direction = new THREE.Vector3(), normal = new THREE.Vector3();
+export function createBody(THREE, {room, floorY, solid, queries = createRayQueries(THREE, room)}) {
+  const origin = new THREE.Vector3(), direction = new THREE.Vector3(), normal = new THREE.Vector3();
 
-  function firstSolid(hits) {for (const hit of hits) if (solid(hit)) return hit; return null;}
 
   function cast([px, pz], [dx, dz], far) {
+    queries.refresh();
     let best = null;
     for (const offset of [0, -EDGE * RADIUS, EDGE * RADIUS]) {
       const front = Math.sqrt(RADIUS ** 2 - offset ** 2);
       for (const height of HEIGHTS) {
         origin.set(px - dz * offset, floorY + height, pz + dx * offset);
-        ray.set(origin, direction.set(dx, 0, dz)); ray.far = far;
-        const hit = firstSolid(ray.intersectObject(room, true));
+        direction.set(dx, 0, dz);
+        const hit = queries.nearest(origin, direction, far, (candidate) => solid(candidate) && Math.abs(candidate.normal.y) <= .7);
         if (!hit?.face) continue;
-        normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+        normal.copy(hit.normal);
         // A sloping top (a cushion, a lid) faces up: it is not in the way at this height.
         if (Math.abs(normal.y) > .7) continue;
         const flat = Math.hypot(normal.x, normal.z), gap = hit.distance - front;
@@ -83,9 +84,9 @@ export function createBody(THREE, {room, floorY, solid}) {
 
   // Nothing stands on this spot (straight down reaches the floor) and nothing is within reach around it.
   function free([px, pz]) {
-    ray.set(origin.set(px, floorY + 1.85, pz), direction.set(0, -1, 0)); ray.far = 1.9;
-    const below = firstSolid(ray.intersectObject(room, true));
-    if (below && below.point.y > floorY + .12) return false;
+    queries.refresh();
+    const below = queries.nearest(origin.set(px, floorY + 1.85, pz), direction.set(0, -1, 0), 1.9, solid);
+    if (!below || below.point.y > floorY + .12) return false;
     for (let i = 0; i < 8; i++) {
       const a = i / 8 * 2 * Math.PI, hit = cast([px, pz], [Math.cos(a), Math.sin(a)], RADIUS + .1);
       if (hit && hit.gap < .05) return false;
@@ -98,10 +99,10 @@ export function createBody(THREE, {room, floorY, solid}) {
 
 // bounds: {min: [x, z], max: [x, z]} to stay inside; onChange: the view moved; onClick(ndc): a click
 // at a screen point; onHover(ndc, event): the mouse rests over a screen point; onExit: Esc.
-export function createWalk(THREE, {canvas, room, floorY, bounds, solid, onChange, onClick, onHover = () => {}, onExit}) {
+export function createWalk(THREE, {canvas, room, floorY, bounds, solid, queries, onChange, onClick, onHover = () => {}, onExit}) {
   const camera = new THREE.PerspectiveCamera(70, 1, .05, 200);
   camera.rotation.order = 'YXZ';
-  const {cast, free} = createBody(THREE, {room, floorY, solid});
+  const {cast, free} = createBody(THREE, {room, floorY, solid, queries});
   const held = new Set();
   let x = 0, z = 0, eye = EYE, yaw = 0, pitch = 0, active = false, frame = 0, last = 0, lookedAt = 0, drag = null;
   const inside = [bounds.min[0] + RADIUS, bounds.min[1] + RADIUS, bounds.max[0] - RADIUS, bounds.max[1] - RADIUS];

@@ -111,7 +111,8 @@ def generate(request: dict) -> dict:
             image_path,
             output_path,
             seed=int(request.get("seed", 42)),
-            decimation_target=_decimation_target(request.get("simplify", 0.95)),
+            decimation_target=(int(request["decimation"]) if request.get("decimation") is not None
+                               else _decimation_target(request.get("simplify", 0.95))),
             texture_size=int(request.get("texture_size", 1024)),
             pipeline_type=request.get("pipeline_type"),
         )

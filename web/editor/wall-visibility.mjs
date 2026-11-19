@@ -1,3 +1,4 @@
+import {extent} from './geometry-bounds.mjs';
 import {setLayer} from './material-layers.mjs';
 
 // Walls carry inward normals. Near walls (exterior-facing or nearly edge-on) are concealed with
@@ -49,11 +50,11 @@ export function deriveJoins(walls, {short = .7, tolerance = .03} = {}) {
 export function nearestWall(points, walls, reach = .35) {
   let best = null;
   for (const wall of walls) {
-    const depth = points.map(p => p[0] * wall.n[0] + p[2] * wall.n[2] - wall.d);
-    if (Math.min(...depth) < -.05 || Math.max(...depth) > reach) continue;
-    const along = points.map(p => p[0] * wall.tangent[0] + p[2] * wall.tangent[2]);
-    if (Math.min(wall.bounds[1][0], Math.max(...along)) <= Math.max(wall.bounds[0][0], Math.min(...along))) continue;
-    if (!best || Math.max(...depth) < best.depth) best = {name: wall.name, depth: Math.max(...depth)};
+    const [near, far] = extent(points, p => p[0] * wall.n[0] + p[2] * wall.n[2] - wall.d);
+    if (near < -.05 || far > reach) continue;
+    const [start, end] = extent(points, p => p[0] * wall.tangent[0] + p[2] * wall.tangent[2]);
+    if (Math.min(wall.bounds[1][0], end) <= Math.max(wall.bounds[0][0], start)) continue;
+    if (!best || far < best.depth) best = {name: wall.name, depth: far};
   }
   return best?.name || null;
 }

@@ -49,8 +49,10 @@ export function sizeInMeters(base, scale) {
 async function json(url, fetcher) {
   const response = await fetcher(url, {cache: 'no-store'});
   if (!response.ok) {
-    const error = new Error(`ViewForge 读取失败（${response.status}）`);
+    const data = await response.json?.().catch(() => ({}));
+    const error = new Error(data?.error || `ViewForge 读取失败（${response.status}）`);
     error.status = response.status;
+    error.state = data?.state;
     throw error;
   }
   return response.json();
@@ -72,11 +74,12 @@ export async function readCatalog(fetcher = fetch) {
 export const readAsset = (run, fetcher = fetch) => json(assetAPI + encodeURIComponent(run), fetcher);
 export const modelURL = (run, file) => `${assetAPI}${encodeURIComponent(run)}/${file}`;
 
-// Older runs may have only the full mesh: preview generation is optional on the backend.
+// A geometry-only proxy is independent of the full display/PBR asset. Legacy runs
+// fall back to their preview, then a separate scene sharing the original geometry.
 export async function loadModels(run, load) {
   const [full, preview] = await Promise.all([
     load(modelURL(run, 'result.glb')),
-    load(modelURL(run, 'preview.glb')).catch(() => null),
+    load(modelURL(run, 'collision.glb')).catch(() => load(modelURL(run, 'preview.glb')).catch(() => null)),
   ]);
   return {full, light: preview || {scene: full.scene.clone(true)}};
 }

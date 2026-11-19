@@ -24,9 +24,9 @@ import numpy as np
 from PIL import Image
 
 from litereality_agent.pipeline.scene_init import paths as config
+from litereality_agent.pipeline.scene_init.ingest.preprocessing.scanner import extract_rgbd
 from litereality_agent.pipeline.scene_init.ingest.preprocessing.scene_data import (
     Colors,
-    extract_rgbd,
     extract_scene_data,
     get_object_pose,
     get_scene_usda,
@@ -163,19 +163,17 @@ def _depth_frames_to_vertex_obj(
     """
     import json
 
-    frames = sorted(raw.glob("frame_*.json")) or sorted((raw / "images").glob("frame_*.json"))
-    if not frames:
-        return 0
+    from litereality_agent.capture import capture_frames
+
+    frames = capture_frames(raw)
     obj_path.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     with obj_path.open("w", encoding="utf-8") as dst:
         dst.write("# Generated from RoomPlan depth frames for object_init\n")
-        for fi, fjson in enumerate(frames):
+        for fi, frame in enumerate(frames):
             if fi % frame_stride:
                 continue
-            depth_png = fjson.with_name(fjson.stem.replace("frame", "depth") + ".png")
-            if not depth_png.exists():
-                continue
+            fjson, depth_png = frame.camera, frame.depth
             try:
                 meta = json.loads(fjson.read_text())
                 K = np.asarray(meta["intrinsics"], dtype=float).reshape(3, 3)

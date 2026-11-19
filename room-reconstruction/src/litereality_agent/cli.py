@@ -137,10 +137,15 @@ def _reconstruct_options(args) -> dict:
     into a room ungated. It is ON by default — the checks are local geometry and cost nothing, and
     only a cluster that FAILS pays for a regeneration.
     """
-    return {"chair_qc": getattr(args, "chair_qc", True)}
+    return {"chair_qc": getattr(args, "chair_qc", True),
+            **{key: getattr(args, key) for key in ("seed", "decimation", "texture_size")
+               if getattr(args, key, None) is not None}}
 
 
 def _add_reconstruct_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--seed", type=int, default=None, help="TRELLIS random seed (default 42)")
+    parser.add_argument("--decimation", type=int, default=None, help="TRELLIS target face count")
+    parser.add_argument("--texture-size", type=int, default=None, help="TRELLIS texture size")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--chair-qc", dest="chair_qc", action="store_true", default=True,
@@ -410,6 +415,7 @@ def _generate_3d(args) -> int:
     result = service.reconstruct(
         [args.image], out_dir=str(Path(output).resolve().parent),
         asset_id=Path(output).stem, seed=args.seed, simplify=args.simplify,
+        decimation=args.decimation, texture_size=args.texture_size, skip_existing=not args.force,
     )
     print(result)
     return int(not result or not Path(result).is_file())
@@ -500,6 +506,9 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--out")
     generate.add_argument("--seed", type=int, default=42)
     generate.add_argument("--simplify", type=float, default=0.95)
+    generate.add_argument("--decimation", type=int, default=None)
+    generate.add_argument("--texture-size", type=int, default=4096)
+    generate.add_argument("--force", action="store_true")
     generate.set_defaults(handler=_generate_3d)
     return parser
 

@@ -20,3 +20,4 @@ class Stage:
     prerequisites: tuple[str, ...] = ()
     required: bool = True
     is_complete: Callable[[RunContext], bool] | None = None
+    fingerprint: Callable[[RunContext, dict[str, Any]], str] | None = None

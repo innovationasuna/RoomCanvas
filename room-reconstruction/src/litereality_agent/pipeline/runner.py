@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from collections.abc import Iterable
 from typing import Any
 from unittest.mock import patch
 
+from litereality_agent import telemetry
 from litereality_agent.pipeline.context import RunContext
 from litereality_agent.pipeline.result import StageResult, StageStatus
 from litereality_agent.pipeline.stage import Stage
 from litereality_agent.pipeline.stages import STAGES
+from litereality_agent.timing import Measurement
 
 PIPELINE = tuple(STAGES)
 
@@ -37,7 +40,10 @@ class PipelineRunner:
     def _write_state(self, context: RunContext, state: dict[str, Any]) -> None:
         context.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = context.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+        with tmp.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(state, indent=2, sort_keys=True))
+            stream.flush()
+            os.fsync(stream.fileno())
         tmp.replace(context.state_path)
 
     def _selection(self, start: str | None, through: str | None) -> tuple[Stage, ...]:
@@ -64,7 +70,23 @@ class PipelineRunner:
     ) -> list[StageResult]:
         selected = self._selection(start, through)
         state = self._read_state(context)
+        run_id = os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex
+        trace_environment = {
+            "LITEREALITY_RUN_ID": run_id,
+            "LITEREALITY_JOB_ID": os.environ.get("LITEREALITY_JOB_ID") or str(context.scene_dir.resolve()),
+            "LITEREALITY_ATTEMPT_ID": os.environ.get("LITEREALITY_ATTEMPT_ID") or run_id,
+        }
         prior = state.setdefault("stages", {})
+        def invalidate(name):
+            # No longer reusable, but not forced: it starts over only if its own inputs have
+            # changed by the time it runs; otherwise it resumes its saved work.
+            if name in prior:
+                prior[name] = {**prior[name], "status": StageStatus.INVALIDATED.value,
+                               "artifact_validity": "invalid"}
+        def changed(stage, record, fingerprint):
+            # A record from before fingerprints existed proves nothing either way: accept it.
+            recorded = (record or {}).get("input_fingerprint")
+            return stage.fingerprint is not None and recorded is not None and recorded != fingerprint
         force = force or set()
         unknown_force = force - self.by_name.keys()
         if unknown_force:
@@ -73,7 +95,9 @@ class PipelineRunner:
         forced_indexes = [i for i, stage in enumerate(self.stages) if stage.name in force]
         invalidate_from = min(forced_indexes) if forced_indexes else len(self.stages)
         for stage in self.stages[invalidate_from:]:
-            prior.pop(stage.name, None)
+            invalidate(stage.name)
+        if force:
+            self._write_state(context, state)
 
         results: list[StageResult] = []
         completed = {
@@ -82,18 +106,25 @@ class PipelineRunner:
             if value.get("status") in {StageStatus.COMPLETED.value, StageStatus.REUSED.value}
             and name in self.by_name
             and (self.by_name[name].is_complete is None or self.by_name[name].is_complete(context))
+            and (self.by_name[name].fingerprint is None or not changed(self.by_name[name], value,
+                 self.by_name[name].fingerprint(context, value.get("input_options", {}))))
         }
         for stage in selected:
             for prerequisite in stage.prerequisites:
                 dependency = self.by_name[prerequisite]
                 if (
                     prerequisite not in completed
-                    and prior.get(prerequisite, {}).get("status") != StageStatus.FAILED.value
+                    and prior.get(prerequisite, {}).get("status") not in {"failed", "running", "invalidated"}
                     and dependency.is_complete is not None
                     and dependency.is_complete(context)
+                    and (dependency.fingerprint is None or prerequisite not in prior)
                 ):
                     reused = StageResult(prerequisite, StageStatus.REUSED)
                     prior[prerequisite] = reused.to_dict()
+                    dependency_options = dict((options or {}).get(prerequisite, {}))
+                    prior[prerequisite]["input_options"] = dependency_options
+                    if dependency.fingerprint:
+                        prior[prerequisite]["input_fingerprint"] = dependency.fingerprint(context, dependency_options)
                     completed.add(prerequisite)
             missing = [name for name in stage.prerequisites if name not in completed]
             if missing:
@@ -105,12 +136,11 @@ class PipelineRunner:
             old = prior.get(stage.name)
             stage_options = dict((options or {}).get(stage.name, {}))
             cache_options = {key: value for key, value in stage_options.items() if key != "force"}
-            same_options = old is not None and old.get("input_options", {}) == cache_options
-            if old and not same_options:
-                # Enabling DINO on an existing run must reach ingest and invalidate its consumers.
-                for dependent in self.stages[self.stages.index(stage) + 1:]:
-                    prior.pop(dependent.name, None)
-                    completed.discard(dependent.name)
+            fingerprint = stage.fingerprint(context, cache_options) if stage.fingerprint else None
+            inputs_changed = changed(stage, old, fingerprint)
+            # Enabling DINO on an existing run must rerun ingest and invalidate its consumers.
+            same_options = (old is not None and old.get("input_options", {}) == cache_options
+                            and not inputs_changed)
             complete_on_disk = stage.is_complete(context) if stage.is_complete else False
             if (stage.name not in force and old and same_options and complete_on_disk
                     and StageResult.from_dict(old).ok):
@@ -119,27 +149,55 @@ class PipelineRunner:
             else:
                 # Any rebuilt input invalidates its downstream results, even without --force.
                 for dependent in self.stages[self.stages.index(stage) + 1:]:
-                    prior.pop(dependent.name, None)
+                    invalidate(dependent.name)
                     completed.discard(dependent.name)
                 started = time.monotonic()
-                try:
-                    if stage.name in force:
-                        stage_options.setdefault("force", True)
-                    # Several ported stage implementations still read canonical environment
-                    # names. Keep that compatibility bridge at the orchestration boundary and
-                    # restore the caller's process immediately after the stage returns.
-                    with patch.dict(os.environ, context.environment, clear=True):
-                        result = stage.run(context, stage_options)
-                except Exception as exc:  # one normalization point for stage failures
-                    result = StageResult(stage.name, StageStatus.FAILED, error=str(exc))
+                if stage.name in force or inputs_changed:
+                    stage_options.setdefault("force", True)
+                # Commit loss of validity before touching any stage files. A killed process
+                # must never leave yesterday's completed marker certifying a partial rebuild.
+                running = StageResult(stage.name, StageStatus.RUNNING, artifact_validity="invalid",
+                                      details={"forced": bool(stage_options.get("force"))})
+                prior[stage.name] = {**running.to_dict(), "input_options": cache_options,
+                                     "input_fingerprint": fingerprint}
+                self._write_state(context, state)
+                timing_attempts = []
+                for attempt in range(1, 3):
+                    measurement = Measurement()
+                    try:
+                        # Restore the caller's environment after the compatibility bridge.
+                        with patch.dict(os.environ, {**context.environment, **trace_environment,
+                                                    "LITEREALITY_STAGE": stage.name}, clear=True):
+                            result = stage.run(context, stage_options)
+                    except Exception as exc:
+                        result = StageResult.failure(stage.name, exc)
+                    timing_attempts.append({"attempt": attempt, "outcome": result.status.value,
+                                            **measurement.finish()})
+                    result.details["execution_attempts"] = attempt
+                    result.details["timing_attempts"] = timing_attempts.copy()
+                    result.details["forced"] = bool(stage_options.get("force"))
+                    if result.ok or not result.retryable or attempt == 2:
+                        break
+                    time.sleep(0.25)
                 result.duration_seconds = time.monotonic() - started
 
             results.append(result)
+            if result.artifact_validity == "unknown" and result.ok and result.artifacts_exist():
+                result.artifact_validity = "valid"
             if not result.ok:
                 result.details["fatal"] = bool(stage.required or strict)
             prior[stage.name] = result.to_dict()
             prior[stage.name]["input_options"] = cache_options
+            if stage.fingerprint:
+                prior[stage.name]["input_fingerprint"] = stage.fingerprint(context, cache_options)
             self._write_state(context, state)
+            telemetry.record(context.object_root / "traces", "pipeline_stage", stage=stage.name,
+                             outcome=result.status.value, error_category=result.error_category,
+                             retryable=result.retryable, artifact_validity=result.artifact_validity,
+                             duration_seconds=0. if result.status == StageStatus.REUSED else result.duration_seconds,
+                             timing_attempts=[] if result.status == StageStatus.REUSED else result.details.get("timing_attempts", []),
+                             run=run_id, job_id=trace_environment["LITEREALITY_JOB_ID"],
+                             attempt_id=trace_environment["LITEREALITY_ATTEMPT_ID"])
             if result.ok:
                 completed.add(stage.name)
                 continue

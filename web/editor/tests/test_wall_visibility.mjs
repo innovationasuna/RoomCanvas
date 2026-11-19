@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
-import {hiddenWalls, deriveJoins, createWallVisibility, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from '../wall-visibility.mjs';
+import {hiddenWalls, deriveJoins, createWallVisibility, setSeeThrough, seeThrough, nearestWall, againstWall, inNearHalf, SEE_THROUGH} from '../wall-visibility.mjs';
 const walls = [
   {name: 'Wall0', n: [1,0,0]}, {name: 'Wall1', n: [-1,0,0]},
   {name: 'Wall2', n: [0,0,1]}, {name: 'Wall3', n: [0,0,-1]},
@@ -168,4 +168,15 @@ test('a see-through wall can be hidden outright, and comes back solid', () => {
   assert.equal(setSeeThrough(wall, true, 0), false);
   assert.equal(setSeeThrough(wall, false), true);
   assert.ok(mesh.material === material && material.opacity === 1 && mesh.castShadow && !seeThrough(mesh));
+});
+
+test('dense fixtures use their entire depth range when choosing the nearest wall', () => {
+  const wall = {name: 'Wall0', n: [0, 0, 1], d: 0, tangent: [1, 0, 0], bounds: [[-1, 0], [1, 2]]};
+  const points = Array(200000).fill([0, 1, .1]);
+  points[0] = [-.5, 0, .05];
+  points[points.length - 1] = [.5, 2, .35];
+  assert.equal(nearestWall(points, [wall]), 'Wall0');
+  points[points.length - 1][2] = .36;
+  assert.equal(nearestWall(points, [wall]), null);
+  assert.equal(nearestWall([], [wall]), null);
 });

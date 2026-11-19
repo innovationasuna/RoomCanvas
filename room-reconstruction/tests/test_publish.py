@@ -1,6 +1,6 @@
 """Publishing: the room and the real-vs-render comparison.
 
-Blender is never spawned here — `run_module` and `bake_room` are stubbed, so what is exercised is
+Blender is never spawned here — `run_module` and the Blender process are stubbed, so what is exercised is
 the order the stage does things in and what survives each part failing.
 
 The web copy `view` serves is deliberately NOT part of this: it is made on first view, and the
@@ -10,7 +10,9 @@ tests that it is live beside the viewer in `test_walk_viewer.py`.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -40,10 +42,12 @@ def _context(scene: Path) -> RunContext:
 class Recorder:
     """Stands in for `run_module`, creating whatever each real module would have produced."""
 
-    def __init__(self, context: RunContext, *, compare_rc: int = 0, compile_rc: int = 0) -> None:
+    def __init__(self, context: RunContext, *, compare_rc: int = 0, compile_rc: int = 0,
+                 export_layout: bool = True) -> None:
         self.context = context
         self.compare_rc = compare_rc
         self.compile_rc = compile_rc
+        self.export_layout = export_layout
         self.calls: list[str] = []
 
     def __call__(self, _context, module: str, args=(), *, log_name=None):
@@ -55,6 +59,13 @@ class Recorder:
             glb = self.context.preview_dir / "Room.glb"
             glb.parent.mkdir(parents=True, exist_ok=True)
             glb.write_bytes(b"glTF")
+            glb.with_suffix(".blend").write_bytes(b"assembled scene")
+            if self.export_layout:
+                (glb.parent / "room_layout.json").write_text('{"objects": []}')
+        elif short == "checks":
+            assert args == ["--layout", self.context.preview_dir / "room_layout.json",
+                            "--shell", self.context.authored_room / "Room.py"]
+            assert json.loads(args[1].read_text()) == {"objects": []}
         elif short == "render_vs_capture":
             if self.compare_rc:
                 return self.compare_rc, Path("compare.log")
@@ -66,8 +77,16 @@ class Recorder:
 
 @pytest.fixture
 def stub(monkeypatch):
-    """No Blender anywhere: the bake is a no-op, and the compressor fails the test if reached."""
-    monkeypatch.setattr("litereality_agent.room_ops.api.bake_room", lambda *a, **k: 0)
+    """The Blender subprocess exports to the requested path. Compression must stay lazy."""
+    from litereality_agent.room_ops import api
+
+    def export(cmd, **kwargs):
+        output = Path(cmd[cmd.index("--") + 1])
+        output.write_bytes(b"baked room")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(api, "blender_bin", lambda: "blender")
+    monkeypatch.setattr(api, "subprocess", SimpleNamespace(run=export, STDOUT=subprocess.STDOUT))
     monkeypatch.setattr("litereality_agent.pipeline.realism_authoring.acceptance.assess",
                         lambda *a: {"accepted": True})
 
@@ -94,10 +113,20 @@ def test_publishes_the_room_and_the_comparison(scene: Path, stub) -> None:
     result = publish.run(context, {"compare_frames": 4})
 
     assert result.status is StageStatus.COMPLETED
-    assert (context.preview_dir / "Room.glb").is_file()
+    assert (context.preview_dir / "Room.glb").read_bytes() == b"baked room"
     assert not (context.preview_dir / publish.WEB_GLB_NAME).exists()
     assert "room_web_glb" not in result.artifacts
     assert "render_vs_capture" in rec.calls
+    assert rec.calls.index("build_from_room") < rec.calls.index("checks")
+
+
+def test_missing_layout_reports_unavailable_quality_and_keeps_the_model(scene: Path, stub) -> None:
+    context = _context(scene)
+    rec = stub(context, export_layout=False)
+    result = publish.run(context, {"compare_frames": 0})
+    assert result.status is StageStatus.COMPLETED
+    assert any("produced no room_layout.json" in warning for warning in result.warnings)
+    assert "checks" not in rec.calls
 
 
 def test_no_compare_frames_means_no_render(scene: Path, stub) -> None:
@@ -130,6 +159,49 @@ def test_a_failed_compile_fails_the_stage(scene: Path, stub) -> None:
 
     assert result.status is StageStatus.FAILED
     assert "final compile failed" in (result.error or "")
+
+
+@pytest.mark.parametrize("existing_blend", [None, b"", b"previous assembly"],
+                         ids=["missing", "empty", "unchanged"])
+def test_publish_requires_a_new_blend_before_recording_success(scene, monkeypatch, existing_blend):
+    from litereality_agent.pipeline.scene_init import seed
+    from litereality_agent.room_ops import api
+    from litereality_agent.room_ops.compile import build_from_room
+
+    context = _context(scene)
+    preview = context.preview_dir
+    preview.mkdir()
+    if existing_blend is not None:
+        (preview / "Room.blend").write_bytes(existing_blend)
+    (preview / "acceptance.json").write_text('{"status":"published"}')
+    stamp = context.authored_room / ".compile_stamp"
+    stamp.write_text("previously compiled")
+
+    # This assembly returns zero and exports a candidate GLB, but fails to save its .blend.
+    def blender(*args):
+        (preview / "Room.glb").write_bytes(b"glTF")
+        return SimpleNamespace(returncode=0)
+
+    def run(_context, module, args, **kwargs):
+        if module.endswith("build_from_room"):
+            log = preview / "build.log"
+            return build_from_room.run_assembly([], log, require_blend="--require-blend" in args), log
+        return 0, None
+
+    monkeypatch.setattr(build_from_room.console, "run_logged", blender)
+    monkeypatch.setattr(publish, "run_module", run)
+    monkeypatch.setattr(api, "blender_bin", lambda: pytest.fail("attempted to bake stale input"))
+    monkeypatch.setattr(seed, "saved", lambda *args: pytest.fail("recorded an unbaked final model"))
+    result = publish.run(context, {"compare_frames": 0})
+
+    assert result.status is StageStatus.FAILED
+    assert "build.log" in result.error
+    assert "Room.blend" in (preview / "build.log").read_text()
+    assert (preview / "Room.glb").read_bytes() == b"glTF"
+    assert not (preview / "acceptance.json").exists()
+    assert not stamp.exists()
+    if existing_blend is not None:
+        assert (preview / "Room.blend").read_bytes() == existing_blend
 
 
 def test_complete_requires_fresh_acceptance(scene: Path) -> None:

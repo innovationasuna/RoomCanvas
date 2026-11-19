@@ -4,11 +4,18 @@
 import {buildCollision, unpackOwners} from './collision.mjs';
 
 let collision = null;
+let owners = new Map(), generation = 0;
 self.onmessage = ({data}) => {
-  if (data.type === 'build') {
-    collision = buildCollision(unpackOwners(data.owners), {keepAuthoredOverlaps: data.keepAuthoredOverlaps});
-    self.postMessage({type: 'built', generation: data.generation});
-  } else if (data.type === 'drop' && collision) {
+  if (data.type === 'build' || data.type === 'update') {
+    if (data.generation <= generation) return;
+    generation = data.generation;
+    if (data.type === 'build') owners = new Map();
+    for (const id of data.removed || []) owners.delete(id);
+    for (const owner of unpackOwners(data.owners)) owners.set(owner.id, owner);
+    // In the page's order, so both name the same obstacle when a move meets several.
+    collision = buildCollision(data.order.map((id) => owners.get(id)), {keepAuthoredOverlaps: data.keepAuthoredOverlaps});
+    self.postMessage({type: 'built', generation, audit: collision.audit});
+  } else if (data.type === 'drop' && collision && data.generation === generation) {
     const contact = collision.checkPlacement(data.candidate, data.moved);
     const sweep = contact.ok ? collision.limit(data.source, data.candidate, data.moved) : null;
     self.postMessage({type: 'drop', ticket: data.ticket, generation: data.generation,

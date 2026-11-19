@@ -25,14 +25,18 @@ import argparse
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+import tempfile
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from litereality_agent import artifact_cache as cache
+from litereality_agent import telemetry
+from litereality_agent.pipeline.realism_authoring import pass_cache
 from litereality_agent.pipeline.realism_authoring.small_objects import candidates, evidence, judge
 from litereality_agent.room_ops.paths import find_blender
 
@@ -53,15 +57,22 @@ class Pass:
         self.only = set(only or [])
         self.concurrency = concurrency
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
+        self.dependency_key = pass_cache.prepare(
+            self.out, self.preview, self.frames, self.layout, Path(__file__).parent)
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
 
     # ------------------------------------------------------------------ bookkeeping
     def save(self):
-        tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.items, indent=1, ensure_ascii=False))
-        tmp.replace(self.state_path)
+        handle = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.out, delete=False)
+        tmp = Path(handle.name)
+        try:
+            with handle:
+                json.dump(self.items, handle, indent=1, ensure_ascii=False)
+            tmp.replace(self.state_path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def log(self, message: str):
         print(f"[small-objects] {message}", flush=True)
@@ -192,18 +203,20 @@ class Pass:
         def reference(item):
             folder = self.out / "rebuild" / item["id"]
             tiles = evidence.generator_inputs(item["views"], folder / "tiles")
-            try:
-                meta = rebuild.make_reference(item, tiles, item["decision"]["description"],
-                                              folder)
-                item["reference"] = str(folder / "reference.png")
-                item.pop("reference_error", None)
-                item["image_cost_usd"] = (meta or {}).get("cost_usd") or 0
-            except Exception as exc:  # noqa: BLE001
-                item["reference_error"] = f"{type(exc).__name__}: {exc}"
-            self.save()
+            meta = rebuild.make_reference(item, tiles, item["decision"]["description"], folder)
+            return str(folder / "reference.png"), (meta or {}).get("cost_usd") or 0
 
         with ThreadPoolExecutor(self.concurrency) as pool:
-            list(pool.map(reference, todo))
+            futures = {pool.submit(reference, item): item for item in todo}
+            for future in as_completed(futures):
+                item = futures[future]
+                try:
+                    item["reference"], item["image_cost_usd"] = future.result()
+                except Exception as exc:  # noqa: BLE001 — keep other references and retry this item
+                    item["reference_error"] = f"{type(exc).__name__}: {exc}"
+                else:
+                    item.pop("reference_error", None)
+                self.save()
         pending = {i["id"]: Path(i["reference"]) for i in wanted
                    if i.get("reference") and "glb" not in i}  # includes earlier failures
         if pending:
@@ -248,23 +261,36 @@ class Pass:
         final = self.out / "room_preview"
         drop, replace = self.plan(self.items)
         plan = {"drop": drop, "replace": replace}
-        record = final / "plan.json"
-        if record.exists() and json.loads(record.read_text()) != plan:
-            # A rerun finished rebuilds that failed before: the derived room is made again.
-            self.log("plan changed since the last apply: rebuilding room_preview")
-            shutil.rmtree(final)
-            shutil.rmtree(self.out / "renders" / "after", ignore_errors=True)
+        key = cache.fingerprint({"source": self.dependency_key, "plan": plan,
+                                 "meshes": {i["glb"]: cache.file_hash(Path(i["glb"]))
+                                            for i in replace}})
+        if not pass_cache.bundle_matches(final, key, pass_cache.ROOM_FILES):
+            cache.retire([final, self.out / "renders" / "after"], self.out)
             for item in self.items:
                 (self.out / "evidence" / item["id"] / "pair_after.jpg").unlink(missing_ok=True)
-        if not (final / "Room.blend").exists():
-            self.blender(self.preview / "Room.blend",
-                         {"op": "apply", "layout": str(self.preview / "room_layout.json"),
-                          "out_dir": str(final), **plan}, "apply")
-            record.write_text(json.dumps(plan, indent=1))
+            try:
+                self.blender(self.preview / "Room.blend",
+                             {"op": "apply", "layout": str(self.preview / "room_layout.json"),
+                              "out_dir": str(final), **plan}, "apply")
+                pass_cache.record_bundle(final, key, pass_cache.ROOM_FILES)
+                cache.atomic_json(final / "plan.json", plan)
+            except BaseException:
+                cache.retire([final], self.out)
+                raise
         # For people to look at (overview.jpg); nobody asks a model about these.
         rebuilt = [i for i in self.items if i.get("glb") and
                    i["decision"]["decision"] == "trellis"]
         self.render_pairs(final / "Room.blend", rebuilt, "after")
+        # Keep publication evidence for direct CLI use without duplicating a launcher's
+        # model_saved event, which is responsible for selecting a model in the replay.
+        traces = self.scene_dir / "scene_init/obj_stage/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        telemetry.record_artifact(
+            traces, "artifact_published", final / "Room.glb",
+            path=os.path.relpath(final / "Room.glb", self.scene_dir), phase="small_objects", stage="small_objects",
+            run=os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex,
+            job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir),
+        )
 
     def outcome(self, item) -> str:
         decision = item.get("decision", {}).get("decision")

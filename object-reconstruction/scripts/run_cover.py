@@ -1,8 +1,6 @@
 """Score a completed MV-SAM3D run with the pinned COVER formula."""
 import argparse
-from contextlib import nullcontext
 from datetime import datetime, timezone
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -113,16 +111,24 @@ def run_cover(run,check_only=False,export_parity=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-dir',type=Path,required=True)
-    p.add_argument('--lock-held',action='store_true')
+    p.add_argument('--lock-fd', type=int, help=argparse.SUPPRESS)
+    p.add_argument('--wait-gpu', action='store_true', help='Wait for the selected GPU when running standalone')
     p.add_argument('--check-projection',action='store_true')
     p.add_argument('--export-parity-input',action='store_true')
     args=p.parse_args()
-    if not os.environ.get('CUDA_VISIBLE_DEVICES') or ',' in os.environ['CUDA_VISIBLE_DEVICES']:
-        raise ValueError('Set exactly one authorized GPU in CUDA_VISIBLE_DEVICES')
-    lockpath=Path(os.environ.get('VIEWFORGE_GPU_LOCK',str(Path(os.environ['VIEWFORGE_ROOT'])/'cache/gpu.lock')))
-    lockpath.parent.mkdir(parents=True,exist_ok=True)
-    with (nullcontext() if args.lock_held else lockpath.open('a')) as lock:
-        if lock is not None:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        run_cover(args.run_dir,args.check_projection,args.export_parity_input)
+    from run import check_gpu, object_lease
+    from roomcanvas_gpu import device_uuid, inherited_fd
+    if args.lock_fd is not None:
+        uuid = device_uuid(os.environ.get('CUDA_VISIBLE_DEVICES', ''))
+        inherited_fd(uuid, args.lock_fd)
+        os.environ['CUDA_VISIBLE_DEVICES'] = uuid
+        run_cover(args.run_dir, args.check_projection, args.export_parity_input)
+    else:
+        with object_lease(Path(os.environ['VIEWFORGE_ROOT']), wait=args.wait_gpu) as lease:
+            # COVER accepts smaller cards than full reconstruction. Check availability under the lock.
+            check_gpu(0, lease.uuid)
+            os.environ['CUDA_VISIBLE_DEVICES'] = lease.uuid
+            run_cover(args.run_dir, args.check_projection, args.export_parity_input)
+
 
 if __name__=='__main__':main()

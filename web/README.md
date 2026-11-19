@@ -126,7 +126,7 @@ python3 web/scripts/serve.py
 | `ao=off` / `ao=n8ao` | 关闭环境遮蔽 / 改用 N8AO |
 | `env=off`、`shadows=original` | 关闭环境反射、使用原始阴影参数，用于分项对比 |
 | `materials=pbr` / `materials=original` | 默认开启导入受光；`original` 仅关闭旧版顶点色模型的受光，原生 PBR 结果仍然受光 |
-| `lightingLab=1` | 开启 `roomLightingLab` 调试接口：固定状态保存与恢复、材质检查、镜头回放和 GPU 计时 |
+| `lightingLab=1` | 开启 `roomLightingLab` 调试接口：固定状态保存与恢复、材质检查、镜头回放、编辑器阶段和 GPU 计时 |
 
 控制台里的 `roomEditor.snapshot().lighting` 可查看当前环境、阴影参数和 AO 状态。
 
@@ -166,7 +166,7 @@ python3 web/scripts/serve.py
 
   重建在服务器上进行，关闭对话框或刷新页面都不影响；卡片上显示进度，刷新后会继续跟踪。服务重启后任务进度无法恢复，但结果照样会出现在“从已生成的模型添加”里。照片、抠图、结果和尺寸都保存在物体重建服务的数据目录中。
 - **补拍**：重建结果旁有一支橙色箭头指向建议补拍的方向（由 COVER 计算），“看推荐角度”把预览相机移到推荐视角。点“补拍”上传新照片：原来的照片全部保留并复用抠图，只给新照片抠图，然后在原结果基础上重建，生成一个新结果，原结果不变。导入时选中已有的结果也可以补拍；没有补拍建议的旧结果同样能补拍。
-- **从已生成的模型添加**：列出已有的重建结果。在物体重建服务中保存过标定的自动填好尺寸，没有标定的填一条实测边长。显示用完整模型，碰撞和支撑用轻量预览模型（同一坐标，三角面约 1/40）。导入后放在离房间中心最近的空地上，再用鼠标或手势摆放；导入时需要重建碰撞索引，room3 约 10 秒。
+- **从已生成的模型添加**：列出已有的重建结果。在物体重建服务中保存过标定的自动填好尺寸，没有标定的填一条实测边长。显示用完整模型，碰撞和支撑优先使用同坐标的 `collision.glb`；旧资产依次回退到 `preview.glb` 和完整模型。导入后放在离房间中心最近的空地上，再用鼠标或手势摆放。增删物品只构建新实体的几何和 BVH，复用已有支撑采样与静态索引。
 - **尺寸预览**：显示红色 X（宽）、绿色 Y（深）、蓝色 Z（高）三个箭头，点击轴标签选择实测方向，旋转视角时标签跟随。
 - **删除**：导入物品的卡片右上角有删除按钮，只删除当前房间中的这一份实例，服务器上的重建结果保留，可以重新导入。房间原有的家具不提供删除。
 
@@ -195,10 +195,10 @@ python3 web/scripts/serve.py
 单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行：
 
 ```bash
-node --test 'web/editor/tests/*.mjs'
-node --test web/scripts/test_room_reconstruction.mjs
+node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
 python3 -m unittest discover -s web/scripts
-node web/scripts/check_room.mjs --scene-dir samples/room3      # 约 30 秒，适用于任何房间
+node web/scripts/check_room.mjs --scene-dir samples/room3
+node web/scripts/check_room.mjs --scene-dir samples/room-3934  # 57 件可编辑物品
 for c in collision wall_mount seat_support gravity; do node web/scripts/check_$c.mjs --scene-dir samples/office; done
 ```
 
@@ -219,18 +219,34 @@ node web/scripts/check_object_photos.mjs --playwright $PW
 
 | 脚本 | 检查内容 |
 | --- | --- |
-| `check_lighting.mjs` | 固定镜头和布局下的整体、近景截图，逐帧 CPU / GPU 计时；支持 `--rooms`、`--variants`、`--frames` |
+| `check_lighting.mjs` | 固定镜头和布局下的整体、近景截图，逐帧 CPU / GPU 计时；支持 `--rooms`、`--variants`、`--frames`；加 `--asset-edits` 可在光照采样后导入并删除示例阅读椅 |
 | `check_import_lighting.mjs` | 用合成模型走完整的导入和摆放流程，检查受光材质与原显示的切换 |
 | `check_lighting_stability.mjs` | 悬停和移出画布时不重绘、半透明墙前后一致、移动后正确更新 |
 | `check_time_lighting.mjs` | 五个时段、顶灯定位与衰减、角度和开关、按房间保存、调色只做一次合成、窄屏和键盘操作 |
 | `check_ground_grid.mjs` | 108 组透视 / 俯视、微小旋转及渲染合成的像素对比：地板遮挡网格，房间外的网格仍可见 |
 | `check_object_photos.mjs` | 合成 HEIC 原图与误改 PNG / JPEG 后缀、预览尺寸和颜色、损坏文件提示及实际上传编码；模拟接口，不启动重建任务 |
+| `check_replay_resources.mjs` | 24 次 draft 替换的真实 WebGL 资源稳定性；成形中替换、回拖、1/2/8 倍速、灯光切换和迟到 load / warm / prefetch；支持 `--output <报告.json>` |
+
+每个光照档位的 `report.json` 条目在 `editorStages` 下保留最近 128 个分段样本。每个样本记录操作、阶段、页面内起点和耗时（毫秒），以及可编辑物品数。初次加载分开记录模型读取与解析的合计耗时、支撑构建、碰撞几何提取、主线程碰撞构建、Worker 提交和缩略图。`collisionWorkerSubmit` 从主线程准备或复用 Worker 开始，到数据打包并提交结束。`rebuild` 是资产增删时支撑与碰撞子阶段的总耗时；`floorSearch` 记录导入后的落点搜索。用 `--asset-edits` 时，显示模型和碰撞预览均使用仓库内同一份椅子模型，哈希见报告的 `conditions.assetEditModelSha256`。旧版页面的 `editorStages` 为 `null`。
 
 输出包含示例房间的截图，请放在仓库外，不要提交。
+
+回放的点云与线框 shader 池由单个 `RoomView` 复用，纹理材质的裁切副本随模型释放。
+替换 draft 时先取消异步上传、移除成形效果和墙面淡出引用，再等待已开始的 shader 编译完成后释放该模型；
+已过期的 GLTF 加载结果不会重新加入场景。销毁整个视图应调用并等待 `view.dispose()`，同时清理观察器、动画帧、环境贴图及 shader 池。
+`check_replay_resources.mjs` 的稳定段必须有至少 20 次替换，`renderer.info.memory` 和 program 数量不得随替换持续增长。
 
 ## 使用说明
 
 - **布局保存范围**：保存和导出的布局包含房间原有的物品；导入的物品在刷新后从“从已生成的模型添加”重新加入。每次打开房间先显示原始布置，从房间菜单“继续上次布置”恢复。
 - **重模型的碰撞检查**：落点的完整碰撞检查在后台线程中进行，页面保持流畅；钢琴、琴凳这类紧挨着的高面数模型约需 1–2 秒，期间预览显示黄色“检查中”，此时点确认会在检查完成后自动放下。
-- **原有交叠**：重建结果中原本就相互穿插的物品（如家具与墙面贴合处）不计为碰撞，其余照常检查。插进墙里的白板、书架打开时显示“待调整”，挪开即可。
+- **原有交叠**：原始扫描可以显示、重置和撤销恢复，每件物品都能在扫描位置原地确认，但不会永久豁免相交物品对。扫描时就相交的一对，只有确实相交的连通部分按穿入深度判断：不超过扫描时的深度加 5 mm 即可放置，朝任意方向移开、抬起后原地放下和不加深的旋转都允许；比扫描时穿得更深的移动会在越界处停下。深度按这一对连通部分各自的凸包面计算，拖动哪一件结论都相同；没有接触过的部分走普通碰撞检查。
 - **独立手势页**：编辑器最矮 640 像素，独立手势页的窗口太小时，物品库会落在 iframe 可见区域之外；推荐使用编辑器内置的手势。
+
+### 几何与场景模块边界
+
+`scene-editor.js` 连接场景状态与交互流程。实体分组与世界矩阵不变量在 `scene-entities.mjs`，导入模型构建在 `import-entity.mjs`，仓库行在 `warehouse-row.mjs`。`scene-geometry.mjs` 管理放置、碰撞、漫游索引及 Worker 生命周期，`collision-client.mjs` 管理增量传输、代际与异步请求取消。
+
+`entity-geometry.mjs` 提供稳定原始几何；`collision.mjs` 建立的三角形 BVH 同时供 `ray-queries.mjs` 的最近命中查询复用。漫游按实时世界矩阵查询开门、抽屉及承载姿态，地板仍参与落脚判断。隐藏、透明和裁切按使用场景的查询策略过滤。物体增删不重建旧实体的 BVH，过期 Worker 回包不能确认新布局。
+
+`check_lighting.mjs --asset-edits --editor-queries` 会在增删物品后验收原生/BVH射线、开合部件、真实 Worker、承载及漫游流程。`lightingLab=1` 时也可执行 `await roomLightingLab.queryBenchmark()`，按同一批射线运行 5 轮原生 Three.js / BVH 对照，并临时打开全部关节后复核、再恢复状态；返回耗时、差异数和三角形访问计数。普通编辑器不加载该基准模块。

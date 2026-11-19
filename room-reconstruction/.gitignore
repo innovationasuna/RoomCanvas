@@ -16,6 +16,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .uv-cache/
+**/.litereality/agent-timing.jsonl
 /research/
 /.cache
 run_back

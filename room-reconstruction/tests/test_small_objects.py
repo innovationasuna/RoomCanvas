@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
+import threading
 
 import numpy as np
 import pytest
@@ -13,6 +15,75 @@ from litereality_agent.pipeline.realism_authoring.small_objects import (
     fit,
     judge,
 )
+from litereality_agent.pipeline.realism_authoring.small_objects.run import Pass
+
+
+@pytest.fixture
+def small_objects(tmp_path):
+    paths = {"capture": "capture", "authoring_preview": "preview", "authoring": "authoring"}
+    (tmp_path / "scene.json").write_text(json.dumps({"paths": paths}))
+    (tmp_path / "preview").mkdir()
+    (tmp_path / "preview" / "room_layout.json").write_text('{"cameras": []}')
+    return Pass(tmp_path)
+
+
+def test_parallel_references_checkpoint_each_finished_item_and_retry_failed(small_objects, monkeypatch):
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    run = small_objects
+    ids = ["Book", "Cup", "Bag"]
+    run.items = [{"id": name, "views": [], "decision": {"decision": "trellis", "description": ""},
+                  "reference_error": "prior error"} for name in ids]
+    barrier = threading.Barrier(len(ids))
+
+    def make_reference(item, tiles, description, folder):
+        barrier.wait(timeout=5)
+        if item["id"] == "Cup":
+            raise ValueError("no reference")
+        return {"cost_usd": 0.25}
+
+    monkeypatch.setattr(evidence, "generator_inputs", lambda *args: [])
+    monkeypatch.setattr(rebuild, "make_reference", make_reference)
+    monkeypatch.setattr(rebuild, "run_trellis", lambda *args: {})
+    snapshots = []
+    coordinator = threading.get_ident()
+    save = run.save
+
+    def checkpoint():
+        assert threading.get_ident() == coordinator
+        save()
+        snapshots.append(json.loads(run.state_path.read_text()))
+
+    monkeypatch.setattr(run, "save", checkpoint)
+    run.rebuild()
+    for completed, snapshot in enumerate(snapshots[:len(ids)], 1):
+        assert sum(item.get("reference_error") != "prior error" for item in snapshot) == completed
+    resumed = Pass(run.scene_dir)
+    book, cup, bag = resumed.items
+    for item in (book, bag):
+        assert item["reference"].endswith(f"/{item['id']}/reference.png")
+        assert item["image_cost_usd"] == 0.25
+        assert "reference_error" not in item
+    assert cup["reference_error"] == "ValueError: no reference"
+
+    retried = []
+    monkeypatch.setattr(rebuild, "make_reference", lambda item, *args: retried.append(item["id"]))
+    resumed.rebuild()
+    assert retried == ["Cup"]
+    assert all("reference" in item and "reference_error" not in item
+               for item in json.loads(run.state_path.read_text()))
+
+
+def test_failed_checkpoint_keeps_previous_state_and_cleans_temporary_file(small_objects):
+    run = small_objects
+    run.items = [{"id": "Book"}]
+    run.save()
+    previous_files = set(run.out.iterdir())
+    run.items.append({"bad": object()})
+    with pytest.raises(TypeError):
+        run.save()
+    assert Pass(run.scene_dir).items == [{"id": "Book"}]
+    assert set(run.out.iterdir()) == previous_files
 
 
 def obj(oid, category, low, high, **extra):

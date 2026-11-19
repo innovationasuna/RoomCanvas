@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -267,3 +268,136 @@ def test_budget_stop_is_saved_as_incomplete(room, tmp_path, monkeypatch):
     assert report['session_ok'] is False
     assert report['ended_early'] == 'step budget'
     assert (room / 'Room.py').is_file()
+
+
+@pytest.mark.parametrize("recorded", [True, False])
+def test_a_retry_after_a_new_seed_never_resumes_the_room_built_from_the_old_one(tmp_path, monkeypatch, recorded):
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.realism_authoring import author
+    from litereality_agent.pipeline.result import StageResult, StageStatus
+    from litereality_agent.pipeline.runner import PipelineRunner
+    from litereality_agent.pipeline.stage import Stage
+    from litereality_agent.pipeline.stages import STAGES
+    from litereality_agent.settings import LiteRealitySettings
+
+    settings = LiteRealitySettings(_env_file=None, repo_root=tmp_path, output_root=tmp_path / "run")
+    context = RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run", settings=settings)
+    context.seed_room.mkdir(parents=True)
+    (context.seed_room / "Room.py").write_text("seed = 1\n")
+    authored, evidence_fails = [], []
+
+    def fake_run_module(_context, module, args, *, log_name=None):
+        if module.endswith("evidence"):
+            if evidence_fails:
+                return 1, None
+            manifest = context.authoring_root / "surface_ref/surface_ref_manifest.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}")
+        elif module.endswith("entrypoint"):
+            authored.append((context.authored_room / "Room.py").read_text())
+            (context.authored_room / "Room.py").write_text(authored[-1] + "edited = True\n")
+            return 1, None  # out of budget: a retry should continue this room
+        return 0, None
+
+    monkeypatch.setattr(author, "run_module", fake_run_module)
+    real = next(stage for stage in STAGES if stage.name == "author")
+    runner = PipelineRunner((Stage("seed", lambda *_: StageResult("seed", StageStatus.COMPLETED),
+                                   is_complete=lambda _: True), real))
+    runner.run(context)
+    runner.run(context)
+    if not recorded:  # a room authored before its inputs were recorded
+        (context.authoring_root / ".author_inputs").unlink()
+    (context.seed_room / "Room.py").write_text("seed = 2\n")
+    evidence_fails.append(True)  # fails while regenerating evidence, before the room is touched
+    runner.run(context)
+    evidence_fails.clear()
+    runner.run(context)
+    runner.run(context)
+    assert authored == ["seed = 1\n", "seed = 1\nedited = True\n", "seed = 2\n", "seed = 2\nedited = True\n"]
+
+
+def _author_job(tmp_path, monkeypatch):
+    """The real author stage behind the runner; evidence and the session are stand-ins."""
+    from litereality_agent.pipeline.context import RunContext
+    from litereality_agent.pipeline.realism_authoring import author
+    from litereality_agent.pipeline.result import StageResult, StageStatus
+    from litereality_agent.pipeline.runner import PipelineRunner
+    from litereality_agent.pipeline.stage import Stage
+    from litereality_agent.pipeline.stages import STAGES
+    from litereality_agent.settings import LiteRealitySettings
+
+    settings = LiteRealitySettings(_env_file=None, repo_root=tmp_path, output_root=tmp_path / "run")
+    context = RunContext("scan", tmp_path / "capture", tmp_path / "run/scan", tmp_path / "run", settings=settings)
+    (context.seed_room / "materials").mkdir(parents=True)
+    (context.seed_room / "Room.py").write_text("seed = 1\n")
+    (context.seed_room / "materials/wall.png").write_text("wall 1")
+    job = SimpleNamespace(context=context, authored=[], evidence_fails=[])
+
+    def fake_run_module(_context, module, args, *, log_name=None):
+        if module.endswith("evidence"):
+            if job.evidence_fails:
+                return 1, None
+            manifest = context.authoring_root / "surface_ref/surface_ref_manifest.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}")
+        elif module.endswith("entrypoint"):
+            room = context.authored_room
+            texture = room / "materials/wall.png"
+            job.authored.append((room / "Room.py").read_text() + (texture.read_text() if texture.is_file() else "-"))
+            (room / "Room.py").write_text((room / "Room.py").read_text() + "edited = True\n")
+            return 1, None  # out of budget: a retry should continue this room
+        return 0, None
+
+    monkeypatch.setattr(author, "run_module", fake_run_module)
+    real = next(stage for stage in STAGES if stage.name == "author")
+    job.runner = PipelineRunner((Stage("seed", lambda *_: StageResult("seed", StageStatus.COMPLETED),
+                                       is_complete=lambda _: True), real))
+    return job
+
+
+def _interrupted_copy(monkeypatch, error):
+    """Copy Room.py, then stop before the textures it needs."""
+    import shutil
+
+    real = shutil.copytree
+
+    def copytree(source, target, *args, **kwargs):
+        if Path(source).name == "room":
+            Path(target).mkdir(parents=True)
+            shutil.copy2(Path(source) / "Room.py", Path(target) / "Room.py")
+            raise error
+        return real(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copytree", copytree)
+    return lambda: monkeypatch.setattr(shutil, "copytree", real)
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), OSError("disk full")])
+def test_an_interrupted_copy_of_the_new_seed_is_never_taken_for_the_room(tmp_path, monkeypatch, error):
+    job = _author_job(tmp_path, monkeypatch)
+    job.runner.run(job.context)
+    (job.context.seed_room / "Room.py").write_text("seed = 2\n")
+    (job.context.seed_room / "materials/wall.png").write_text("wall 2")
+    restore = _interrupted_copy(monkeypatch, error)
+    for _ in range(2):  # a pending start-over retried more than once
+        try:
+            job.runner.run(job.context)
+        except KeyboardInterrupt:
+            pass
+    restore()
+    job.runner.run(job.context)
+    job.runner.run(job.context)
+    assert job.authored == ["seed = 1\nwall 1", "seed = 2\nwall 2", "seed = 2\nedited = True\nwall 2"]
+    backups = list(job.context.authoring_root.glob("before-author-*"))
+    assert len(backups) == 1 and (backups[0] / "room/Room.py").read_text() == "seed = 1\nedited = True\n"
+
+
+def test_an_explicit_restart_whose_evidence_failed_still_starts_over(tmp_path, monkeypatch):
+    job = _author_job(tmp_path, monkeypatch)
+    job.runner.run(job.context)
+    job.evidence_fails.append(True)
+    job.runner.run(job.context, force={"author"})
+    job.evidence_fails.clear()
+    job.runner.run(job.context)
+    job.runner.run(job.context)
+    assert job.authored == ["seed = 1\nwall 1", "seed = 1\nwall 1", "seed = 1\nedited = True\nwall 1"]

@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -69,11 +70,18 @@ def compile_room(
 
     Runs `build_from_room` (materialize each object.py + assemble the SHELL in Blender), then
     optionally `bake_room` (flatten node-graph SHELL materials so the glb == the render). Returns
-    the `Room.glb` path, or None if the assemble step failed.
+    the `Room.glb` path, or None if assembly or the requested bake failed.
     """
     room_dir = Path(room_dir)
-    preview = Path(out_dir) if out_dir else (room_dir.parent / "room_preview")
+    default_preview = room_dir.parent / "room_preview"
+    preview = Path(out_dir) if out_dir else default_preview
+    if preview.resolve() == default_preview.resolve():
+        # Direct callers (including the live unbaked preview) can replace the tool's output.
+        (room_dir / ".compile_stamp").unlink(missing_ok=True)
+    blend = preview / "Room.blend"
     cmd = [sys.executable, "-m", "litereality_agent.room_ops.compile.build_from_room", "--room", str(room_dir)]
+    if bake:
+        cmd.append("--require-blend")
     if out_dir:
         cmd += ["--out", str(out_dir)]
     if regenerate:
@@ -81,10 +89,13 @@ def compile_room(
     if subprocess.run(cmd).returncode != 0:
         return None
     glb = preview / "Room.glb"
-    if not glb.is_file():
+    if not glb.is_file() or not glb.stat().st_size:
         return None
     if bake:
-        bake_room(preview / "Room.blend", glb, blender=blender)
+        rc = bake_room(blend, glb, blender=blender, required=True)
+        if rc:
+            print(f"Material bake failed (exit {rc}); see {preview / 'bake.log'}", file=sys.stderr)
+            return None
     _record_build(room_dir, glb)
     return glb
 
@@ -117,36 +128,56 @@ def _record_build(room_dir: Path, glb: Path) -> None:
 
         before, after = _glb_tree(scene / SEED_GLB), _glb_tree(glb)
         added = sorted(n for n, p in after.items() if n not in before and (p is None or p in before))
-        telemetry.record(scene / "scene_init" / "obj_stage" / "traces", "room_built",
-                         at=Path(glb).stat().st_mtime, added=added)
+        telemetry.record_artifact(scene / "scene_init" / "obj_stage" / "traces", "room_built", glb,
+                                  at=Path(glb).stat().st_mtime, added=added,
+                                  path=str(Path(glb).relative_to(scene)))
     except Exception:  # noqa: BLE001 — a replay record never fails a build
         pass
 
 
-def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 1024) -> int:
-    """Bake the SHELL's node-graph materials into a built `Room.glb` (faithful preview).
-    No-op (returns 0) if the `Room.blend` isn't present. Returns the Blender exit code."""
+def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 1024,
+              required: bool = False) -> int:
+    """Bake a preview from its .blend. Required callers check freshness at assembly time.
+
+    A standalone bake of a legacy preview without a .blend is an optional no-op.
+    """
     blend, glb = Path(blend), Path(glb)
-    if not blend.is_file():
+    log_path = glb.parent / "bake.log"
+    if not blend.is_file() or (required and not blend.stat().st_size):
+        if required:
+            log_path.write_text(f"Required bake input missing or empty: {blend}\n")
+            return 1
         return 0
     # Blender's bake floods stdout with per-object `Fra: … | Updating Images | Loading bake_…`
     # progress. bake_room runs on EVERY `compile` the authoring/materials agent makes, so if that
     # inherits the parent stdout it drowns the step log (authoring.log hit 164 MB this way). Route
     # it to a sibling bake.log — same precedent as the render engine's render.log — so the step log
     # stays readable and the bake output is still there to inspect on failure.
-    log_path = glb.parent / "bake.log"
-    with open(log_path, "w") as log:
-        return subprocess.run(
+    with tempfile.TemporaryDirectory(dir=glb.parent, prefix=".bake-") as folder, log_path.open("w") as log:
+        baked = Path(folder) / glb.name
+        rc = subprocess.run(
             [
                 blender or blender_bin(),
                 "-b",
                 str(blend),
+                "--python-exit-code",
+                "1",
                 "--python",
                 str(_HERE / "compile" / "bake_glb.py"),
                 "--",
-                str(glb),
+                str(baked),
                 str(resolution),
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
         ).returncode
+        if rc:
+            return rc
+        if not baked.is_file() or not baked.stat().st_size:
+            print(f"Blender produced no baked {glb.name}", file=log)
+            return 1
+        baked.replace(glb)
+        from litereality_agent.room_ops.compile.records import record_compilation
+
+        record_compilation(glb, "baked")
+        return 0

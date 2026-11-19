@@ -54,6 +54,7 @@ from litereality_agent.agent.providers.base import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from litereality_agent.agent.providers.timing import record_session_timing
 
 # Codex names its own file-edit and shell actions differently from Claude Code. Callers key off
 # the Claude vocabulary — `author.py` checkpoints `Room.py` when it sees an Edit/Write/Bash
@@ -304,6 +305,7 @@ class CodexHarness:
         # harness ignores. Reporting it would name a model that never ran.
         return _codex_model() or "(codex default)"
 
+    @record_session_timing
     async def run(self, spec: SessionSpec) -> AsyncIterator[AgentMessage | SessionResult]:
         if shutil.which("codex") is None:
             raise RuntimeError(
