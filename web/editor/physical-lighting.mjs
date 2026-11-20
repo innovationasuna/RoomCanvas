@@ -1,6 +1,9 @@
+import {spotShadowBias} from './room-luminaires.mjs';
+
 // "物理光照": the Android walkthrough's PhysicalRoomLighting (Filament) in Three.js.
 // Both port the room pipeline's lighting="physical" recipe: a sun, a 60 W lamp under each
-// ceiling and a 20 W light inside each window, with a physical camera exposure.
+// ceiling and a 20 W light inside each window, with a physical camera exposure. A room with
+// ceiling luminaires lights from them instead of the generated ceiling lamps (room-luminaires.mjs).
 //
 // Filament pre-multiplies light intensities by the camera exposure; emissive and unlit
 // surfaces are not exposed. The editor does the same: lights keep their physical units
@@ -12,12 +15,17 @@ export const PHYSICAL = Object.freeze({
   // Filament IndirectLight intensity on the phone (absolute units, not a multiplier).
   environment: .25,
   sunLux: 2500, sunKelvin: 6500, sunElevation: 40, sunRotation: 35,
+  // A room lit from its own luminaires (room-luminaires.mjs) is never dimmer than this one generated
+  // lamp: when their watts sum to less than ceilingWatts, they are scaled up to it in proportion.
   ceilingWatts: 60, ceilingKelvin: 4700, ceilingDrop: .05,
   windowWatts: 20, windowKelvin: 6500, windowInset: .08, windowDown: .35,
   // Spot cone half-angles in degrees (Filament spotLightCone inner/outer).
   spotInner: 45, spotOuter: 85,
   // The phone uses 512 with PCSS; PCFSoft needs 1024 to keep cube shadow edges smooth.
-  maxLocalLights: 4, localShadowMap: 1024,
+  // At most maxLocalLights local lights cast shadows, whatever they are: with the sun, a material with
+  // many maps stays inside 16 texture units. With luminaires, their spots take up to 3 of those shadows,
+  // at most luminaireWindows window lights are made (largest first) and the shadows left go to them.
+  maxLocalLights: 4, localShadowMap: 1024, luminaireWindows: 2,
   // LightManager.EFFICIENCY_LED: 11.71 % of 683 lm/W.
   lumensPerWatt: .1171 * 683,
   // Outside of the walls (see exteriorShell): a soft, even daylight, in output units.
@@ -55,14 +63,15 @@ export function spotCandela(watts, outerDegrees = PHYSICAL.spotOuter) {
 
 const union = (a, b) => ({min: a.min.map((v, k) => Math.min(v, b.min[k])), max: a.max.map((v, k) => Math.max(v, b.max[k]))});
 const middle = box => box.min.map((v, k) => (v + box.max[k]) / 2);
+// Local lights reach 1.5 room diagonals.
+const roomFalloff = room => Math.max(1, Math.hypot(...room.max.map((v, k) => v - room.min[k])) * 1.5);
 const windowKey = name => (/^window(?:[_-]?\d+)?/i.exec(name)?.[0] || name).toLowerCase();
 
 // RoomLightLayout.plan with plain boxes ({min, max} arrays): ceilings first, then windows.
 // `parts` are [{name, kind: 'ceiling' | 'window', box}], `room` the shell box.
 export function planLocalLights(room, parts, max = PHYSICAL.maxLocalLights) {
   if (max <= 0) return [];
-  const size = room.max.map((v, k) => v - room.min[k]);
-  const falloff = Math.max(1, Math.hypot(...size) * 1.5), center = middle(room);
+  const falloff = roomFalloff(room), center = middle(room);
   const ceilings = parts.filter(part => part.kind === 'ceiling').map(part => {
     const c = middle(part.box);
     return {kind: 'ceiling', name: part.name, position: [c[0], part.box.min[1] - PHYSICAL.ceilingDrop, c[2]], direction: null,
@@ -79,10 +88,21 @@ export function planLocalLights(room, parts, max = PHYSICAL.maxLocalLights) {
     const length = Math.hypot(ix, iz);
     if (length < 1e-6) {ix = 0; iz = 1;} else {ix /= length; iz /= length;}
     const d = Math.hypot(1, PHYSICAL.windowDown);
-    return {kind: 'window', name: names.join('+'), position: [c[0] + ix * PHYSICAL.windowInset, c[1], c[2] + iz * PHYSICAL.windowInset],
+    const size = box.max.map((v, k) => v - box.min[k]);
+    return {kind: 'window', name: names.join('+'), area: size[1] * Math.max(size[0], size[2]), position: [c[0] + ix * PHYSICAL.windowInset, c[1], c[2] + iz * PHYSICAL.windowInset],
       direction: [ix / d, -PHYSICAL.windowDown / d, iz / d], watts: PHYSICAL.windowWatts, kelvin: PHYSICAL.windowKelvin, falloff};
   });
   return [...ceilings, ...windows].slice(0, max);
+}
+
+// The box of a node's own mesh: a reconstructed room nests furniture under Floor0 and fixtures or curtains
+// under Ceiling0 (the editor flattens that, the replay does not). A node without a mesh of its own (a
+// ceiling made of several meshes) keeps the box of everything under it.
+export function surfaceBox(THREE, object) {
+  if (!object.isMesh) return new THREE.Box3().setFromObject(object);
+  if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
+  object.updateWorldMatrix(true, false);
+  return object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld);
 }
 
 // Ceilings, windows and the shell come from the room's own labels; a room without
@@ -110,7 +130,8 @@ export function roomLightParts(THREE, {room, config}) {
     if (!kind) return;
     claimed.add(object);
     if (kind === 'other' || (kind === 'window' && /drape|sheer|curtain|blind/i.test(name))) return;
-    const box = new THREE.Box3().setFromObject(object);
+    // A ceiling's own surface, not the curtains or fixtures the replay's model nests under it.
+    const box = kind === 'ceiling' ? surfaceBox(THREE, object) : new THREE.Box3().setFromObject(object);
     if (!box.isEmpty()) parts.push({name, kind, box: {min: box.min.toArray(), max: box.max.toArray()}});
   });
   const shell = parts.filter(part => part.kind !== 'window').map(part => part.box).reduce((a, b) => a ? union(a, b) : b, null);
@@ -238,17 +259,36 @@ export function exteriorShell(THREE, {meshes, ceilingHeight, light = PHYSICAL.ex
 }
 
 // Owns the local lamps only; time-lighting.mjs points the shared sun and hides the other rigs.
-export function createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure = 1, walls = [], ceilingY = Infinity, own, setOwn}) {
+// `luminaires`: planLuminaireLights() spots, which replace the generated ceiling lamps. They are spots
+// with the user's cone (`angle`, full degrees), converted from watts over that cone, together at least
+// ceilingWatts. Shadows: see maxLocalLights.
+export function createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure = 1, walls = [], ceilingY = Infinity, own, setOwn,
+  floorY = bounds.min.y, luminaires = [], angle = 160}) {
   const {ev100, exposure} = physicalExposure();
   const preExposure = exposure / toneExposure;
   const gltfLights = [];
   room.traverse(object => {if (object.isLight) gltfLights.push({light: object, intensity: object.intensity});});
   const {parts, shell} = roomLightParts(THREE, {room, config});
   const roomBox = shell || {min: bounds.min.toArray(), max: bounds.max.toArray()};
+  const falloff = roomFalloff(roomBox);
+  const boost = Math.max(1, PHYSICAL.ceilingWatts / luminaires.reduce((sum, {watts}) => sum + watts, 0));
+  const lamps = luminaires.map(({luminaire, position, watts, castShadow}) => ({kind: 'luminaire', name: luminaire, position, direction: [0, -1, 0],
+    watts: watts * boost, kelvin: PHYSICAL.ceilingKelvin, falloff, castShadow}));
+  const shadowsLeft = PHYSICAL.maxLocalLights - lamps.filter(lamp => lamp.castShadow).length;
+  const windows = planLocalLights(roomBox, parts.filter(part => part.kind === 'window'), Infinity)
+    .sort((a, b) => b.area - a.area).slice(0, PHYSICAL.luminaireWindows).map((spec, index) => ({...spec, castShadow: index < shadowsLeft}));
   // glTF lamps replace the generated ones, as on the phone (no sun either).
-  const specs = gltfLights.length ? [] : planLocalLights(roomBox, parts);
+  const specs = gltfLights.length ? [] : lamps.length ? [...lamps, ...windows] : planLocalLights(roomBox, parts);
   const lights = [];
-  let active = false, power = true, outside = null;
+  let active = false, power = true, cone = angle, outside = null;
+  const candela = spec => spec.kind === 'luminaire' ? spotCandela(spec.watts, cone / 2) : spec.kind === 'window' ? spotCandela(spec.watts) : pointCandela(spec.watts);
+  // The luminaire spots follow the cone setting: the same watts over a wider cone are fewer candela.
+  function aim() {
+    for (const {spec, light} of lights) if (spec.kind === 'luminaire') {
+      light.angle = cone / 2 * Math.PI / 180; light.intensity = candela(spec) * preExposure;
+      Object.assign(light.shadow, spotShadowBias(Math.max(.8, spec.position[1] - floorY), light.angle, light.shadow.mapSize.x));
+    }
+  }
   // The lowest ceiling surface; walls usually rise a little above it.
   const ceilings = parts.filter(part => part.kind === 'ceiling').map(part => part.box.min[1]);
   const ceilingHeight = ceilings.length ? Math.min(...ceilings) : ceilingY;
@@ -261,7 +301,12 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
     for (const spec of specs) {
       const color = new THREE.Color().setRGB(...illuminantD(spec.kelvin), THREE.LinearSRGBColorSpace);
       let light;
-      if (spec.kind === 'window') {
+      if (spec.kind === 'luminaire') {
+        // Straight down from the light itself: the replay's floor height can be off (see room-view.mjs).
+        light = new THREE.SpotLight(color, 1, spec.falloff, 1, .3, 2);
+        light.target.position.set(spec.position[0], spec.position[1] - 1, spec.position[2]);
+        scene.add(light.target);
+      } else if (spec.kind === 'window') {
         light = new THREE.SpotLight(color, spotCandela(spec.watts) * preExposure, spec.falloff,
           PHYSICAL.spotOuter * Math.PI / 180, 1 - PHYSICAL.spotInner / PHYSICAL.spotOuter, 2);
         light.target.position.set(...spec.position.map((v, k) => v + spec.direction[k]));
@@ -269,17 +314,19 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
       } else light = new THREE.PointLight(color, pointCandela(spec.watts) * preExposure, spec.falloff, 2);
       light.name = `physical-${spec.kind}-light`; light.userData.lightingRole = `physical-${spec.kind}`;
       light.position.set(...spec.position);
-      light.castShadow = true; light.shadow.mapSize.set(PHYSICAL.localShadowMap, PHYSICAL.localShadowMap);
+      light.castShadow = spec.castShadow ?? true; light.shadow.mapSize.set(PHYSICAL.localShadowMap, PHYSICAL.localShadowMap);
       // Shadows only matter inside the room: its diagonal, not the light's falloff, sets the depth range.
       light.shadow.camera.near = .05; light.shadow.camera.far = spec.falloff / 1.5;
       // Mostly depth bias (normalised distance, -.003 ≈ 2 cm here): a large normal offset pushes
       // the lookup through thin or inward-facing parts, such as the office's wall trunking.
+      // The luminaire spots take the indoor lamp's cone-dependent bias instead (see aim).
       light.shadow.bias = -.003; light.shadow.normalBias = .005;
       scene.add(light); lights.push({spec, light});
     }
+    aim();
   }
   function sync() {
-    for (const {spec, light} of lights) light.visible = active && (spec.kind !== 'ceiling' || power);
+    for (const {spec, light} of lights) light.visible = active && (spec.kind === 'window' || power);
     for (const entry of gltfLights) entry.light.intensity = active ? entry.intensity * preExposure : entry.intensity;
     if (active && !outside && own) outside = exteriorShell(THREE, {meshes: skyMeshes, ceilingHeight, own, setOwn});
     outside?.set(active);
@@ -290,13 +337,13 @@ export function createPhysicalLighting(THREE, {scene, room, config, bounds, tone
     environmentIntensity: PHYSICAL.environment * preExposure,
     activate() {active = true; build(); sync();},
     deactivate() {if (!active) return; active = false; sync();},
-    setPower(value) {power = value; sync();},
+    setIndoor({power: on, angle: degrees}) {power = on; if (degrees !== cone) {cone = degrees; aim();} sync();},
     snapshot: () => ({active, ev100, exposure, preExposure, gltfLights: gltfLights.length,
+      shadowCasters: specs.filter(spec => spec.castShadow ?? true).map(spec => `${spec.kind}:${spec.name}`),
       exterior: {onWalls: outside?.walls ?? 0, meshes: outside?.meshes ?? 0, ceilingHeight, light: PHYSICAL.exteriorLight},
       parts: parts.map(({name, kind}) => ({name, kind})),
-      lights: specs.map((spec, index) => ({...spec, visible: lights[index]?.light.visible ?? false,
-        candela: spec.kind === 'window' ? spotCandela(spec.watts) : pointCandela(spec.watts),
-        intensity: lights[index]?.light.intensity ?? null}))}),
+      lights: specs.map((spec, index) => ({...spec, visible: lights[index]?.light.visible ?? false, candela: candela(spec),
+        castShadow: lights[index]?.light.castShadow ?? spec.castShadow ?? true, intensity: lights[index]?.light.intensity ?? null}))}),
     dispose() {
       active = false; sync(); outside?.dispose(); outside = null;
       for (const {light} of lights) {light.removeFromParent(); light.target?.removeFromParent(); light.dispose();}

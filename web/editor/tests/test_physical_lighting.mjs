@@ -132,3 +132,22 @@ test('things on a wall take its direction; furniture standing off the wall does 
   assert.deepEqual([wall, door, skirting].map(mesh => inward.get(mesh)), [{n: [0, 0, 1], d: -2}, {n: [0, 0, 1], d: null}, {n: [0, 0, 1], d: null}]);
   assert.equal(inward.has(sofa), false); assert.equal(inward.has(far), false);
 });
+
+test('a ceiling is its own surface, not the curtains nested under it; a ceiling of several meshes keeps all of them', async () => {
+  const {surfaceBox} = await import('../physical-lighting.mjs');
+  const room = new THREE.Group();
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(4, .05, 4)); ceiling.name = 'Ceiling0'; ceiling.position.y = 3; room.add(ceiling);
+  // The replay's model hangs a curtain from the ceiling node, reaching the floor.
+  const curtain = new THREE.Mesh(new THREE.BoxGeometry(2, 2.9, .05)); curtain.name = 'Curtain0'; curtain.position.set(0, -1.5, -1.9); ceiling.add(curtain);
+  const grid = new THREE.Group(); grid.name = 'Ceiling1'; room.add(grid);
+  for (const y of [2.8, 2.9]) {const tile = new THREE.Mesh(new THREE.BoxGeometry(1, .02, 1)); tile.position.set(3, y, 0); grid.add(tile);}
+  room.updateMatrixWorld(true);
+  const labels = {Ceiling0: '天花板', Ceiling1: '天花板'};
+  const {parts} = roomLightParts(THREE, {room, config: {label: name => labels[name] || null}});
+  near(parts.find(part => part.name === 'Ceiling0').box.min[1], 2.975, 1e-6);
+  near(parts.find(part => part.name === 'Ceiling1').box.min[1], 2.79, 1e-6);
+  near(surfaceBox(THREE, ceiling).min.y, 2.975, 1e-6);
+  near(new THREE.Box3().setFromObject(ceiling).min.y, .05, 1e-6);
+  // The generated lamp hangs under the ceiling itself, not at the curtain's foot.
+  near(planLocalLights({min: [-2, 0, -2], max: [2, 3, 2]}, parts.slice(0, 1))[0].position[1], 2.975 - PHYSICAL.ceilingDrop, 1e-6);
+});

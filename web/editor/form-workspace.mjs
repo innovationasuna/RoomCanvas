@@ -90,7 +90,7 @@ function createWorkspace() {
     label.append(radio, caption); timeChoices.append(label);
   }
   timeLabel.after(timeChoices);
-  const lamp = $('.rc-lamp-power'), lampCopy = element('span', 'rc-setting-copy', '<span>中央顶灯</span>');
+  const lamp = $('.rc-lamp-power'), lampCopy = element('span', 'rc-setting-copy', '<span id="lamp-name">中央顶灯</span>');
   lampCopy.append($('#lamp-status')); lamp.prepend(lampCopy);
   $('#lamp-power').classList.add('rc-setting-switch');
   $('#lamp-power').setAttribute('role', 'switch');

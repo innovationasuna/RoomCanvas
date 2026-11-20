@@ -1,5 +1,7 @@
 // Editable objects of a reconstructed room, derived from its room_objects.json
 // (written by web/scripts/room_objects.py from the reconstruction's room_layout.json).
+import {ceilingLuminaires} from './room-luminaires.mjs';
+
 export const FORMAT = 'roomcanvas-room-objects';
 
 const LABELS = {
@@ -10,7 +12,7 @@ const LABELS = {
   tv: '电视', monitor: '显示器', camera: '相机', bottle: '瓶子', pillow: '枕头', duvet: '被子',
   textile: '织物', stationery: '文具', magnet: '磁贴', panel: '面板', piano: '钢琴', shelf_brackets: '层架',
   board: '板', heater: '暖风机', footrest: '脚踏', air_conditioner: '空调', trim: '踢脚线', electrical_trunking: '线槽',
-  conduit: '线管', boxed_services: '包管', detector: '烟感', light_fixture: '灯', ceiling_grid: '吊顶格栅', environment: '窗外景',
+  conduit: '线管', boxed_services: '包管', detector: '烟感', light_fixture: '灯', luminaire: '灯', ceiling_grid: '吊顶格栅', environment: '窗外景',
   wall: '墙面', floor: '地面', ceiling: '天花板', bulkhead: '吊顶', door: '门', window: '窗户',
   socket: '插座', switch: '开关', vent: '通风口', light: '灯', cable: '电线', curtain: '窗帘', radiator: '暖气片',
 };
@@ -62,6 +64,8 @@ export function roomConfig(doc) {
     wallOwner: (name) => owners.get(name) || null,
     nearWall: hanging.filter(tall).map((object) => object.node),
     isCeiling: (name) => ceiling.has(name),
+    // The room's ceiling lamps; the indoor light comes from them (see room-luminaires.mjs).
+    luminaires: ceilingLuminaires(doc.objects),
     label: (name) => labels.get(name) || null,
   };
 }
