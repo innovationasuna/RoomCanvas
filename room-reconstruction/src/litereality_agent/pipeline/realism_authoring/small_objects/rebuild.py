@@ -52,6 +52,34 @@ def make_reference(item: dict, tiles: list[dict], description: str, out: Path) -
     return meta
 
 
+def adopt_reference(source: Path, out: Path) -> None:
+    """A reference the operator made themselves (the object alone, cut out) in place of the image
+    model's: centred on the square canvas as normalize_reference leaves a generated one. A cut-out
+    with transparency keeps it, so the launcher takes its outline as it is and a dark object is not
+    lost in the black background; an opaque image is read like a generated one, on near-black."""
+    from PIL import Image
+
+    out.mkdir(parents=True, exist_ok=True)
+    with Image.open(source) as opened:
+        image = opened.convert("RGBA")
+    pixels = np.asarray(image).copy()
+    if pixels[..., 3].min() == 255:
+        image_gen.normalize_reference(source, out / "reference.png")
+        return
+    ys, xs = np.where(pixels[..., 3] > 8)
+    if not len(xs):
+        raise ValueError(f"{source} is fully transparent")
+    pixels[pixels[..., 3] == 0, :3] = 0  # nothing under the cut-out to tint its hue or its edges
+    crop = Image.fromarray(pixels).crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    canvas, fill = 1024, 0.78
+    scale = fill * canvas / max(crop.size)
+    crop = crop.resize((max(1, round(crop.width * scale)), max(1, round(crop.height * scale))),
+                       Image.Resampling.LANCZOS)
+    sheet = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    sheet.paste(crop, ((canvas - crop.width) // 2, (canvas - crop.height) // 2))
+    sheet.save(out / "reference.png")
+
+
 def run_trellis(references: dict[str, Path], work: Path, log: Path) -> dict[str, dict]:
     """TRELLIS over every reference, the model loaded once per process; returns
     {id: {"glb": path, "pipeline": type}} for the meshes that were written.

@@ -6,7 +6,10 @@ author stage (hours) and the pass later needs no TRELLIS for them.
 
 <photos>/<Kind>/*.jpg|*.jpeg are close-ups of one kind of thing (TissueBox, WaterBottle), with an
 optional <photos>/<Kind>/description.txt (one line: what it is; without it "a tissue box" from the
-name). Each kind gets the steps the pass gives a rebuilt item, minus what needs the room: the
+name). A folder may instead (or also) hold reference.png, the thing alone and already cut out
+(transparent around it, or on black): it is then the reference as it is and the image model is not
+asked, for things whose one good view exists already. Each kind gets the steps the pass gives a
+rebuilt item, minus what needs the room: the
 reference sheet with the photos as tiles and the image model (rebuild.make_reference), TRELLIS
 (rebuild.run_trellis, every kind in one process), floating fragments dropped, and the hue turned
 back to the reference and metal zeroed (rebuild.correct_material; it compares against the
@@ -34,6 +37,8 @@ from pathlib import Path
 
 from litereality_agent import artifact_cache as cache
 from litereality_agent.pipeline.realism_authoring.small_objects import candidates, evidence, rebuild
+
+SUPPLIED = "reference.png"  # in a kind's folder: the finished reference, used as it is
 
 
 def photos(folder: Path) -> list[Path]:
@@ -66,13 +71,14 @@ def premake(root: Path, out: Path, only: list[str] | None = None, concurrency: i
     rows, todo = {}, {}
     for kind in kinds:
         folder = root / kind
-        shots = photos(folder)
+        shots, supplied = photos(folder), folder / SUPPLIED
         rows[kind] = {"photos": len(shots), "glb": None, "error": None, "reused": False}
-        if not shots:
-            rows[kind]["error"] = f"no .jpg/.jpeg in {folder}"
+        if not shots and not supplied.is_file():
+            rows[kind]["error"] = f"no .jpg/.jpeg or {SUPPLIED} in {folder}"
             continue
         inputs = {"version": 1, "photos": {p.name: cache.file_hash(p) for p in shots},
-                  "description": description(folder, kind), "settings": model_settings}
+                  "description": description(folder, kind), "settings": model_settings,
+                  **({"reference": cache.file_hash(supplied)} if supplied.is_file() else {})}
         key = cache.fingerprint(inputs)
         glb, receipt = out / f"{kind}.glb", out / f"{kind}.json"
         made = cache.read_json(receipt)
@@ -93,6 +99,9 @@ def premake(root: Path, out: Path, only: list[str] | None = None, concurrency: i
         item = {"id": kind, "label": label, "category": label.split()[-1], "size": None,
                 "members": [kind]}
         folder = work / kind
+        if "reference" in inputs:  # the operator's own cut-out: no sheet, no image model
+            rebuild.adopt_reference(root / kind / SUPPLIED, folder)
+            return item, 0
         tiles = evidence.photo_inputs(shots, folder / "tiles")
         meta = rebuild.make_reference(item, tiles, inputs["description"], folder)
         return item, (meta or {}).get("cost_usd") or 0
