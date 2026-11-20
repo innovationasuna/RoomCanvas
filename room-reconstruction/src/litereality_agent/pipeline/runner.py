@@ -135,14 +135,18 @@ class PipelineRunner:
 
             old = prior.get(stage.name)
             stage_options = dict((options or {}).get(stage.name, {}))
-            cache_options = {key: value for key, value in stage_options.items() if key != "force"}
+            # `revise` asks for one more run of a stage that is complete, without the restart `force`
+            # means (author: another session on the finished room, for the operator's follow-up
+            # requests). Like `force` it belongs to this invocation, not to what the result is made from.
+            cache_options = {key: value for key, value in stage_options.items() if key not in ("force", "revise")}
             fingerprint = stage.fingerprint(context, cache_options) if stage.fingerprint else None
             inputs_changed = changed(stage, old, fingerprint)
             # Enabling DINO on an existing run must rerun ingest and invalidate its consumers.
             same_options = (old is not None and old.get("input_options", {}) == cache_options
                             and not inputs_changed)
             complete_on_disk = stage.is_complete(context) if stage.is_complete else False
-            if (stage.name not in force and old and same_options and complete_on_disk
+            if (stage.name not in force and not stage_options.get("revise") and old and same_options
+                    and complete_on_disk
                     and StageResult.from_dict(old).ok):
                 result = StageResult.from_dict(old)
                 result.status = StageStatus.REUSED
