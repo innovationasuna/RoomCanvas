@@ -157,6 +157,9 @@ def place(item, live, out_dir, report):
                   for node in mat.node_tree.nodes if node.type == "TEX_IMAGE" and node.image}:
         if max(image.size) > TEXTURE_SIZE:
             image.scale(TEXTURE_SIZE, TEXTURE_SIZE)
+            # Into Room.blend as they are now: unpacked, the file keeps the imported 4096 px data, and
+            # a later pass that opens and exports it (openable parts) writes that back into Room.glb.
+            image.pack()
     meshes = [o for o in imported if o.type == "MESH"]
     roots = [o for o in imported if o.parent not in imported]
     bpy.context.view_layer.update()
