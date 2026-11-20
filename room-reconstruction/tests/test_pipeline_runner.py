@@ -184,6 +184,24 @@ def test_force_is_forwarded_to_stage_and_invalidates_dependents(tmp_path):
     assert received == [{}, {"force": True}]
 
 
+def test_revise_runs_a_complete_stage_again_without_forcing_it(tmp_path):
+    received = []
+    stages = (
+        Stage("first", lambda _, options: received.append(options) or result("first"), is_complete=lambda _: True),
+        Stage("second", lambda *_: received.append("second") or result("second"), ("first",),
+              is_complete=lambda _: True),
+    )
+    runner = PipelineRunner(stages)
+    runner.run(context(tmp_path))
+    again = runner.run(context(tmp_path), options={"first": {"revise": True}})
+    # Not forced (the stage keeps what it made), and what is built from it follows.
+    assert received == [{}, "second", {"revise": True}, "second"]
+    assert [r.status for r in again] == [StageStatus.COMPLETED, StageStatus.COMPLETED]
+    # The request was that run's own: the next plain run reuses both.
+    assert [r.status for r in runner.run(context(tmp_path))] == [StageStatus.REUSED, StageStatus.REUSED]
+    assert len(received) == 4
+
+
 def test_stage_receives_context_settings_without_leaking_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("LITEREALITY_OUTPUT", "callers-value")
     observed = []

@@ -140,7 +140,9 @@ PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
-`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁，author 搭完后检查一次房间（家具支撑，再由独立模型对照照片判断是否通过，不打分），没通过就修一次，修好重建出的房间就是结果，不再复查，发布时也不再检查（`--repair-rounds 0` 只检查不修）；上面的模型和思考程度由命令行显式指定。
+`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁，author 搭完后检查一次房间（家具支撑，再由独立模型对照照片判断是否通过，不打分），没通过就修一次，修好重建出的房间就是结果，不再复查，发布时也不再检查（`--repair-rounds 0` 只检查不修：没通过时这一阶段以 `needs_repair` 结束，不会发布，正式重建不要用）；上面的模型和思考程度由命令行显式指定。
+
+房间发布之后还要按意见修改时（例如换一张贴图、改几件物品），把要求写进 `LR_AUTHOR_EXTRA` 指向的说明里，再用 `run_room.py <扫描> <运行目录> --from author --through publish --revise`（其余 `--set` 与之前相同）：`--revise` 让已经完成的 author 阶段在现有房间上再开一次建模会话，不回到初版房间（`--force author` 才是从头再搭），之后照常检查、修复、发布；小物品重做和可开合部件需要在新房间上各再跑一次。不带 `--revise` 时，已完成的 author 阶段会直接复用，不会开新会话。
 
 完整重建默认包含可动部件识别，成功产物在 `<运行目录>/articulate/room_preview/`；加 `--no-articulate` 可跳过这一步，此时使用 `<运行目录>/pipeline/<场景>/realism_authoring/room_preview/`。场景名以实际生成的 `scene.json` 所在目录为准。中断后用同一输入和运行目录重新执行可续跑。检查终端退出信息以及 `<运行目录>/attempt-*/pipeline.log`、`articulate.log` 和对应的 `exit`、`articulate-exit`；阶段失败时先看日志，不把目录存在当作重建成功。
 

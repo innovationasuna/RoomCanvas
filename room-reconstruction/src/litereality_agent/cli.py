@@ -124,6 +124,8 @@ def _author_options(args) -> dict:
         value = getattr(args, name, None)
         if value is not None:
             opts[key] = value
+    if getattr(args, "revise", False):
+        opts["revise"] = True
     return opts
 
 
@@ -192,7 +194,12 @@ def _add_author_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--author-provider", choices=["claude", "codex"],
                         help="author and repair harness (default Codex/GPT-6)")
     parser.add_argument("--repair-rounds", type=int, choices=range(2), default=1,
-                        help="repair once when the one check fails (default 1; 0 checks only)")
+                        help="repair once when the one check fails (default 1; 0 checks only, and a room "
+                             "that fails the check then ends as needs_repair, unpublished)")
+    parser.add_argument("--revise", action="store_true",
+                        help="open one more authoring session on a room that is already finished, for follow-up "
+                             "requests given through LR_AUTHOR_EXTRA; the room is kept (unlike --force author), "
+                             "then checked and published again")
     parser.add_argument("--repair-steps", type=int, default=40, help="tool calls per repair (1..150)")
     parser.add_argument("--repair-seconds", type=int, default=600, help="wall seconds per repair (1..1800)")
 
