@@ -15,6 +15,10 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
   }
   let values = colorGrading(), time = timePreset(initialTime);
   let indoor = indoorLighting(initialIndoor), canLight = false;
+  // With ceiling luminaires the switch is the room's lights; without, the invented central lamp.
+  let fixtures = 0;
+  const note = timeRoot.querySelector('.rc-lighting-note'), centralNote = note?.textContent;
+  const lampName = () => fixtures ? `室内灯 · ${fixtures} 盏` : '中央顶灯';
   const format = (key, value) => key === 'exposure' ? `${value > 0 ? '+' : ''}${value.toFixed(2)} EV`
     : key === 'whiteBalance' ? value === 0 ? '中性' : `${value > 0 ? '偏暖' : '偏冷'} ${Math.round(Math.abs(value) * 100)}` : value.toFixed(2);
   function update() {
@@ -27,9 +31,13 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
     if (power.getAttribute('role') === 'switch') {
       power.setAttribute('aria-checked', String(indoor.power));
       power.removeAttribute('aria-pressed');
+      power.setAttribute('aria-label', lampName());
     } else power.setAttribute('aria-label', indoor.power ? '关闭室内灯' : '打开室内灯');
     power.disabled = !canLight;
     timeRoot.querySelector('#lamp-status').textContent = indoor.power ? '已开启' : '已关闭';
+    const name = timeRoot.querySelector('#lamp-name');
+    if (name) name.textContent = lampName();
+    if (note) note.textContent = fixtures ? `灯光来自房间里的 ${fixtures} 盏顶灯，按灯具的位置照明；角度为完整光锥角度。白天弱补光，夜间主要照明，按房间记住角度与开关。` : centralNote;
     for (const input of ranges) {
       const key = input.dataset.grade; input.value = values[key];
       root.querySelector(`output[for="${input.id}"]`).textContent = format(key, values[key]);
@@ -53,6 +61,8 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
     setTime(value) {time = timePreset(value); update();},
     setIndoor(value) {indoor = indoorLighting(value); update();},
     setGrade(value) {values = colorGrading(value); update();},
+    // How many ceiling luminaires light the room (0: the central lamp).
+    setFixtures(count) {fixtures = count; update();},
     availability({time: canTime, grading: canGrade}) {
       select.disabled = !canTime;
       for (const choice of timeChoices) choice.disabled = !canTime;

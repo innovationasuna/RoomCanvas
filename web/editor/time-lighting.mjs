@@ -2,6 +2,7 @@ import {shadowSettings} from './lighting-settings.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
 import {hasLayer, ownMaterial, ownShadows, setOwnMaterial} from './material-layers.mjs';
 import {createPhysicalLighting} from './physical-lighting.mjs';
+import {areaFactor, findLuminaires, floorArea, glowing, LUMINAIRE_LIGHTS, planLuminaireLights, spotShadowBias} from './room-luminaires.mjs';
 
 // Relative to the principal window, not geographic north or clock time.
 export const TIME_PRESETS = Object.freeze({
@@ -16,8 +17,10 @@ export const TIME_PRESETS = Object.freeze({
 export const timePreset = value => Object.hasOwn(TIME_PRESETS, value) ? value : 'noon';
 
 // Day: window/sun dominate with a weak ceiling light. Night: the ceiling light dominates.
-// The central position, cone angle and power are independent of the time preset.
-// Window skylight is a finite local approximation, not GI. Shadow maps update on demand.
+// The indoor light comes from the room's ceiling luminaires (config.luminaires, room-luminaires.mjs);
+// a room without any keeps one invented lamp at the top centre. Positions, cone angle and power are
+// independent of the time preset. Window skylight is a finite local approximation, not GI.
+// Shadow maps update on demand.
 export function createTimeLighting(THREE, {renderer, scene, room, config, walls, bounds, floorY, ceilingY, profile, fitShadows = true, environment = true, indoor}) {
   const hemisphere = scene.children.find(light => light.isHemisphereLight);
   const [sun, fill] = scene.children.filter(light => light.isDirectionalLight);
@@ -38,10 +41,16 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   // Use the initial room AABB, independent of authored light fixtures or furniture moves.
   // Its X/Z centre places the light centrally in rooms of any size or world offset.
   const lampPosition = new THREE.Vector3(center.x, Math.min(bounds.max.y, ceilingY) - Math.min(.2, height * .06), center.z);
-  let selected = 'balanced', spot = null, marker = null, windowLight = null, warm = false;
+  // The time presets' lamp power: the central lamp's height term and level; with luminaires, times the floor
+  // area factor and divided among their spots by `share` (so one lamp in a 20 m² room is as bright as before).
+  const luminaires = findLuminaires(room, config.luminaires), plan = planLuminaireLights(luminaires);
+  const floor = floorArea(walls, size.x * size.z), lampPower = Math.max(4, (lampPosition.y - floorY) ** 2 * 4.5) * (plan.length ? areaFactor(floor) : 1);
+  const lampSpecs = plan.length ? plan.map(light => ({...light, source: 'luminaire'}))
+    : [{position: lampPosition.toArray(), share: 1, castShadow: true, source: 'fallback'}];
+  let selected = 'balanced', spots = [], marker = null, windowLight = null, warm = false;
   let lamps = indoorLighting(indoor);
   const physical = createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure: renderer.toneMappingExposure ?? profile.exposure ?? 1,
-    walls, ceilingY, own: ownMaterial, setOwn: setOwnMaterial});
+    walls, ceilingY, floorY, own: ownMaterial, setOwn: setOwnMaterial, luminaires: plan, angle: lamps.angle});
   const glassCasters = new Map();
   // Captured window glass/exterior photos can contain authored daylight emission.
   // Give these meshes owned materials, so night can dim it without touching shared assets
@@ -54,6 +63,14 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     const copies = source.map(material => material.clone());
     exterior.push({mesh, source: mesh.material, copies, bases: source.map(material => ({emission: material.emissiveIntensity, color: material.color?.clone(), unlit: !!material.isMeshBasicMaterial}))});
     setOwnMaterial(mesh, Array.isArray(mesh.material) ? copies : copies[0]);
+  });
+  // The luminaires' own glow follows the light switch, on owned copies as above.
+  const glow = [];
+  for (const {object} of luminaires) object.traverse(mesh => {
+    if (!mesh.isMesh || !glowing(mesh) || glow.some(entry => entry.mesh === mesh)) return;
+    const source = mesh.material, copies = [source].flat().map(material => material.clone());
+    glow.push({mesh, source, copies, bases: [source].flat().map(material => material.emissiveIntensity)});
+    setOwnMaterial(mesh, Array.isArray(source) ? copies : copies[0]);
   });
 
   // A hidden ceiling still blocks sunlight. These tiny shared-geometry proxies draw no
@@ -77,14 +94,19 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     if (fitted) {Object.assign(sun.shadow.camera, fitted.camera); sun.shadow.bias = fitted.bias; sun.shadow.normalBias = fitted.normalBias;}
     sun.shadow.camera.updateProjectionMatrix();
   }
-  function ceilingLight() {
-    if (spot) return;
-    spot = new THREE.SpotLight(TIME_PRESETS.night.color, 1, 0, THREE.MathUtils.degToRad(lamps.angle / 2), .3, 2);
-    spot.position.copy(lampPosition); spot.target.position.set(lampPosition.x, floorY, lampPosition.z);
-    spot.name = 'ceiling-lamp'; spot.userData.lightingRole = 'indoor';
-    spot.shadow.mapSize.set(2048, 2048); spot.shadow.camera.near = Math.min(.2, height * .06);
-    spot.shadow.camera.far = Math.max(5, height + diagonal);
-    scene.add(spot, spot.target);
+  function ceilingLights() {
+    if (spots.length) return;
+    for (const spec of lampSpecs) {
+      const spot = new THREE.SpotLight(TIME_PRESETS.night.color, 1, 0, THREE.MathUtils.degToRad(lamps.angle / 2), .3, 2);
+      spot.position.fromArray(spec.position); spot.target.position.set(spec.position[0], floorY, spec.position[2]);
+      spot.name = spec.source === 'luminaire' ? 'luminaire-lamp' : 'ceiling-lamp'; spot.userData.lightingRole = 'indoor';
+      const map = spec.source === 'luminaire' ? LUMINAIRE_LIGHTS.shadowMap : 2048;
+      spot.shadow.mapSize.set(map, map); spot.shadow.camera.near = Math.min(.2, height * .06);
+      spot.shadow.camera.far = Math.max(5, height + diagonal);
+      scene.add(spot, spot.target); spots.push({spot, spec});
+    }
+    // Real luminaires are seen as themselves; only the invented lamp gets a glowing marker.
+    if (plan.length) return;
     marker = new THREE.Mesh(new THREE.SphereGeometry(.06, 16, 8), new THREE.MeshBasicMaterial({color: TIME_PRESETS.night.color, toneMapped: false}));
     marker.position.copy(lampPosition); scene.add(marker);
   }
@@ -102,21 +124,23 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   }
   function updateIndoor() {
     const level = TIME_PRESETS[selected].indoor;
-    // In 物理光照 the power switch drives the lamps under each ceiling instead.
+    // In 物理光照 the power switch drives the physical lamps (luminaires or under each ceiling) instead.
     const ceilingOn = lamps.power && selected !== 'physical';
-    physical.setPower(lamps.power);
-    if (ceilingOn) ceilingLight();
-    if (spot) {
+    physical.setIndoor(lamps);
+    if (ceilingOn) ceilingLights();
+    for (const {spot, spec} of spots) {
       spot.angle = THREE.MathUtils.degToRad(lamps.angle / 2);
       spot.shadow.camera.fov = lamps.angle; spot.shadow.camera.updateProjectionMatrix();
-      // A wider cone spreads shadow texels over more world space; scale the normal bias
-      // to keep grazing-angle acne controlled without adding a second shadow map.
-      const texel = 2 * (lampPosition.y - floorY) * Math.tan(spot.angle) / spot.shadow.mapSize.x;
-      spot.shadow.normalBias = THREE.MathUtils.clamp(texel * .5, .004, .025);
-      spot.shadow.bias = -THREE.MathUtils.clamp(Math.tan(spot.angle) / spot.shadow.mapSize.x * .43, .00015, .0016);
-      spot.visible = marker.visible = ceilingOn; spot.castShadow = ceilingOn && selected === 'night';
-      spot.intensity = ceilingOn ? Math.max(4, (lampPosition.y - floorY) ** 2 * 4.5) * level : 0;
-      marker.material.color.set(TIME_PRESETS.night.color).multiplyScalar(level);
+      Object.assign(spot.shadow, spotShadowBias(spec.position[1] - floorY, spot.angle, spot.shadow.mapSize.x));
+      spot.visible = ceilingOn; spot.castShadow = ceilingOn && selected === 'night' && spec.castShadow;
+      spot.intensity = ceilingOn ? lampPower * level * spec.share : 0;
+    }
+    if (marker) {marker.visible = ceilingOn; marker.material.color.set(TIME_PRESETS.night.color).multiplyScalar(level);}
+    // Fixtures glow as authored while the lights are on, in every preset, and not at all when they are off.
+    // Whatever material a mesh shows as its own now (物理光照's sky-light copy over these copies) follows.
+    const glowScale = lamps.power ? 1 : 0;
+    for (const {mesh, copies, bases} of glow) for (const materials of [copies, [ownMaterial(mesh)].flat()]) {
+      materials.forEach((material, index) => {if (bases[index] !== undefined) material.emissiveIntensity = bases[index] * glowScale;});
     }
   }
   function setIndoor(value) {
@@ -187,17 +211,31 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     }
     syncOccluders(); renderer.shadowMap.needsUpdate = true;
   }
+  // The first indoor spot, as the central lamp was reported; the snapshot's `lights` lists them all.
+  function lampState() {
+    const spot = spots[0]?.spot;
+    return spot ? {position: spot.position.toArray(), target: spot.target.position.toArray(), source: plan.length ? 'luminaire' : 'room-bounds-center',
+      roomBounds: {min: bounds.min.toArray(), max: bounds.max.toArray()}, angle: THREE.MathUtils.radToDeg(spot.angle * 2),
+      shadowFov: spot.shadow.camera.fov, shadowBias: spot.shadow.bias, normalBias: spot.shadow.normalBias,
+      intensity: spot.intensity, level: TIME_PRESETS[selected].indoor || 0, decay: spot.decay, visible: spot.visible} : null;
+  }
   return {
     apply, syncOccluders, setIndoor,
+    // How many ceiling luminaires light the room (0: the central lamp).
+    fixtures: luminaires.length,
     previewLights: () => previewLights.map(light => light.clone()),
     snapshot: () => ({preset: selected, physical: physical.snapshot(), window: windows[0]?.name || null, directionBasis: windows.length ? 'principal-window' : 'room-axes',
       indoor: {...lamps}, environmentIntensity: scene.environmentIntensity, exteriorEmissionScale: TIME_PRESETS[selected].exterior ?? 1,
-      shadowLight: selected === 'night' ? spot?.visible ? 'SpotLight' : null : 'DirectionalLight',
+      shadowLight: selected === 'night' ? spots[0]?.spot.visible ? 'SpotLight' : null : 'DirectionalLight',
       windowLight: windowLight ? {position: windowLight.position.toArray(), intensity: windowLight.intensity, visible: windowLight.visible, castShadow: windowLight.castShadow, mapSize: windowLight.shadow.mapSize.toArray()} : null,
-      lamp: spot ? {position: spot.position.toArray(), target: spot.target.position.toArray(), source: 'room-bounds-center',
-        roomBounds: {min: bounds.min.toArray(), max: bounds.max.toArray()}, angle: THREE.MathUtils.radToDeg(spot.angle * 2),
-        shadowFov: spot.shadow.camera.fov, shadowBias: spot.shadow.bias, normalBias: spot.shadow.normalBias,
-        intensity: spot.intensity, level: TIME_PRESETS[selected].indoor || 0, decay: spot.decay, visible: spot.visible} : null}),
+      lamp: lampState(),
+      floorArea: floor,
+      luminaires: luminaires.map(({name, center, axis, length, width, area}) => ({name, center, axis, length, width, area})),
+      lights: lampSpecs.map((spec, index) => {
+        const spot = spots[index]?.spot;
+        return {source: spec.source, luminaire: spec.luminaire ?? null, folded: spec.folded ?? [], position: spec.position, share: spec.share,
+          intensity: spot?.intensity ?? 0, visible: spot?.visible ?? false, castShadow: spot?.castShadow ?? false, shadowCandidate: spec.castShadow};
+      })}),
     dispose() {
       physical.dispose();
       for (const {mesh, source, copies} of exterior) {
@@ -205,7 +243,12 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
         copies.forEach(material => material.dispose());
       }
       roof.removeFromParent(); roofMaterial.dispose();
-      if (spot) {spot.removeFromParent(); spot.target.removeFromParent(); spot.dispose(); marker.removeFromParent(); marker.geometry.dispose(); marker.material.dispose();}
+      for (const {mesh, source, copies} of glow) {
+        setOwnMaterial(mesh, source);
+        copies.forEach(material => material.dispose());
+      }
+      for (const {spot} of spots) {spot.removeFromParent(); spot.target.removeFromParent(); spot.dispose();}
+      if (marker) {marker.removeFromParent(); marker.geometry.dispose(); marker.material.dispose();}
       if (windowLight) {windowLight.removeFromParent(); windowLight.target.removeFromParent(); windowLight.dispose();}
     },
   };

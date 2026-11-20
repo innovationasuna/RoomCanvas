@@ -22,7 +22,9 @@ function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition} = {}) {
   sun.position.set(-3.5, 8, 4); sun.target.position.set(0, 0, 0); sun.castShadow = true;
   scene.add(hemi, sun, sun.target, fill);
   const renderer = {shadowMap: {needsUpdate: false}};
-  const config = {openings: {Wall1: ['Window0']}, label: name => ({Window0: '窗户', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name)};
+  // No ceiling luminaires listed (Lamp0 is not one): these tests cover the central-lamp fallback;
+  // test_room_luminaires.mjs covers rooms lit from their luminaires.
+  const config = {openings: {Wall1: ['Window0']}, label: name => ({Window0: '窗户', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name), luminaires: []};
   const rig = createTimeLighting(THREE, {renderer, scene, room, config, walls: [{name: 'Wall1', n: [0, 0, 1]}],
     bounds, floorY: low[1], ceilingY: high[1],
     profile: {key: 3, fill: .65, hemisphere: 1.1, environment: .35}});
@@ -39,7 +41,7 @@ test('day presets use the principal window and refit the sun; balanced restores 
   assert.equal(f.window.castShadow, true); assert.equal(f.scene.environmentIntensity, .35);
   assert.equal(timePreset('bad'), 'noon'); f.rig.dispose();
 });
-test('night uses one attenuated central ceiling light and one shadow map; mode changes never duplicate it', () => {
+test('without luminaires, night uses one attenuated central ceiling light and one shadow map; mode changes never duplicate it', () => {
   const f = fixture();
   for (let i = 0; i < 3; i++) {f.rig.apply('night'); f.rig.apply('noon');}
   f.rig.apply('night');
@@ -52,6 +54,9 @@ test('night uses one attenuated central ceiling light and one shadow map; mode c
   assert.ok(f.scene.environmentIntensity < .03); assert.ok(f.hemi.intensity < .1);
   assert.equal(f.scene.children.filter(light => light.isLight && light.visible && light.castShadow).length, 1);
   assert.equal(f.rig.snapshot().lamp.source, 'room-bounds-center');
+  assert.deepEqual(f.rig.snapshot().luminaires, []); assert.equal(f.rig.fixtures, 0);
+  assert.deepEqual(f.rig.snapshot().lights.map(light => [light.source, light.share, light.castShadow]), [['fallback', 1, true]]);
+  assert.equal(f.scene.children.filter(object => object.isMesh && object.geometry.type === 'SphereGeometry').length, 1, 'the invented lamp keeps its marker');
   assert.equal(f.window.material.emissiveIntensity, .025);
   f.rig.setIndoor({power: false});
   f.rig.apply('balanced'); assert.equal(spots[0].visible, false);

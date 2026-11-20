@@ -2066,6 +2066,7 @@ async function load() {
     lightingRig = createTimeLighting(THREE, {renderer, scene, room, config, walls: placement.wallTargets(), bounds, floorY, ceilingY, profile: lightProfile,
       fitShadows: query.get('shadows') !== 'original', environment: query.get('env') !== 'off', indoor});
     lightingRig.apply(lightingTime);
+    lightingPanel.setFixtures(lightingRig.fixtures);
   }
   renderFurnitureThumbnails();
   for (const wall of placement.wallTargets()) {

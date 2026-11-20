@@ -109,12 +109,17 @@ try {
       await setTime(time);
       const light = await page.evaluate(() => roomEditor.snapshot().lighting);
       assert.equal(light.time.preset, time);
-      assert.ok(light.time.lamp.visible, '中央顶灯应在每个时段均可使用');
-      assert.equal(light.time.lamp.source, 'room-bounds-center');
+      assert.ok(light.time.lamp.visible, '室内灯应在每个时段均可使用');
+      // Rooms with ceiling luminaires are lit from them; others from the central lamp.
+      const fromLuminaires = light.time.luminaires.length > 0;
+      assert.equal(light.time.lamp.source, fromLuminaires ? 'luminaire' : 'room-bounds-center');
       assert.ok(Math.abs(light.time.lamp.angle - 160) < 1e-6);
       const {position, roomBounds} = light.time.lamp;
-      for (const axis of [0, 2]) assert.equal(position[axis], (roomBounds.min[axis] + roomBounds.max[axis]) / 2);
-      assert.equal(light.lights.filter(light => light.visible && light.castShadow).length, ['morning', 'noon', 'afternoon'].includes(time) && light.time.window ? 2 : 1);
+      if (fromLuminaires) assert.deepEqual(position, light.time.lights[0].position);
+      else for (const axis of [0, 2]) assert.equal(position[axis], (roomBounds.min[axis] + roomBounds.max[axis]) / 2);
+      const nightShadows = light.time.lights.filter(lamp => lamp.shadowCandidate).length;
+      assert.equal(light.lights.filter(light => light.visible && light.castShadow).length,
+        ['morning', 'noon', 'afternoon'].includes(time) && light.time.window ? 2 : time === 'night' ? nightShadows : 1);
       if (time === 'night') {
         assert.ok(light.environment.intensity < .03);
         assert.equal(light.time.lamp.decay, 2);
@@ -144,7 +149,8 @@ try {
         await save(`${room}-night-angle-100.png`, narrow); await save(`${room}-night-angle-160.png`, wide);
         for (const angle of [60, 170]) {await setAngle(angle); await save(`${room}-night-angle-${angle}.png`, await page.evaluate(() => roomEditor.captureFrame()));}
         await setAngle(160);
-        assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.visible && light.castShadow).length), 1);
+        assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.visible && light.castShadow).length),
+          state.lights.filter(lamp => lamp.shadowCandidate).length);
       }
       await page.click('#lamp-power'); await settled(page);
       state = await page.evaluate(() => roomEditor.snapshot().lighting.time);
@@ -197,9 +203,10 @@ try {
     await page.locator('#grade-exposure').focus(); await page.keyboard.press('ArrowRight'); await waitFrame(page);
     assert.equal(await page.locator('#grade-exposure').inputValue(), '0.05');
     await page.click('#grading-reset'); await waitFrame(page);
-    // Repeated mode switches leave exactly one cached night emitter and one active shadow.
+    // Repeated mode switches leave exactly one cached set of night emitters and one active shadow.
     for (const time of ['night', 'morning', 'night', 'balanced']) await setTime(time);
-    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'indoor').length), 1);
+    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'indoor').length),
+      await page.evaluate(() => roomEditor.snapshot().lighting.time.lights.length));
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'outdoor-window').length), 1);
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.type === 'RectAreaLight').length), 0);
     await page.locator('#light-menu').evaluate(element => {element.open = false;});

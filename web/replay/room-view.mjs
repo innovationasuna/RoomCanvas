@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import {Materializer, prefetch} from './materialize.mjs';
 import {disposeModel} from './resources.mjs';
 import {createTimeLighting} from '../editor/time-lighting.mjs';
+import {surfaceBox} from '../editor/physical-lighting.mjs';
+import {namedLuminaires} from '../editor/room-luminaires.mjs';
 import {lightingProfile} from '../editor/lighting-profiles.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -426,12 +428,13 @@ export class RoomView {
     this.saved = {hemisphere: hemisphere.intensity, sun: sun.intensity, sunColor: sun.color.clone(), sunAt: sun.position.clone(),
       environment: this.scene.environmentIntensity, background: this.scene.background.clone()};
     root.updateWorldMatrix(true, true);
-    const box = (name) => {const o = root.getObjectByName(name); return o ? new THREE.Box3().setFromObject(o) : null;};
+    // The floor's and the wall's own meshes: the model nests furniture under Floor0 (and things under walls).
+    const box = (name) => {const o = root.getObjectByName(name); return o ? surfaceBox(THREE, o) : null;};
     const bounds = new THREE.Box3().setFromObject(root);
     const floorY = box('Floor0')?.max.y ?? bounds.min.y, ceilingY = box('Wall0')?.max.y ?? bounds.max.y;
     root.traverse((m) => {if (m.isMesh) {m.castShadow = m.name !== 'Floor0' && !m.userData.mask; m.receiveShadow = true;}});
     sun.shadow.mapSize.set(2048, 2048);
-    this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config: roomConfig(root, this.wallFaces),
+    this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config: roomConfig(root, this.wallFaces, ceilingY),
       walls: this.wallFaces, bounds, floorY, ceilingY, profile: lightingProfile()});
     this.rig.apply('physical');
     this.relinkWalls();
@@ -814,8 +817,8 @@ function wallFaces(plan) {
 }
 
 // What the editor reads from a room's object list, by the names a reconstructed room uses: ceilings, windows
-// (each on its nearest wall), walls and floor.
-function roomConfig(root, walls) {
+// (each on its nearest wall), walls and floor, and the ceiling luminaires the room is lit from.
+function roomConfig(root, walls, ceilingY) {
   const kind = (name) => (/^Ceiling/i.test(name) ? '天花板' : /^Window\d|_Window_/i.test(name) ? '窗户'
     : /^Wall\d+$/.test(name) ? '墙面' : /^Floor\d+$/.test(name) ? '地面' : null);
   const openings = Object.fromEntries(walls.map((w) => [w.name, []]));
@@ -825,5 +828,6 @@ function roomConfig(root, walls) {
     const near = walls.reduce((best, w) => {const gap = Math.abs(w.n[0] * c.x + w.n[2] * c.z - w.d); return !best || gap < best.gap ? {w, gap} : best;}, null);
     openings[near.w.name].push(o.name);
   }
-  return {label: (name) => kind(name), isCeiling: (name) => kind(name) === '天花板', openings};
+  return {label: (name) => kind(name), isCeiling: (name) => kind(name) === '天花板', openings,
+    luminaires: namedLuminaires(THREE, root, {label: kind, ceilingY})};
 }
