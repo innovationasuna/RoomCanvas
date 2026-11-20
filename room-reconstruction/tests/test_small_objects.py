@@ -616,6 +616,35 @@ def test_premake_makes_one_model_per_kind_and_skips_unchanged_kinds(tmp_path, mo
     assert (out / "PotPlant.glb").is_file()
 
 
+def test_premake_takes_a_supplied_cut_out_as_the_reference_without_the_image_model(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from litereality_agent.pipeline.realism_authoring.small_objects import premake
+
+    photos, out = tmp_path / "by-kind", tmp_path / "models"
+    cut_out = np.zeros((60, 200, 4), np.uint8)
+    cut_out[10:50, 20:180] = (12, 12, 12, 255)  # a dark book: only its transparency tells it from black
+    (photos / "ShelfBooks").mkdir(parents=True)
+    Image.fromarray(cut_out).save(photos / "ShelfBooks" / "reference.png")
+    photo(photos / "PotPlant" / "p.jpg")
+    calls = fake_steps(monkeypatch)
+    assert premake.main([str(photos), "--out", str(out)]) == 0
+    assert [item["id"] for item, *_ in calls["reference"]] == ["PotPlant"]  # the image model only for photos
+    assert calls["trellis"] == [["PotPlant", "ShelfBooks"]]
+    reference = np.asarray(Image.open(out / "work" / "ShelfBooks" / "reference.png"))
+    assert reference.shape == (1024, 1024, 4)
+    ys, xs = np.where(reference[..., 3] > 0)
+    assert (xs.max() + 1 - xs.min(), ys.max() + 1 - ys.min()) == (799, 200)  # centred, 78 % of the canvas
+    assert abs((xs.min() + xs.max()) / 2 - 511.5) <= 1 and abs((ys.min() + ys.max()) / 2 - 511.5) <= 1
+    assert "reference" in json.loads((out / "ShelfBooks.json").read_text())["inputs"]
+
+    calls["trellis"].clear()
+    assert premake.main([str(photos), "--out", str(out)]) == 0 and calls["trellis"] == []
+    cut_out[10:50, 20:180, :3] = (200, 30, 30)
+    Image.fromarray(cut_out).save(photos / "ShelfBooks" / "reference.png")  # another cut-out: made again
+    assert premake.main([str(photos), "--out", str(out)]) == 0 and calls["trellis"] == [["ShelfBooks"]]
+
+
 def test_premake_leaves_nothing_of_a_failed_kind_and_exits_non_zero(tmp_path, monkeypatch, capsys):
     from litereality_agent.pipeline.realism_authoring.small_objects import premake
 
