@@ -34,13 +34,16 @@ STAGES = [
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
     {'id': 'review2', 'name': '修复问题', 'desc': '没通过检查时，按检查出的问题修一次，修好的房间就是结果。'},
     {'id': 'review3', 'name': '再次检查', 'desc': '以前的流程在修复后会再检查一次。'},
-    # Only listed for a run that went through the small-object pass (see timeline).
+    # Only listed for a run whose room was revised after it was published, or that went through the
+    # small-object pass (see stages_of).
+    {'id': 'revise', 'name': '按意见修改', 'desc': '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'},
     {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
 AGENT_STAGES = ['assemble', 'adjust', 'check']
 SUMMARY_VERSION = 1
+NUMBERING = 'sessions'  # summary.json 'numbering': its record numbers run on across the agent's sessions
 
 # Files the page may load, relative to the scene directory. Anything else is refused.
 FILES = re.compile(r'^(?:'
@@ -240,12 +243,20 @@ def pipeline_events(scene, until=None):
     # Objects with a finished-model record; their per-attempt agent steps then only show retries and errors.
     done = {r['name'] for r in rows if r.get('kind') == 'object_done' and r.get('status') == 'ok' and r.get('name')}
     attempts = []  # run_room.py attempts seen, in order (older traces have a run id per stage process)
-    # A run whose author stopped short still tries the openable parts; when a later attempt follows, that try
-    # is not where the replay's last stage begins (the stages would all collapse into it).
-    later, seen = {}, set()  # run -> other runs with records after its last one
-    for r in reversed(rows):
-        later.setdefault(r.get('run'), seen - {r.get('run'), None})
-        seen.add(r.get('run'))
+    # A run whose author stopped short still tries the openable parts; when a later attempt or pass follows,
+    # that try is not where the replay's last stage begins (the stages would all collapse into it). The passes
+    # number their runs attempt-NN of their own, repeating the main run's, so this goes by position: a record
+    # is followed by other work when a record of another run, or a pass's start, comes after it.
+    later, runs, passes = [False] * len(rows), set(), False
+    for k in range(len(rows) - 1, -1, -1):
+        later[k] = passes or bool(runs - {rows[k].get('run'), None})
+        runs.add(rows[k].get('run'))
+        passes = passes or rows[k].get('kind') in ('articulate_start', 'small_objects_start')
+    # A later pass (for small objects: an evidence-only run, then the full one; a rerun) replaces an earlier
+    # one: only the last pass's records are shown, and the openable-parts room only when no pass started since.
+    small_from = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start'), default=-1)
+    pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')),
+                    default=-1)
 
     def add(row, stage, say, kind='tool', once=None, **extra):
         if once:  # a resumed run repeats its early stages; show them once
@@ -256,7 +267,7 @@ def pipeline_events(scene, until=None):
                        'kind': kind, 'say': say, 'source': 'event', 'confidence': 'recorded',
                        'attempt_id': row.get('attempt_id', row.get('run')), **extra})
 
-    for r in rows:
+    for k, r in enumerate(rows):
         kind, stage, status = r.get('kind'), r.get('stage'), r.get('status')
         if kind == 'trace_start' and re.fullmatch(r'attempt-\d+', str(r.get('run', ''))) and r['run'] not in attempts:
             attempts.append(r['run'])
@@ -315,18 +326,19 @@ def pipeline_events(scene, until=None):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
         elif kind == 'repair_start':
             add(r, 'review2', '按检查出的问题开始修复房间', 'think')
-        elif kind == 'articulate_start' and not later.get(r.get('run')):
+        elif kind == 'articulate_start' and not later[k]:
             add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
-        elif kind == 'articulate_done' and r.get('status') != 'ok' and not later.get(r.get('run')):
+        elif kind == 'articulate_done' and r.get('status') != 'ok' and not later[k]:
             add(r, 'articulate', '可开合部件没有装成，使用检查后的房间', 'error')
-        elif kind == 'small_objects_start':
-            add(r, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', 'think', once='small')
-        elif kind == 'small_object_done' and r.get('method') == 'trellis' and status == 'ok' and r.get('name'):
-            # One line per rebuilt item (a rerun records them again); kept and dropped ones only count below.
+        elif kind == 'small_objects_start' and k == small_from:
+            add(r, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', 'think')
+        elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
+              and r.get('name')):
+            # One line per rebuilt item (recorded once per run); kept and dropped ones only count below.
             item = name(r['name'])
             add(r, 'small_objects', f'{small_name(r["name"]) if item == r["name"] else item}换成了按照片重建的模型',
                 once='small:' + r['name'])
-        elif kind == 'small_objects_done':
+        elif kind == 'small_objects_done' and k > small_from:
             small_done = r
 
     seed = _model_time(scene, rows, 'seed', SEED, until)
@@ -343,11 +355,13 @@ def pipeline_events(scene, until=None):
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
     # The small-object pass closes with its room, said with what it did to the items.
-    small = _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
+    small = (_model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
+             if saved_at(rows[small_from + 1:], 'small_objects') else None)
     if small or small_done:
         events.append({'id': 'small_objects', 't': small or small_done['t'], 'stage': 'small_objects', 'kind': 'milestone',
                        'say': small_summary(small_done), **({'model': 'small_objects'} if small else {})})
-    articulated = _model_time(scene, rows, 'articulated', ARTICULATED, until)
+    articulated = (_model_time(scene, rows, 'articulated', ARTICULATED, until)
+                   if saved_at(rows[pass_from + 1:], 'articulated') else None)
     if articulated:
         events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
                        'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
@@ -546,8 +560,8 @@ def build_schedule(scene, until=None):
             for n in r.get('added') or []:
                 built.setdefault(n, r['t'])
     rows = []
-    for path in sorted((scene / TRACES).glob('authoring_trace.*.jsonl')):
-        if '.raw.' not in path.name:
+    for paths in agent_sessions(scene) + agent_sessions(scene, repair=True):  # every session, earlier ones too
+        for path in paths:
             rows += [r for r in read_jsonl(path) if isinstance(r.get('t'), (int, float)) and (not until or r['t'] <= until)]
     if not rows or not added:
         return None
@@ -571,20 +585,40 @@ def build_schedule(scene, until=None):
 NOT_PICTURE = re.compile(r'mask|_(?:rough|roughness|normal|nrm|disp|displacement|height|ao|metal|metallic|spec|opacity)(?=[._])', re.I)
 
 
+def agent_sessions(scene, repair=False):
+    """The agent's trace files, one list per session in order: the sessions a later one archived
+    (history/authoring_trace.<pass>.run_NNN.jsonl), then the current files together."""
+    traces = Path(scene) / TRACES
+
+    def wanted(path):
+        return '.raw.' not in path.name and (path.name.split('.')[1] == 'repair') == repair
+
+    def tag(path):  # run_003, or run_003_2 when one id was archived twice
+        match = re.search(r'\.run_(\d+)(?:_(\d+))?\.jsonl$', path.name)
+        return (int(match[1]), int(match[2] or 1), path.name) if match else None
+    archived = sorted((p for p in traces.glob('history/authoring_trace.*.run_*.jsonl') if wanted(p) and tag(p)), key=tag)
+    current = [p for p in sorted(traces.glob('authoring_trace.*.jsonl')) if wanted(p)]
+    return [[p] for p in archived] + ([current] if current else [])
+
+
 def agent_records(scene, until=None, repair=False):
     """Compact records of the modelling agent's session(s), for condensing; with `repair`, the repair
-    session after a failed check instead (shown in its own stage, not condensed)."""
+    session after a failed check instead (shown in its own stage, not condensed).
+
+    Each session is numbered on from the ones before it (a session's own numbers restart), so a session
+    keeps the numbers it had while it was the current one, and with them its cached condensation."""
     out = []
-    for path in sorted((Path(scene) / TRACES).glob('authoring_trace.*.jsonl')):
-        if '.raw.' in path.name:
-            continue
-        pass_name = path.name.split('.')[1]
-        if (pass_name == 'repair') != repair:
-            continue
-        for r in read_jsonl(path):
+    sessions = [[(path, r) for path in paths for r in read_jsonl(path) if isinstance(r.get('t'), (int, float))]
+                for paths in agent_sessions(scene, repair)]
+    starts = [min((r['t'] for _, r in rows), default=None) for rows in sessions]
+    passes = [{path.name.split('.')[1] for path, _ in rows} for rows in sessions]
+    for k, rows in enumerate(sessions):
+        session = []
+        for path, r in rows:
             t, kind = r.get('t'), r.get('kind')
-            if not isinstance(t, (int, float)) or (until and t > until):
+            if until and t > until:
                 continue
+            pass_name = path.name.split('.')[1]
             text, img = '', None
             if kind == 'think':
                 text = r.get('text', '')
@@ -603,16 +637,24 @@ def agent_records(scene, until=None, repair=False):
                     continue
                 pictures = [name for name in saved if not NOT_PICTURE.search(name.rsplit('/', 1)[-1])]
                 img = f'{TRACES}/{pictures[0]}' if pictures else None
+                # Pictures are named by pass and the session's own step number, so the next session of the pass
+                # writes over them: one written since that session started is not this session's.
+                rewritten = next((starts[j] for j in range(k + 1, len(sessions)) if pass_name in passes[j]), None)
+                if img and rewritten and (_mtime(Path(scene) / img) or 0) >= rewritten:
+                    img = None
                 text = f'looked at {r.get("n_images", len(saved))} images'
             elif kind in ('session_start', 'session_end'):
                 text = kind + (': ' + str(r.get('summary', ''))[:600] if kind == 'session_end' else '')
             else:
                 continue
-            out.append({'key': f'{pass_name}:{r.get("seq", len(out))}', 't': t, 'kind': kind,
-                        'text': re.sub(r'/workspace/\S+/', '', text)[:700], 'img': img if img and FILES.fullmatch(img) else None})
-    out.sort(key=lambda r: r['t'])
-    for k, r in enumerate(out):
-        r['seq'] = k
+            tag = path.name.split('.')[2] + ':' if path.parent.name == 'history' else ''
+            session.append({'key': f'{pass_name}:{tag}{r.get("seq", len(session))}', 't': t, 'kind': kind,
+                            'text': re.sub(r'/workspace/\S+/', '', text)[:700],
+                            'img': img if img and FILES.fullmatch(img) else None, 'session': k, 'session_t': starts[k]})
+        session.sort(key=lambda r: r['t'])
+        for r in session:
+            r['seq'] = len(out)
+            out.append(r)
     return out
 
 
@@ -704,9 +746,10 @@ class Summary:
         except (OSError, ValueError):
             self.data = None
         if not self.data:
-            self.data = {'version': SUMMARY_VERSION, 'batches': [], 'reviews': {}}
+            self.data = {'version': SUMMARY_VERSION, 'numbering': NUMBERING, 'batches': [], 'reviews': {}}
 
     def save(self):
+        self.data['numbering'] = NUMBERING
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.data, ensure_ascii=False))
@@ -715,6 +758,31 @@ class Summary:
     @property
     def done_to(self):
         return self.data['batches'][-1]['to'] if self.data['batches'] else -1
+
+    def align(self, scene):
+        """Renumber a cache written before the sessions were numbered on (each session counted from 0 while it
+        was the current one): a batch moves to the numbers of the session holding its first line's time (else the
+        nearest earlier one). In memory only; returns whether the cache needs saving. Records it left out before
+        its last batch stay left out, as they were."""
+        if self.data.get('numbering') == NUMBERING:
+            return False
+        starts = {}  # session -> (its first number, its first time)
+        for r in agent_records(scene) if self.data['batches'] else []:
+            starts.setdefault(r['session'], (r['seq'], r['t']))
+        for batch in self.data['batches']:
+            # Sessions do not overlap: the last one begun by then holds that time, or is the nearest earlier one.
+            t = batch['items'][0]['t'] if batch['items'] else None
+            held = [seq for seq, start in starts.values() if t is not None and start <= t]
+            if not held:
+                continue
+            offset = held[-1]
+            batch['from'] += offset
+            batch['to'] += offset
+            for item in batch['items']:
+                item['from'] += offset
+                item['to'] += offset
+        self.data['numbering'] = NUMBERING
+        return True
 
     def condense(self, records, run, minute0, batch=40, final=False, min_batch=15, quiet_seconds=90, now=None):
         """Condense pending agent records. While a job runs, wait for a fuller batch or a pause."""
@@ -726,7 +794,7 @@ class Summary:
             settled = (now or time.time()) - pending[-1]['t'] > quiet_seconds
             if not final and len(pending) < min_batch and not settled:
                 break
-            chunk = pending[:batch]
+            chunk = [r for r in pending[:batch] if r.get('session') == pending[0].get('session')]  # one session a batch
             items = self._ask(chunk, run, minute0)
             self.data['batches'].append({'from': chunk[0]['seq'], 'to': chunk[-1]['seq'], 'items': items})
             self.save()  # each batch as soon as it is ready: the page shows it, and a later failure keeps it
@@ -783,18 +851,34 @@ def timeline(job_dir, status='completed', until=None):
     events = pipeline_events(scene, until)
     records = agent_records(scene, until)
     summary = Summary(job_dir)
+    summary.align(scene)  # an older cache, renumbered here and saved by the condensing worker
     covered = -1
     for batch in summary.data['batches']:
         for item in batch['items']:
             events.append({'id': f'a{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
                            'say': item['say'], 'img': item.get('img')})
         covered = batch['to']
-    for event in rule_agent_events([r for r in records if r['seq'] > covered]):
-        event['stage'] = agent_stage_fallback(records, event['t'])
-        events.append(event)
-    for event in rule_agent_events(agent_records(scene, until, repair=True), who='修复 agent ', prefix='m'):
-        event['stage'] = 'review2'
-        events.append(event)
+    for k in dict.fromkeys(r['session'] for r in records):  # each session worded on its own
+        own = [r for r in records if r['session'] == k]
+        for event in rule_agent_events([r for r in own if r['seq'] > covered]):
+            event['stage'] = agent_stage_fallback(own, event['t'])
+            events.append(event)
+    repair = agent_records(scene, until, repair=True)
+    for k in dict.fromkeys(r['session'] for r in repair):
+        for event in rule_agent_events([r for r in repair if r['session'] == k], who='修复 agent ', prefix='m'):
+            event['stage'] = 'review2'
+            events.append(event)
+    # A session of the modelling agent on a room already published (follow-up requests) is its own stage, and
+    # so is what follows it before the passes: the checks, the repair and the new final room.
+    rows = trace_rows(scene, until)
+    published = next((r['t'] for r in rows if r.get('kind') == 'model_saved' and r.get('model') == 'final'), None)
+    revised = published and next((r['session_t'] for r in records if r['session_t'] > published), None)
+    for event in events:
+        if revised and event['t'] >= revised and STAGE_IDS.index(event['stage']) < STAGE_IDS.index('revise'):
+            event['stage'] = 'revise'
+    # The passes before it were made from the room being revised; they run again afterwards.
+    if revised:
+        events = [e for e in events if e['stage'] not in ('small_objects', 'articulate') or e['t'] >= revised]
     for event in events:
         event.setdefault('source', 'legacy_projection')
         event.setdefault('confidence', 'inferred')
@@ -824,8 +908,8 @@ def timeline(job_dir, status='completed', until=None):
 
 
 def stages_of(events):
-    """The stages to list: all, but the small-object pass only for a run that went through it."""
-    return [s for s in STAGES if s['id'] != 'small_objects' or any(e['stage'] == 'small_objects' for e in events)]
+    """The stages to list: all, but the revision and the small-object pass only for a run that went through them."""
+    return [s for s in STAGES if s['id'] not in ('revise', 'small_objects') or any(e['stage'] == s['id'] for e in events)]
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
@@ -965,6 +1049,7 @@ def _scaffold(job_dir):
 
 # Besides the served FILES, the replay reads these (logs, review verdicts, point cloud and layout).
 READS = ('scene_init/obj_stage/traces/trace.jsonl', 'scene_init/obj_stage/traces/authoring_trace.*.jsonl',
+         'scene_init/obj_stage/traces/history/authoring_trace.*.run_*.jsonl',  # earlier sessions (not their raw logs)
          'realism_authoring/acceptance/*/round_*/visual_review.json',
          'scene_init/obj_stage/object_init/input/scan_geometry/*/scene_points.obj',
          'scene_init/obj_stage/object_init/input/scene_data/*/layout_shell.json',
@@ -979,7 +1064,7 @@ def slim(run, dest):
     if len(scenes) != 1:
         raise SystemExit(f'expected one scene under {run}/pipeline')
     scene, total = scenes[0], 0
-    wanted = {p for pattern in READS for p in scene.glob(pattern)}
+    wanted = {p for pattern in READS for p in scene.glob(pattern) if p.parent.name != 'history' or '.raw.' not in p.name}
     for root, _, names in os.walk(scene):
         for name in names:
             path = Path(root) / name

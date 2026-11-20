@@ -185,6 +185,24 @@ def test_a_slab_shaped_old_model_does_not_flatten_the_new_mesh():
     assert sz * 0.35 == pytest.approx(0.37, rel=0.25)
 
 
+def test_only_an_evenly_scaled_parent_keeps_a_turned_child_as_it_is():
+    def turned(angle, scale):
+        c, s = math.cos(angle), math.sin(angle)
+        matrix = np.eye(4)
+        matrix[:3, :3] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) * scale
+        matrix[:3, 3] = [1.5, -2.0, 0.7]
+        return matrix
+
+    assert fit.keeps_shape(turned(0.3, 1))
+    assert fit.keeps_shape(turned(0.3, 0.87))  # scaled evenly: still right angles
+    tabletop = turned(0.3, [1.095, 1.247, 0.623])  # the author's stretched table part
+    assert not fit.keeps_shape(tabletop)
+    # What goes wrong there: a child turned on it has axes that are no longer at right angles.
+    axes = (tabletop @ turned(0.15, 1))[:3, :3]
+    assert abs(axes[:, 0] @ axes[:, 1]) > 0.03
+    assert not fit.keeps_shape(np.zeros((4, 4)))
+
+
 def test_crop_keeps_a_minimum_size_inside_the_frame():
     assert evidence.crop_rect([100, 100, 110, 110], 1920, 1440) == [9, 9, 201, 201]
     x0, y0, x1, y1 = evidence.crop_rect([5, 5, 15, 15], 1920, 1440)
