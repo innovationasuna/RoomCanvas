@@ -74,7 +74,8 @@ jobs:
           node web/scripts/check_room.mjs --scene-dir samples/office
           node web/scripts/check_room.mjs --scene-dir samples/room3
           node web/scripts/check_room.mjs --scene-dir samples/room-3934
-          node web/scripts/check_room.mjs --scene-dir samples/activity-classroom
+          # The largest sample (264 MB, 295 books): the default 2 GB heap is too small; it peaks near 4 GB.
+          node --max-old-space-size=5120 web/scripts/check_room.mjs --scene-dir samples/activity-classroom
 
   object-api:
     runs-on: ubuntu-latest
