@@ -19,6 +19,16 @@ import numpy as np
 MAX_STRETCH = 1.15  # per-axis scale stays within this factor of the overall scale
 
 
+def keeps_shape(world, tolerance: float = 1e-5) -> bool:
+    """Whether a turned object can hang under one with this world matrix and stay as it is: the
+    three axes are at right angles and equally long. Under a part stretched unevenly a turned child
+    is sheared, which neither Blender's location/rotation/scale nor the exported GLB's can hold."""
+    axes = np.asarray(world, float)[:3, :3]
+    gram = axes.T @ axes
+    size = gram.trace() / 3
+    return bool(size > 0 and np.abs(gram - size * np.eye(3)).max() <= tolerance * size)
+
+
 def hull(points: np.ndarray) -> np.ndarray:
     """Convex hull of 2D points, counter-clockwise (monotone chain)."""
     pts = np.unique(np.round(points, 6), axis=0)
