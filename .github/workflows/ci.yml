@@ -59,7 +59,7 @@ jobs:
       - run: node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
       # The models are assets of the sample-rooms release, not files in git (samples/models.json);
-      # the cache keeps their ~195 MB from being downloaded on every run.
+      # the cache keeps their ~460 MB from being downloaded on every run.
       - uses: actions/cache@v4
         with:
           path: samples/*/Room.glb
@@ -74,6 +74,8 @@ jobs:
           node web/scripts/check_room.mjs --scene-dir samples/office
           node web/scripts/check_room.mjs --scene-dir samples/room3
           node web/scripts/check_room.mjs --scene-dir samples/room-3934
+          # The largest sample (264 MB, 295 books): the default 2 GB heap is too small; it peaks near 4 GB.
+          node --max-old-space-size=5120 web/scripts/check_room.mjs --scene-dir samples/activity-classroom
 
   object-api:
     runs-on: ubuntu-latest

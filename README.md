@@ -133,7 +133,7 @@ cd RoomCanvas
 python3 web/scripts/serve.py --ssh <SSH 主机>
 ```
 
-打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office` 或 `Room_3934`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
+打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office`、`Room_3934` 或 `Activity Classroom`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
 示例房间的模型（`samples/*/Room.glb`，三个共约 195 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件。`serve.py` 启动时在后台下载缺少的模型，下载完刷新页面即可；也可以先运行 `python3 scripts/fetch_samples.py`。仓库是私有的，下载前要先 `gh auth login`，或把能读本仓库的令牌放进 `GH_TOKEN`；两样都没有时，终端会列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后放到对应路径。详见 [示例房间的模型](web/README.md#示例房间的模型)。
 
@@ -259,7 +259,7 @@ flowchart LR
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
-| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934）；模型在 `sample-rooms` release，清单是 `samples/models.json` | |
+| [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934）、`activity-classroom`（同一间活动室重新扫描后的重建）；模型在 `sample-rooms` release，清单是 `samples/models.json` | |
 
 ## 开发与测试
 
@@ -306,7 +306,7 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 ## 数据与隐私
 
 - `samples/room3` 是真实住宅的扫描，模型和缩略图来自实拍照片，仅供项目成员使用，请勿转发。
-- `samples/room-3934` 是真实房间的扫描（2026-11-12 重建），模型和缩略图同样来自实拍照片，仅供项目成员使用，请勿转发。
+- `samples/room-3934` 是真实房间的扫描（2026-11-12 重建），`samples/activity-classroom` 是同一间房间的重新扫描（2026-11-21 重建），模型和缩略图同样来自实拍照片，仅供项目成员使用，请勿转发。
 - 原始扫描、照片、含相机轨迹的 `room_layout.json` 不进入仓库。
 - 手势识别只在本机浏览器中进行，摄像头画面不上传。
 
