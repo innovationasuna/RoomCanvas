@@ -71,7 +71,14 @@ def world_vertices(objects):
 
 
 def reparent(obj, parent):
+    """Hang obj under parent where it stands. The author rests small things on parts it has stretched
+    unevenly (a tabletop); a turned object under one is sheared, so it would end up skewed and the
+    web editor refuses a room whose objects it cannot regroup unchanged. It then goes under the
+    nearest ancestor that is not stretched (fit.keeps_shape); rests_on/support_part still name what
+    it stands on."""
     world = obj.matrix_world.copy()
+    while parent is not None and not fit.keeps_shape(np.array(parent.matrix_world)):
+        parent = parent.parent
     obj.parent = parent
     obj.matrix_world = world
 
