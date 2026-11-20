@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the reconstruction module on the 3090 server, configuring only machine paths and keys.
 
-usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N]
+usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N] [--revise]
                    [--set KEY=VALUE ...] [--no-articulate] [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
        run_room.py --articulate SCENE_DIR OUT_DIR [--through STEP] [--only ID ...] [--check]
@@ -12,7 +12,10 @@ The code that runs is this checkout's room-reconstruction/. Runtimes, model weig
 run-config.json. --check prints what would run and exits without creating anything.
 
 Author checks the room once (support, then a pass/fail visual review, no score); if it fails,
-one repair runs and its rebuilt room is the result (--repair-rounds 0 only checks). --small-objects runs the small-object pass on a finished run's scene directory
+one repair runs and its rebuilt room is the result (--repair-rounds 0 only checks: a room that fails
+then ends as needs_repair, unpublished). --revise (with --from author) opens one more authoring session on
+the finished room, for follow-up requests written into the LR_AUTHOR_EXTRA material; the room is kept,
+checked and published again, and the passes below are then run again on it. --small-objects runs the small-object pass on a finished run's scene directory
 (runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
 --articulate does the same for openable parts: Astra decides per object whether it has parts that
 open and where, Blender cuts them out and hinges them (see realism_authoring/articulate/).
@@ -85,6 +88,7 @@ p.add_argument("--from", dest="from_stage")
 p.add_argument("--through")
 p.add_argument("--set", action="append", default=[])
 p.add_argument("--repair-rounds", default="1", choices="01", help="repair once when the check fails (0: check only)")
+p.add_argument("--revise", action="store_true", help="one more authoring session on the finished room")
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
 p.add_argument("--premake-small-objects", action="store_true",
@@ -147,6 +151,8 @@ if a.from_stage:  # resume the run's own scene; without one the CLI starts it fr
 cmd = [str(runtime / "litereality-env/bin/litereality"), "run", str(target),
        "--author-profile", "open", "--output-root", str(a.run_dir / "pipeline"),
        "--repair-rounds", a.repair_rounds]
+if a.revise:
+    cmd += ["--revise"]
 if a.from_stage:
     cmd += ["--from", a.from_stage]
 if a.through:

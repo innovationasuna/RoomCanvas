@@ -68,7 +68,7 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
     import networkx as nx
     import trimesh
 
-    scene = trimesh.load(str(glb_path))
+    scene = trimesh.load(str(glb_path), skip_materials=True)  # shapes only; textures cost tens of GB here
     G = scene.graph.to_networkx()
     base = scene.graph.base_frame
     preds = nx.predecessor(G, base)  # one BFS: node → [parent]

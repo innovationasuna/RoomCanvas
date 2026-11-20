@@ -88,7 +88,9 @@ def mesh_bodies(glb, objects):
 
     import trimesh
 
-    scene = trimesh.load(str(glb), force="scene")
+    # Geometry only: with materials every part copies its textures and concatenating packs them
+    # into atlases, tens of GB for a room with a few 4096 px textures.
+    scene = trimesh.load(str(glb), force="scene", skip_materials=True)
     handles = {o.get("handle") or o["id"]: o["id"] for o in objects}
     requested_parts = {o["support_part"] for o in objects if o.get("support_part")}
     parents = scene.graph.transforms.parents
