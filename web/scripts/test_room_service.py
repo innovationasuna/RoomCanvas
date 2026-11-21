@@ -211,6 +211,53 @@ class APIIntegration(unittest.TestCase):
         with urlopen(Request(self.base + path, data=data, headers=headers or {}), timeout=10) as response:
             return json.load(response)
 
+    def test_sample_endpoint_only_serves_existing_manifest_models(self):
+        samples = self.root / 'samples'
+        samples.mkdir()
+        self.worker.RequestHandlerClass.samples = samples
+        (samples / 'models.json').write_text(json.dumps({'models': [
+            {'path': 'samples/office/Room.glb'}, {'path': 'samples/room3/Room.glb'}]}))
+        (samples / 'office').mkdir()
+        model = samples / 'office/Room.glb'
+        model.write_bytes(b'room')
+        (samples / 'unlisted').mkdir()
+        (samples / 'unlisted/Room.glb').write_bytes(b'unlisted')
+        base = f'http://127.0.0.1:{self.worker.server_port}/room-reconstruction/samples/'
+        with urlopen(Request(base + 'office/Room.glb', method='HEAD')) as response:
+            self.assertEqual(response.read(), b'')
+            self.assertEqual(response.headers['Content-Length'], '4')
+            self.assertEqual(response.headers[service.DIGEST], hashlib.sha256(b'room').hexdigest())
+        with urlopen(base + 'office/Room.glb') as response:
+            self.assertEqual(response.read(), b'room')
+        for path in ('room3/Room.glb', 'unlisted/Room.glb', 'office/models.json', '../samples/models.json', '%2e%2e/Room.glb'):
+            with self.subTest(path=path), self.assertRaises(HTTPError) as caught:
+                urlopen(base + path)
+            self.assertEqual(caught.exception.code, 404)
+        outside = self.root / 'private.glb'
+        outside.write_bytes(b'private')
+        model.unlink(); model.symlink_to(outside)
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(base + 'office/Room.glb')
+        self.assertEqual(caught.exception.code, 404)
+
+    def test_unlinked_sample_downloads_through_the_local_server_without_github(self):
+        samples = self.root / 'server-samples'
+        (samples / 'office').mkdir(parents=True)
+        entry = {'path': 'samples/office/Room.glb', 'bytes': 4, 'sha256': hashlib.sha256(b'room').hexdigest()}
+        manifest = json.dumps({'repo': 'unused', 'models': [entry]})
+        (samples / 'models.json').write_text(manifest)
+        (samples / 'office/Room.glb').write_bytes(b'room')
+        self.worker.RequestHandlerClass.samples = samples
+        client = self.root / 'client'
+        (client / 'samples').mkdir(parents=True)
+        (client / 'samples/models.json').write_text(manifest)
+        (client / 'web').mkdir()
+        (client / 'web/rooms.json').write_text(json.dumps({'rooms': []}))
+        with patch.object(serve, 'ROOT', client), patch.object(serve.fetch_samples, 'methods', side_effect=AssertionError('no GitHub')):
+            with urlopen(self.base + '/samples/office/Room.glb') as response:
+                self.assertEqual(response.read(), b'room')
+        self.assertEqual((client / 'samples/office/Room.glb').read_bytes(), b'room')
+
     def submit(self, kind='zip'):
         return self.request('/room-reconstruction/jobs', archive(kind=kind).getvalue(),
                             {'X-Upload-ID': self.identifier, 'X-Room-Name': quote('测试客厅'),

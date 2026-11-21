@@ -72,6 +72,21 @@ class Jobs(JobStore):
 class Handler(BaseHTTPRequestHandler):
     jobs = None
     preview = False  # no GPU: browse only
+    samples = ROOT / 'samples'
+
+    def sample_model(self, room):
+        """Serve only existing, manifest-listed sample models; never fetch or start a job here."""
+        relative = f'samples/{room}/Room.glb'
+        try:
+            models = json.loads((self.samples / 'models.json').read_text())['models']
+            if not any(entry.get('path') == relative for entry in models):
+                return None
+            target = self.samples / room / 'Room.glb'
+            if not target.resolve().is_relative_to(self.samples.resolve()):
+                return None
+            return target if target.is_file() else None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
 
     def respond(self, status, data):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -88,6 +103,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        sample = re.fullmatch(PREFIX + r'/samples/([A-Za-z0-9_-]+)/Room\.glb', path)
+        if sample:
+            model = self.sample_model(sample[1])
+            if model is None:
+                return self.respond(404, {'error': '服务器尚未备有该示例模型'})
+            return self.send_file(model)
         replay = None
         if path == PREFIX + '/jobs':
             self.jobs.load_new()

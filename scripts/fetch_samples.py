@@ -157,11 +157,13 @@ def methods(env=None):
     return found
 
 
-def fetch_one(repo, entry, root, ways):
+def fetch_one(repo, entry, root, ways, missing_only=False):
     """Download beside the model's place, check the file, then move it there; a failed download leaves nothing."""
     path = Path(root) / entry['path']
-    part = path.with_name(path.name + '.part')
     path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix='.Room-', suffix='.part')
+    os.close(fd)
+    part = Path(name)
     errors = []
     try:
         for way in ways:
@@ -170,7 +172,8 @@ def fetch_one(repo, entry, root, ways):
                 wrong = problem(part, entry)
                 if wrong:
                     raise FetchError(f'the download is not the listed model ({wrong})')
-                os.replace(part, path)
+                if not missing_only or not path.exists():
+                    os.replace(part, path)
                 return
             except FetchError as error:
                 errors.append(str(error))
@@ -215,7 +218,7 @@ def fetch(rooms=(), root=None, check=False, verify=False, missing_only=False, wa
             if ways:
                 log(f'Fetching {entry["path"]} ({entry["bytes"] / 1e6:.0f} MB) from release {entry["tag"]}…')
             try:
-                fetch_one(repo, entry, root, ways)
+                fetch_one(repo, entry, root, ways, missing_only=missing_only)
                 continue
             except FetchError as error:
                 why = str(error)

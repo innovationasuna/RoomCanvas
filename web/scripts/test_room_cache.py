@@ -343,8 +343,10 @@ class SampleServing(unittest.TestCase):
             {'id': 'classroom', 'name': 'Classroom', 'dir': '../samples/classroom', 'scan': DONE}]}))
         (self.root / 'samples/models.json').write_text(json.dumps({'repo': 'unused', 'models': [
             {'path': self.path[1:], 'bytes': 4, 'sha256': hashlib.sha256(b'room').hexdigest()}]}))
-        self.enterContext(patch('serve.ROOT', self.root))
-        self.enterContext(patch('serve.fetch_samples.methods', side_effect=AssertionError('GitHub must not be used')))
+        root_patch = patch('serve.ROOT', self.root)
+        root_patch.start(); self.addCleanup(root_patch.stop)
+        auth_patch = patch('serve.fetch_samples.methods', side_effect=AssertionError('GitHub must not be used'))
+        self.methods = auth_patch.start(); self.addCleanup(auth_patch.stop)
         self.service = FakeService()
         self.addCleanup(self.service.close)
         class SampleHandler(Quiet):
@@ -430,6 +432,74 @@ class SampleServing(unittest.TestCase):
         for path in ('/samples/unknown/Room.glb', '/samples/classroom/../Room.glb', '/samples/classroom/Room.glb/extra'):
             self.assertEqual(self.get(path)[0], 404)
         self.assertEqual(self.service.asked, [])
+
+
+class UnlinkedSampleServing(SampleServing):
+    """The same on-demand guarantees apply to samples without a reconstruction job."""
+
+    def setUp(self):
+        super().setUp()
+        self.path = '/samples/office/Room.glb'
+        self.target = self.root / self.path[1:]
+        self.target.parent.mkdir()
+        self.source = f'{P}samples/office/Room.glb'
+        self.service.files[self.source] = b'room'
+        self.methods.side_effect = None
+        self.methods.return_value = []
+        self.entry = {'path': self.path[1:], 'bytes': 4, 'sha256': hashlib.sha256(b'room').hexdigest(),
+                      'tag': 'sample-rooms', 'asset': 'office-Room.glb'}
+        (self.root / 'samples/models.json').write_text(json.dumps({'repo': 'owner/repo', 'models': [
+            self.entry, {**self.entry, 'path': 'samples/room3/Room.glb', 'asset': 'room3-Room.glb'}]}))
+        (self.root / 'web/rooms.json').write_text(json.dumps({'rooms': [
+            {'id': 'office', 'name': 'Office', 'dir': '../samples/office'},
+            {'id': 'room3', 'name': 'Bedroom', 'dir': '../samples/room3'}]}))
+
+    def test_cleanup_stays_paused_and_only_the_reopened_room_is_fetched(self):
+        from cache_manage import CacheManager
+        from serve import fetch_sample_models
+        control = CacheManager(self.root, self.root / 'cache')
+        self.target.write_bytes(b'room')
+        control.clear(['sample:office'])
+        fetch_sample_models(control=control, log=lambda _: None)
+        self.methods.assert_not_called()
+        self.assertEqual(self.get()[:2], (200, b'room'))
+        self.assertEqual(self.service.asked, [self.source])
+        self.assertTrue(control.inventory()['background_paused'])
+        self.assertFalse((self.root / 'samples/room3/Room.glb').exists())
+        self.methods.assert_not_called()
+
+    def test_configured_github_downloads_only_the_requested_sample_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.service.errors[self.source] = 404  # an older server, or one without samples
+        downloaded = []
+        def release(repo, entry, target):
+            downloaded.append((repo, entry['asset']))
+            target.write_bytes(b'room')
+        self.methods.return_value = [release]
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            replies = list(pool.map(lambda _: self.get()[:2], range(3)))
+        self.assertEqual(replies, [(200, b'room')] * 3)
+        self.assertEqual(downloaded, [('owner/repo', 'office-Room.glb')])
+        self.assertFalse((self.root / 'samples/room3/Room.glb').exists())
+        self.assertEqual(list(self.target.parent.iterdir()), [self.target])
+
+    def test_no_source_returns_actionable_error_and_can_retry(self):
+        self.service.errors[self.source] = 404
+        status, body, _ = self.get()
+        self.assertEqual(status, 503)
+        self.assertIn('GitHub', json.loads(body)['error'])
+        self.assertIn('当前房间', json.loads(body)['error'])
+        self.assertEqual(list(self.target.parent.iterdir()), [])
+        self.service.errors.clear()
+        self.assertEqual(self.get()[:2], (200, b'room'))
+
+    def test_bad_release_is_discarded_before_responding_and_can_retry(self):
+        self.service.errors[self.source] = 404
+        self.methods.return_value = [lambda repo, entry, target: target.write_bytes(b'xxxx')]
+        self.assertEqual(self.get()[0], 503)
+        self.assertEqual(list(self.target.parent.iterdir()), [])
+        self.methods.return_value = [lambda repo, entry, target: target.write_bytes(b'room')]
+        self.assertEqual(self.get()[:2], (200, b'room'))
 
 
 class StartServer(unittest.TestCase):
