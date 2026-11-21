@@ -901,6 +901,44 @@ class Sessions(unittest.TestCase):
         self.assertEqual(summary.data['batches'][0]['from'], 5)
 
 
+class WorkingClock(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.run = Path(self.tmp.name) / 'run'
+        self.scene = self.run / 'pipeline' / 'demo'
+        self.scene.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def attempt(self, path, begun, ended=None):
+        import datetime
+        started = datetime.datetime.fromtimestamp(begun, datetime.timezone.utc).isoformat(timespec='seconds')
+        write(self.run / path / 'run-config.json', json.dumps({'started': started}), begun)
+        if ended:
+            write(self.run / path / 'exit', '0\n', ended)
+
+    def test_pauses_and_replaced_runs_are_idle(self):
+        self.attempt('attempt-01', T0, T0 + 3600)                        # the build: an hour
+        self.attempt('small-objects/attempt-01', T0 + 3700, T0 + 3760)   # a pass a later one replaced: shows nothing
+        self.attempt('attempt-02', T0 + 30000, T0 + 32000)               # next day, after the operator's review
+        self.attempt('small-objects/attempt-02', T0 + 32100, T0 + 32200)
+        spans = replay.attempt_spans(self.scene)
+        self.assertEqual([(round(a), round(b)) for a, b in spans],
+                         [(T0, T0 + 3600), (T0 + 3700, T0 + 3760), (T0 + 30000, T0 + 32000), (T0 + 32100, T0 + 32200)])
+        shown = [{'t': t} for t in (T0, T0 + 1800, T0 + 3600, T0 + 30010, T0 + 31900, T0 + 32150)]
+        idle = replay.idle_spans(shown, spans, T0)
+        # between the build and the next day nothing shown was worked on (the replaced pass included);
+        # the 100 s before the last pass is shorter than a pause
+        self.assertEqual(idle, [[60.0, 500.0]])
+        self.assertEqual(replay.idle_spans(shown, [], T0), [])  # no attempt records: real time
+
+    def test_a_running_attempt_works_until_its_log_was_last_written(self):
+        self.attempt('attempt-01', T0)
+        write(self.run / 'attempt-01' / 'pipeline.log', 'still going', T0 + 900)
+        self.assertEqual([(round(a), round(b)) for a, b in replay.attempt_spans(self.scene)], [(T0, T0 + 900)])
+
+
 class Service(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

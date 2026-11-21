@@ -244,8 +244,8 @@ function render(t, p, force = false) {
   // The room is finished: light it as the room preview does (物理光照).
   view.physical(done);
   $('head') && ($('head').style.left = `${t / span() * 100}%`);
-  $('clock').textContent = clock(tl.realAt(t));
-  $('total').textContent = '/ ' + clock(tl.events.at(-1)?.minute || 0);
+  $('clock').textContent = clock(tl.workAt(tl.realAt(t)));
+  $('total').textContent = '/ ' + clock(tl.workAt(tl.events.at(-1)?.minute || 0));
   $('latest').hidden = !data.live || following || atEnd;
   const st = tl.stageAt(t), si = st ? data.stages.findIndex((s) => s.id === st.id) : -1;
   tl.stages.forEach((s) => {

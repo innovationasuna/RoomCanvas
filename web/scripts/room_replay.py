@@ -900,11 +900,55 @@ def timeline(job_dir, status='completed', until=None):
     if build:
         build = {'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
+    idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
+                               if not until or a <= until], start) if start else []
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': stages_of(events), 'events': events, 'models': models(scene, until), 'build': build,
+            'stages': stages_of(events), 'events': events, 'models': models(scene, until), 'build': build, 'idle': idle,
             'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
                                for model, rel in [('seed', SEED), ('final', FINAL), ('small_objects', SMALL_OBJECTS),
                                                   ('articulated', ARTICULATED)]}}
+
+
+IDLE_MINUTES = 2  # a pause shorter than this stays on the clock
+
+
+def attempt_spans(scene):
+    """When each launcher attempt of the run worked, as (start, end) epoch seconds: the main run's attempts and
+    the passes' (small objects, openable parts). Start: the attempt's run-config.json (written once it has the
+    GPU); end: its exit file, or for one still running or killed, its log's last write."""
+    run, spans = Path(scene).parents[1], []
+    for attempt in [*run.glob('attempt-*'), *run.glob('*/attempt-*')]:
+        config = attempt / 'run-config.json'
+        if not config.is_file():
+            continue
+        try:
+            import datetime
+            begun = datetime.datetime.fromisoformat(json.loads(config.read_text())['started']).timestamp()
+        except (OSError, ValueError, KeyError, TypeError):
+            begun = config.stat().st_mtime
+        ended = _mtime(attempt / 'exit') or _mtime(attempt / 'pipeline.log') or begun
+        spans.append((begun, max(begun, ended)))
+    return sorted(spans)
+
+
+def idle_spans(events, spans, start):
+    """Stretches of the replayed time in which nothing shown was being worked on, as [from, to] minutes after
+    `start`: no attempt ran (waiting for the operator, a stopped machine), or the attempt that ran shows nothing
+    (a pass a later one replaced, a session stopped before it did anything). The clock leaves them out, as
+    playback already does; a run without attempt records leaves nothing out."""
+    if not events or not spans:
+        return []
+    times = sorted(e['t'] for e in events)
+    worked = sorted([a, b] for a, b in spans if any(a <= t <= b for t in times))
+    worked += [[t, t] for t in times]  # every shown moment itself
+    merged = []
+    for a, b in sorted(worked):
+        if merged and a <= merged[-1][1] + IDLE_MINUTES * 60:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [[round((b0 - start) / 60, 3), round((a1 - start) / 60, 3)]
+            for (_, b0), (a1, _) in zip(merged, merged[1:]) if a1 - b0 > IDLE_MINUTES * 60]
 
 
 def stages_of(events):
@@ -1076,7 +1120,8 @@ def slim(run, dest):
     # The later passes' rooms (the openable-parts one was published), beside the scene, and how each launcher
     # attempt ended (whether a later one was a retry).
     extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
-    extra += [(path, dest / path.relative_to(run)) for path in run.glob('attempt-*/exit')]
+    extra += [(path, dest / path.relative_to(run)) for pattern in ('attempt-*/exit', 'attempt-*/run-config.json', '*/attempt-*/exit',
+                                                                   '*/attempt-*/run-config.json') for path in run.glob(pattern)]
     for path, target in extra:
         if path.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
