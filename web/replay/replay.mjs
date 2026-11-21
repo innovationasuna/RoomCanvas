@@ -5,7 +5,7 @@ import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DU
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
-import {cards, upTo, objects, lines, pictures, WORK} from './log.mjs';
+import {cards, upTo, objects, lines, pictures, cropOf, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
@@ -141,7 +141,13 @@ function rebuild() {
 // current record, so moving the playhead into a card adds or takes away its lines and pictures.
 const say = (e) => esc(withoutScores(e.say));
 const nearEnd = () => $('log').scrollHeight - $('log').scrollTop - $('log').clientHeight < NEAR;
-const pic = (k, src) => `<span class="th" data-z="${k}" data-src="${esc(src)}"><img src="${files(src)}" alt="" loading="lazy"></span>`;
+// A picture; with a crop, only that part of it (an item on a shelf whose photo shows the whole shelf), zoomed to fill.
+function image(src, crop) {
+  if (!crop) return `<img src="${files(src)}" alt="" loading="lazy">`;
+  const [x0, y0, x1, y1] = crop, w = x1 - x0, h = y1 - y0, pct = (v) => `${(v * 100).toFixed(2)}%`;
+  return `<span class="cut"><img src="${files(src)}" alt="" loading="lazy" style="width:${pct(1 / w)};height:${pct(1 / h)};left:${pct(-x0 / w)};top:${pct(-y0 / h)}"></span>`;
+}
+const pic = (k, src, crop) => `<span class="th" data-z="${k}" data-src="${esc(src)}">${image(src, crop)}</span>`;
 function line(k, n = 1) {
   const e = tl.events[k], talk = ['think', 'milestone', 'review'].includes(e.kind);
   return `<p class="line${e.kind === 'milestone' ? ' ms' : e.kind === 'review' ? ' rv' : ''}" data-i="${k}">` +
@@ -152,7 +158,7 @@ function single(ks) {
   const k = ks.at(-1), e = tl.events[k];
   // A check's verdict keeps its photo / model pair whole, low and wide under the words.
   if (e.kind === 'review') return line(k) + (e.img ? `<span class="wide" data-z="${k}" data-src="${esc(e.img)}"><img src="${files(e.img)}" alt="" loading="lazy"></span>` : '');
-  return `<div class="row">${line(k, ks.length)}${e.img ? pic(k, e.img) : ''}</div>`;
+  return `<div class="row">${line(k, ks.length)}${e.img ? pic(k, e.img, cropOf(e)) : ''}</div>`;
 }
 // Names without a picture, each once with how many: 椅子 ×3、门.
 function named(items) {
@@ -165,7 +171,7 @@ function objectCard(ks, opened) {
   // Two rows of three at most; the last place says how many more until opened.
   const fits = opened || shown.length <= 6 ? shown.length : 5;
   const cells = shown.slice(0, fits).map((o) => `<span class="cell" data-z="${o.k}" data-src="${esc(o.img)}" data-i="${o.k}">` +
-    `<img src="${files(o.img)}" alt="" loading="lazy"><span class="nm">${esc(o.name)}</span></span>`).join('') +
+    `${image(o.img, o.crop)}<span class="nm">${esc(o.name)}</span></span>`).join('') +
     (fits < shown.length ? `<button type="button" class="cell more" data-more>+${shown.length - fits}</button>` : '');
   return `<div class="card objects"><p class="line lead" data-i="${ks.at(-1)}">${WORK[tl.events[ks[0]].work].replace('{n}', items.length)}</p>` +
     (cells ? `<div class="grid">${cells}</div>` : '') + (bare.length ? `<p class="bare">另有 ${named(bare)}</p>` : '') +

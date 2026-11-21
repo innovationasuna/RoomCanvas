@@ -221,16 +221,69 @@ def small_names(keys, name):
     return {key: word if len(same) == 1 else f'{word}{k + 1}' for word, same in words.items() for k, key in enumerate(same)}
 
 
-def small_media(scene, key, until=None):
-    """Pictures of an item the small-object pass rebuilt, each with the time it was written: its photo crop, and the
-    photo beside the rebuilt model (rendered when the room is applied, so shown only from then)."""
+def small_media(scene, key, until=None, closeup=None):
+    """Pictures of an item the small-object pass rebuilt, each with the time it was written: its photo crop (with the
+    part showing the item, `closeup`, when known), and the photo beside the rebuilt model (rendered when the room is
+    applied, so shown only from then)."""
     folder = small_folder(scene) / 'evidence' / key
     media = []
     for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
         t = _mtime(folder / name)
         if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work
-            media.append({'src': f'small-objects/evidence/{key}/{name}', 'role': role, 't': t})
+            media.append({'src': f'small-objects/evidence/{key}/{name}', 'role': role, 't': t,
+                          **({'crop': closeup} if closeup and role == 'photo' else {})})
     return media
+
+
+def _project(camera, point):
+    """Pixel position of a world point in a capture frame (as the small-object pass projects), or None behind it."""
+    forward, up, position = camera['forward'], camera['up'], camera['position']
+    right = [forward[1] * up[2] - forward[2] * up[1], forward[2] * up[0] - forward[0] * up[2],
+             forward[0] * up[1] - forward[1] * up[0]]
+    d = [point[k] - position[k] for k in range(3)]
+    z = sum(a * b for a, b in zip(d, forward))
+    if z <= 0.05:
+        return None
+    k = camera['intrinsics']
+    return k['cx'] + k['fx'] * sum(a * b for a, b in zip(d, right)) / z, k['cy'] - k['fy'] * sum(a * b for a, b in zip(d, up)) / z
+
+
+def small_closeups(scene, keys):
+    """Where each item is in its photo crop (fractions of view0.jpg), for an item whose crop shows far more than it:
+    the pass frames the crop on what its detector finds, and for an item on a shelf that is the whole shelf. The
+    item's box is projected into that photo with the capture camera the pass used; an item the crop already shows
+    closely, or one projected outside it, has none."""
+    try:
+        items = {i['id']: i for i in json.loads((small_folder(scene) / 'items.json').read_text())}
+        layout = json.loads((Path(scene) / 'realism_authoring/room_preview/room_layout.json').read_text())
+        cameras = {c['frame_index']: c for c in layout['cameras']}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    out = {}
+    for key in keys:
+        try:
+            item = items[key]
+            view, low, high = item['views'][0], item['bbox_min'], item['bbox_max']
+            points = [_project(cameras[view['frame']], [(high if n >> k & 1 else low)[k] for k in range(3)]) for n in range(8)]
+            x0, y0, x1, y1 = view['rect']
+            turns = view.get('turns', 0) % 4
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+        if None in points:
+            continue
+        u, v = [p[0] for p in points], [p[1] for p in points]
+        cx, cy = (min(u) + max(u)) / 2, (min(v) + max(v)) / 2
+        side = max(1.6 * max(max(u) - min(u), max(v) - min(v)), 96)  # a margin for where the box lands, a little room around
+        w, h = x1 - x0, y1 - y0
+        if side > min(w, h) / 2 or not (x0 <= cx <= x1 and y0 <= cy <= y1):
+            continue
+        left, top = min(max(cx - side / 2, x0), x1 - side) - x0, min(max(cy - side / 2, y0), y1 - side) - y0
+        # The crop was turned upright by quarter turns (counter-clockwise): turn the square with it.
+        a, b = [[(x, y), (y, w - x), (w - x, h - y), (h - y, x)][turns] for x, y in ((left, top), (left + side, top + side))]
+        width, height = (w, h) if turns % 2 == 0 else (h, w)
+        out[key] = [round(min(a[0], b[0]) / width, 4), round(min(a[1], b[1]) / height, 4),
+                    round(max(a[0], b[0]) / width, 4), round(max(a[1], b[1]) / height, 4)]
+    return out
 
 
 def finished(scene, attempt):
@@ -293,6 +346,7 @@ def pipeline_events(scene, until=None):
                     default=-1)
     small_items = small_names({r['name'] for r in rows[small_from + 1:] if r.get('kind') == 'small_object_done'
                                and r.get('method') == 'trellis' and r.get('status') == 'ok' and r.get('name')}, name)
+    closeups = small_closeups(scene, small_items) if small_items else {}
 
     def thing(key, work=None):
         """Which object an event is about, and the kind of work done to it (the page shows a run of the same
@@ -377,7 +431,7 @@ def pipeline_events(scene, until=None):
         elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
               and r.get('name')):
             # One line per rebuilt item (recorded once per run), with its photo; kept and dropped ones only count below.
-            media = small_media(scene, r['name'], until)
+            media = small_media(scene, r['name'], until, closeups.get(r['name']))
             item = small_items.get(r['name']) or small_name(r['name'])
             add(r, 'small_objects', f'{item}换成了按照片重建的模型', once='small:' + r['name'],
                 img=next((m['src'] for m in media if m['role'] == 'photo'), None), media=media,
@@ -709,22 +763,43 @@ def seen(records):
     return list(dict.fromkeys(img for r in records for img in r.get('imgs') or []))
 
 
-def rule_agent_events(records, window=180, who='建模 agent ', prefix='a'):
-    """Plain wording used until a batch is condensed: one line per few minutes of agent work, no commands."""
+# What a stretch of work is about, for the wording used until it is condensed: the objects its records name (by
+# id), then what its thoughts talk about; and what its checks were.
+OBJECT_KEY = re.compile(r'(?<![A-Za-z0-9_])(Wall\d+_(?:Door|Window)_\d+|ChairCluster\d+|[A-Z][a-z]+\d+)(?![A-Za-z0-9])')
+TOPICS = [('floor', '地板'), ('ceiling', '天花板'), ('curtain', '窗帘'), ('window', '窗户'), ('door', '门'),
+          ('light|lamp|luminaire', '灯光'), ('shel(?:f|ves)|bookcase', '书架'), ('cabinet', '柜子'), ('chair', '椅子'),
+          ('table|desk', '桌子'), ('texture|material', '材质'), ('colou?r', '颜色'), ('wall', '墙面')]
+CHECKS = {'critic': '对照照片自查', 'check_collisions': '检查物体穿插', 'render': '生成画面查看效果', 'fetch_material': '找材质'}
+
+
+def rule_say(group, repair=False, name=None):
+    """A plain line for a stretch of work: what it worked on, as far as its records say, and how it checked."""
+    things = list(dict.fromkeys(name(key) for r in group if r['kind'] in ('think', 'tool')
+                                for key in OBJECT_KEY.findall(r['text']) if name and name(key) != key))
+    thoughts = ' '.join(r['text'] for r in group if r['kind'] == 'think')
+    found = sorted((match.start(), word) for pattern, word in TOPICS
+                   for match in [re.search(rf'\b(?:{pattern})', thoughts, re.I)] if match)
+    things += [word for _, word in found if not any(word in thing for thing in things)]
+    what = '、'.join(things[:3])
+    checks = list(dict.fromkeys(CHECKS[r['text'].split(' result:')[0]] for r in group
+                                if r['kind'] == 'result' and r['text'].split(' result:')[0] in CHECKS))
+    if any(r['kind'] == 'images' for r in group) and CHECKS['render'] not in checks:
+        checks.append('查看画面')
+    say = (f'按检查意见修改{what or "房间"}' if repair else f'继续搭建房间，处理{what}' if what else '继续搭建房间')
+    return say + ('，' + '、'.join(checks[:2]) if checks else '')
+
+
+def rule_agent_events(records, window=180, prefix='a', name=None):
+    """Plain wording used until a batch is condensed: one line per few minutes of work, saying what it worked on
+    (`name` turns object ids into plain names); `prefix` m: the repair agent's."""
     events, group = [], []
 
     def flush():
         if not group:
             return
-        tools = sum(1 for r in group if r['kind'] == 'tool')
-        images = [r for r in group if r['kind'] == 'images']
-        checks = sum(1 for r in group if r['kind'] == 'result')
-        parts = [f'执行了 {tools} 次操作'] if tools else []
-        parts += [f'看了 {len(images)} 组图片'] if images else []
-        parts += [f'拿到 {checks} 次检查结果'] if checks else []
-        say = f'{who}继续工作' + ('：' + '，'.join(parts) if parts else '')
         pictures = seen(group)
-        events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool', 'say': say,
+        events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool',
+                       'say': rule_say(group, prefix == 'm', name),
                        'img': pictures[-1] if pictures else None, 'media': [{'src': img} for img in pictures[-MEDIA:]],
                        'session': f'{prefix}{group[0]["session"]}', 'rule': True})
         group.clear()
@@ -740,7 +815,7 @@ def rule_agent_events(records, window=180, who='建模 agent ', prefix='a'):
 
 
 PROMPT = """你在给“房间重建过程回放”网页写左栏说明，读者是普通用户，不懂编程。
-下面是建模 agent 一段工作的原始记录（JSON，seq 递增，minute 是距本次重建开始的分钟数）。
+下面是{who}一段工作的原始记录（JSON，seq 递增，minute 是距本次重建开始的分钟数）。
 请把它们合并概括成 {lo}–{hi} 条中文短句，按时间顺序，每条不超过 30 个汉字，说清楚这一步在做什么、得到了什么。
 不要出现命令、文件名、路径、代码、英文术语；没有证据说已经修好的，不要写成已经修好；不要写分数（打分、几分、评分都不写），只写发现了什么问题、改了什么。
 这些都是 agent 自己的检查：写“自查”“检查”，不要写“验收”或“验收通过”（验收专指之后独立的验收轮次，结果另行显示）。
@@ -755,6 +830,8 @@ stage 取 {stages} 之一：assemble=搭建完整房间（读资料、看照片�
 本段记录：
 {records}
 """
+
+WHO = {False: '建模 agent', True: '修复 agent（独立检查没通过后，按检查指出的问题修改房间）'}
 
 REVIEW_PROMPT = """把下面这轮房间验收指出的问题，概括成一句中文（不超过 40 个汉字），给普通用户看，不要英文和术语。只输出这句话。
 {issues}"""
@@ -808,9 +885,13 @@ class Summary:
         tmp.write_text(json.dumps(self.data, ensure_ascii=False))
         tmp.replace(self.path)
 
-    @property
-    def done_to(self):
-        return self.data['batches'][-1]['to'] if self.data['batches'] else -1
+    def batches(self, repair=False):
+        """The condensed batches of the modelling agent's sessions, or of the repair agent's (numbered on their own)."""
+        return self.data.setdefault('repair', []) if repair else self.data['batches']
+
+    def done(self, repair=False):
+        batches = self.batches(repair)
+        return batches[-1]['to'] if batches else -1
 
     def align(self, scene):
         """Renumber a cache written before the sessions were numbered on (each session counted from 0 while it
@@ -837,29 +918,30 @@ class Summary:
         self.data['numbering'] = NUMBERING
         return True
 
-    def condense(self, records, run, minute0, batch=40, final=False, min_batch=15, quiet_seconds=90, now=None):
-        """Condense pending agent records. While a job runs, wait for a fuller batch or a pause."""
+    def condense(self, records, run, minute0, batch=40, final=False, min_batch=15, quiet_seconds=90, now=None, repair=False):
+        """Condense pending agent records (`repair`: the repair agent's). While a job runs, wait for a fuller batch or a pause."""
         changed = False
         while True:
-            pending = [r for r in records if r['seq'] > self.done_to]
+            pending = [r for r in records if r['seq'] > self.done(repair)]
             if not pending:
                 break
             settled = (now or time.time()) - pending[-1]['t'] > quiet_seconds
             if not final and len(pending) < min_batch and not settled:
                 break
             chunk = [r for r in pending[:batch] if r.get('session') == pending[0].get('session')]  # one session a batch
-            items = self._ask(chunk, run, minute0)
-            self.data['batches'].append({'from': chunk[0]['seq'], 'to': chunk[-1]['seq'], 'items': items})
+            items = self._ask(chunk, run, minute0, repair)
+            self.batches(repair).append({'from': chunk[0]['seq'], 'to': chunk[-1]['seq'], 'items': items})
             self.save()  # each batch as soon as it is ready: the page shows it, and a later failure keeps it
             changed = True
         return changed
 
-    def _ask(self, chunk, run, minute0):
-        previous = [i['say'] for b in self.data['batches'][-1:] for i in b['items']][-4:]
-        current = next((i['stage'] for b in reversed(self.data['batches']) for i in reversed(b['items'])), 'assemble')
+    def _ask(self, chunk, run, minute0, repair=False):
+        previous = [i['say'] for b in self.batches(repair)[-1:] for i in b['items']][-4:]
+        current = next((i['stage'] for b in reversed(self.batches(repair)) for i in reversed(b['items'])), 'assemble')
+        current = current if current in AGENT_STAGES else 'assemble'  # a repair line is in the repair's own stage
         records = [{'seq': r['seq'], 'minute': round((r['t'] - minute0) / 60, 1), 'kind': r['kind'], 'text': r['text'],
                     **({'img': [img.rsplit('/', 1)[-1] for img in r['imgs']]} if r.get('imgs') else {})} for r in chunk]
-        prompt = PROMPT.format(lo=max(1, len(chunk) // 12), hi=max(2, len(chunk) // 5), stages='/'.join(AGENT_STAGES),
+        prompt = PROMPT.format(who=WHO[repair], lo=max(1, len(chunk) // 12), hi=max(2, len(chunk) // 5), stages='/'.join(AGENT_STAGES),
                                current=current, previous='\n'.join(previous) or '（无）',
                                records=json.dumps(records, ensure_ascii=False))
         by_seq = {r['seq']: r for r in chunk}
@@ -872,7 +954,7 @@ class Summary:
             order = max(order, AGENT_STAGES.index(stage))  # never step back
             seq = item.get('image_seq')
             image = by_seq.get(seq) if isinstance(seq, int) and lo <= seq <= hi else None  # a picture of this line's own records
-            items.append({'from': lo, 'to': hi, 't': by_seq[hi]['t'], 'stage': AGENT_STAGES[order],
+            items.append({'from': lo, 'to': hi, 't': by_seq[hi]['t'], 'stage': 'review2' if repair else AGENT_STAGES[order],
                           'kind': item.get('kind') if item.get('kind') in ('think', 'tool', 'result', 'error') else 'tool',
                           'say': str(item.get('say', '')).strip()[:60], 'img': image.get('img') if image else None})
         if not items:
@@ -906,26 +988,33 @@ def timeline(job_dir, status='completed', until=None):
     records = agent_records(scene, until)
     summary = Summary(job_dir)
     summary.align(scene)  # an older cache, renumbered here and saved by the condensing worker
-    covered = -1
-    by_seq = {r['seq']: r for r in records}
-    for batch in summary.data['batches']:
-        for item in batch['items']:
-            # A line shows only pictures the agent looked at within its own records: the one chosen for it, else the
-            # first of them (a cache may name one outside, or none).
-            pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
-            img = item.get('img') if item.get('img') in pictures else pictures[0] if pictures else None
-            events.append({'id': f'a{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
-                           'say': item['say'], 'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
-                           **({'session': f'a{by_seq[item["from"]]["session"]}'} if item['from'] in by_seq else {})})
-        covered = batch['to']
+    name = object_names(scene)
+
+    def condensed(records, repair=False):
+        """The condensed lines of these records as events; returns the last record they cover."""
+        prefix, by_seq, covered = 'm' if repair else 'a', {r['seq']: r for r in records}, -1
+        for batch in summary.batches(repair):
+            for item in batch['items']:
+                # A line shows only pictures the agent looked at within its own records: the one chosen for it, else
+                # the first of them (a cache may name one outside, or none).
+                pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
+                img = item.get('img') if item.get('img') in pictures else pictures[0] if pictures else None
+                events.append({'id': f'{prefix}{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
+                               'say': item['say'], 'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
+                               **({'session': f'{prefix}{by_seq[item["from"]]["session"]}'} if item['from'] in by_seq else {})})
+            covered = batch['to']
+        return covered
+
+    covered = condensed(records)
     for k in dict.fromkeys(r['session'] for r in records):  # each session worded on its own
         own = [r for r in records if r['session'] == k]
-        for event in rule_agent_events([r for r in own if r['seq'] > covered]):
+        for event in rule_agent_events([r for r in own if r['seq'] > covered], name=name):
             event['stage'] = agent_stage_fallback(own, event['t'])
             events.append(event)
     repair = agent_records(scene, until, repair=True)
+    covered = condensed(repair, repair=True)
     for k in dict.fromkeys(r['session'] for r in repair):
-        for event in rule_agent_events([r for r in repair if r['session'] == k], who='修复 agent ', prefix='m'):
+        for event in rule_agent_events([r for r in repair if r['session'] == k and r['seq'] > covered], prefix='m', name=name):
             event['stage'] = 'review2'
             events.append(event)
     for event in events:

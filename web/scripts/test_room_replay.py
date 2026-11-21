@@ -434,9 +434,9 @@ class LiveRecords(unittest.TestCase):
         write(self.scene / replay.TRACES / 'authoring_trace.repair.jsonl', ''.join(json.dumps(r) + '\n' for r in repair))
         self.assertFalse([r for r in replay.agent_records(self.scene) if r['key'].startswith('repair:')])
         data = replay.timeline(self.scene.parent.parent.parent, 'running', T0 + 1300)
-        repair_says = [(e['stage'], e['say']) for e in data['events'] if '修复' in e['say']]
+        repair_says = [(e['stage'], e['say']) for e in data['events'] if e['stage'] == 'review2']
         self.assertIn(('review2', '按检查出的问题开始修复房间'), repair_says)
-        self.assertIn(('review2', '修复 agent 继续工作：执行了 1 次操作'), repair_says)
+        self.assertIn(('review2', '按检查意见修改房间'), repair_says)
 
     def test_the_openable_parts_room_is_the_last_model(self):
         run = self.scene.parent.parent
@@ -612,6 +612,22 @@ class PhasedRun(unittest.TestCase):
         replay.slim(self.run, self.root / 'slim')
         self.assertEqual((self.root / 'slim/small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'photo')
 
+    def test_an_item_framed_with_its_whole_shelf_shows_its_own_part(self):
+        camera = {'frame_index': 7, 'position': [0, 0, 0], 'forward': [0, 1, 0], 'up': [0, 0, 1],
+                  'intrinsics': {'fx': 1000, 'fy': 1000, 'cx': 960, 'cy': 720}, 'resolution': [1920, 1440]}
+        write(self.scene / 'realism_authoring/room_preview/room_layout.json', json.dumps({'cameras': [camera]}))
+        box = {'bbox_min': [-0.05, 1.95, -0.05], 'bbox_max': [0.05, 2.05, 0.05]}  # about 50 px across, mid-frame
+        items = [{'id': 'TissueBox0', **box, 'views': [{'frame': 7, 'rect': [0, 0, 1920, 1440], 'turns': 0}]},
+                 {'id': 'WaterBottle1', **box, 'views': [{'frame': 7, 'rect': [880, 640, 1040, 800], 'turns': 0}]}]
+        write(self.run / 'small-objects/items.json', json.dumps(items))
+        # The whole frame was cropped: the item's own square (96 px at least); framed closely: none.
+        self.assertEqual(replay.small_closeups(self.scene, ['TissueBox0', 'WaterBottle1']), {'TissueBox0': [0.475, 0.4667, 0.525, 0.5333]})
+        items[0]['views'][0]['turns'] = 1  # the crop was turned a quarter to stand upright
+        write(self.run / 'small-objects/items.json', json.dumps(items))
+        write(self.run / 'small-objects/evidence/TissueBox0/view0.jpg', b'photo', T0 + 2050)
+        item = next(e for e in replay.timeline(self.root, 'completed', T0 + 4000)['events'] if e.get('object_id') == 'TissueBox0')
+        self.assertEqual(item['media'][0]['crop'], [0.4667, 0.475, 0.5333, 0.525])
+
     def test_rebuilt_items_sharing_a_name_are_numbered(self):
         self.assertEqual(replay.small_names({'WaterBottle1', 'WaterBottle0', 'ShelfC0R0B', 'Thing7', 'Thing8'}, lambda key: key),
                          {'WaterBottle0': '瓶子1', 'WaterBottle1': '瓶子2', 'ShelfC0R0B': '架上物品',
@@ -730,7 +746,34 @@ class Condensing(unittest.TestCase):
                          [('a0', None, 'a0'), ('a3', 'scene_init/obj_stage/traces/img/author_0004_a.jpg', 'a0')])
         says = [e['say'] for e in timeline['events']]
         self.assertIn('自评 6.5 分', says)
-        self.assertFalse(any(s.startswith('建模 agent 继续工作') for s in says))
+        self.assertFalse([e for e in timeline['events'] if e.get('rule')])
+
+    def test_the_repair_agent_is_condensed_like_the_modelling_agent(self):
+        repair = [{'seq': 1, 't': T0 + 1000, 'kind': 'session_start'},
+                  {'seq': 2, 't': T0 + 1010, 'kind': 'think', 'text': 'The floor is too cold; warm it up.'},
+                  {'seq': 3, 't': T0 + 1020, 'kind': 'images', 'saved': ['img/repair_0003_floor.jpg'], 'n_images': 1}]
+        write(self.scene / replay.TRACES / 'authoring_trace.repair.jsonl', ''.join(json.dumps(r) + '\n' for r in repair))
+        write(self.scene / replay.TRACES / 'img/repair_0003_floor.jpg')
+        records = replay.agent_records(self.scene, repair=True)
+        summary = replay.Summary(self.job)
+        answer = json.dumps([{'from': 0, 'to': 2, 'stage': 'check', 'kind': 'tool', 'say': '把地板调暖', 'image_seq': 2}])
+        self.assertTrue(summary.condense(records, self.fake(answer), T0, final=True, repair=True))
+        self.assertIn('修复 agent', self.calls[0])
+        self.assertEqual(summary.data['batches'], [])  # the modelling agent's numbering is left alone
+        lines = [e for e in replay.timeline(self.job, 'completed', T0 + 1300)['events'] if e['id'].startswith('m')]
+        self.assertEqual([(e['say'], e['stage'], e['img'], e['session']) for e in lines],
+                         [('把地板调暖', 'review2', f'{replay.TRACES}/img/repair_0003_floor.jpg', 'm0')])
+
+    def test_lines_not_yet_condensed_say_what_was_worked_on(self):
+        name = replay.object_names(self.scene)
+        def say(texts, repair=False):
+            return replay.rule_say([{'kind': kind, 'text': text} for kind, text in texts], repair, name)
+        self.assertEqual(say([('tool', 'Bash: sed -n 1,80p Objects/Procedural/Storage0/object.py'),
+                              ('think', 'The floor texture repeats; the curtain is too stiff.'),
+                              ('result', 'critic result: {}'), ('images', 'looked at 2 images')], repair=True),
+                         '按检查意见修改柜子1、地板、材质，对照照片自查、查看画面')
+        self.assertEqual(say([('tool', 'Bash: python Room.py'), ('result', 'Bash result: Traceback')]), '继续搭建房间')
+        self.assertEqual(say([('think', 'Move Storage1 a little to the left.')]), '继续搭建房间，处理柜子2')
 
     def test_a_live_job_waits_for_a_fuller_batch(self):
         summary = replay.Summary(self.job)
@@ -739,7 +782,7 @@ class Condensing(unittest.TestCase):
         self.assertEqual(self.calls, [])
         timeline = replay.timeline(self.job, 'running')
         self.assertTrue(timeline['live'])
-        self.assertTrue(any(e['say'].startswith('建模 agent 继续工作') for e in timeline['events']))
+        self.assertTrue([e for e in timeline['events'] if e.get('rule')])
 
     def test_a_failed_call_leaves_no_cache(self):
         summary = replay.Summary(self.job)
@@ -803,7 +846,7 @@ class Sessions(unittest.TestCase):
         next_session(self.scene, T0 + 2000)
         events = replay.timeline(self.job, 'completed', T0 + 2100)['events']
         self.assertEqual([(e['id'], e['say']) for e in events if e['id'].startswith('a')],
-                         [('a0', '第 1 段'), ('a6', '建模 agent 继续工作：执行了 1 次操作')])
+                         [('a0', '第 1 段'), ('a6', '继续搭建房间')])
         self.assertEqual(len({e['id'] for e in events}), len(events))
         self.assertNotIn('revise', [s['id'] for s in replay.timeline(self.job)['stages']])  # not published yet
         # The next batch is the new session's, and one batch never runs into the next session.
@@ -862,9 +905,9 @@ class Sessions(unittest.TestCase):
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
-            (1020, 'review2', '修复 agent 继续工作：执行了 1 次操作', None), (1100, 'review2', '按检查出的问题修好了房间', None),
+            (1020, 'review2', '按检查意见修改房间', None), (1100, 'review2', '按检查出的问题修好了房间', None),
             (2020, 'revise', '第 2 段', None), (2100, 'revise', '检查房间：通过', 'round1'),
-            (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '修复 agent 继续工作：执行了 1 次操作', None),
+            (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '按检查意见修改房间', None),
             (2150, 'revise', '按检查出的问题修好了房间', None), (2200, 'revise', '导出最终房间', 'final'),
             (2300, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', None)])
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
@@ -925,7 +968,7 @@ class Sessions(unittest.TestCase):
         next_session(self.scene, T0 + 2000)
         events = replay.timeline(self.job, 'completed')['events']
         self.assertEqual([(e['id'], e['say']) for e in events if e['id'].startswith('a')],
-                         [('a0', '第一段'), ('a6', '建模 agent 继续工作：执行了 1 次操作')])
+                         [('a0', '第一段'), ('a6', '继续搭建房间')])
         summary = replay.Summary(self.job)
         summary.align(self.scene)
         summary.condense(replay.agent_records(self.scene), self.run_('check'), T0, final=True)

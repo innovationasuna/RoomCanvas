@@ -53,3 +53,10 @@ test('a stretch of work shows only pictures its own lines name, latest first, on
   assert.deepEqual(pictures(events, upTo(card, 1)).map((p) => p.src), ['p1.jpg', 'p2.jpg']);
   assert.deepEqual(pictures(events, [1]), []);
 });
+
+test("an object's picture keeps the part that shows it, and only for that picture", () => {
+  const shelf = {...made('ShelfC0R0B', '架上物品1', 1, 'view0.jpg'), work: 'small',
+                 media: [{src: 'view0.jpg', role: 'photo', crop: [0.4, 0.4, 0.5, 0.5]}, {src: 'pair_after.jpg', role: 'comparison'}]};
+  assert.deepEqual(objects([shelf], [0]).map((o) => o.crop), [[0.4, 0.4, 0.5, 0.5]]);
+  assert.deepEqual(objects([{...shelf, media: [{src: 'other.jpg', crop: [0, 0, 1, 1]}]}], [0]).map((o) => o.crop), [null]);
+});

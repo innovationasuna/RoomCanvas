@@ -67,6 +67,10 @@
   .grid {display: grid; grid-template-columns: repeat(3, minmax(0, 96px)); gap: 6px; margin: 8px 0 2px;}
   .cell {display: grid; gap: 2px; min-width: 0; cursor: zoom-in;}
   .cell img {display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
+  .cut {display: block; position: relative; overflow: hidden; width: 100%; height: 100%;}
+  .cell .cut {aspect-ratio: 1; height: auto; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
+  .cut img, .cell .cut img {position: absolute; max-width: none; aspect-ratio: auto; border: 0; border-radius: 0; object-fit: fill;}
+  .cell.now .cut {border-color: var(--rc-green);}
   .cell .nm {font-size: 11px; color: var(--rc-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
   .cell.now img {border-color: var(--rc-green);}
   .cell.now .nm {color: var(--rc-green);}

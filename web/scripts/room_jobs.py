@@ -107,8 +107,11 @@ class Jobs:
                     summary = room_replay.Summary(folder)
                     if summary.align(scene):  # a cache written before the sessions were numbered on
                         summary.save()
+                    final = record['status'] not in ('running', 'preparing')
                     start = min([r['t'] for r in agent] or [time.time()])
-                    summary.condense(agent, run, start, final=record['status'] not in ('running', 'preparing'))
+                    summary.condense(agent, run, start, final=final)
+                    repair = room_replay.agent_records(scene, until, repair=True)  # the repair agent's, condensed alike
+                    summary.condense(repair, run, min([r['t'] for r in repair] or [start]), final=final, repair=True)
                     for event in room_replay.review_events(scene, until):
                         if event.get('issues'):
                             summary.review(event['id'], event['issues'], run)

@@ -34,15 +34,20 @@ export function cards(events) {
 // The members of a card that had happened by event index idx.
 export const upTo = (card, idx) => card.members.filter((k) => k <= idx);
 
-// One entry per object, in the order they first came: its latest event (k) and picture.
+// One entry per object, in the order they first came: its latest event (k) and picture (with the part of it
+// showing the object, crop, when the picture shows much more).
 export function objects(events, members) {
   const by = new Map();
   for (const k of members) {
-    const e = events[k];
-    by.set(e.object_id, {id: e.object_id, name: e.object_name || '', k, img: e.img || by.get(e.object_id)?.img || null});
+    const e = events[k], prev = by.get(e.object_id);
+    by.set(e.object_id, {id: e.object_id, name: e.object_name || '', k, img: e.img || prev?.img || null,
+      crop: e.img ? cropOf(e) : prev?.crop || null});
   }
   return [...by.values()];
 }
+
+// The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
+export const cropOf = (e) => (e.media || []).find((m) => m.src === e.img && m.crop)?.crop || null;
 
 // Lines in order, the same sentence said again in a row once: {k: its latest event, n: how many times}.
 export function lines(events, members) {
