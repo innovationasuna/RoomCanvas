@@ -21,6 +21,8 @@ Finished rooms and replays are kept under runs/room-cache/ and read from there (
 missing ones download in the background. Without the server the cached ones still open.
 The sample rooms' models (samples/*/Room.glb) are release assets, not files in git: the missing ones are fetched
 in the background at start-up (scripts/fetch_samples.py) while the page already works.
+Missing samples linked to a scan are also fetched from the room service when opened, even with --no-download.
+Only the requested model is fetched, verified against samples/models.json, and kept beside its metadata.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
@@ -114,6 +116,65 @@ class Handler(SimpleHTTPRequestHandler):
     room_backend = 'http://127.0.0.1:7866'
     deletions = RoomDeletions(ROOT / '.roomcanvas/deleted-rooms.json')
     cache = ROOT / 'runs/room-cache'
+    sample_locks = {}
+    sample_locks_guard = threading.Lock()
+
+    def missing_sample(self, path):
+        """Only manifest-listed models with a known scan may use the room service as a source."""
+        if not path.startswith('/samples/') or not path.endswith('/Room.glb'):
+            return None
+        _, models = fetch_samples.load(ROOT)
+        entry = next((entry for entry in models if path == '/' + entry['path']), None)
+        if entry is None or (ROOT / entry['path']).is_file():
+            return None
+        rooms = json.loads((ROOT / 'web/rooms.json').read_text())['rooms']
+        for room in rooms:
+            if room.get('dir') == '../' + str(Path(entry['path']).parent) and re.fullmatch(r'[0-9a-f]{32}', room.get('scan', '')):
+                return entry, room['scan']
+        return None
+
+    def sample_get(self, entry, scan):
+        """Fetch one pinned model on GET, never on HEAD; publish only a complete, matching file."""
+        target = ROOT / entry['path']
+        with self.sample_locks_guard:
+            lock = self.sample_locks.setdefault(target, threading.Lock())
+        with lock:
+            if not target.is_file():
+                part = None
+                try:
+                    self.log_message('房间模型：按需下载 %s（%.1f MB）', entry['path'], entry['bytes'] / 1e6)
+                    source = f'{self.room_backend}/room-reconstruction/assets/{scan}/Room.glb'
+                    with urllib.request.urlopen(source, timeout=120) as response:
+                        size = response.headers.get('Content-Length')
+                        if size is not None and int(size) != entry['bytes']:
+                            raise ValueError('服务器模型版本与本地房间清单不匹配，请更新房间资源后重试')
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.Room-', suffix='.part', delete=False) as output:
+                            part = Path(output.name)
+                            received, reported = 0, 0
+                            while chunk := response.read(1024 * 1024):
+                                received += len(chunk)
+                                if received > entry['bytes']:
+                                    raise ValueError('服务器模型大小与本地房间清单不匹配')
+                                output.write(chunk)
+                                if received - reported >= 16 * 1024 * 1024:
+                                    self.log_message('房间模型：%s %.1f / %.1f MB', entry['path'], received / 1e6, entry['bytes'] / 1e6)
+                                    reported = received
+                    if fetch_samples.problem(part, entry):
+                        raise ValueError('房间模型不完整或版本不匹配，未保存；请检查服务连接及房间资源后重试')
+                    # A concurrent startup fetch may already have supplied the model.
+                    if not target.exists():
+                        part.replace(target)
+                    self.log_message('房间模型：已缓存 %s', entry['path'])
+                except (OSError, http.client.HTTPException) as error:
+                    self.log_message('房间模型：下载失败 %s (%s)', entry['path'], error)
+                    return self.room_json(503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
+                except ValueError as error:
+                    return self.room_json(502, {'error': str(error)})
+                finally:
+                    if part:
+                        part.unlink(missing_ok=True)
+        return self.send_kept(target)
 
     def room_json(self, status, data, stale=False):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -132,6 +193,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        sample = self.missing_sample(path)
+        if sample:
+            return self.sample_get(*sample)
         if path in {'/web/rooms.json', '/web/rooms/trash'}:
             data = json.loads((ROOT / 'web/rooms.json').read_text())
             status, body, _, stale = self.room_answer('/room-reconstruction/catalog', 2)
@@ -186,6 +250,14 @@ class Handler(SimpleHTTPRequestHandler):
         return self.room_json(200, {'deleted': match[1]})
 
     def do_HEAD(self):
+        sample = self.missing_sample(urlsplit(self.path).path)
+        if sample:
+            # The editor probes a model before GET. Metadata must not start a large transfer.
+            self.send_response(200)
+            self.send_header('Content-Type', 'model/gltf-binary')
+            self.send_header('Content-Length', str(sample[0]['bytes']))
+            self.end_headers()
+            return
         target = room_forwarded(self.path)
         kept = target and room_cache.is_file(target) and room_cache.local(self.cache, target)
         if kept and kept.is_file():
@@ -397,8 +469,10 @@ class Tunnel:
 
 
 def fetch_sample_models(download=True, log=print):
-    """Fetch the sample rooms' models that are not here (scripts/fetch_samples.py), or only name them. The
-    server runs either way: a model that cannot be fetched is reported once, with how to get it."""
+    """Optionally fetch missing samples at startup; --no-download leaves them for explicit requests."""
+    if not download:
+        log('后台模型下载已关闭；打开有关联扫描任务的房间时，将按需从房间服务获取缺失模型。')
+        return []
     try:
         return fetch_samples.fetch(check=not download, missing_only=True, log=log)
     except (OSError, ValueError, KeyError) as error:
@@ -426,7 +500,7 @@ def main():
     parser.add_argument('--server-dir', metavar='DIR', help='with --ssh: the RoomCanvas checkout on HOST; start its services there')
     parser.add_argument('--cache', type=Path, default=Handler.cache, help='local copies of finished rooms and replays (default: runs/room-cache)')
     parser.add_argument('--no-download', action='store_true',
-                        help='do not download missing sample models, nor (with --ssh) missing rooms and replays')
+                        help='disable background sample/room/replay downloads; opening a scan-linked sample may still fetch its missing model')
     args = parser.parse_args()
     if args.server_dir and not args.ssh:
         parser.error('--server-dir needs --ssh')
