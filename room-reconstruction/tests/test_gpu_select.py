@@ -29,3 +29,12 @@ def test_a_shared_machine_accepts_light_use_by_others():
     assert select_gpu("1", [BUSY, LIGHT], shared_mib=4096) is LIGHT
     with pytest.raises(RuntimeError, match="busy"):
         select_gpu("0", [BUSY, LIGHT], shared_mib=4096)
+
+
+def test_sharing_needs_room_for_the_run_on_the_card():
+    roomy = Gpu(1, "GPU-b", 6644, (19915,), 24564)
+    crowded = Gpu(1, "GPU-b", 7900, (19915,), 16000)
+    assert select_gpu("1", [roomy], shared_mib=8192, need_mib=10448) is roomy
+    with pytest.raises(RuntimeError, match="needed free"):
+        select_gpu("1", [crowded], shared_mib=8192, need_mib=10448)
+    assert roomy.usable(8192) and not crowded.usable(8192, 10448)  # without a need, only the others' use counts

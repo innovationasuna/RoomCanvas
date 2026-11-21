@@ -146,7 +146,7 @@ def launch(tmp_path, *args):
 import sys
 if "--query-gpu=uuid" in sys.argv:
     print("{CARD}")
-elif "--query-gpu=index,uuid,memory.used" in sys.argv:
+elif any(a.startswith("--query-gpu=index,uuid,memory.used") for a in sys.argv):
     print("0,{CARD},12")
 """)
     executable(runtime / "litereality-env/bin/python", """

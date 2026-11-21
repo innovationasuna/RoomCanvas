@@ -23,7 +23,7 @@ def test_room_launcher_owns_gpu_during_the_pipeline_and_its_passes(tmp_path):
 import sys
 if "--query-gpu=uuid" in sys.argv:
     print("{CARD}")
-elif "--query-gpu=index,uuid,memory.used" in sys.argv:
+elif any(a.startswith("--query-gpu=index,uuid,memory.used") for a in sys.argv):
     print("0,{CARD},12")
 """)
     stage = f"""
@@ -79,7 +79,7 @@ def test_failed_pipeline_never_articulates_or_publishes_a_previous_preview(tmp_p
 import sys
 if "--query-gpu=uuid" in sys.argv:
     print("{CARD}")
-elif "--query-gpu=index,uuid,memory.used" in sys.argv:
+elif any(a.startswith("--query-gpu=index,uuid,memory.used") for a in sys.argv):
     print("0,{CARD},12")
 """)
     called = tmp_path / "articulation-called"
@@ -136,7 +136,7 @@ def test_a_room_waiting_for_the_gpu_says_so_until_it_starts(tmp_path):
     runtime = tmp_path / "runtime"
     executable(runtime / "bin/nvidia-smi", f"""
 import sys
-if "--query-gpu=index,uuid,memory.used" in sys.argv:
+if any(a.startswith("--query-gpu=index,uuid,memory.used") for a in sys.argv):
     print("0,{CARD},12")
 """)
     stage = """

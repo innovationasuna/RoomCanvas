@@ -864,3 +864,17 @@ def test_loose_pieces_go_by_contact_and_a_shelf_row_of_things_stays(tmp_path):
     trimesh.Scene([trimesh.util.concatenate(parts)]).export(source)
     assert rebuild.drop_fragments(source, tmp_path / "small.glb", size=0.1)["pieces_after"] == 4
     assert rebuild.drop_fragments(source, tmp_path / "clean.glb")["pieces_after"] == 3
+
+
+def test_trellis_on_a_shared_card_waits_for_room_and_gives_up_without_it(tmp_path, monkeypatch):
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    log, shared = tmp_path / "log", {"ROOMCANVAS_GPU_SHARED_MIB": "8192", "CUDA_VISIBLE_DEVICES": "GPU-b"}
+    assert rebuild.room_for_trellis(log, env={"CUDA_VISIBLE_DEVICES": "GPU-b"})  # a card of its own: at once
+    frees, now = iter([9000, 20000]), [0.0]
+    monkeypatch.setattr(rebuild, "free_mib", lambda device: next(frees))
+    assert rebuild.room_for_trellis(log, env=shared, sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert "waiting for 18848 MiB" in log.read_text()
+    monkeypatch.setattr(rebuild, "free_mib", lambda device: 9000)
+    assert not rebuild.room_for_trellis(log, env=shared, sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert "TRELLIS skipped" in log.read_text()
