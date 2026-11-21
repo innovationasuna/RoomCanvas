@@ -476,6 +476,8 @@ def pipeline_events(scene, until=None):
         elif kind == 'articulate_done' and inside(r):
             if status != 'ok':
                 add(r, phase(k, 'parts'), '可开合部件没有装成，房间里不加新的部件', 'error')
+            elif r.get('failed'):
+                add(r, phase(k, 'parts'), f'有 {r["failed"]} 件物品的可开合部件没处理成，先不加', 'error')
         elif kind == 'articulate_start' and not later[k]:
             add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
         elif kind == 'articulate_done' and r.get('status') != 'ok' and not later[k]:
@@ -546,7 +548,8 @@ def small_summary(row):
         value = (row or {}).get(key)
         return len(value) if isinstance(value, list) else value if isinstance(value, int) else 0
     parts = [text.format(n(key)) for key, text in (('rebuilt', '按照片重做 {} 件'), ('dropped', '去掉 {} 件'),
-                                                   ('kept', '{} 件保持原样')) if n(key)]
+                                                   ('kept', '{} 件保持原样'), ('undone', '{} 件没处理成，仍是原来的样子'))
+             if n(key)]
     return '小物品处理好了' + ('：' + '，'.join(parts) if parts else '')
 
 

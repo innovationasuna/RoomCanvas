@@ -514,6 +514,13 @@ class Pass:
                                                       or item.get("glb_error")) + "); rerun to retry"
         return "rebuilt with TRELLIS"
 
+    def undone(self) -> list[str]:
+        """Items this pass could not do: never judged, or a rebuild that made no model. They keep the
+        author's stand-in, as kept ones do, but were not chosen to stay."""
+        return [item["id"] for item in self.items
+                if item.get("decision", {}).get("decision") is None
+                or (item["decision"]["decision"] == "trellis" and not item.get("glb"))]
+
     def summarize(self):
         rows, cost, calls = [], 0.0, 0
         for item in self.items:
@@ -577,8 +584,11 @@ class Pass:
         self.apply()
         self.summarize()
         drop, replace = self.plan(self.items)
-        self.record("small_objects_done", rebuilt=len(replace), dropped=len(drop),
-                    kept=len(self.items) - len(replace) - len(drop))
+        left = self.undone()
+        # Read by the author stage (passes.py), which reports the pass as partial when something is left.
+        cache.atomic_json(self.out / "summary.json", {"undone": left})
+        self.record("small_objects_done", rebuilt=len(replace), dropped=len(drop), undone=len(left),
+                    kept=len(self.items) - len(replace) - len(drop) - len(left))
 
 
 def main(argv=None):
