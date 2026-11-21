@@ -454,7 +454,8 @@ class LiveRecords(unittest.TestCase):
         self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('articulate'), 0)
 
 
-ELEVEN = ['scan', 'layout', 'photos', 'plan', 'assemble', 'adjust', 'check', 'review', 'review2', 'review3', 'articulate']
+# The agent's adjusting and self-checks count as building the room; a second check, as the repair.
+EIGHT = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review', 'review2', 'articulate']
 
 
 def phased(run):
@@ -515,7 +516,7 @@ class PhasedRun(unittest.TestCase):
         data = replay.timeline(job, 'completed', json.loads((job / 'job.json').read_text())['until'])
         events = data['events']
         self.assertFalse([e for e in events if e['say'].startswith('重新开始')])
-        self.assertEqual([s['id'] for s in data['stages']], ELEVEN[:-1] + ['small_objects', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT[:-1] + ['small_objects', 'articulate'])
         self.assertEqual([e['stage'] for e in events if e['t'] > T0 + 1140], ['small_objects'] * 4 + ['articulate'] * 2)
         self.assertEqual([e['say'] for e in events if e['stage'] == 'small_objects'],
                          ['逐个看房间里的小物品，挑出需要按照片重做的', '纸巾盒换成了按照片重建的模型', '瓶子换成了按照片重建的模型',
@@ -538,7 +539,7 @@ class PhasedRun(unittest.TestCase):
         job = self.root / 'plain'
         make_run(job / 'run')
         data = replay.timeline(job, 'completed', T0 + 1300)
-        self.assertEqual([s['id'] for s in data['stages']], ELEVEN)
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT)
         self.assertEqual(list(data['models']), ['seed', 'round0', 'round1', 'final'])
         self.assertEqual(replay.timeline(self.root / 'none')['stages'], replay.stages_of([]))
 
@@ -792,6 +793,15 @@ class Sessions(unittest.TestCase):
         os.utime(self.scene / picture, (T0 + 2010, T0 + 2010))  # the second session wrote its own over it
         self.assertEqual([r['img'] for r in replay.agent_records(self.scene) if r['kind'] == 'images'], [None, picture])
 
+    def test_finer_stages_the_records_name_show_as_one(self):
+        # an older cache names the agent's own adjusting and self-checking; they read as building the room
+        self.old_cache([{'from': 0, 'to': 4, 'items': [{'from': 0, 'to': 1, 't': T0 + 600, 'stage': 'adjust', 'kind': 'tool', 'say': '调整'},
+                                                       {'from': 2, 'to': 4, 't': T0 + 700, 'stage': 'check', 'kind': 'tool', 'say': '自查'}]}])
+        data = replay.timeline(self.job)
+        self.assertEqual({e['stage'] for e in data['events'] if e['say'] in ('调整', '自查')}, {'assemble'})
+        self.assertNotIn('adjust', [s['id'] for s in data['stages']])
+        self.assertNotIn('check', [s['id'] for s in data['stages']])
+
     def test_a_session_on_the_published_room_is_its_own_stage(self):
         self.append([
             {'t': T0 + 985, 'kind': 'review_done', 'reviewed': True, 'run': 'attempt-01', 'attempt': 'x', 'round': 0,
@@ -815,7 +825,7 @@ class Sessions(unittest.TestCase):
         summary.condense(replay.agent_records(self.scene), self.run_('assemble'), T0, final=True)
         self.assertFalse([p for p in self.calls if 'revise' in p or 'small_objects' in p])  # not offered to the model
         data = replay.timeline(self.job, 'completed', T0 + 2400)
-        self.assertEqual([s['id'] for s in data['stages']], ELEVEN[:-1] + ['revise', 'small_objects', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT[:-1] + ['revise', 'small_objects', 'articulate'])
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
@@ -827,7 +837,7 @@ class Sessions(unittest.TestCase):
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
         self.assertEqual(len({e['id'] for e in data['events']}), len(data['events']))
         # The first session, before the room was published, keeps its stage.
-        self.assertEqual([e['stage'] for e in data['events'] if e['id'] == 'a0'], ['check'])
+        self.assertEqual([e['stage'] for e in data['events'] if e['id'] == 'a0'], ['assemble'])  # a self-check: building
 
 
     def test_passes_before_a_revision_are_replaced(self):

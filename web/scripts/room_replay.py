@@ -28,12 +28,9 @@ STAGES = [
     {'id': 'layout', 'name': '整理房间布局', 'desc': '确定墙面、门窗和物品的位置与大小。'},
     {'id': 'photos', 'name': '整理物品图片', 'desc': '从照片中裁出物品，生成便于看清外形的图片。'},
     {'id': 'plan', 'name': '制作物品模型', 'desc': '选择合适的做法，制作物品并检查摆放和开合。'},
-    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸并补充陈设细节。'},
-    {'id': 'adjust', 'name': '核查并调整', 'desc': '查找摆放和外观差异，核对位置并调整细节。'},
-    {'id': 'check', 'name': '自查并再修改', 'desc': '对照照片自查并继续修改，带着剩余问题送验。'},
+    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸、补充陈设，再对照照片自查修改。'},
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
-    {'id': 'review2', 'name': '修复问题', 'desc': '没通过检查时，按检查出的问题修一次，修好的房间就是结果。'},
-    {'id': 'review3', 'name': '再次检查', 'desc': '以前的流程在修复后会再检查一次。'},
+    {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，修改后的房间就是结果。'},
     # Only listed for a run whose room was revised after it was published, or that went through the
     # small-object pass (see stages_of).
     {'id': 'revise', 'name': '按意见修改', 'desc': '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'},
@@ -41,6 +38,9 @@ STAGES = [
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
+# Finer stages the records still name, shown as one: the modelling agent's own adjusting and self-checking are
+# part of building the room; an older flow's check after the repair belongs to the repair.
+STAGE_ALIASES = {'adjust': 'assemble', 'check': 'assemble', 'review3': 'review2'}
 AGENT_STAGES = ['assemble', 'adjust', 'check']
 SUMMARY_VERSION = 1
 NUMBERING = 'sessions'  # summary.json 'numbering': its record numbers run on across the agent's sessions
@@ -867,6 +867,8 @@ def timeline(job_dir, status='completed', until=None):
         for event in rule_agent_events([r for r in repair if r['session'] == k], who='修复 agent ', prefix='m'):
             event['stage'] = 'review2'
             events.append(event)
+    for event in events:
+        event['stage'] = STAGE_ALIASES.get(event['stage'], event['stage'])
     # A session of the modelling agent on a room already published (follow-up requests) is its own stage, and
     # so is what follows it before the passes: the checks, the repair and the new final room.
     rows = trace_rows(scene, until)
