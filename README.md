@@ -336,8 +336,8 @@ node web/scripts/check_room.mjs --scene-dir samples/office   # 用真实模型�
 | 改动内容 | 相对正式版本：#96 的全部改动（小物品和部件移到检查之前、检查读完整房间、发布已检查的房间、按接触去碎块等），以及 `run_room.py --repair-steps/--repair-seconds`。验证目录里没有改源码 |
 | 运行方式 | 环境：`runtime/server-env.sh`（`ROOMCANVAS_GPU=1`、`ROOMCANVAS_GPU_SHARED_MIB=8192`）。<br>准备：`runs/activity-classroom-trial/prepare.sh`，从已发布的场景复制，只读部分用硬链接，旧记录移到 `traces.before-trial/`；`seed_passes.py`，用旧的小物品和部件结果作两步的起点，依赖记录按新代码重算、只差代码。<br>会话说明：`operator/README.md`，要求不改房间。<br>运行：`bash runs/activity-classroom-trial/trial.sh`，即 `--from author --through publish --revise`，会话最多 6 步/600 秒，修复最多 3 步/300 秒，`--wait-gpu`；其余 `--set` 同 `phase-resume.sh` / `after_publish2.sh`。<br>GPU 1 显存由 `gpu-watch.sh` 每分钟记一次（`logs/gpu.log`）。<br>输出：`runs/activity-classroom-trial/run/`，日志在 `logs/`，核对产物在 `checks/`。不用任何服务端口 |
 | 验证效果 | 见下方"试跑结果" |
-| 改动去向 | 代码改动都在 PR #96（`feat/room-small-objects-before-check`），未合入 `main`；本记录随该分支提交 |
-| 是否保留 | **保留**：试跑目录 `runs/activity-classroom-trial/`（不计硬链接约 14 GB）和本 worktree（113 MB）。#96 审完、合并后可清理：先删 worktree 和本地分支，再删试跑目录。没有仍在运行的验证进程 |
+| 改动去向 | 代码改动都在 PR #96，已合入 `main`（`54f6699`），服务器正式目录已部署到该提交；本记录随该分支提交 |
+| 是否保留 | **已清理**（2026-11-21，用户同意）：worktree 和服务器本地分支 `feat/room-small-objects-before-check` 已删除，试跑目录 `runs/activity-classroom-trial/` 已删除（释放约 14 GB）。下文路径仅作历史记录，已不存在。没有仍在运行的验证进程 |
 
 ### 试跑结果（2026-11-21 13:43–14:05）
 
