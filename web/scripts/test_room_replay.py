@@ -408,13 +408,14 @@ class LiveRecords(unittest.TestCase):
         says = [e['say'] for e in replay.timeline(job, 'running', T0 + 1300)['events']]
         self.assertIn('重新开始重建，接着上次做好的部分继续', says)
 
-    def test_a_model_taken_over_from_an_earlier_reconstruction_is_said_so_once(self):
+    def test_a_model_taken_over_from_an_earlier_reconstruction_reads_as_made_once(self):
         self.append([{'t': T0 + 41, 'kind': 'object_done', 'name': 'Storage1', 'method': 'provided', 'status': 'ok',
                       'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-01'},
                      {'t': T0 + 1100, 'kind': 'object_done', 'name': 'Storage1', 'method': 'trellis', 'status': 'ok',
                       'reused': True, 'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-02'}])
         shown = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('show') == ['Storage1']]
-        self.assertEqual([(e['t'], e['say']) for e in shown], [(T0 + 41, '沿用之前做好的柜子2模型')])
+        self.assertEqual([(e['t'], e['say']) for e in shown], [(T0 + 41, '做好柜子2的模型')])
+        self.assertFalse([e for e in replay.pipeline_events(self.scene, T0 + 1300) if '沿用' in e['say']])
 
     def test_the_repair_session_shows_in_its_own_stage(self):
         self.append([{'t': T0 + 990, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'run': 'attempt-01',
@@ -522,7 +523,7 @@ class PhasedRun(unittest.TestCase):
         self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(data['models']['small_objects'], replay.SMALL_OBJECTS)
-        self.assertIn('沿用之前做好的柜子2模型', [e['say'] for e in events])
+        self.assertIn('做好柜子2的模型', [e['say'] for e in events])
         self.assertEqual(data['model_evidence']['small_objects']['time'], T0 + 2510)
 
     def test_a_live_view_shows_the_pass_as_it_goes(self):

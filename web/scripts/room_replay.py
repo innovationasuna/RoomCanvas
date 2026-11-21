@@ -296,11 +296,10 @@ def pipeline_events(scene, until=None):
         elif kind == 'object_done' and status == 'ok' and r.get('name'):
             # Objects reconstructed by AI, each at the time its model was written; a resumed run
             # records reused models again with that time, so they read as made then. A model taken
-            # over from an earlier reconstruction (provided, or reused from a source) is said so, once.
-            if r.get('method') == 'provided' or (r.get('reused') and r.get('source')):
-                say, once = f'沿用之前做好的{name(r["name"])}模型', f'obj:{r["name"]}:provided'
-            else:
-                say, once = f'做好{name(r["name"])}的模型', f'obj:{r["name"]}:{round(r["t"])}'
+            # over from an earlier reconstruction (provided, or reused from a source) is a shortcut of
+            # this run, not part of what the replay shows: it reads as made, once, like any other.
+            taken = r.get('method') == 'provided' or (r.get('reused') and r.get('source'))
+            say, once = f'做好{name(r["name"])}的模型', f'obj:{r["name"]}:' + ('provided' if taken else str(round(r["t"])))
             add(r, 'plan', say, 'tool', once=once, show=[r['name']], img=_object_image(scene, r['name']))
         elif kind == 'classify':
             add(r, 'plan', f'选好做法：{r.get("procedural", 0)} 件用程序建模，{r.get("trellis", 0)} 件交给 AI 重建', 'think')
