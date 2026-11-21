@@ -68,6 +68,8 @@ SMALL_OBJECTS = 'small-objects/room_preview/Room.glb'
 # Pictures the small-object pass keeps of an item (its folder beside the room): the photo crop it judged the item
 # from, and the photo beside the rebuilt model once the room is rendered.
 SMALL_PICTURES = re.compile(r'^small-objects/evidence/[\w.-]+/(?:view0|pair_before|pair_after)\.jpg$')
+# The reference picture of the premade model an item took (see small_reference), named by the item.
+SMALL_REFERENCE = re.compile(r'^small-objects/reference/([\w.-]+)\.png$')
 PASSES = ('small_objects', 'articulated')  # room models of those passes: timed by their records only
 
 
@@ -129,6 +131,10 @@ def scene_file(scene, rel):
     if rel in (ARTICULATED, SMALL_OBJECTS):
         path = model_path(scene, rel)
         return path.resolve() if path.is_file() else None
+    reference = SMALL_REFERENCE.fullmatch(rel or '')
+    if reference:
+        path = small_reference(scene, reference[1])
+        return path.resolve() if path else None
     if SMALL_PICTURES.fullmatch(rel or '') and '..' not in rel.split('/'):
         folder = small_folder(scene).resolve()
         path = (folder / rel.split('/', 1)[1]).resolve()
@@ -221,12 +227,31 @@ def small_names(keys, name):
     return {key: word if len(same) == 1 else f'{word}{k + 1}' for word, same in words.items() for k, key in enumerate(same)}
 
 
-def small_media(scene, key, until=None, closeup=None):
-    """Pictures of an item the small-object pass rebuilt, each with the time it was written: its photo crop (with the
-    part showing the item, `closeup`, when known), and the photo beside the rebuilt model (rendered when the room is
+def small_reference(scene, key, rows=None):
+    """The reference picture of the premade model an item took: `premake` keeps it as <models>/work/<Kind>/reference.png
+    beside <models>/<Kind>.glb, the model the item's record names (its `source`); a slim copy keeps its own copy
+    beside the pass. None for an item without one."""
+    kept = small_folder(scene) / 'reference' / f'{key}.png'
+    if kept.is_file():
+        return kept
+    sources = [r.get('source') for r in (trace_rows(scene) if rows is None else rows)
+               if r.get('kind') == 'small_object_done' and r.get('name') == key and isinstance(r.get('source'), str)]
+    model = Path(sources[-1]) if sources else None
+    if not model or not model.is_absolute() or model.suffix != '.glb':
+        return None
+    path = model.parent / 'work' / model.stem / 'reference.png'
+    return path if path.is_file() else None
+
+
+def small_media(scene, key, until=None, closeup=None, rows=None, done=None):
+    """Pictures of an item the small-object pass rebuilt, each with the time it was written: the reference its
+    premade model was made from (when it was there by the time the item was `done`), its photo crop (with the part
+    showing the item, `closeup`, when known), and the photo beside the rebuilt model (rendered when the room is
     applied, so shown only from then)."""
     folder = small_folder(scene) / 'evidence' / key
-    media = []
+    reference = small_reference(scene, key, rows)
+    t = reference and _mtime(reference)
+    media = [{'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': t}] if t and (not done or t <= done) else []
     for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
         t = _mtime(folder / name)
         if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work
@@ -431,10 +456,10 @@ def pipeline_events(scene, until=None):
         elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
               and r.get('name')):
             # One line per rebuilt item (recorded once per run), with its photo; kept and dropped ones only count below.
-            media = small_media(scene, r['name'], until, closeups.get(r['name']))
+            media = small_media(scene, r['name'], until, closeups.get(r['name']), rows, r['t'])
             item = small_items.get(r['name']) or small_name(r['name'])
             add(r, 'small_objects', f'{item}换成了按照片重建的模型', once='small:' + r['name'],
-                img=next((m['src'] for m in media if m['role'] == 'photo'), None), media=media,
+                img=next((m['src'] for m in media if m['role'] in ('reference', 'photo')), None), media=media,
                 object_id=r['name'], object_name=item, work='small')
         elif kind == 'small_objects_done' and k > small_from:
             small_done = r
@@ -1277,6 +1302,9 @@ def slim(run, dest):
     small = small_folder(scene)
     extra += [(path, dest / 'small-objects' / path.relative_to(small)) for path in small.glob('evidence/*/*.jpg')
               if SMALL_PICTURES.fullmatch('small-objects/' + str(path.relative_to(small)))]
+    items = {r['name'] for r in trace_rows(scene) if r.get('kind') == 'small_object_done' and r.get('name')}
+    extra += [(small_reference(scene, key), dest / 'small-objects' / 'reference' / f'{key}.png') for key in sorted(items)
+              if small_reference(scene, key)]
     extra += [(path, dest / path.relative_to(run)) for pattern in ('attempt-*/exit', 'attempt-*/run-config.json', '*/attempt-*/exit',
                                                                    '*/attempt-*/run-config.json') for path in run.glob(pattern)]
     for path, target in extra:

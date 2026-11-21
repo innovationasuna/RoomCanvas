@@ -612,6 +612,28 @@ class PhasedRun(unittest.TestCase):
         replay.slim(self.run, self.root / 'slim')
         self.assertEqual((self.root / 'slim/small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'photo')
 
+    def test_an_item_made_from_a_premade_model_shows_that_models_reference(self):
+        models = self.root / 'models'  # LR_SMALL_OBJECTS_MODELS, outside the run as premake leaves it
+        write(models / 'TissueBox.glb')
+        reference = write(models / 'work/TissueBox/reference.png', b'reference', T0 + 3000)
+        write(models / 'work/WaterBottle/reference.png', b'later', T0 + 4500)  # made after the item was done
+        write(self.run / 'small-objects/evidence/TissueBox0/view0.jpg', b'photo', T0 + 3950)
+        rows = [{'t': T0 + 3900, 'kind': 'small_objects_start', 'run': 'attempt-05'},
+                {'t': T0 + 4100, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'trellis', 'status': 'ok',
+                 'source': str(models / 'TissueBox.glb'), 'run': 'attempt-05'},
+                {'t': T0 + 4110, 'kind': 'small_object_done', 'name': 'WaterBottle1', 'method': 'trellis', 'status': 'ok',
+                 'source': str(models / 'WaterBottle.glb'), 'run': 'attempt-05'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        items = [e for e in replay.timeline(self.root, 'completed', T0 + 5000)['events'] if e.get('work') == 'small']
+        self.assertEqual([(e['object_id'], e['img'], [m['role'] for m in e['media']]) for e in items],
+                         [('TissueBox0', 'small-objects/reference/TissueBox0.png', ['reference', 'photo']), ('WaterBottle1', None, [])])
+        self.assertEqual(replay.scene_file(self.scene, 'small-objects/reference/TissueBox0.png'), reference.resolve())
+        for refused in ('small-objects/reference/WaterBottle0.png', 'small-objects/reference/../evidence.png'):
+            self.assertIsNone(replay.scene_file(self.scene, refused))
+        replay.slim(self.run, self.root / 'slim')
+        self.assertEqual(replay.scene_file(self.root / 'slim/pipeline/demo', 'small-objects/reference/TissueBox0.png').read_bytes(), b'reference')
+
     def test_an_item_framed_with_its_whole_shelf_shows_its_own_part(self):
         camera = {'frame_index': 7, 'position': [0, 0, 0], 'forward': [0, 1, 0], 'up': [0, 0, 1],
                   'intrinsics': {'fx': 1000, 'fy': 1000, 'cx': 960, 'cy': 720}, 'resolution': [1920, 1440]}
