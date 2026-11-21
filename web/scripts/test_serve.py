@@ -212,7 +212,10 @@ class SampleModels(unittest.TestCase):
             serve.fetch_sample_models(log=lines.append)
             serve.fetch_sample_models(download=False, log=lines.append)  # --no-download
         self.assertEqual([call.kwargs for call in fetch.call_args_list],
-                         [{'check': check, 'missing_only': True, 'log': lines.append} for check in (False, True)])
+                         [{'check': False, 'missing_only': True, 'log': lines.append}])
+        self.assertEqual(len(lines), 1)
+        self.assertIn('后台模型下载已关闭', lines[0])
+        lines.clear()
         with patch.object(serve.fetch_samples, 'fetch', side_effect=FileNotFoundError('samples/models.json')):
             self.assertIsNone(serve.fetch_sample_models(log=lines.append))
         self.assertEqual(lines, ['Sample models not checked (samples/models.json): samples/models.json'])
