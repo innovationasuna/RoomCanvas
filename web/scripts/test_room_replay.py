@@ -408,13 +408,14 @@ class LiveRecords(unittest.TestCase):
         says = [e['say'] for e in replay.timeline(job, 'running', T0 + 1300)['events']]
         self.assertIn('重新开始重建，接着上次做好的部分继续', says)
 
-    def test_a_model_taken_over_from_an_earlier_reconstruction_is_said_so_once(self):
+    def test_a_model_taken_over_from_an_earlier_reconstruction_reads_as_made_once(self):
         self.append([{'t': T0 + 41, 'kind': 'object_done', 'name': 'Storage1', 'method': 'provided', 'status': 'ok',
                       'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-01'},
                      {'t': T0 + 1100, 'kind': 'object_done', 'name': 'Storage1', 'method': 'trellis', 'status': 'ok',
                       'reused': True, 'source': '/runs/earlier/pipeline/demo', 'run': 'attempt-02'}])
         shown = [e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('show') == ['Storage1']]
-        self.assertEqual([(e['t'], e['say']) for e in shown], [(T0 + 41, '沿用之前做好的柜子2模型')])
+        self.assertEqual([(e['t'], e['say']) for e in shown], [(T0 + 41, '做好柜子2的模型')])
+        self.assertFalse([e for e in replay.pipeline_events(self.scene, T0 + 1300) if '沿用' in e['say']])
 
     def test_the_repair_session_shows_in_its_own_stage(self):
         self.append([{'t': T0 + 990, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'run': 'attempt-01',
@@ -523,7 +524,7 @@ class PhasedRun(unittest.TestCase):
         self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(data['models']['small_objects'], replay.SMALL_OBJECTS)
-        self.assertIn('沿用之前做好的柜子2模型', [e['say'] for e in events])
+        self.assertIn('做好柜子2的模型', [e['say'] for e in events])
         self.assertEqual(data['model_evidence']['small_objects']['time'], T0 + 2510)
 
     def test_a_live_view_shows_the_pass_as_it_goes(self):
@@ -909,6 +910,44 @@ class Sessions(unittest.TestCase):
         summary = replay.Summary(self.job)
         self.assertFalse(summary.align(self.scene))  # marked: never moved again
         self.assertEqual(summary.data['batches'][0]['from'], 5)
+
+
+class WorkingClock(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.run = Path(self.tmp.name) / 'run'
+        self.scene = self.run / 'pipeline' / 'demo'
+        self.scene.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def attempt(self, path, begun, ended=None):
+        import datetime
+        started = datetime.datetime.fromtimestamp(begun, datetime.timezone.utc).isoformat(timespec='seconds')
+        write(self.run / path / 'run-config.json', json.dumps({'started': started}), begun)
+        if ended:
+            write(self.run / path / 'exit', '0\n', ended)
+
+    def test_pauses_and_replaced_runs_are_idle(self):
+        self.attempt('attempt-01', T0, T0 + 3600)                        # the build: an hour
+        self.attempt('small-objects/attempt-01', T0 + 3700, T0 + 3760)   # a pass a later one replaced: shows nothing
+        self.attempt('attempt-02', T0 + 30000, T0 + 32000)               # next day, after the operator's review
+        self.attempt('small-objects/attempt-02', T0 + 32100, T0 + 32200)
+        spans = replay.attempt_spans(self.scene)
+        self.assertEqual([(round(a), round(b)) for a, b in spans],
+                         [(T0, T0 + 3600), (T0 + 3700, T0 + 3760), (T0 + 30000, T0 + 32000), (T0 + 32100, T0 + 32200)])
+        shown = [{'t': t} for t in (T0, T0 + 1800, T0 + 3600, T0 + 30010, T0 + 31900, T0 + 32150)]
+        idle = replay.idle_spans(shown, spans, T0)
+        # between the build and the next day nothing shown was worked on (the replaced pass included);
+        # the 100 s before the last pass is shorter than a pause
+        self.assertEqual(idle, [[60.0, 500.0]])
+        self.assertEqual(replay.idle_spans(shown, [], T0), [])  # no attempt records: real time
+
+    def test_a_running_attempt_works_until_its_log_was_last_written(self):
+        self.attempt('attempt-01', T0)
+        write(self.run / 'attempt-01' / 'pipeline.log', 'still going', T0 + 900)
+        self.assertEqual([(round(a), round(b)) for a, b in replay.attempt_spans(self.scene)], [(T0, T0 + 900)])
 
 
 class Service(unittest.TestCase):

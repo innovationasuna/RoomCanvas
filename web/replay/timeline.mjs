@@ -1,7 +1,8 @@
 // Replay timeline: map a job's events (real minutes) onto a short playback (seconds).
 // Playback time goes to what there is to watch: the scan unfolding, each object taking shape in the room, a
-// new room model fading in. Everything else passes quickly, however long it really took. The clock shows
-// real time.
+// new room model fading in. Everything else passes quickly, however long it really took. The clock shows the
+// time the reconstruction worked: real time without the stretches in which nothing shown was being worked on
+// (data.idle: no run going, or a run whose work a later one replaced).
 export const DURATION = 90;       // seconds, for a job with no events yet
 const FORM_SECONDS = 4.5;         // camera moves in (~1.2 s), then the object takes shape (3 s)
 const CASCADE_STEP = 0.25, CASCADE_SECONDS = 4;  // objects appearing together start this far apart, all within (room-view.mjs)
@@ -64,6 +65,8 @@ export function buildTimeline(data) {
     duration, stages, events, build, models: data.models || {},
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
+    // Real minutes -> minutes the reconstruction worked (the clock).
+    workAt: (minute) => minute - (data.idle || []).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, minute) - a), 0),
     // Playback time -> real minutes, interpolated between keys.
     realAt(t) {
       const k = keys.findLastIndex((x) => x[0] <= t);
