@@ -35,9 +35,13 @@ Paths below are relative to [src/litereality_agent](src/litereality_agent/).
 | `models/` | Detection, embeddings, reference images, and object generation |
 | `runtimes/` | Hosted execution and deployment setup |
 
-The [server runner](server/run_room.py) configures a single-machine environment
-and orchestrates the additional passes. Small-object and articulation passes are
-not separate stages in `pipeline/stages.py`. See the
+The small-object and articulation passes are not separate stages in
+`pipeline/stages.py`: `author` runs them on its build before its one check, and
+again on the build its repair makes
+([passes.py](src/litereality_agent/pipeline/realism_authoring/passes.py)), and
+`publish` publishes the room they complete. The
+[server runner](server/run_room.py) configures a single-machine environment and can
+also run either pass on its own over a finished room. See the
 [project workflow](../docs/ROOM_RECONSTRUCTION.md) for their inputs and output selection.
 
 ## Agent providers

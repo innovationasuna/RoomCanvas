@@ -1,4 +1,5 @@
-"""The small-object pass, run after `author` on its Room.blend without re-running it.
+"""The small-object pass, run on the author's Room.blend without re-running it: by the author stage
+before its check (realism_authoring/passes.py), or on its own on a finished room.
 
     python -m litereality_agent.pipeline.realism_authoring.small_objects <scene dir> [--only ID ...]
 
@@ -14,7 +15,8 @@ goes to realism_authoring/small_objects/ and never touches room_preview/:
     candidates.md           every item's id, the author's objects in it and its evidence folder
     summary.md, overview.jpg
 
-Every step skips work already on disk, so an interrupted run resumes where it stopped.
+Every step skips work already on disk, so an interrupted run resumes where it stopped; on a rebuilt
+room (the check's repair) the items that are still the same keep their evidence, decision and model.
 Steps: candidates -> photo evidence -> render the current models -> Astra decides per item (one
 question each) -> TRELLIS rebuilds -> apply -> render the rebuilds beside the photos for people
 to review in overview.jpg.
@@ -76,7 +78,8 @@ class Pass:
         self.concurrency = concurrency
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
         self.dependency_key = pass_cache.prepare(
-            self.out, self.preview, self.frames, self.layout, Path(__file__).parent)
+            self.out, self.preview, self.frames, self.layout, Path(__file__).parent,
+            keep=("items.json", "evidence", "rebuild"))
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
@@ -116,7 +119,10 @@ class Pass:
         """One record in the scene's trace, where the replay reads the pipeline's own."""
         traces = self.scene_dir / "scene_init/obj_stage/traces"
         traces.mkdir(parents=True, exist_ok=True)
-        telemetry.record(traces, kind, run=self.run_id, stage="small_objects",
+        # Run by the author stage, the records say so (its LITEREALITY_STAGE): the replay shows them
+        # with the room being built or repaired, not as a pass over the published room.
+        telemetry.record(traces, kind, run=self.run_id,
+                         stage=os.environ.get("LITEREALITY_STAGE") or "small_objects",
                          job_id=os.environ.get("LITEREALITY_JOB_ID") or str(self.scene_dir), **data)
 
     def finished(self, item, reused: bool):
@@ -176,11 +182,12 @@ class Pass:
                            if p.is_dir() and p.name not in ids)
             if stray:
                 self.log(f"photos for no candidate (ignored): {', '.join(stray)}")
-        if self.model_root:  # the author may not have placed every thing the operator modelled
+        if self.model_root:  # the author placed them itself (small_objects/ready), or not at all
             used = {self.model(item) for item in self.items}
             unused = sorted(p.name for p in self.model_root.glob("*.glb") if p not in used)
             if unused:
-                self.log(f"models for no candidate (ignored): {', '.join(unused)}")
+                self.log(f"models for no candidate (placed by the author or not in the room): "
+                         f"{', '.join(unused)}")
         changed = False
         for item in self.items:
             key = self.inputs(item)
@@ -249,8 +256,17 @@ class Pass:
 
     # ------------------------------------------------------------------ steps
     def find(self):
-        if self.items is None:
-            self.items = candidates.find_candidates(self.layout)
+        # An item that is the same candidate as before keeps what was done for it, also in a
+        # rebuilt room; one that changed or is gone starts over (pass_cache.carry).
+        items, changed = pass_cache.carry(self.items, candidates.find_candidates(self.layout))
+        if changed:
+            self.log(f"changed in the room, judged and rebuilt again: {', '.join(changed)}")
+            for oid in changed:  # one retire per folder name: the two folders share the id
+                cache.retire([self.out / "evidence" / oid], self.out)
+                cache.retire([self.out / "rebuild" / oid,
+                              self.out / "rebuild" / "_trellis" / "glb" / f"{oid}.glb"], self.out)
+        if items != self.items:
+            self.items = items
             self.save()
         self.log(f"{len(self.items)} candidates: {', '.join(i['id'] for i in self.items)}")
         self.refresh()

@@ -203,6 +203,12 @@ Everything is plain text, so an agent can edit the room directly.
 code) or `textures.json` (material recipe: a Poly Haven base id + an optional LAB
 color shift).
 
+**Put in a ready-made model** (a small object made from photos up front, copied to
+`Models/<Kind>.glb` when the run has them) — in Room.py,
+`scene.place_model("TissueBox0", "Models/TissueBox.glb", bottom=(x, y, z), size=(w, d, h),
+yaw_deg=a, rests_on="Table0")`: the centre of its underside at `bottom`, scaled to the measured
+`size` (or one number, the height, keeping its proportions), its front (−Y) turned by `yaw_deg`.
+
 ## Object inventory
 | object | category | type | RoomPlan box |
 |--------|----------|------|--------------|

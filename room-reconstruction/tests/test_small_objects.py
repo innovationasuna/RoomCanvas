@@ -728,7 +728,8 @@ def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeyp
     assert Path(replace["Book0"]["glb"]).read_bytes() == b"premade book"
     assert replace["Book0"]["camera"] is None and replace["Cup"]["camera"] == [0, 0, 1.5]
     assert [line for line in capsys.readouterr().out.splitlines()
-            if "models for no candidate" in line] == ["[small-objects] models for no candidate (ignored): Lamp.glb"]
+            if "models for no candidate" in line] == [
+        "[small-objects] models for no candidate (placed by the author or not in the room): Lamp.glb"]
 
     (models / "Cup.glb").write_bytes(b"premade cup, better")
     run, asked = full_run("attempt-02")
@@ -759,3 +760,65 @@ def test_supplied_and_rebuilt_items_share_one_pass(scene, monkeypatch, tmp_path)
     items = {item["id"]: item for item in run.items}
     assert items["Cup"]["material"] == {"supplied": str(tmp_path.resolve() / "models" / "Cup.glb")}
     assert Path(items["Pillow"]["glb"]).name == "model.glb" and items["Pillow"]["material"]
+
+
+def test_a_rebuilt_room_keeps_the_work_of_the_items_it_did_not_change(scene, monkeypatch):
+    """After the check's repair the room is built again; only what the repair changed is judged again."""
+    run = Pass(scene)
+    run.find()
+    for item in run.items:
+        item["decision"] = {"decision": "drop", "reason": "", "description": ""}
+        (run.out / "evidence" / item["id"]).mkdir(parents=True)
+    run.save()
+    layout = json.loads((scene / "preview" / "room_layout.json").read_text())
+    for entry in layout["objects"]:
+        if entry["id"] == "Pillow":  # the repair moved it
+            entry["bbox_min"][0] += 0.2
+            entry["bbox_max"][0] += 0.2
+    (scene / "preview" / "room_layout.json").write_text(json.dumps(layout))
+    (scene / "preview" / "Room.blend").write_bytes(b"the repaired room")
+    run = Pass(scene)
+    run.find()
+    items = {item["id"]: item for item in run.items}
+    assert "decision" not in items["Pillow"] and not (run.out / "evidence" / "Pillow").exists()
+    assert all("decision" in item for oid, item in items.items() if oid != "Pillow")
+    assert (run.out / "evidence" / "Cup").is_dir()
+
+
+def test_ready_models_are_copied_into_the_room_and_listed_for_the_author(tmp_path, monkeypatch):
+    import trimesh
+
+    from litereality_agent.pipeline.realism_authoring.small_objects import ready
+
+    models = tmp_path / "models"
+    (models / "work" / "TissueBox").mkdir(parents=True)
+    # glTF is Y-up: a box 0.2 wide, 0.1 tall and 0.1 deep.
+    trimesh.creation.box(extents=(0.2, 0.1, 0.1)).export(models / "TissueBox.glb")
+    (models / "TissueBox.json").write_text(json.dumps({"inputs": {"description": "a white tissue box"}}))
+    (models / "work" / "TissueBox" / "reference.png").write_bytes(b"png")
+    room = tmp_path / "room"
+    room.mkdir()
+    (room / "Room.py").write_text("SHELL = {}")
+    assert ready.stage(room) == []  # no models named
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+    rows = ready.stage(room)
+    assert (room / "Models" / "TissueBox.glb").read_bytes() == (models / "TissueBox.glb").read_bytes()
+    assert rows == [{"kind": "TissueBox", "glb": "Models/TissueBox.glb", "proportions": [2.0, 1.0, 1.0],
+                     "description": "a white tissue box",
+                     "reference": str(models / "work" / "TissueBox" / "reference.png")}]
+    brief = ready.prompt(rows, room)
+    assert "scene.place_model(" in brief and "Models/TissueBox.glb: a white tissue box" in brief
+    assert str(ready.TEMPLATE) in brief  # this Room.py is older than place_model
+    (room / "Room.py").write_text("class RoomScene:\n    def place_model(self): ...\n")
+    assert str(ready.TEMPLATE) not in ready.prompt(rows, room)
+    assert "def place_model" in ready.TEMPLATE.read_text()
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(tmp_path / "missing"))
+    with pytest.raises(FileNotFoundError, match="LR_SMALL_OBJECTS_MODELS"):
+        ready.stage(room)
+
+
+def test_an_object_the_author_placed_from_a_ready_model_is_not_a_candidate():
+    layout = room()
+    layout["objects"].append(obj("TissueBox0", "small_object", [1.1, 1.8, 1.1], [1.2, 1.9, 1.15],
+                                 rests_on="Shelf", source_glb="TissueBox.glb", rebuilt="model"))
+    assert "TissueBox0" not in {c["id"] for c in candidates.find_candidates(layout)}

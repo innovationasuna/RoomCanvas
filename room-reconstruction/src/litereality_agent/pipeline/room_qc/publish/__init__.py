@@ -1,7 +1,10 @@
-"""Compile and publish the final room, plus the review artifacts that go with it.
+"""Publish the final room, plus the review artifacts that go with it.
 
-Publishing corrects collisions, rebuilds the authored room and checks the geometry of the
-layout exported by that build. Quality warnings travel with the published model.
+The final room is the one author checked: the build of `room/` with the small objects and openable
+parts the passes added (realism_authoring/passes.py), published into `room_preview/` and baked.
+Publishing rebuilds only when that build is no longer the current one (the room or the check code
+changed since), and then runs the passes on the new build as author did. It checks the geometry of
+the published layout; quality warnings travel with the published model.
 
 Everything publishable lands in `room_preview/` next to the build it describes. `room/` stays the
 one editable source; the preview tree is the one place to LOOK. Publishing used to also copy
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 
 from litereality_agent.pipeline.context import RunContext
 from litereality_agent.pipeline.result import StageResult, StageStatus
@@ -112,20 +116,47 @@ def run(context: RunContext, options: dict) -> StageResult:
     )
     if collision_rc:
         warnings.append(f"collision correction exited {collision_rc}; see {collision_log}")
+    from litereality_agent.pipeline.realism_authoring import passes as finishing
+    from litereality_agent.pipeline.realism_authoring.acceptance import SCHEMA, fingerprint
     from litereality_agent.room_ops import api
 
+    # The room was checked once by author (and repaired if it failed); publishing does not check again.
+    checked = {}
+    try:
+        checked = json.loads((context.authoring_root / "room_preview" / "author_acceptance.json").read_text())
+    except (OSError, ValueError):
+        pass
+    completed = checked.get("passes")
     blend = context.preview_dir / "Room.blend"
+    glb = context.preview_dir / "Room.glb"
+    # The checked build is still the room's (author's last build, nothing changed since): publish it
+    # as it was checked, with what the passes made of it, instead of building it again.
+    current = (completed is not None and blend.is_file()
+               and checked.get("fingerprint") == fingerprint(context.authored_room, context.preview_dir)
+               and (context.scene_dir / completed["room"] / "Room.blend").is_file())
     acceptance = context.preview_dir / "acceptance.json"
     acceptance.unlink(missing_ok=True)
-    (context.authored_room / ".compile_stamp").unlink(missing_ok=True)
-    rc, log = run_module(
-        context, "litereality_agent.room_ops.compile.build_from_room",
-        ["--room", context.authored_room, "--out", context.preview_dir, "--regenerate", "--require-blend"],
-        log_name="publish_compile",
-    )
-    glb = context.preview_dir / "Room.glb"
-    if rc or not glb.is_file() or not glb.stat().st_size:
-        return StageResult("publish", StageStatus.FAILED, error=f"final compile failed; see {log}")
+    if not current:
+        (context.authored_room / ".compile_stamp").unlink(missing_ok=True)
+        rc, log = run_module(
+            context, "litereality_agent.room_ops.compile.build_from_room",
+            ["--room", context.authored_room, "--out", context.preview_dir, "--regenerate", "--require-blend"],
+            log_name="publish_compile",
+        )
+        if rc or not glb.is_file() or not glb.stat().st_size:
+            return StageResult("publish", StageStatus.FAILED, error=f"final compile failed; see {log}")
+        if completed is not None:  # author completed its build with the passes: so is this one
+            completed = finishing.run(context, {"articulate": completed.get("articulate") != "skipped"})
+            warnings += completed.pop("warnings")
+    room = context.scene_dir / completed["room"] if completed else context.preview_dir
+    if room != context.preview_dir:
+        # The passes' room becomes the published one; the build it was made from is replaced.
+        if api.save_blend_as(room / "Room.blend", blend):
+            return StageResult("publish", StageStatus.FAILED,
+                               error=f"could not publish {room}; see {context.preview_dir / 'save_as.log'}")
+        shutil.copyfile(room / "room_layout.json", context.preview_dir / "room_layout.json")
+        if (room / "Object").is_dir():  # the small objects' meshes their layout names
+            shutil.copytree(room / "Object", context.preview_dir / "Object", dirs_exist_ok=True)
     # Flatten node-graph SHELL materials into the glb. `build_from_room` only EXPORTS; the bake is
     # the step `compile_room` adds on top, and the agent's own compile/render tool goes through
     # `compile_room` — so every render the author sees is baked. Publishing without it silently
@@ -151,15 +182,10 @@ def run(context: RunContext, options: dict) -> StageResult:
     from litereality_agent.pipeline.scene_init.seed import saved
     saved(context, "final", glb)
 
-    # The room was checked once by author (and repaired if it failed); publishing does not check again.
-    from litereality_agent.pipeline.realism_authoring.acceptance import SCHEMA, fingerprint
-    checked = {}
-    try:
-        checked = json.loads((context.authoring_root / "room_preview" / "author_acceptance.json").read_text())
-    except (OSError, ValueError):
-        pass
     report = {"schema": SCHEMA, "status": "published", "accepted": checked.get("accepted") is True,
               "checked": checked.get("status"), "fingerprint": fingerprint(context.authored_room, context.preview_dir)}
+    if completed is not None:
+        report["passes"] = completed
     acceptance.write_text(json.dumps(report, indent=2))
 
     frames = compare_frames(options)
@@ -169,7 +195,8 @@ def run(context: RunContext, options: dict) -> StageResult:
         compare_rc, compare_log = run_module(
             context, "litereality_agent.room_ops.rendering.room_render.render_vs_capture",
             ["--scan", context.capture_dir, "--room", context.authored_room,
-             "--out", compare, "--frames", frames],
+             "--out", compare, "--frames", frames,
+             *(["--blend", blend] if room != context.preview_dir else [])],
             log_name="publish_compare",
         )
         if compare_rc:

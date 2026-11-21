@@ -16,7 +16,8 @@ def executable(path, source):
     path.chmod(0o755)
 
 
-def test_room_launcher_owns_gpu_during_pipeline_and_followup_articulation(tmp_path):
+def test_room_launcher_owns_gpu_during_the_pipeline_and_its_passes(tmp_path):
+    """The small objects and openable parts run inside the pipeline (author), under its lease."""
     runtime = tmp_path / "runtime"
     executable(runtime / "bin/nvidia-smi", f"""
 import sys
@@ -55,18 +56,21 @@ else:
                PATH=str(runtime / "bin") + os.pathsep + os.environ["PATH"])
     env.pop("VIEWFORGE_GPU_LOCK", None)
     run = tmp_path / "run"
-    subprocess.run([sys.executable, str(ROOT / "room-reconstruction/server/run_room.py"),
-                    str(tmp_path / "scan"), str(run)], env=env, timeout=20, check=True)
+    launch = [sys.executable, str(ROOT / "room-reconstruction/server/run_room.py"), str(tmp_path / "scan"), str(run)]
+    planned = json.loads(subprocess.run(launch + ["--no-articulate", "--check"], env=env, timeout=20, check=True,
+                                        capture_output=True, text=True).stdout)
+    assert planned["command"][-1] == "--no-articulate" and "then" not in planned
+    subprocess.run(launch, env=env, timeout=20, check=True)
     attempt = run / "attempt-01"
     assert json.loads((attempt / "run-config.json").read_text())["gpu"] == CARD
     timing = json.loads((attempt / "runtime-timing.json").read_text())
-    assert [phase['phase'] for phase in timing['phases']] == ['pipeline', 'articulate']
+    assert [phase['phase'] for phase in timing['phases']] == ['pipeline']
     assert all(phase['exit'] == 0 and phase['wall_seconds'] > 0 for phase in timing['phases'])
     assert timing['gpu_uuid'] == CARD and timing['gpu_kernel_seconds'] is None
     assert timing['gpu_wait_seconds'] >= 0
     assert timing['gpu_lease_seconds'] >= sum(phase['wall_seconds'] for phase in timing['phases'])
-    for name in ("exit", "articulate-exit"):
-        assert (attempt / name).read_text().strip() == "0", (attempt / "pipeline.log").read_text()
+    assert (attempt / "exit").read_text().strip() == "0", (attempt / "pipeline.log").read_text()
+    assert not (attempt / "articulate-exit").exists()
 
 
 def test_failed_pipeline_never_articulates_or_publishes_a_previous_preview(tmp_path):

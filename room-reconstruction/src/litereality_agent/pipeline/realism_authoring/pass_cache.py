@@ -1,11 +1,15 @@
-"""Dependency receipts shared by the two resumable post-authoring passes."""
+"""Dependency receipts shared by the two resumable passes over the authored room."""
 
 from pathlib import Path
 
 from litereality_agent import artifact_cache as cache
 
 
-def prepare(out: Path, preview: Path, frames: Path, layout: dict, code_dir: Path) -> str:
+def prepare(out: Path, preview: Path, frames: Path, layout: dict, code_dir: Path,
+            keep: tuple[str, ...] = ()) -> str:
+    """The pass's dependency key; what an earlier key made is retired. `keep` names the per-item
+    outputs (items.json and folders by item id) that a new build of the room under the same code,
+    photos and models leaves for the pass to reuse where an item is unchanged (`carry`)."""
     from litereality_agent.settings import load_settings
 
     settings = load_settings()
@@ -29,8 +33,14 @@ def prepare(out: Path, preview: Path, frames: Path, layout: dict, code_dir: Path
         # Legacy items without a receipt cannot prove which room they belong to. Preserve the
         # old run for inspection, but invalidate every derived stage together, before reuse.
         # attempt-NN is the server launcher's own record of this run, not a product of the pass.
+        # Only the room was rebuilt (the check's repair, a revision): each item's own work stays,
+        # and the pass keeps it for the items that are still the same (`carry`).
+        rebuilt = isinstance(previous, dict) and all(
+            (previous.get("dependencies") or {}).get(name) == value
+            for name, value in dependencies.items() if name != "preview")
+        spare = {".stale", "logs", *(keep if rebuilt else ())}
         cache.retire([p for p in out.iterdir()
-                      if p.name not in {".stale", "logs"} and not p.name.startswith("attempt-")], out)
+                      if p.name not in spare and not p.name.startswith("attempt-")], out)
         cache.atomic_json(marker, {"key": key, "dependencies": dependencies})
     return key
 
@@ -66,3 +76,22 @@ def published_room(folder: Path, author_preview: Path) -> Path:
         raise ValueError(f"{folder} was made from another author room than {author_preview}; "
                          "run its pass again first")
     return folder
+
+
+def carry(items: list[dict] | None, found: list[dict]) -> tuple[list[dict], list[str]]:
+    """The candidates `found` in the current room, each with its earlier item (and so its work)
+    when that one was the same candidate: the same fields as found now (members, box, support).
+    Returns them and the ids of earlier items that are gone or changed, whose folders the pass
+    retires. Without earlier items, every candidate is new."""
+    before = {item["id"]: item for item in items or []}
+    kept, dropped = [], []
+    for candidate in found:
+        old = before.get(candidate["id"])
+        if old is not None and all(old.get(key) == value for key, value in candidate.items()):
+            kept.append(old)
+        else:
+            kept.append(candidate)
+            if old is not None:
+                dropped.append(candidate["id"])
+    dropped += sorted(set(before) - {candidate["id"] for candidate in found})
+    return kept, dropped

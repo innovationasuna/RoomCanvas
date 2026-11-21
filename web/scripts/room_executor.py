@@ -64,11 +64,21 @@ def run_one(self, identifier):
                         raise RuntimeError('没有取得可用的 GPU，重建没有开始。请稍后重试；详情见服务器 task.log。')
                     # Say what happened (time limit, exit code) when the launcher itself reported it.
                     raise execution_error or RuntimeError('房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。')
-                if not execution_error and (attempts[-1] / 'articulate-exit').is_file() and (attempts[-1] / 'articulate-exit').read_text().strip() == '0':
+                previews = list((folder / 'run/pipeline').glob('*/realism_authoring/room_preview'))
+                if not (attempts[-1] / 'articulate-exit').is_file():
+                    # The author stage adds the openable parts before its check; the published room has them
+                    # when that pass went through (publish records how each pass ended).
+                    if len(previews) != 1:
+                        raise RuntimeError('没有唯一可用的已发布房间，请检查服务器日志。')
+                    preview = previews[0]
+                    ended = read_json(preview / 'acceptance.json').get('passes', {}).get('articulate')
+                    record['enhancement'] = {'status': 'completed' if ended == 'ok' else 'failed',
+                                             'attempt_id': attempts[-1].name}
+                elif not execution_error and (attempts[-1] / 'articulate-exit').read_text().strip() == '0':
+                    # An older launcher ran the openable parts after publishing, into run/articulate.
                     preview = folder / 'run/articulate/room_preview'
                     record['enhancement'] = {'status': 'completed', 'attempt_id': attempts[-1].name}
                 else:
-                    previews = list((folder / 'run/pipeline').glob('*/realism_authoring/room_preview'))
                     if len(previews) != 1:
                         raise RuntimeError('可动部件增强失败，且没有唯一可用的已发布房间。')
                     preview = previews[0]

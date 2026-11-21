@@ -9,8 +9,8 @@ Input: room_layout.json (Blender Z-up, metres) and, when present, Room.glb next 
 Output: every object with its role (structure / opening / fixture / furniture), the movable
 group it belongs to (an object rebuilt on its own, `rebuilt` in the layout, is its own group), how it is mounted (floor / wall / ceiling), the wall it hangs on, and its
 bounding box converted to the glTF frame the web editor uses (Y-up: (x, y, z) -> (x, z, -y)).
-With --joints (default: ../room/Objects beside the room_preview dir, when it exists), also the parts
-that open: the hinges and slides of the reconstruction's sim/<Object>.urdf files, kept only where
+With --joints (default: ../articulate/room/Objects beside the room_preview dir, where the reconstruction's
+openable-parts pass writes them, else ../room/Objects, when either exists), also the parts that open: the hinges and slides of the reconstruction's sim/<Object>.urdf files, kept only where
 Room.glb has the part with its origin on the joint, so the editor can turn it about that origin.
 Standard library only; the GLB's JSON is read, never modified.
 """
@@ -265,7 +265,8 @@ def main(argv=None):
     names = {}
     if out.is_file():
         names = {group['id']: group['name'] for group in json.loads(out.read_text()).get('groups', []) if group.get('name')}
-    objects_dir = args.joints.expanduser().resolve() if args.joints else room_dir.parent / 'room' / 'Objects'
+    found = [d for d in (room_dir.parent / 'articulate' / 'room' / 'Objects', room_dir.parent / 'room' / 'Objects') if d.is_dir()]
+    objects_dir = args.joints.expanduser().resolve() if args.joints else (found or [room_dir.parent / 'room' / 'Objects'])[0]
     joints = []
     if objects_dir.is_dir():
         if not glb.is_file():

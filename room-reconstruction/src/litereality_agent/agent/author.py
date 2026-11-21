@@ -516,7 +516,10 @@ from litereality_agent.agent.providers.claude import build_capability_server  # 
 
 
 async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: int, profile: str = "base",
-              step_budget: int = 100, step_reserve: int = 15, provider: str | None = None):
+              step_budget: int = 100, step_reserve: int = 15, provider: str | None = None,
+              brief: str = "", read_roots: tuple[Path, ...] = ()):
+    """`brief` is a paragraph the caller adds to the profile's (the operator's ready small-object
+    models), and `read_roots` the folders it names."""
     from litereality_agent.agent import providers
 
     last_good = room.parent / ".room_checkpoint.py"
@@ -575,6 +578,8 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
     if operator is not None:
         prompt += "\n" + evidence_pack.OPERATOR.format(
             path=evidence / "operator" if evidence else operator)
+    if brief:
+        prompt += "\n" + brief
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "
@@ -601,6 +606,7 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
         dirs.add(str(os.path.realpath(scan)))
     if operator is not None:
         dirs.add(str(operator))
+    dirs.update(str(d) for d in read_roots)
     # Step budget: a graceful landing at `step_budget` tool-calls (wind-down then stop). The Claude
     # Code harness enforces it with a PreToolUse hook; Codex has no such hook and degrades to a hard
     # stop (`providers.describe` says which you got). `--max-turns` is the backstop below it.
