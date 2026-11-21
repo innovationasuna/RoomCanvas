@@ -440,6 +440,31 @@ class APIIntegration(unittest.TestCase):
         self.assertEqual(job['status'], 'completed', job)
         self.assertEqual(job['stages'][-1], {'name': 'articulate', 'status': 'completed'})
 
+    def test_server_runner_publishes_the_room_author_completed(self):
+        # The author stage adds the openable parts before its check; publish says how that pass ended.
+        self.jobs.runner = 'server'
+        self.submit()
+        self.original_execute = self.jobs.execute
+        def successful_server(args, log):
+            if not args[1].endswith('server/run_room.py'):
+                return self.original_execute(args, log)
+            run = Path(args[3])
+            self.fake_pipeline(['litereality', '--output-root', str(run / 'pipeline'), '--through', 'publish'], log)
+            authoring = run / 'pipeline/scan/realism_authoring'
+            (authoring / 'room_preview/acceptance.json').write_text(json.dumps(
+                {'accepted': True, 'passes': {'small_objects': 'ok', 'articulate': 'ok'}}))
+            (authoring / 'articulate').mkdir()
+            (authoring / 'articulate/summary.json').write_text(json.dumps({'attempt_id': 'attempt-01', 'added': 2, 'existing': 1}))
+            attempt = run / 'attempt-01'; attempt.mkdir()
+            (attempt / 'exit').write_text('0\n')
+        with patch.object(self.jobs, 'execute', side_effect=successful_server):
+            self.jobs.run_one(self.identifier)
+        job = self.request('/room-reconstruction/jobs/' + self.identifier)
+        self.assertEqual(job['status'], 'completed', job)
+        self.assertEqual(job['stages'][-1], {'name': 'articulate', 'status': 'completed'})
+        self.assertEqual((job['enhancement']['status'], job['enhancement']['added']), ('completed', 2))
+        self.assertEqual(self.request(job['room']['dir'] + '/room_objects.json')['floor'], 'Floor')
+
     def test_cross_origin_and_offline_fallback(self):
         with self.assertRaises(HTTPError) as error:
             self.request('/room-reconstruction/jobs', b'zip', {'Origin': 'https://unrelated.example'})

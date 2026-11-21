@@ -126,6 +126,8 @@ def _author_options(args) -> dict:
             opts[key] = value
     if getattr(args, "revise", False):
         opts["revise"] = True
+    if getattr(args, "no_articulate", False):
+        opts["articulate"] = False
     return opts
 
 
@@ -200,6 +202,9 @@ def _add_author_options(parser: argparse.ArgumentParser) -> None:
                         help="open one more authoring session on a room that is already finished, for follow-up "
                              "requests given through LR_AUTHOR_EXTRA; the room is kept (unlike --force author), "
                              "then checked and published again")
+    parser.add_argument("--no-articulate", action="store_true",
+                        help="leave out the openable parts the author stage adds to its room before the "
+                             "check (the small objects are still done)")
     parser.add_argument("--repair-steps", type=int, default=40, help="tool calls per repair (1..150)")
     parser.add_argument("--repair-seconds", type=int, default=600, help="wall seconds per repair (1..1800)")
 

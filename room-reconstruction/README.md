@@ -1,8 +1,8 @@
 # Room reconstruction
 
 This module turns an iPhone LiDAR/RoomPlan capture into an editable room for
-RoomCanvas: room structure, reconstructed furniture, materials, and optional
-small-object and articulated-part passes. It exports Blender and GLB assets for
+RoomCanvas: room structure, reconstructed furniture, materials, small objects
+and articulated parts. It exports Blender and GLB assets for
 the browser furniture editor, with an optional MuJoCo export.
 
 For the project's scan-to-editor workflow and GPU server commands, see
@@ -86,13 +86,17 @@ Under a scene package:
 - `scene.json`: capture and artifact paths.
 - `scene_init/`: evidence, reconstructed objects, and seed room.
 - `realism_authoring/room/`: editable `Room.py` and object assets.
-- `realism_authoring/room_preview/`: `Room.glb`, `Room.blend`, and build metadata.
+- `realism_authoring/room_preview/`: `Room.glb`, `Room.blend`, and build metadata; after
+  `publish`, the published room with its small objects and articulated parts.
+- `realism_authoring/small_objects/`, `realism_authoring/articulate/`: the two passes
+  `author` runs on its build before the check, each with its own `room_preview/`.
 - `realism_authoring/mujoco/`: optional `scene.xml`, meshes, and export report.
 - `.litereality/pipeline.json`: stage state for resuming.
 
-The server's articulation pass writes a separate `<run_dir>/articulate/room_preview/`;
-it does not replace the standard published preview. Use the output selected by the
-RoomCanvas guide. A generated file alone does not establish validation or acceptance.
+Rooms published before the passes ran inside `author` have them, if at all, in
+`<run_dir>/small-objects/` and `<run_dir>/articulate/`, beside an unchanged published
+preview. Use the output selected by the RoomCanvas guide. A generated file alone does
+not establish validation or acceptance.
 
 ## Documentation
 

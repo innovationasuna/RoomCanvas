@@ -17,6 +17,7 @@ Public API (everything else — export_room, build_room, wall_*, materials… �
     export_scene(scan)              scan → Room/<scan>/   (Room.py + SHELL + manifest)
     compile_room(room_dir)          Room.py → <preview>/Room.glb   (assemble in Blender, baked)
     bake_room(blend, glb)           bake SHELL node materials into the glb (faithful preview)
+    save_blend_as(blend, target)    a .blend saved elsewhere, its file paths re-aimed from there
     compress.compressed(glb, out)   Room.glb → the Draco copy `litereality view` serves
 
 `build_from_room` / `bake_glb` spawn Blender, so they run as subprocesses; the helpers wrap them.
@@ -32,7 +33,7 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 
-__all__ = ["export_scene", "compile_room", "bake_room", "blender_bin"]
+__all__ = ["export_scene", "compile_room", "bake_room", "save_blend_as", "blender_bin"]
 
 
 def blender_bin() -> str:
@@ -181,3 +182,31 @@ def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 102
 
         record_compilation(glb, "baked")
         return 0
+
+
+def save_blend_as(blend, target, *, blender: "str | None" = None) -> int:
+    """Save `blend` as `target`. Blender keeps file paths relative to the .blend (`//../room/…`), so
+    a plain file copy into another folder would point them elsewhere; saving it there re-aims them
+    (`relative_remap`, which `copy=True` does not do). It is saved beside `target` under another
+    name and then renamed, so its paths hold from there and a failure leaves `target` as it was."""
+    blend, target = Path(blend), Path(target)
+    log_path = target.parent / "save_as.log"
+    saved = target.with_name(f".{target.stem}.saving.blend")
+    try:
+        with log_path.open("w") as log:
+            rc = subprocess.run(
+                [blender or blender_bin(), "-b", str(blend), "--python-exit-code", "1", "--python-expr",
+                 "import bpy, sys; bpy.ops.wm.save_as_mainfile(filepath=sys.argv[-1], relative_remap=True)",
+                 "--", str(saved)],
+                stdout=log, stderr=subprocess.STDOUT,
+            ).returncode
+            if rc:
+                return rc
+            if not saved.is_file() or not saved.stat().st_size:
+                print(f"Blender saved no {target.name}", file=log)
+                return 1
+        saved.replace(target)
+        return 0
+    finally:
+        saved.unlink(missing_ok=True)
+        saved.with_name(saved.name + "1").unlink(missing_ok=True)  # Blender's backup of an earlier save

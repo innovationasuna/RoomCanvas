@@ -7,7 +7,9 @@ while the job runs and a replay afterwards. Newer runs also record in trace.json
 object was written (object_done), each room model was saved (model_saved), each acceptance round was
 judged (review_done) and what each build of the authored room added (room_built), and the small-object
 pass records each item it rebuilt and the room it saved (small_object_done, model_saved small_objects);
-older runs fall back to file times and to when the agent's log first names a part.
+older runs fall back to file times and to when the agent's log first names a part. The author stage runs
+the small-object and openable-parts passes on its room before the check (and again after its repair), and
+marks their records stage "author"; older runs ran them after publishing, on their own.
 
 Pipeline records become events with fixed Chinese wording. The modelling agent's own log (commands,
 results, thoughts, in English) is condensed into plain Chinese by a model in batches; the results are
@@ -28,11 +30,12 @@ STAGES = [
     {'id': 'layout', 'name': '整理房间布局', 'desc': '确定墙面、门窗和物品的位置与大小。'},
     {'id': 'photos', 'name': '整理物品图片', 'desc': '从照片中裁出物品，生成便于看清外形的图片。'},
     {'id': 'plan', 'name': '制作物品模型', 'desc': '选择合适的做法，制作物品并检查摆放和开合。'},
-    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸、补充陈设，再对照照片自查修改。'},
+    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸、补充陈设，再对照照片自查修改，最后把纸巾盒、瓶子、绿植这类小物品按照片做成模型放好。'},
+    {'id': 'parts', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，装好后检查房间。'},
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
-    {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，修改后的房间就是结果。'},
-    # Only listed for a run whose room was revised after it was published, or that went through the
-    # small-object pass (see stages_of).
+    {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，再做好小物品和可开合部件，修改后的房间就是结果。'},
+    # Only listed for a run whose room was revised after it was published, or (older runs) that went through
+    # the small-object pass or the openable parts after publishing (see stages_of).
     {'id': 'revise', 'name': '按意见修改', 'desc': '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'},
     {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
@@ -98,27 +101,19 @@ def read_jsonl(path):
     return rows
 
 
-def articulated_glb(scene):
-    return Path(scene).parent.parent / ARTICULATED
-
-
 def model_path(scene, rel):
-    """The file of a room model named by its page path. The small-object room, when not beside the scene, is
-    where its last record says, if that is inside the run directory."""
+    """The file of a room model named by its page path. A pass's room is where its last record says, if that is
+    inside the run directory (the author stage's passes write beside the room), else beside the scene."""
     scene = Path(scene)
-    if rel == ARTICULATED:
-        return articulated_glb(scene)
-    if rel != SMALL_OBJECTS:
+    if rel not in (ARTICULATED, SMALL_OBJECTS):
         return scene / rel
-    path = scene.parent.parent / SMALL_OBJECTS
-    if path.is_file():
-        return path
-    saved = [r.get('path') for r in trace_rows(scene) if r.get('kind') == 'model_saved' and r.get('model') == 'small_objects']
+    model = 'articulated' if rel == ARTICULATED else 'small_objects'
+    saved = [r.get('path') for r in trace_rows(scene) if r.get('kind') == 'model_saved' and r.get('model') == model]
     if saved and isinstance(saved[-1], str) and saved[-1].endswith('room_preview/Room.glb'):
         recorded = (scene / saved[-1]).resolve()  # absolute, or relative to the scene
-        if scene.parent.parent.resolve() in recorded.parents:
+        if scene.parent.parent.resolve() in recorded.parents and recorded.is_file():
             return recorded
-    return path
+    return scene.parent.parent / rel
 
 
 def small_folder(scene):
@@ -350,7 +345,7 @@ def pipeline_events(scene, until=None):
     """Events from the pipeline's own trace, worded with fixed templates."""
     scene = Path(scene)
     rows = trace_rows(scene, until)
-    events, said, small_done = [], set(), None
+    events, said, small_done, closing = [], set(), None, []
     name = object_names(scene)
     # Objects with a finished-model record; their per-attempt agent steps then only show retries and errors.
     done = {r['name'] for r in rows if r.get('kind') == 'object_done' and r.get('status') == 'ok' and r.get('name')}
@@ -363,20 +358,40 @@ def pipeline_events(scene, until=None):
     for k in range(len(rows) - 1, -1, -1):
         later[k] = passes or bool(runs - {rows[k].get('run'), None})
         runs.add(rows[k].get('run'))
-        passes = passes or rows[k].get('kind') in ('articulate_start', 'small_objects_start')
+        passes = passes or (rows[k].get('kind') in ('articulate_start', 'small_objects_start') and not inside(rows[k]))
     # A later pass (for small objects: an evidence-only run, then the full one; a rerun) replaces an earlier
     # one: only the last pass's records are shown, and the openable-parts room only when no pass started since.
-    small_from = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start'), default=-1)
-    pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')),
-                    default=-1)
-    small_items = small_names({r['name'] for r in rows[small_from + 1:] if r.get('kind') == 'small_object_done'
-                               and r.get('method') == 'trellis' and r.get('status') == 'ok' and r.get('name')}, name)
+    small_from = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start' and not inside(r)),
+                     default=-1)
+    pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')
+                     and not inside(r)), default=-1)
+    # The author stage's own passes belong to the room it built, or after its repair to the repair.
+    repairing, repaired = [], set()
+    for r in rows:
+        repaired |= {r.get('run')} if r.get('kind') == 'repair_start' else set()
+        repairing.append(r.get('run') in repaired)
+
+    def phase(k, stage):
+        return 'review2' if repairing[k] else stage
+
+    # The items rebuilt with pictures: an older run's last pass, and every pass the author stage ran.
+    small_items = small_names({r['name'] for k, r in enumerate(rows) if r.get('kind') == 'small_object_done'
+                               and (k > small_from or inside(r)) and r.get('method') == 'trellis'
+                               and r.get('status') == 'ok' and r.get('name')}, name)
     closeups = small_closeups(scene, small_items) if small_items else {}
 
     def thing(key, work=None):
         """Which object an event is about, and the kind of work done to it (the page shows a run of the same
         work on several objects together)."""
         return {'object_id': key, 'object_name': name(key), **({'work': work} if work else {})}
+
+    def small_line(r, stage, once):
+        """One line per rebuilt item, with its photo (and its premade model's reference)."""
+        media = small_media(scene, r['name'], until, closeups.get(r['name']), rows, r['t'])
+        item = small_items.get(r['name']) or small_name(r['name'])
+        add(r, stage, f'{item}换成了按照片重建的模型', once=once,
+            img=next((m['src'] for m in media if m['role'] in ('reference', 'photo')), None), media=media,
+            object_id=r['name'], object_name=item, work='small')
 
     def add(row, stage, say, kind='tool', once=None, **extra):
         if once:  # a resumed run repeats its early stages; show them once
@@ -447,6 +462,20 @@ def pipeline_events(scene, until=None):
             add(r, 'plan', f'物理检查：{r.get("passed", 0)}/{r.get("objects", 0)} 件放得稳、能正常开合', 'result')
         elif kind == 'repair_start':
             add(r, 'review2', '按检查出的问题开始修复房间', 'think')
+        elif kind == 'small_objects_start' and inside(r):
+            add(r, phase(k, 'assemble'), '逐个看房间里的小物品，挑出需要按照片重做的', 'think')
+        elif kind == 'small_object_done' and inside(r):
+            # After the repair only what it made the pass do again; the rest was said with the room built.
+            if (r.get('method') == 'trellis' and status == 'ok' and r.get('name')
+                    and not (repairing[k] and r.get('reused'))):
+                small_line(r, phase(k, 'assemble'), f'small:{r.get("run")}:{repairing[k]}:{r["name"]}')
+        elif kind == 'small_objects_done' and inside(r):
+            closing.append((k, r))
+        elif kind == 'articulate_start' and inside(r):
+            add(r, phase(k, 'parts'), '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
+        elif kind == 'articulate_done' and inside(r):
+            if status != 'ok':
+                add(r, phase(k, 'parts'), '可开合部件没有装成，房间里不加新的部件', 'error')
         elif kind == 'articulate_start' and not later[k]:
             add(r, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', 'think')
         elif kind == 'articulate_done' and r.get('status') != 'ok' and not later[k]:
@@ -456,11 +485,7 @@ def pipeline_events(scene, until=None):
         elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
               and r.get('name')):
             # One line per rebuilt item (recorded once per run), with its photo; kept and dropped ones only count below.
-            media = small_media(scene, r['name'], until, closeups.get(r['name']), rows, r['t'])
-            item = small_items.get(r['name']) or small_name(r['name'])
-            add(r, 'small_objects', f'{item}换成了按照片重建的模型', once='small:' + r['name'],
-                img=next((m['src'] for m in media if m['role'] in ('reference', 'photo')), None), media=media,
-                object_id=r['name'], object_name=item, work='small')
+            small_line(r, 'small_objects', 'small:' + r['name'])
         elif kind == 'small_objects_done' and k > small_from:
             small_done = r
 
@@ -477,18 +502,42 @@ def pipeline_events(scene, until=None):
     if final:
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
-    # The small-object pass closes with its room, said with what it did to the items.
+    # The author stage's passes close with their rooms; only the last of each shows its model (a repair's
+    # passes write the same files again).
+    saves = [k for k, r in enumerate(rows) if inside(r) and r.get('kind') == 'model_saved'
+             and r.get('model') in ('small_objects', 'articulated')]
+    for k, r in closing:
+        save = next((j for j in saves if j > k and rows[j]['model'] == 'small_objects' and rows[j].get('run') == r.get('run')), None)
+        last = save is not None and save == max(j for j in saves if rows[j]['model'] == 'small_objects')
+        shown = last and _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
+        events.append({'id': f'small{k}', 't': rows[save]['t'] if save is not None else r['t'], 'stage': phase(k, 'assemble'),
+                       'kind': 'milestone', 'say': small_summary(r), **({'model': 'small_objects'} if shown else {})})
+    for k in saves:
+        if rows[k]['model'] == 'articulated':
+            shown = k == max(j for j in saves if rows[j]['model'] == 'articulated') and \
+                _model_time(scene, rows, 'articulated', ARTICULATED, until)
+            events.append({'id': f'parts{k}', 't': rows[k]['t'], 'stage': phase(k, 'parts'), 'kind': 'milestone',
+                           'say': '装好可开合部件', **({'model': 'articulated'} if shown else {})})
+    # An older run's small-object pass closes with its room, said with what it did to the items.
     small = (_model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
-             if saved_at(rows[small_from + 1:], 'small_objects') else None)
+             if saved_at([r for r in rows[small_from + 1:] if not inside(r)], 'small_objects') else None)
     if small or small_done:
         events.append({'id': 'small_objects', 't': small or small_done['t'], 'stage': 'small_objects', 'kind': 'milestone',
                        'say': small_summary(small_done), **({'model': 'small_objects'} if small else {})})
     articulated = (_model_time(scene, rows, 'articulated', ARTICULATED, until)
-                   if saved_at(rows[pass_from + 1:], 'articulated') else None)
+                   if saved_at([r for r in rows[pass_from + 1:] if not inside(r)], 'articulated') else None)
     if articulated:
         events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
                        'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
     return events
+
+
+def inside(row):
+    """A record of the passes the author stage ran on its room before the check, or after its repair."""
+    kind = row.get('kind')
+    return row.get('stage') == 'author' and (
+        kind in ('small_objects_start', 'small_object_done', 'small_objects_done', 'articulate_start', 'articulate_done')
+        or kind == 'model_saved' and row.get('model') in ('small_objects', 'articulated'))
 
 
 def small_summary(row):
@@ -617,8 +666,11 @@ def review_events(scene, until=None):
         events.append(event)
     for k, r in enumerate(_repairs(scene, until)):
         fixed = r.get('status') == 'repaired'
+        # Newer runs record whether the repair changed the room; older ones (no `changed`) read as before.
+        say = ('按检查意见尝试修改，房间没有变化' if fixed and r.get('changed') is False
+               else '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本')
         events.append({'id': f'fix{k}', 't': r['t'], 'stage': 'review2', 'kind': 'result' if fixed else 'error',
-                       'say': '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本'})
+                       'say': say})
     return events
 
 
@@ -1082,7 +1134,8 @@ def timeline(job_dir, status='completed', until=None):
     idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
                                if not until or a <= until], start) if start else []
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': stages_of(events), 'events': events, 'models': models(scene, until), 'build': build, 'idle': idle,
+            'stages': stages_of(events, published_passes(rows)), 'events': events, 'models': models(scene, until),
+            'build': build, 'idle': idle,
             'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
                                for model, rel in [('seed', SEED), ('final', FINAL), ('small_objects', SMALL_OBJECTS),
                                                   ('articulated', ARTICULATED)]}}
@@ -1130,9 +1183,17 @@ def idle_spans(events, spans, start):
             for (_, b0), (a1, _) in zip(merged, merged[1:]) if a1 - b0 > IDLE_MINUTES * 60]
 
 
-def stages_of(events):
-    """The stages to list: all, but the revision and the small-object pass only for a run that went through them."""
-    return [s for s in STAGES if s['id'] not in ('revise', 'small_objects') or any(e['stage'] == s['id'] for e in events)]
+def stages_of(events, late=False):
+    """The stages to list: all, but the revision and the small-object pass only for a run that went through them,
+    and the openable parts once: before the check, or after publishing for an older run that made them there
+    (`late`, see published_passes)."""
+    return [s for s in STAGES if (s['id'] not in ('revise', 'small_objects') or any(e['stage'] == s['id'] for e in events))
+            and s['id'] != ('parts' if late else 'articulate')]
+
+
+def published_passes(rows):
+    """Whether an older run ran its passes after publishing, on their own (not in the author stage)."""
+    return any(r.get('kind') in ('small_objects_start', 'articulate_start') and not inside(r) for r in rows)
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------

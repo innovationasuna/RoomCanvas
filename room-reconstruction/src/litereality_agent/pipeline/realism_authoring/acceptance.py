@@ -1,6 +1,10 @@
 """One check of the authored room (support, then an independent visual review: pass or not, no
 score) and, when it does not pass, one bounded repair whose rebuilt room is the result.
 
+What is checked is the complete room: the build of Room.py with the small objects and openable
+parts the passes add to it (passes.py). A repair edits Room.py, so its build goes through the
+passes again before it is the result.
+
 No missing, failed or interrupted check is a pass. Sources and review candidates survive
 failure; only an exact build that passed, or was repaired, can be reused as a completed stage.
 """
@@ -117,9 +121,13 @@ Use actual geometry, not bounding-box top heights. For articulated furniture dec
 support_part on each supported group so it follows the correct moving link.
 Preserve manifest identities, represents_prims, source neural meshes and articulated joints.
 Do not delete difficult objects, add invisible supports, change checks or edit reports.
+The checked room had its small objects rebuilt from the photographs and openable parts added
+after Room.py was built (an object the layout marks `rebuilt` replaced the stand-in of that name
+in Room.py): fix such an object through its stand-in, and the passes redo it on your result.
 Inspect renders against photographs. Save valid Room.py frequently. Do not launch another
-model. The supervisor will rebuild your result and use it as the room. Budget: {steps} tool
-calls / {seconds} seconds. Return a concise summary of fixes and unresolved problems."""
+model. The supervisor will rebuild your result, add the small objects and openable parts again
+and use it as the room. Budget: {steps} tool calls / {seconds} seconds. Return a concise summary
+of fixes and unresolved problems."""
         + ("\n\n" + evidence_pack.OPERATOR.format(path=operator) if operator else ""),
     )
     tr = AgentTrace("repair", room=room, path=traces / "authoring_trace.repair.jsonl" if traces else None)
@@ -148,9 +156,11 @@ calls / {seconds} seconds. Return a concise summary of fixes and unresolved prob
         )
 
 
-def assess(context, preview: Path, evidence: Path) -> dict:
+def assess(context, preview: Path, evidence: Path, room: Path | None = None) -> dict:
+    """Check `room` (the passes' result; default the build itself) made from the build in `preview`."""
     from litereality_agent.agent.tools._vlm import vision
 
+    room = room or preview
     evidence.mkdir(parents=True, exist_ok=True)
     report = {"schema": SCHEMA, "accepted": False, "status": "needs_repair"}
     try:
@@ -158,7 +168,7 @@ def assess(context, preview: Path, evidence: Path) -> dict:
         report["instances_preserved"] = preserved_instances(
             context.seed_room, context.authored_room
         )
-        geometry = validate(context.authored_room, preview)
+        geometry = validate(context.authored_room, room)
         (evidence / "validation.json").write_text(json.dumps(geometry, indent=2))
         report["validation"] = str(evidence / "validation.json")
         report["support_pass"] = geometry.get("pass") is True
@@ -176,6 +186,8 @@ def assess(context, preview: Path, evidence: Path) -> dict:
                 evidence / "compare",
                 "--frames",
                 "6",
+                # The passes' room is rendered as they saved it; Room.py alone has neither.
+                *(["--blend", room / "Room.blend"] if room != preview else []),
             ],
             log_name="acceptance_render",
         )
@@ -184,7 +196,7 @@ def assess(context, preview: Path, evidence: Path) -> dict:
             raise RuntimeError(
                 f"independent review needs at least three successful capture pairs: {log}"
             )
-        layout = json.loads((preview / "room_layout.json").read_text())
+        layout = json.loads((room / "room_layout.json").read_text())
         review = asyncio.run(
             vision(
                 [str(p) for p in pairs],
@@ -240,6 +252,16 @@ def _build(context, preview: Path):
     )
 
 
+def _complete(context, preview: Path, options: dict) -> tuple[dict, Path]:
+    """The passes on the build just made (passes.py), and the room they leave."""
+    from litereality_agent.pipeline.realism_authoring import passes
+
+    report = passes.run(context, options)
+    for warning in report.pop("warnings"):
+        print(f"[acceptance] {warning}", flush=True)
+    return report, context.scene_dir / report["room"]
+
+
 def finish(context, options: dict) -> dict:
     """Check the room once. If it does not pass, repair it once (a repair that runs out of its budget
     keeps what it saved) and rebuild: that room is the result, not checked again."""
@@ -261,16 +283,19 @@ def finish(context, options: dict) -> dict:
     evidence = attempt / "round_00"
     evidence.mkdir()
     shutil.copytree(context.authored_room, evidence / "room", symlinks=True)
+    passes, room = _complete(context, preview, options) if not rc else (None, preview)
     if not rc:
         for name in ("Room.glb", "room_layout.json", "manifest.json"):
-            if (preview / name).is_file():
-                shutil.copy2(preview / name, evidence / name)
+            if (room / name).is_file():
+                shutil.copy2(room / name, evidence / name)
     report = (
-        assess(context, preview, evidence)
+        assess(context, preview, evidence, room)
         if not rc
         else {"schema": SCHEMA, "accepted": False, "status": "needs_repair", "error": f"build failed: {log}"}
     )
     report["round"] = 0
+    if passes:
+        report["passes"] = passes
     path = evidence / "assessment.json"
     path.write_text(json.dumps(report, indent=2))
     _record_round(context, attempt, 0, evidence, report)
@@ -280,6 +305,7 @@ def finish(context, options: dict) -> dict:
         return report
     note = None
     traces = context.object_root / "traces"
+    checked = fingerprint(context.authored_room, preview)["source"]  # the room as it was checked
     telemetry.record(traces, "repair_start", attempt=attempt.name)
     try:
         asyncio.run(
@@ -290,18 +316,25 @@ def finish(context, options: dict) -> dict:
         )
     except Exception as exc:  # out of budget or interrupted: what it saved is still the room
         note = str(exc)
+    # Whether the repair changed the room at all: one out of budget, or one that only looked, did
+    # not, and its result is then the checked room built again (said so, not "repaired").
+    changed = fingerprint(context.authored_room, preview)["source"] != checked
+    report["repair_changed"] = changed
     rc, log = _build(context, preview)
     if rc:
         # The repair left a room that does not build: put the checked one back.
         shutil.rmtree(context.authored_room)
         shutil.copytree(evidence / "room", context.authored_room, symlinks=True)
-        _build(context, preview)
+        if not _build(context, preview)[0]:
+            report["passes"] = _complete(context, preview, options)[0]
         report.update(status="needs_repair", error=f"repaired room does not build: {log}")
     else:
+        # The repaired build gets its small objects and openable parts again, mostly from cache.
+        report["passes"] = _complete(context, preview, options)[0]
         report.update(status="repaired", fingerprint=fingerprint(context.authored_room, preview))
     if note:
         report["repair_note"] = note
     telemetry.record(context.object_root / "traces", "repair_done", attempt=attempt.name,
-                     status=report["status"], note=note)
+                     status=report["status"], note=note, changed=changed)
     (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
     return report

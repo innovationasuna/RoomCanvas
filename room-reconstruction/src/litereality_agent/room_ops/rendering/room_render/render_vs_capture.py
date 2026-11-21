@@ -7,7 +7,10 @@ captured frames — unlike ``walkthrough_sidebyside``, which interpolates a smoo
 it against the whole capture video.
 
     python -m litereality_agent.room_ops.rendering.room_render.render_vs_capture --scan <scan_dir> --room <room_dir> \
-        --out <out_dir> [--res-div 2] [--fps 6] [--frames all|N|a-b|0,8,30]
+        --out <out_dir> [--res-div 2] [--fps 6] [--frames all|N|a-b|0,8,30] [--blend Room.blend]
+
+`--blend` renders an assembled Room.blend as it is, from the capture cameras it carries, instead of
+building `Room.py`: a room a later pass changed (small objects, openable parts) exists only there.
 
 Outputs under <out_dir>:  renders/frame_NNNNN.png (raw renders), pairs/pair_NNNNN.png (side-by-side),
 vs_capture.mp4 (all pairs as a clip), contact_sheet.png (a static grid for a quick look).
@@ -36,6 +39,34 @@ scan_dir, assets_dir, out_dir, frames, res_div = a[0], a[1], a[2], a[3], int(a[4
 # Room.py places nothing and the render is a bare shell (no furniture).
 scene = build_scene(scan_dir, assets_dir, out_dir)
 render_room_from_cameras(scene, out_dir, frames=frames, res_div=res_div,
+                         engine="EEVEE", rotate=False, describe=False)
+"""
+
+
+# The same render for a saved Room.blend: render_room_from_cameras is handed the opened file, at
+# the capture's resolution, in place of the RoomScene that Room.py would have built.
+_BLEND_DRIVER = r"""
+import sys, os
+import bpy
+sys.path.insert(0, os.environ["RVC_MODULE_DIR"])
+from render_room_cameras import render_room_from_cameras
+a = sys.argv[sys.argv.index("--") + 1:]
+out_dir, frames, res_div, width, height = a[0], a[1], int(a[2]), int(a[3]), int(a[4])
+
+
+class Opened:
+    render_w, render_h = width, height
+
+    def render_from(self, frame_index, out_path, res_div=1):
+        sc = bpy.context.scene
+        sc.camera = bpy.data.objects[f"cam_{frame_index:05d}"]
+        sc.render.resolution_x, sc.render.resolution_y = width, height
+        sc.render.resolution_percentage = max(1, int(100 / res_div))
+        sc.render.filepath = out_path
+        bpy.ops.render.render(write_still=True)
+
+
+render_room_from_cameras(Opened(), out_dir, frames=frames, res_div=res_div,
                          engine="EEVEE", rotate=False, describe=False)
 """
 
@@ -69,6 +100,26 @@ def _render_poses(scan_dir: Path, room_py: Path, assets_dir: Path, render_dir: P
     cmd = [_blender_bin(), "-b", "--python", str(scr), "--",
            str(scan_dir), str(assets_dir), str(render_dir), frames, str(res_div)]
     print(f"[rvc] rendering poses via {room_py.name} …", flush=True)
+    r = subprocess.run(cmd, env=env)
+    if r.returncode != 0:
+        raise SystemExit(f"[rvc] blender render failed (exit {r.returncode})")
+
+
+def _render_blend(scan_dir: Path, blend: Path, render_dir: Path, frames: str, res_div: int):
+    from PIL import Image
+
+    render_dir.mkdir(parents=True, exist_ok=True)
+    frames_jpg = sorted(scan_dir.glob("frame_*.jpg"))
+    if not frames_jpg:
+        raise SystemExit(f"[rvc] no frame_*.jpg in {scan_dir}")
+    with Image.open(frames_jpg[0]) as image:
+        width, height = image.size  # the capture's stored size, as Room.py's cameras take it
+    scr = Path(tempfile.mkdtemp()) / "_rvc_blend_driver.py"
+    scr.write_text(_BLEND_DRIVER)
+    env = dict(os.environ, RVC_MODULE_DIR=str(Path(__file__).resolve().parent))
+    cmd = [_blender_bin(), "-b", str(blend), "--python", str(scr), "--",
+           str(render_dir), frames, str(res_div), str(width), str(height)]
+    print(f"[rvc] rendering poses from {blend} …", flush=True)
     r = subprocess.run(cmd, env=env)
     if r.returncode != 0:
         raise SystemExit(f"[rvc] blender render failed (exit {r.returncode})")
@@ -199,18 +250,23 @@ def main(argv=None):
     ap.add_argument("--fps", type=float, default=6.0, help="pairs shown per second in the clip")
     ap.add_argument("--assets", type=Path, default=None,
                     help="materialized assets dir (default: sibling room_preview/)")
+    ap.add_argument("--blend", type=Path, default=None,
+                    help="render this assembled Room.blend as it is instead of building Room.py")
     a = ap.parse_args(argv)
 
     room_py = a.room / "Room.py"
     if not room_py.is_file():
         raise SystemExit(f"no Room.py at {room_py}")
-    assets_dir = a.assets or _resolve_assets(a.room)
-    print(f"[rvc] assets: {assets_dir}", flush=True)
     render_dir = a.out / "renders"
     pairs_dir = a.out / "pairs"
     a.out.mkdir(parents=True, exist_ok=True)
 
-    _render_poses(a.scan, room_py, assets_dir, render_dir, a.frames, a.res_div)
+    if a.blend:
+        _render_blend(a.scan, a.blend, render_dir, a.frames, a.res_div)
+    else:
+        assets_dir = a.assets or _resolve_assets(a.room)
+        print(f"[rvc] assets: {assets_dir}", flush=True)
+        _render_poses(a.scan, room_py, assets_dir, render_dir, a.frames, a.res_div)
     pairs = _make_pairs(a.scan, render_dir, pairs_dir)
     print(f"[rvc] {len(pairs)} render/real pairs", flush=True)
     sheet = _contact_sheet(pairs, a.out / "contact_sheet.png")

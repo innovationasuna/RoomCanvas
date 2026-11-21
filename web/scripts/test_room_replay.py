@@ -462,8 +462,10 @@ class LiveRecords(unittest.TestCase):
         self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('articulate'), 0)
 
 
-# The agent's adjusting and self-checks count as building the room; a second check, as the repair.
-EIGHT = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review', 'review2', 'articulate']
+# The agent's adjusting and self-checks count as building the room; a second check, as the repair. The openable
+# parts come before the check; an older run that made them after publishing lists them last (OLD).
+EIGHT = ['scan', 'layout', 'photos', 'plan', 'assemble', 'parts', 'review', 'review2']
+OLD = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review', 'review2', 'articulate']
 
 
 def phased(run):
@@ -524,7 +526,7 @@ class PhasedRun(unittest.TestCase):
         data = replay.timeline(job, 'completed', json.loads((job / 'job.json').read_text())['until'])
         events = data['events']
         self.assertFalse([e for e in events if e['say'].startswith('重新开始')])
-        self.assertEqual([s['id'] for s in data['stages']], EIGHT[:-1] + ['small_objects', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']], OLD[:-1] + ['small_objects', 'articulate'])
         self.assertEqual([e['stage'] for e in events if e['t'] > T0 + 1140], ['small_objects'] * 4 + ['articulate'] * 2)
         self.assertEqual([e['say'] for e in events if e['stage'] == 'small_objects'],
                          ['逐个看房间里的小物品，挑出需要按照片重做的', '纸巾盒换成了按照片重建的模型', '瓶子换成了按照片重建的模型',
@@ -682,6 +684,116 @@ class PhasedRun(unittest.TestCase):
                 self.assertEqual(response.read(), b'small')
         finally:
             server.shutdown(); server.server_close()
+
+
+def before_the_check(run):
+    """A run of the current flow: the author stage does the small objects and openable parts on the room it
+    built, checks that room, repairs it and does both passes again on the repaired room."""
+    scene = make_run(run)
+    small, parts = 'realism_authoring/small_objects/room_preview/Room.glb', 'realism_authoring/articulate/room_preview/Room.glb'
+    inside = {'stage': 'author', 'run': 'attempt-01'}
+    rows = [
+        {'t': T0 + 100, 'kind': 'model_saved', 'model': 'seed', 'run': 'attempt-01'},
+        {'t': T0 + 700, 'kind': 'small_objects_start', **inside},
+        {'t': T0 + 760, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'trellis', 'status': 'ok',
+         'reused': False, **inside},
+        {'t': T0 + 770, 'kind': 'small_object_done', 'name': 'Mug0', 'method': 'dropped', 'status': 'ok', **inside},
+        {'t': T0 + 780, 'kind': 'small_objects_done', 'rebuilt': 1, 'dropped': 1, 'kept': 0, **inside},
+        {'t': T0 + 790, 'kind': 'model_saved', 'model': 'small_objects', 'path': small, **inside},
+        {'t': T0 + 800, 'kind': 'articulate_start', 'source': 'x', **inside},
+        {'t': T0 + 900, 'kind': 'articulate_done', 'status': 'ok', 'exit': 0, **inside},
+        {'t': T0 + 900, 'kind': 'model_saved', 'model': 'articulated', 'path': parts, **inside},
+        {'t': T0 + 990, 'kind': 'model_saved', 'model': 'round', 'attempt': 'x', 'round': 0, **inside},
+        {'t': T0 + 1000, 'kind': 'review_done', 'reviewed': True, 'passed': False, 'attempt': 'x', 'round': 0,
+         'folder': 'realism_authoring/acceptance/attempt-x/round_00', **inside},
+        {'t': T0 + 1010, 'kind': 'repair_start', **inside},
+        {'t': T0 + 1050, 'kind': 'small_objects_start', **inside},
+        {'t': T0 + 1060, 'kind': 'small_object_done', 'name': 'TissueBox0', 'method': 'trellis', 'status': 'ok',
+         'reused': True, **inside},
+        {'t': T0 + 1065, 'kind': 'small_object_done', 'name': 'WaterBottle1', 'method': 'trellis', 'status': 'ok',
+         'reused': False, **inside},
+        {'t': T0 + 1080, 'kind': 'small_objects_done', 'rebuilt': 2, 'dropped': 1, 'kept': 0, **inside},
+        {'t': T0 + 1085, 'kind': 'model_saved', 'model': 'small_objects', 'path': small, **inside},
+        {'t': T0 + 1090, 'kind': 'articulate_start', 'source': 'x', **inside},
+        {'t': T0 + 1120, 'kind': 'articulate_done', 'status': 'ok', 'exit': 0, **inside},
+        {'t': T0 + 1120, 'kind': 'model_saved', 'model': 'articulated', 'path': parts, **inside},
+        {'t': T0 + 1130, 'kind': 'repair_done', 'status': 'repaired', **inside},
+        {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'stage': 'publish', 'run': 'attempt-01'},
+    ]
+    with (scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in rows))
+    write(run / 'attempt-01' / 'exit', '0\n')
+    write(scene / small, b'small', T0 + 1084)
+    write(scene / parts, b'articulated', T0 + 1119)
+    return scene
+
+
+class PassesBeforeTheCheck(unittest.TestCase):
+    """The author stage completes its room with the small objects and openable parts, then checks it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.scene = before_the_check(self.root / 'run')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_passes_come_before_the_check_and_again_with_the_repair(self):
+        data = replay.timeline(self.root, 'completed', T0 + 1300)
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT)
+        events = [(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 650]
+        self.assertEqual(events, [
+            (700, 'assemble', '逐个看房间里的小物品，挑出需要按照片重做的', None),
+            (760, 'assemble', '纸巾盒换成了按照片重建的模型', None),
+            (790, 'assemble', '小物品处理好了：按照片重做 1 件，去掉 1 件', None),
+            (800, 'parts', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', None),
+            (900, 'parts', '装好可开合部件', None),
+            (1000, 'review', '检查房间没通过', 'round0'),
+            (1010, 'review2', '按检查出的问题开始修复房间', None),
+            (1050, 'review2', '逐个看房间里的小物品，挑出需要按照片重做的', None),
+            (1065, 'review2', '瓶子换成了按照片重建的模型', None),  # the tissue box was done already
+            (1085, 'review2', '小物品处理好了：按照片重做 2 件，去掉 1 件', 'small_objects'),
+            (1090, 'review2', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', None),
+            (1120, 'review2', '装好可开合部件', 'articulated'),
+            (1130, 'review2', '按检查出的问题修好了房间', None),
+            (1140, 'review2', '导出最终房间', 'final')])
+        self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
+        self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED),
+                         (self.scene / 'realism_authoring/articulate/room_preview/Room.glb').resolve())
+        self.assertFalse([e for e in data['events'] if re.search('沿用|复用', e['say'])])
+
+    def test_a_repair_that_changed_nothing_says_so_and_an_older_record_reads_as_before(self):
+        rows = replay.trace_rows(self.scene)
+        done = next(r for r in rows if r['kind'] == 'repair_done')
+        self.assertNotIn('changed', done)  # this run's records are of the older kind
+        says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
+        self.assertEqual(says, ['按检查出的问题修好了房间'])
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps({'t': T0 + 1135, 'kind': 'repair_done', 'status': 'repaired', 'changed': False,
+                                'stage': 'author', 'run': 'attempt-02'}) + '\n')
+        says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
+        self.assertEqual(says, ['按检查出的问题修好了房间', '按检查意见尝试修改，房间没有变化'])
+
+    def test_the_items_of_the_author_stages_pass_are_cards_with_their_pictures(self):
+        # The pass writes beside the room (realism_authoring/small_objects); its pictures are found and served there.
+        photo = write(self.scene / 'realism_authoring/small_objects/evidence/TissueBox0/view0.jpg', b'jpg', T0 + 600)
+        data = replay.timeline(self.root, 'completed', T0 + 1300)
+        cards = [e for e in data['events'] if e.get('work') == 'small']
+        self.assertEqual([(e['stage'], e['object_id'], e['object_name']) for e in cards],
+                         [('assemble', 'TissueBox0', '纸巾盒'), ('review2', 'WaterBottle1', '瓶子')])
+        self.assertEqual(cards[0]['img'], 'small-objects/evidence/TissueBox0/view0.jpg')
+        self.assertEqual(replay.scene_file(self.scene, cards[0]['img']), photo.resolve())
+        self.assertIsNone(replay.scene_file(self.scene, 'small-objects/evidence/../../room/Room.py'))
+        dest = self.root / 'slim'
+        replay.slim(self.root / 'run', dest)
+        self.assertEqual((dest / 'small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'jpg')
+
+    def test_without_a_repair_the_rooms_of_the_passes_show_before_the_check(self):
+        data = replay.timeline(self.root, 'running', T0 + 1005)
+        self.assertEqual([(e['t'] - T0, e['stage'], e.get('model')) for e in data['events'] if e.get('kind') == 'milestone'
+                          and e['t'] > T0 + 650], [(790, 'assemble', 'small_objects'), (900, 'parts', 'articulated')])
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT)
 
 
 def glb(path, tree, t):
@@ -923,7 +1035,7 @@ class Sessions(unittest.TestCase):
         summary.condense(replay.agent_records(self.scene), self.run_('assemble'), T0, final=True)
         self.assertFalse([p for p in self.calls if 'revise' in p or 'small_objects' in p])  # not offered to the model
         data = replay.timeline(self.job, 'completed', T0 + 2400)
-        self.assertEqual([s['id'] for s in data['stages']], EIGHT[:-1] + ['revise', 'small_objects', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']], OLD[:-1] + ['revise', 'small_objects', 'articulate'])
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),

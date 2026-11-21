@@ -10,6 +10,7 @@ from pathlib import Path
 from litereality_agent.agent import scratch
 from litereality_agent.agent.author import OPEN_MAX_TURNS, OPEN_STEP_BUDGET, PROFILES, run
 from litereality_agent.pipeline.realism_authoring import arguments as stage_args
+from litereality_agent.pipeline.realism_authoring.small_objects import ready
 
 
 def main() -> None:
@@ -64,6 +65,14 @@ def main() -> None:
         env = os.environ.get("AUTHOR_STEPS")
         args.step_budget = int(env) if env else (OPEN_STEP_BUDGET if args.profile == "open" else 100)
 
+    # The operator's small-object models (LR_SMALL_OBJECTS_MODELS) go into the room for the session
+    # to place itself; like the operator's material they are not an input identity.
+    try:
+        models = ready.stage(Path(args.room))
+    except FileNotFoundError as exc:
+        print(f"author: {exc}", flush=True)
+        raise SystemExit(1) from None
+
     try:
         rc = asyncio.run(
             run(
@@ -76,6 +85,8 @@ def main() -> None:
                 step_budget=args.step_budget,
                 step_reserve=args.step_reserve,
                 provider=args.provider,
+                brief=ready.prompt(models, Path(args.room)),
+                read_roots=(ready.root(),) if models else (),
             )
         )
         raise SystemExit(rc or 0)

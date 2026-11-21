@@ -121,3 +121,40 @@ def test_urdf_joint_matches_the_part_node(tmp_path):
     assert joints[0].find("origin").get("xyz") == "0 -0.245 0.49"
     assert joints[1].find("axis").get("xyz") == "0 0 1"
     assert math.isclose(float(joints[1].find("limit").get("upper")), math.radians(95), rel_tol=1e-5)
+
+
+def test_a_new_cut_keeps_the_checks_of_objects_cut_as_before(tmp_path, monkeypatch):
+    """The repaired room is cut again; an object cut as when it was checked is not asked again."""
+    from litereality_agent.pipeline.realism_authoring.articulate.run import Pass
+
+    paths = {"capture": "capture", "authoring_preview": "preview", "authoring": "authoring",
+             "authoring_room": "room"}
+    (tmp_path / "scene.json").write_text(json.dumps({"paths": paths}))
+    (tmp_path / "preview").mkdir()
+    (tmp_path / "preview" / "room_layout.json").write_text(json.dumps({**room(), "cameras": []}))
+    for name in ("Room.blend", "Room.glb"):
+        (tmp_path / "preview" / name).write_bytes(b"room")
+    run = Pass(tmp_path)
+    door = {"name": "door", "joint": "revolute"}
+    made = {"Pedestal0": [{"name": "door", "node": "Pedestal0_door", "faces": 40}],
+            "Table1": [{"name": "door", "node": "Table1_door", "faces": 12}]}
+
+    def blender(_blend, request, _name):
+        folder = tmp_path / request["out_dir"]
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in ("Room.blend", "Room.glb"):
+            (folder / name).write_bytes(json.dumps(made).encode())
+        (folder / "apply.json").write_text(json.dumps(
+            {"cut": [{"id": oid, "parts": parts} for oid, parts in made.items()], "skipped": []}))
+
+    monkeypatch.setattr(run, "blender", blender)
+    run.items = [{"id": oid, "plan": {"parts": [door]}} for oid in made]
+    run.draft()
+    for item in run.items:  # the check asked about both cuts
+        item["checked"] = run.checked_as(item, run.made())
+        item["check"] = {"door": {"keep": True}}
+    made["Table1"] = [{"name": "door", "node": "Table1_door", "faces": 30}]  # the repair changed it
+    run.dependency_key = "the repaired room"
+    run.draft()
+    checks = {item["id"]: item.get("check") for item in run.items}
+    assert checks == {"Pedestal0": {"door": {"keep": True}}, "Table1": None}

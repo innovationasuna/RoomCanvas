@@ -1,4 +1,5 @@
-"""The articulation pass, run after `author` on its Room.blend without re-running it.
+"""The articulation pass, run on the author's Room.blend without re-running it: by the author stage
+before its check, after the small objects (realism_authoring/passes.py), or on its own.
 
     python -m litereality_agent.pipeline.realism_authoring.articulate <scene dir> [--out DIR]
                                                                        [--only ID ...]
@@ -17,7 +18,9 @@
 
 Steps: candidates -> views -> photos -> Astra decides per object (does it open, where, how) ->
 cut everything planned (draft) -> render closed/open -> Astra checks each part -> the kept parts
-are cut again from the author's room (room_preview). Every step skips work already on disk.
+are cut again from the author's room (room_preview). Every step skips work already on disk; on a
+rebuilt room (the check's repair) the objects that are still the same keep their views, plan and
+check.
 
 LR_ARTICULATE_SOURCE=<room_preview dir> takes the room from another pass instead, e.g. the
 small objects' `room_preview/`, so the published room has them. It must be that pass's complete
@@ -128,7 +131,8 @@ class Pass:
         self.concurrency = concurrency
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
         self.dependency_key = pass_cache.prepare(
-            self.out, self.preview, self.frames, self.layout, Path(__file__).parent)
+            self.out, self.preview, self.frames, self.layout, Path(__file__).parent,
+            keep=("items.json", "views", "check"))
         self.state_path = self.out / "items.json"
         self.items = (json.loads(self.state_path.read_text()) if self.state_path.exists()
                       else None)
@@ -194,8 +198,16 @@ class Pass:
 
     # ------------------------------------------------------------------ steps
     def find(self):
-        if self.items is None:
-            self.items = candidates.find_candidates(self.layout)
+        # An object that is the same candidate as before keeps its views, plan and check, also in
+        # a rebuilt room; one that changed or is gone starts over (pass_cache.carry).
+        items, changed = pass_cache.carry(self.items, candidates.find_candidates(self.layout))
+        if changed:
+            self.log(f"changed in the room, looked at again: {', '.join(changed)}")
+            for oid in changed:  # one retire per folder name: the two folders share the id
+                cache.retire([self.out / "views" / oid], self.out)
+                cache.retire([self.out / "check" / oid], self.out)
+        if items != self.items:
+            self.items = items
             self.save()
         self.log(f"{len(self.items)} candidates: {', '.join(i['id'] for i in self.items)}")
 
@@ -273,15 +285,31 @@ class Pass:
             raise
         return True
 
+    def made(self) -> dict:
+        """{object id: the parts the draft cut from it} (draft/apply.json)."""
+        report = self.out / "draft" / "apply.json"
+        return ({row["id"]: row["parts"] for row in json.loads(report.read_text())["cut"]}
+                if report.exists() else {})
+
+    def checked_as(self, item, made: dict) -> dict:
+        """What an object's check looked at: its planned parts and what the draft cut of them."""
+        return {"parts": (item.get("plan") or {}).get("parts") or [],
+                "cut": made.get(item["id"], [])}
+
     def draft(self):
         plan = self.planned()
         if not plan:
             return
         if self.cut(self.out / "draft", plan, "draft"):
-            cache.retire([self.out / "check", self.out / "room_preview"], self.out)
+            cache.retire([self.out / "room_preview"], self.out)
+            # A check still holds for an object cut as it was when checked (also in a rebuilt
+            # room, where only the others changed); every other object is checked again.
+            made = self.made()
             for item in self.items:
-                item.pop("check", None)
-                item.pop("check_error", None)
+                if "check" not in item or item.get("checked") != self.checked_as(item, made):
+                    for key in ("check", "check_error", "checked"):
+                        item.pop(key, None)
+                    cache.retire([self.out / "check" / item["id"]], self.out)
             self.save()
         todo = [p["id"] for p in plan
                 if not (self.out / "check" / p["id"] / "open_3.png").exists()]
@@ -292,13 +320,12 @@ class Pass:
 
     def check(self):
         jobs = []
-        cut = {row["id"]: row["parts"]
-               for row in json.loads((self.out / "draft" / "apply.json").read_text())["cut"]} \
-            if (self.out / "draft" / "apply.json").exists() else {}
+        cut = self.made()
         for item in self.items:
             parts = (item.get("plan") or {}).get("parts") or []
             if not parts or "check" in item:
                 continue
+            item["checked"] = self.checked_as(item, cut)
             made = {p["name"] for p in cut.get(item["id"], [])}
             if not made:
                 item["check"] = {p["name"]: {"keep": False, "reason": "nothing to cut in its box"}

@@ -185,7 +185,8 @@ def run(context: RunContext, options: dict) -> StageResult:
     preview = context.authoring_root / "room_preview"
     # The gate reads the BUILD. A session that rendered has one; a session that stopped early
     # or only edited may not, and an unbuilt room is exactly the one whose claims nobody checked.
-    # `Room.py` is valid Python here (author.run guarantees it), so build it once (~1-2 min).
+    # `Room.py` is valid Python here (author.run guarantees it), so build it once (~1-2 min), and
+    # complete it with the small objects and openable parts before the check (passes.py).
     from litereality_agent.pipeline.realism_authoring.acceptance import done, finish
     report = finish(context, options)
     result.artifacts["acceptance"] = str(preview / "author_acceptance.json")

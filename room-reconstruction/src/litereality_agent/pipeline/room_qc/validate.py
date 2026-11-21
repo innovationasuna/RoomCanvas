@@ -132,8 +132,9 @@ def check_articulated(manifest: dict, glb: Path) -> list[dict]:
         return []
     try:
         import networkx as nx
-        import trimesh
-        scene = trimesh.load(str(glb), force="scene", skip_materials=True)
+
+        from litereality_agent.room_ops import glb as room_glb
+        scene = room_glb.load(glb, force="scene", skip_materials=True)
         G = scene.graph.to_networkx()
         geo = set(scene.graph.nodes_geometry)
     except Exception as exc:  # noqa: BLE001
@@ -158,7 +159,9 @@ def check_manifold(glb: Path, limit: int = 12) -> list[dict]:
         return []
     try:
         import trimesh
-        scene = trimesh.load(str(glb), force="scene", skip_materials=True)
+
+        from litereality_agent.room_ops import glb as room_glb
+        scene = room_glb.load(glb, force="scene", skip_materials=True)
     except Exception:  # noqa: BLE001
         return []
     rows = []

@@ -2,7 +2,8 @@
 """Run the reconstruction module on the 3090 server, configuring only machine paths and keys.
 
 usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N] [--revise]
-                   [--set KEY=VALUE ...] [--no-articulate] [--check]
+                   [--repair-steps N] [--repair-seconds S] [--set KEY=VALUE ...] [--no-articulate]
+                   [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
        run_room.py --articulate SCENE_DIR OUT_DIR [--through STEP] [--only ID ...] [--check]
        run_room.py --premake-small-objects PHOTOS_DIR OUT_DIR [--only KIND ...] [--check]
@@ -11,27 +12,32 @@ The code that runs is this checkout's room-reconstruction/. Runtimes, model weig
 .env come from $ROOMCANVAS_HOME. --set records each configuration workaround explicitly in
 run-config.json. --check prints what would run and exits without creating anything.
 
-Author checks the room once (support, then a pass/fail visual review, no score); if it fails,
-one repair runs and its rebuilt room is the result (--repair-rounds 0 only checks: a room that fails
-then ends as needs_repair, unpublished). --revise (with --from author) opens one more authoring session on
-the finished room, for follow-up requests written into the LR_AUTHOR_EXTRA material; the room is kept,
-checked and published again, and the passes below are then run again on it. --small-objects runs the small-object pass on a finished run's scene directory
-(runs/<run>/pipeline/<scene>) and writes to OUT_DIR, leaving the finished run untouched.
---articulate does the same for openable parts: Astra decides per object whether it has parts that
-open and where, Blender cuts them out and hinges them (see realism_authoring/articulate/).
+Author builds the room in one session, then completes it before checking it: the small-object pass
+(drops, keeps or rebuilds from the photos what the session modelled as small things) and the
+openable-parts pass (Astra decides per object whether it has parts that open and where, Blender cuts
+them out and hinges them) run on that build, into the scene's realism_authoring/small_objects/ and
+realism_authoring/articulate/ (see realism_authoring/passes.py). The complete room is checked once
+(support, then a pass/fail visual review, no score); if it fails, one repair edits Room.py and its
+rebuilt room goes through both passes again (each keeps the work of what the repair left unchanged)
+and is the result (--repair-rounds 0 only checks: a room that fails then ends as needs_repair,
+unpublished). Publish publishes that room in the scene's realism_authoring/room_preview/.
+--no-articulate leaves out the openable parts. --revise (with --from author) opens one more
+authoring session on the finished room, for follow-up requests written into the LR_AUTHOR_EXTRA
+material; the room is kept and goes through the same passes, check and publish again.
+
 --premake-small-objects makes OUT_DIR/<Kind>.glb from PHOTOS_DIR/<Kind>/*.jpg before the author
-stage, so the GPU is free again while it runs; the pass later takes them through
---set LR_SMALL_OBJECTS_MODELS=OUT_DIR (see small_objects/premake.py).
+stage, so the GPU is free again while it runs. Given --set LR_SMALL_OBJECTS_MODELS=OUT_DIR, the
+author session finds them copied into the room as Models/<Kind>.glb and places them itself
+(small_objects/ready.py); a small thing it still modelled itself gets its model from the pass by
+name (see small_objects/premake.py).
 
-A full run does that pass by default once author has written its room: into RUN_DIR/articulate/
-(its room_preview/ is the room to use; the author's own and the published one stay without the
-new parts). --no-articulate skips it; a rerun picks it up where it stopped.
-
-Either way the replay sees the articulate pass by the same records (articulate_start,
-articulate_done, model_saved articulated); a complete --small-objects pass adds model_saved
-small_objects. To articulate the room WITH the small objects, run --small-objects into
-RUN_DIR/small-objects, then --articulate into RUN_DIR/articulate with
---set LR_ARTICULATE_SOURCE=RUN_DIR/small-objects/room_preview.
+--small-objects and --articulate run one pass on its own over a finished run's scene directory
+(runs/<run>/pipeline/<scene>), writing to OUT_DIR and leaving the finished run untouched: for rooms
+published before the passes were part of author, whose published room has neither. Their room is
+not checked. The replay sees them by their records (articulate_start, articulate_done, model_saved
+articulated; a complete --small-objects pass adds model_saved small_objects). To articulate such a
+room WITH the small objects, run --small-objects into RUN_DIR/small-objects, then --articulate into
+RUN_DIR/articulate with --set LR_ARTICULATE_SOURCE=RUN_DIR/small-objects/room_preview.
 """
 
 import argparse
@@ -89,13 +95,15 @@ p.add_argument("--through")
 p.add_argument("--set", action="append", default=[])
 p.add_argument("--repair-rounds", default="1", choices="01", help="repair once when the check fails (0: check only)")
 p.add_argument("--revise", action="store_true", help="one more authoring session on the finished room")
+p.add_argument("--repair-steps", help="tool calls of the one repair (the CLI's default when not given)")
+p.add_argument("--repair-seconds", help="wall seconds of the one repair (the CLI's default when not given)")
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
 p.add_argument("--premake-small-objects", action="store_true",
                help="make small-object models from photos by kind instead")
 p.add_argument("--only", nargs="*", help="with a pass: only these objects")
 p.add_argument("--no-articulate", action="store_true",
-               help="a full run: do not run the openable-parts pass after author")
+               help="a full run: author leaves out the openable parts before its check")
 p.add_argument("--wait-gpu", action="store_true", help="wait until an allowed GPU is available")
 p.add_argument("--check", action="store_true", help="print the configuration and exit")
 a = p.parse_args()
@@ -153,6 +161,10 @@ cmd = [str(runtime / "litereality-env/bin/litereality"), "run", str(target),
        "--repair-rounds", a.repair_rounds]
 if a.revise:
     cmd += ["--revise"]
+if a.no_articulate:
+    cmd += ["--no-articulate"]
+for flag, value in (("--repair-steps", a.repair_steps), ("--repair-seconds", a.repair_seconds)):
+    cmd += [flag, value] if value else []
 if a.from_stage:
     cmd += ["--from", a.from_stage]
 if a.through:
@@ -170,15 +182,6 @@ record = {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--por
           "workarounds": workarounds,
           "model_settings": {k: env[k] for k in sorted(env)
                              if k.startswith(("LR_", "HARNESS_")) and not SECRET_NAME.search(k)}}
-# A full run that reaches author is followed by the openable-parts pass on the author's room.
-articulate = None
-if not (a.small_objects or a.articulate or a.premake_small_objects or a.no_articulate) and \
-        a.through not in ("ingest", "reconstruct", "seed"):
-    articulate = [str(runtime / "litereality-env/bin/python"), "-m",
-                  "litereality_agent.pipeline.realism_authoring.articulate",
-                  "<scene dir under RUN_DIR/pipeline>", "--out",
-                  str((a.run_dir / "articulate").resolve())]
-    record["then"] = articulate
 if a.check:
     print(json.dumps(record, indent=2))
     raise SystemExit(0)
@@ -260,8 +263,8 @@ def run_timed(command, log, phase, lease):
 
 
 def articulated(scene: Path, command, out: Path, log_name: str, phase: str, lease) -> int:
-    """The openable-parts pass between the records the replay shows it by, after a full run and
-    as --articulate alike; its room is out/room_preview."""
+    """The openable-parts pass on its own (--articulate) between the records the replay shows it by
+    (author records them itself when it runs the pass); its room is out/room_preview."""
     source = env.get("LR_ARTICULATE_SOURCE")
     trace(scene, "articulate_start", **({"source": source} if source else {}))
     with (attempt / log_name).open("w") as log:
@@ -294,17 +297,4 @@ with measured_lease() as (gpu, lease):
         scene = a.scan.resolve()
         trace(scene, "model_saved", model="small_objects", stage="small_objects", path=str(small),
               run_path=os.path.relpath(small, scene.parents[1]), at=small.stat().st_mtime)
-    # Only a successful current pipeline may feed enhancement. A failed retry can
-    # leave yesterday's preview beside its partial source.
-    scenes = [d for d in scene_dirs(a.run_dir)
-              if (d / "realism_authoring/room_preview/Room.blend").is_file()
-              and (d / "realism_authoring/room_preview/room_layout.json").is_file()]
-
-
-    art = 0
-    if rc == 0 and articulate and len(scenes) == 1:
-        articulate[articulate.index("<scene dir under RUN_DIR/pipeline>")] = str(scenes[0].resolve())
-        art = articulated(scenes[0], articulate, a.run_dir / "articulate", "articulate.log", "articulate", lease)
-        (attempt / "articulate-exit").write_text(f"{art}\n")
-        print(attempt.name, "articulate exit", art, "->", a.run_dir / "articulate" / "room_preview")
-    raise SystemExit(rc or art)
+    raise SystemExit(rc)

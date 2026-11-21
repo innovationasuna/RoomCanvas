@@ -138,7 +138,9 @@ class PipelineRunner:
             # `revise` asks for one more run of a stage that is complete, without the restart `force`
             # means (author: another session on the finished room, for the operator's follow-up
             # requests). Like `force` it belongs to this invocation, not to what the result is made from.
-            cache_options = {key: value for key, value in stage_options.items() if key not in ("force", "revise")}
+            # So does leaving out author's openable parts: a finished room is not authored again for it.
+            cache_options = {key: value for key, value in stage_options.items()
+                             if key not in ("force", "revise", "articulate")}
             fingerprint = stage.fingerprint(context, cache_options) if stage.fingerprint else None
             inputs_changed = changed(stage, old, fingerprint)
             # Enabling DINO on an existing run must rerun ingest and invalidate its consumers.

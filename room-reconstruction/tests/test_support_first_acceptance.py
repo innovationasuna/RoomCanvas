@@ -15,6 +15,13 @@ from litereality_agent.pipeline.room_qc import export_support as E
 from litereality_agent.pipeline.room_qc import publish
 
 
+@pytest.fixture(autouse=True)
+def no_passes(monkeypatch):
+    """The small-object and openable-parts passes are covered in test_passes_before_check.py."""
+    monkeypatch.setattr(A, "_complete", lambda context, preview, options: (
+        {"room": "realism_authoring/room_preview"}, preview))
+
+
 def context(tmp_path):
     c = RunContext("test", tmp_path / "capture", tmp_path / "scene", tmp_path)
     c.authored_room.mkdir(parents=True)

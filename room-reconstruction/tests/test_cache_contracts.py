@@ -164,6 +164,10 @@ def scene(tmp_path):
     return tmp_path
 
 
+PER_ITEM = {"articulate": ("views", "check"), "small_objects": ("evidence", "rebuild")}
+OUTPUTS = ("views", "draft", "check", "evidence", "rebuild", "renders", "room_preview")
+
+
 @pytest.mark.parametrize("module", ["articulate", "small_objects"])
 def test_pass_invalidation_reaches_all_substages_despite_same_mtime(tmp_path, module):
     import importlib
@@ -172,15 +176,38 @@ def test_pass_invalidation_reaches_all_substages_despite_same_mtime(tmp_path, mo
     run = Pass(scene(tmp_path))
     run.items = [{"id": "old", "box": {}, "plan": {}, "check": {}}]
     run.save()
-    for name in ("views", "draft", "check", "rebuild", "room_preview"):
-        (run.out / name).mkdir()
-        (run.out / name / "artifact").write_bytes(b"stale")
+    for name in OUTPUTS:
+        (run.out / name / "old").mkdir(parents=True)
+        (run.out / name / "old" / "artifact").write_bytes(b"stale")
     assert Pass(tmp_path).items == run.items
+    # A rebuild of the room (the check's repair): what was made from the whole room goes; each
+    # item's own work stays until the pass sees whether that item is still the same.
     overwrite_preserving_metadata(tmp_path / "preview" / "Room.blend", b"new")
     resumed = Pass(tmp_path)
+    assert resumed.items == run.items
+    assert [name for name in OUTPUTS if (run.out / name).exists()] == list(PER_ITEM[module])
+    resumed.find()  # this room has no such candidate any more
+    assert resumed.items == []
+    assert not any((run.out / name / "old").exists() for name in PER_ITEM[module])
+    assert list((run.out / ".stale").glob("*/items.json")) == []
+
+
+@pytest.mark.parametrize("module", ["articulate", "small_objects"])
+def test_a_pass_whose_code_or_models_changed_starts_over(tmp_path, module):
+    import importlib
+
+    Pass = importlib.import_module(f"litereality_agent.pipeline.realism_authoring.{module}.run").Pass
+    run = Pass(scene(tmp_path))
+    run.items = [{"id": "old"}]
+    run.save()
+    (run.out / PER_ITEM[module][0] / "old").mkdir(parents=True)
+    marker = cache.read_json(run.out / "dependencies.json")
+    marker["dependencies"]["models"] = {"image_model": "an earlier one"}
+    marker["key"] = "earlier"
+    cache.atomic_json(run.out / "dependencies.json", marker)
+    resumed = Pass(tmp_path)
     assert resumed.items is None
-    assert not any((run.out / name).exists() for name in
-                   ("views", "draft", "check", "rebuild", "room_preview"))
+    assert not (run.out / PER_ITEM[module][0]).exists()
     assert list((run.out / ".stale").glob("*/items.json"))
 
 

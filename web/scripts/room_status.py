@@ -22,7 +22,9 @@ def describe(folder, record, state):
     quality_status = ('passed' if quality.get('accepted') is True else
                       'warnings' if quality.get('accepted') is False else 'unknown')
     enhancement = dict(record.get('enhancement', {}))
-    summary = read_json(folder / 'run/articulate/summary.json')
+    # The openable-parts pass of the author stage writes beside the room; an older launcher's into run/.
+    summaries = list((folder / 'run/pipeline').glob('*/realism_authoring/articulate/summary.json'))
+    summary = read_json(summaries[0] if len(summaries) == 1 else folder / 'run/articulate/summary.json')
     if enhancement.get('attempt_id') and summary.get('attempt_id') == enhancement['attempt_id']:
         enhancement = {**summary, **enhancement}
     if enhancement.get('status') == 'failed':

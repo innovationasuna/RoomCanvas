@@ -11,7 +11,7 @@ name). A folder may instead (or also) hold reference.png, the thing alone and al
 asked, for things whose one good view exists already. Each kind gets the steps the pass gives a
 rebuilt item, minus what needs the room: the
 reference sheet with the photos as tiles and the image model (rebuild.make_reference), TRELLIS
-(rebuild.run_trellis, every kind in one process), floating fragments dropped, and the hue turned
+(rebuild.run_trellis, every kind in one process), pieces touching nothing dropped, and the hue turned
 back to the reference and metal zeroed (rebuild.correct_material; it compares against the
 generated reference, not the scan). Output:
 

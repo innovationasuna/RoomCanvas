@@ -29,6 +29,19 @@ def keeps_shape(world, tolerance: float = 1e-5) -> bool:
     return bool(size > 0 and np.abs(gram - size * np.eye(3)).max() <= tolerance * size)
 
 
+def stretch(world, tolerance: float = 1e-5):
+    """The lengths of a world matrix's three axes when they are at right angles (a part stretched
+    along its own axes, as a tabletop is): an empty under it scaled by their inverse stands level
+    again, so a turned child under that empty is not sheared. None when the axes are skewed."""
+    axes = np.asarray(world, float)[:3, :3]
+    gram = axes.T @ axes
+    lengths = np.sqrt(np.clip(np.diag(gram), 0, None))
+    if lengths.min() <= 0:
+        return None
+    off = gram - np.diag(np.diag(gram))
+    return [float(v) for v in lengths] if np.abs(off).max() <= tolerance * gram.trace() / 3 else None
+
+
 def hull(points: np.ndarray) -> np.ndarray:
     """Convex hull of 2D points, counter-clockwise (monotone chain)."""
     pts = np.unique(np.round(points, 6), axis=0)

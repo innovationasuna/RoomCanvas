@@ -171,6 +171,12 @@ def import_glb(path):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     imported = [o for o in bpy.data.objects if o not in before]
+    # A TRELLIS mesh's root empty is named `world`, the name trimesh gives its own scene root: the
+    # room's checks would read the whole room as hanging from it (room_ops/glb.py). Not in a room.
+    stem = os.path.splitext(os.path.basename(path))[0]
+    for o in imported:
+        if o.name == "world" or o.name.startswith("world."):
+            o.name = f"{stem}_root"
     # Articulated assets (doors/windows) ship a closed->open animation. The assembled room must
     # hold the CLOSED/rest pose for bbox/placement (else a window swung open reads as ~4.8 m), so
     # evaluate frame 0 (closed). We KEEP the animation (do NOT clear it) so the clip survives into
@@ -1019,7 +1025,7 @@ class RoomScene:
 
     # ---------------------------------------------------------------- index
     def _register(self, rid, cat, meshes, source=None, handle=None,
-                  rests_on=None, attached_to=None, support_part=None):
+                  rests_on=None, attached_to=None, support_part=None, rebuilt=None):
         mn, mx = world_bbox(meshes)
         self.objects[rid] = {
             "id": rid,
@@ -1036,6 +1042,8 @@ class RoomScene:
             "support_part": support_part,
             "source_glb": source,
         }
+        if rebuilt:  # a ready model put in by place_model: its own group (room_objects.py)
+            self.objects[rid]["rebuilt"] = rebuilt
 
     def index(self):
         """(Re)build the object registry from the live scene graph."""
@@ -1054,6 +1062,7 @@ class RoomScene:
                     rests_on=o.get("rests_on"),
                     attached_to=o.get("attached_to"),
                     support_part=o.get("support_part"),
+                    rebuilt=o.get("rebuilt"),
                 )
         return self.objects
 
@@ -1178,6 +1187,63 @@ class RoomScene:
         )
         print(f"  placed '{rid}' on '{target_id}' (scale {scale:.2f}) at z={tz:.3f}")
         return rid
+
+    def place_model(
+        self, name, glb_path, bottom, size, yaw_deg=0.0, category="small_object",
+        rests_on=None, attached_to=None, support_part=None,
+    ):
+        """Put a ready-made GLB (a small object made from photos up front) into the room as the
+        object `name`: the centre of its underside at `bottom` (x, y, z), scaled to `size` — the
+        measured (width, depth, height), or one number, the height, keeping the model's own
+        proportions — and turned `yaw_deg` about Z (the model's front faces -Y before the turn).
+        A relative path is read beside this Room.py. Like a `group_fixture` group it states what
+        holds it up; like an object the small-object pass rebuilt it is its own group (`rebuilt`),
+        and that pass leaves it alone (it has a `source_glb`). Returns the handle."""
+        if not os.path.isabs(glb_path):
+            glb_path = os.path.join(HERE, glb_path)
+        imported = import_glb(glb_path)
+        meshes = [o for o in imported if o.type == "MESH"]
+        if not meshes:
+            raise ValueError(f"{glb_path} has no mesh")
+        roots = [o for o in imported if o.parent not in imported]
+        bpy.context.view_layer.update()
+        mn, mx = world_bbox(meshes)
+        own = [max(v, 1e-6) for v in mx - mn]
+        if isinstance(size, (int, float)):
+            scale = (size / own[2],) * 3
+        else:
+            scale = tuple(want / have for want, have in zip(size, own))
+        pose = Matrix.Translation(Vector(bottom)) @ Matrix.Rotation(math.radians(yaw_deg), 4, "Z")
+        M = (pose @ Matrix.Diagonal((*scale, 1.0))
+             @ Matrix.Translation((-(mn.x + mx.x) / 2, -(mn.y + mx.y) / 2, -mn.z)))
+        for r in roots:
+            r.matrix_world = M @ r.matrix_world
+        # The handle stands where the object does, turned with it, as the small-object pass
+        # leaves its rebuilds: an editor moving or turning the object turns it about itself.
+        coll = get_or_make_collection(COLL_ADDED)
+        handle = bpy.data.objects.new(name, None)
+        handle.empty_display_size = 0.05
+        handle.matrix_world = pose
+        handle["room_id"] = name
+        handle["category"] = category
+        handle["source_glb"] = os.path.basename(glb_path)
+        handle["rebuilt"] = "model"
+        for key, value in (("rests_on", rests_on), ("attached_to", attached_to),
+                           ("support_part", support_part)):
+            if value:
+                handle[key] = value
+        coll.objects.link(handle)
+        for r in roots:
+            r.parent = handle
+            r.matrix_parent_inverse = pose.inverted()
+        for o in imported:
+            move_to_collection(o, coll)
+        bpy.context.view_layer.update()  # settle parenting before reading bbox
+        self._register(name, category, mesh_descendants(handle), source=handle["source_glb"],
+                       handle=name, rests_on=rests_on, attached_to=attached_to,
+                       support_part=support_part, rebuilt="model")
+        print(f"  placed model '{name}' ({os.path.basename(glb_path)}) at {tuple(round(v, 3) for v in bottom)}")
+        return handle
 
     def render_from(self, frame_index, out_path, res_div=1):
         """Render the assembled scene from capture camera <frame_index>."""
