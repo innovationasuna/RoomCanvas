@@ -1071,7 +1071,11 @@ def timeline(job_dir, status='completed', until=None):
         """The condensed lines of these records as events; returns the last record they cover."""
         prefix, by_seq, covered = 'm' if repair else 'a', {r['seq']: r for r in records}, -1
         for batch in summary.batches(repair):
+            if batch['to'] not in by_seq:  # its records are gone (moved away, or past `until`): neither shown nor covered
+                continue
             for item in batch['items']:
+                if item['from'] not in by_seq or item['to'] not in by_seq:
+                    continue
                 # A line shows only pictures the agent looked at within its own records: the one chosen for it, else
                 # the first of them (a cache may name one outside, or none).
                 pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
