@@ -130,7 +130,11 @@ SAM 3D、TRELLIS.2、DA3 等模型默认从 ModelScope 下载（`MODEL_SOURCE=mo
 ```bash
 GIT_TRACE=1 GIT_TRANSFER_TRACE=1 git clone https://github.com/innovationasuna/RoomCanvas.git
 cd RoomCanvas
+# 自动下载服务器上已经重建好的资源（可能会比较大），运行：
 python3 web/scripts/serve.py --ssh <SSH 主机>
+
+# 不自动下载资源，随用随下，运行：
+python3 web/scripts/serve.py --ssh <SSH 主机> --no-download
 ```
 
 打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office`、`Room_3934` 或 `Activity Classroom`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。

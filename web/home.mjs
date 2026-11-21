@@ -1,6 +1,7 @@
 // Room identities and previews come from the manifest; furniture counts come from each room's data.
 import {mountRoomReconstruction, jobDescription} from './room-reconstruction.mjs';
 import {mountRoomTrash} from './room-trash.mjs';
+import {mountCacheManager} from './cache-manager.mjs';
 const list = document.getElementById('rooms');
 const state = document.getElementById('room-state');
 const count = document.getElementById('room-count');
@@ -162,6 +163,7 @@ const trash = mountRoomTrash({onRoomsChanged: async () => {
   await loadRooms();
   await reconstruction.refresh();
 }});
+mountCacheManager();
 retry.onclick = loadRooms;
 void loadRooms();
 const reconstruction = mountRoomReconstruction({onRoomsChanged: loadRooms, onJobsChanged: async next => {
