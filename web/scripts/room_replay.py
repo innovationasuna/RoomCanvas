@@ -715,6 +715,9 @@ def glb_tree(path):
             for k, node in enumerate(nodes) if node.get('name')}
 
 
+WORD = re.compile(r'[A-Za-z0-9_]+')
+
+
 def build_schedule(scene, until=None):
     """When the modelling agent added each new part of the room.
 
@@ -743,10 +746,18 @@ def build_schedule(scene, until=None):
     rows.sort(key=lambda r: r['t'])
     texts = [(r['t'], json.dumps(r, ensure_ascii=False)) for r in rows]
     end = rows[-1]['t']
+    # A name of word characters only is found as a whole word: index the words once (one regex per part over
+    # every record took seconds on a long room); other names are looked for one by one.
+    first_seen = {}
+    for t, text in texts:
+        for token in WORD.findall(text):
+            first_seen.setdefault(token, t)
 
     def first(name):
         if name in built:
             return built[name]
+        if WORD.fullmatch(name):
+            return first_seen.get(name, end)
         word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
         return next((t for t, text in texts if word.search(text)), end)
     reveal = sorted(({'node': n, 't': first(n)} for n in added), key=lambda r: r['t'])
