@@ -18,7 +18,9 @@ const bounds = (points) => {
   for (const p of points) for (let k = 0; k < 3; k++) {box[k] = Math.min(box[k], p[k]); box[k + 3] = Math.max(box[k + 3], p[k]);}
   return box;
 };
-const union = (a, b) => [0, 1, 2].map((k) => Math.min(a[k], b[k])).concat([3, 4, 5].map((k) => Math.max(a[k], b[k])));
+// Written out: building the index for a large room takes millions of these.
+const union = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2]),
+  Math.max(a[3], b[3]), Math.max(a[4], b[4]), Math.max(a[5], b[5])];
 const overlap = (a, b, margin = EPS) => [0, 1, 2].every((k) => a[k] <= b[k + 3] + margin && a[k + 3] >= b[k] - margin);
 const expand = (box, margin) => box.map((v, k) => v + (k < 3 ? -margin : margin));
 const corners = (box) => Array.from({length: 8}, (_, n) => [0, 1, 2].map((k) => box[k + ((n >> k) & 1) * 3]));
@@ -193,7 +195,11 @@ function pointInside(mesh, point) {
 }
 
 function makeBVH(faces) {
-  const box = faces.reduce((value, face) => value ? union(value, face.box) : face.box, null);
+  const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (const {box: b} of faces) for (let k = 0; k < 3; k++) {
+    if (b[k] < box[k]) box[k] = b[k];
+    if (b[k + 3] > box[k + 3]) box[k + 3] = b[k + 3];
+  }
   if (faces.length <= 10) return {box, faces};
   let axis = 0; for (let k = 1; k < 3; k++) if (box[k + 3] - box[k] > box[axis + 3] - box[axis]) axis = k;
   faces.sort((a, b) => a.box[axis] + a.box[axis + 3] - b.box[axis] - b.box[axis + 3]);
@@ -301,9 +307,10 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     if (meshIndexes.has(mesh.triangles)) {reusedMeshes++; return {...mesh, ...meshIndexes.get(mesh.triangles)};}
     builtMeshes++;
     const faces = mesh.triangles.map((triangle, faceIndex) => {
-      if (dot(normal(triangle), normal(triangle)) <= 1e-20) return null;
-      const raw = normal(triangle), length = Math.hypot(...raw), plane = raw.map((v) => v / length);
-      return {triangle, faceIndex, box: bounds(triangle), plane, d: dot(plane,triangle[0])};
+      const raw = normal(triangle);
+      if (dot(raw, raw) <= 1e-20) return null;
+      const length = Math.hypot(...raw), plane = raw.map((v) => v / length), box = bounds(triangle);
+      return {triangle, faceIndex, box, plane, d: dot(plane,triangle[0])};
     }).filter(Boolean);
     const index = {faces, tree: faces.length ? makeBVH(faces) : null};
     meshIndexes.set(mesh.triangles, index);
