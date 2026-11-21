@@ -41,7 +41,6 @@ import argparse
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -392,11 +391,11 @@ class Pass:
             source = item["decision"].get("source")
             if source and "glb" not in item:
                 # A premade mesh stands where TRELLIS's corrected one would: no reference, no
-                # TRELLIS, and premake already cleaned it and corrected its material.
+                # TRELLIS, and premake already corrected its material. Its loose pieces go again
+                # here, also from a model premade before they went by what touches what.
                 model = self.out / "rebuild" / item["id"] / "model.glb"
-                model.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, model)
-                item.update(glb=str(model), material={"supplied": source})
+                item.update(fragments=rebuild.drop_fragments(Path(source), model, max(item["size"])),
+                            glb=str(model), material={"supplied": source})
                 self.log(f"{item['id']}: the operator's model {source}")
                 self.save()
         todo = [i for i in wanted if "reference" not in i and "glb" not in i]
@@ -430,7 +429,8 @@ class Pass:
             for item in wanted:
                 if item["id"] in made and "glb" not in item:
                     clean = self.out / "rebuild" / item["id"] / "mesh.glb"
-                    item["fragments"] = rebuild.drop_fragments(made[item["id"]]["glb"], clean)
+                    item["fragments"] = rebuild.drop_fragments(made[item["id"]]["glb"], clean,
+                                                               max(item["size"]))
                     item["trellis_pipeline"] = made[item["id"]]["pipeline"]
                     item["glb"] = str(clean)
                     item.pop("glb_error", None)

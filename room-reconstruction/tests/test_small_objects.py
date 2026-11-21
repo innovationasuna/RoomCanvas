@@ -566,7 +566,8 @@ def fake_steps(monkeypatch, fail=()):
                 made[oid] = {"glb": work / "glb" / f"{oid}.glb", "pipeline": "default"}
         return made
 
-    def drop_fragments(source, target):
+    def drop_fragments(source, target, size=None):
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(Path(source).read_bytes() + b", cleaned")
         return {"pieces_before": 2, "pieces_after": 1}
 
@@ -732,7 +733,8 @@ def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeyp
     replace = {entry["id"]: entry for entry in applied[-1]["replace"]}
     assert set(replace) == {"Book0", "Cup"}
     assert replace["Book0"]["glb"] == str(run.out / "rebuild" / "Book0" / "model.glb")
-    assert Path(replace["Book0"]["glb"]).read_bytes() == b"premade book"
+    # Its loose pieces gone again here, also from a model premade before that went by contact.
+    assert Path(replace["Book0"]["glb"]).read_bytes() == b"premade book, cleaned"
     assert replace["Book0"]["camera"] is None and replace["Cup"]["camera"] == [0, 0, 1.5]
     assert [line for line in capsys.readouterr().out.splitlines()
             if "models for no candidate" in line] == [
@@ -741,7 +743,7 @@ def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeyp
     (models / "Cup.glb").write_bytes(b"premade cup, better")
     run, asked = full_run("attempt-02")
     assert asked == {} and calls == {"reference": [], "trellis": []}
-    assert Path(run.out / "rebuild" / "Cup" / "model.glb").read_bytes() == b"premade cup, better"
+    assert Path(run.out / "rebuild" / "Cup" / "model.glb").read_bytes() == b"premade cup, better, cleaned"
     for run_id, reused in (("attempt-01", {"Book0": False, "Cup": False}),
                            ("attempt-02", {"Book0": True, "Cup": False})):
         done = {r["name"]: r for r in trace(scene) if r["run"] == run_id and r["kind"] == "small_object_done"}
@@ -809,7 +811,10 @@ def test_ready_models_are_copied_into_the_room_and_listed_for_the_author(tmp_pat
     assert ready.stage(room) == []  # no models named
     monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
     rows = ready.stage(room)
-    assert (room / "Models" / "TissueBox.glb").read_bytes() == (models / "TissueBox.glb").read_bytes()
+    copy = trimesh.load(room / "Models" / "TissueBox.glb", force="scene")  # cleaned, the same box
+    assert np.allclose(copy.extents, trimesh.load(models / "TissueBox.glb", force="scene").extents)
+    made = (room / "Models" / "TissueBox.glb").stat().st_mtime_ns
+    assert ready.stage(room) == rows and (room / "Models" / "TissueBox.glb").stat().st_mtime_ns == made
     assert rows == [{"kind": "TissueBox", "glb": "Models/TissueBox.glb", "proportions": [2.0, 1.0, 1.0],
                      "description": "a white tissue box",
                      "reference": str(models / "work" / "TissueBox" / "reference.png")}]
@@ -829,3 +834,33 @@ def test_an_object_the_author_placed_from_a_ready_model_is_not_a_candidate():
     layout["objects"].append(obj("TissueBox0", "small_object", [1.1, 1.8, 1.1], [1.2, 1.9, 1.15],
                                  rests_on="Shelf", source_glb="TissueBox.glb", rebuilt="model"))
     assert "TissueBox0" not in {c["id"] for c in candidates.find_candidates(layout)}
+
+
+def test_loose_pieces_go_by_contact_and_a_shelf_row_of_things_stays(tmp_path):
+    """A shelf row as one model (glTF, Y up): two things on its bottom, a book on one of them, a
+    piece floating beside them and a speck. Only what touches nothing kept goes, however big."""
+    import trimesh
+
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    def box(size, centre):
+        return trimesh.creation.box(size, trimesh.transformations.translation_matrix(centre))
+
+    parts = [box((0.4, 0.6, 0.4), (0, 0.3, 0)),        # a vase on the bottom: the largest
+             box((0.3, 0.3, 0.3), (0.6, 0.15, 0)),     # a box beside it, also on the bottom
+             box((0.3, 0.05, 0.28), (0.62, 0.325, 0)),  # a book lying on that box
+             box((0.25, 0.25, 0.25), (1.1, 0.6, 0)),   # floating beside them, not small
+             box((0.01, 0.01, 0.01), (0, 0.8, 0))]     # a speck above the vase
+    source = tmp_path / "row.glb"
+    trimesh.Scene([trimesh.util.concatenate(parts)]).export(source)
+    counts = rebuild.drop_fragments(source, tmp_path / "clean.glb")
+    assert (counts["pieces_before"], counts["pieces_after"]) == (5, 3)
+    kept = trimesh.load(tmp_path / "clean.glb", force="scene").dump(concatenate=True)
+    assert np.allclose(kept.bounds, [[-0.2, 0, -0.2], [0.77, 0.6, 0.2]])
+    assert 0 < counts["dropped_share"] < 0.25
+    # A piece 1 cm beside the vase, off the bottom: as a 1 m thing in the room that is 1 cm apart
+    # and goes; as a 0.1 m thing it is 1 mm from the vase, which the room's check counts as touching.
+    parts[3] = box((0.25, 0.25, 0.25), (-0.335, 0.3, 0))
+    trimesh.Scene([trimesh.util.concatenate(parts)]).export(source)
+    assert rebuild.drop_fragments(source, tmp_path / "small.glb", size=0.1)["pieces_after"] == 4
+    assert rebuild.drop_fragments(source, tmp_path / "clean.glb")["pieces_after"] == 3

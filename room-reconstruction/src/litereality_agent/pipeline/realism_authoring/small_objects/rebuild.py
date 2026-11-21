@@ -2,8 +2,8 @@
 
 Evidence sheet (`make_weighted_input_sheet`) and prompt (`build_prompt`) -> a clean reference
 from the configured OpenAI image model (`generate_reference`, gpt-image-2 by default) -> TRELLIS
-through the configured launcher, all items in one process so the model loads once -> drop
-floating fragments (pieces under 1% of the surface), which TRELLIS leaves around thin parts.
+through the configured launcher, all items in one process so the model loads once -> drop the
+pieces that touch nothing of the rest (drop_fragments), which TRELLIS leaves around thin parts.
 """
 
 from __future__ import annotations
@@ -23,7 +23,10 @@ from litereality_agent.pipeline.scene_init.ingest.references.object_references i
 from litereality_agent.pipeline.scene_init.reconstruct.flow import LAUNCHER, resolve_python
 from litereality_agent.settings import load_settings
 
-FRAGMENT_SHARE = 0.01
+# Pieces of one object closer than this touch: the reach the room's check gives them
+# (support_audit.disconnected_findings). A model whose size in the room is not known yet (premade)
+# is measured as if 1 m large, which keeps no piece the check would find apart on a smaller thing.
+CONTACT_M = 0.005
 # TRELLIS predicts PBR maps itself and gave a fabric bag metallic 0.4; only these keep its guess.
 MAY_BE_METAL = {"fan", "lamp", "camera", "clock", "appliance", "tool", "monitor", "television"}
 HUE_TOLERANCE = 8.0  # degrees between the reference's and the texture's dominant colour
@@ -124,13 +127,44 @@ def run_trellis(references: dict[str, Path], work: Path, log: Path) -> dict[str,
     return result
 
 
-def drop_fragments(source: Path, target: Path) -> dict:
-    """Keep connected pieces holding at least 1% of the surface; texture and UVs untouched."""
+def touching(pieces: list, tolerance: float, roots: set[int]) -> set[int]:
+    """The pieces reached from `roots` through pieces that touch (closer than `tolerance`)."""
+    from trimesh.collision import CollisionManager
+
+    bounds = np.asarray([piece.bounds for piece in pieces])
+    reached, pending = set(roots), list(roots)
+    remaining = set(range(len(pieces))) - reached
+    while pending and remaining:
+        i = pending.pop()
+        local = CollisionManager()
+        local.add_object(str(i), pieces[i])
+        candidates = np.asarray(sorted(remaining), dtype=int)
+        gaps = np.maximum(0, np.maximum(bounds[i, 0] - bounds[candidates, 1],
+                                        bounds[candidates, 0] - bounds[i, 1]))
+        for j in candidates[np.linalg.norm(gaps, axis=1) <= tolerance]:
+            if local.min_distance_single(pieces[j]) <= tolerance:
+                reached.add(int(j))
+                remaining.discard(int(j))
+                pending.append(int(j))
+    return reached
+
+
+def drop_fragments(source: Path, target: Path, size: float | None = None) -> dict:
+    """Keep the pieces that hang together and drop the rest, however large; texture and UVs
+    untouched. Kept: the largest piece, every piece standing on the model's bottom (the things of a
+    shelf row each stand there), and every piece touching a kept one (a stack of books, a vase on
+    them). A piece touching none of them floats in the room, and the room's check rejects it.
+    `size`: the model's largest extent in the room, in metres, when known (the item it replaces)."""
     import trimesh
 
     scene = trimesh.load(source, process=False)
-    counts = {"pieces_before": 0, "pieces_after": 0}
-    for mesh in scene.geometry.values():
+    counts = {"pieces_before": 0, "pieces_after": 0, "dropped_share": 0.0}
+    geometry_nodes = {}
+    for node in scene.graph.nodes_geometry:
+        transform, name = scene.graph[node]
+        geometry_nodes.setdefault(name, transform)
+    total = 0.0
+    for name, mesh in scene.geometry.items():
         # Weld by position so texture seams do not split one surface into many pieces.
         key = np.round(mesh.vertices / 1e-5).astype(np.int64)
         _, weld = np.unique(key, axis=0, return_inverse=True)
@@ -138,12 +172,29 @@ def drop_fragments(source: Path, target: Path) -> dict:
         labels = trimesh.graph.connected_component_labels(
             trimesh.geometry.faces_to_edges(weld[mesh.faces]), node_count=int(weld.max()) + 1)
         face_label = labels[weld[mesh.faces[:, 0]]]
-        surface = np.bincount(face_label, weights=mesh.area_faces)
-        keep = surface >= FRAGMENT_SHARE * surface.sum()
-        counts["pieces_before"] += int((surface > 0).sum())
-        counts["pieces_after"] += int(keep.sum())
-        mesh.update_faces(keep[face_label])
+        # As the model stands in its scene (glTF: Y up), e.g. under a TRELLIS `world` node.
+        vertices = trimesh.transform_points(mesh.vertices, geometry_nodes.get(name, np.eye(4)))
+        present = np.unique(face_label)
+        pieces = []
+        for label in present:
+            piece = trimesh.Trimesh(vertices, mesh.faces[face_label == label], process=False)
+            piece.remove_unreferenced_vertices()
+            pieces.append(piece)
+        surface = np.array([piece.area for piece in pieces])
+        extent = float(np.ptp(vertices[np.unique(mesh.faces)], axis=0).max()) if len(mesh.faces) else 0.0
+        tolerance = CONTACT_M * extent / (size or 1.0)
+        bottom = min(piece.bounds[0][1] for piece in pieces) if pieces else 0.0
+        roots = {int(np.argmax(surface))} | {k for k, piece in enumerate(pieces)
+                                             if piece.bounds[0][1] <= bottom + tolerance}
+        kept = touching(pieces, tolerance, roots) if pieces else set()
+        keep_label = {int(present[k]) for k in kept}
+        counts["pieces_before"] += len(pieces)
+        counts["pieces_after"] += len(kept)
+        counts["dropped_share"] += float(surface.sum() - surface[sorted(kept)].sum()) if pieces else 0.0
+        total += float(surface.sum())
+        mesh.update_faces(np.isin(face_label, list(keep_label)))
         mesh.remove_unreferenced_vertices()
+    counts["dropped_share"] = round(counts["dropped_share"] / total, 4) if total else 0.0
     target.parent.mkdir(parents=True, exist_ok=True)
     scene.export(target)
     return counts

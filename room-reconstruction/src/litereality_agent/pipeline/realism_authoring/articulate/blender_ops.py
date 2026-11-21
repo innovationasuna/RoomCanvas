@@ -14,8 +14,8 @@ request.json holds one operation:
       Cut each part (judge.parse_plan) out of the object's meshes, put it under a new empty
       `<id>_Hinges` (the object's frame) with its origin on the joint, put a dark cavity behind a
       part that covered a hollow (and a box behind a drawer front), and add a closed → open →
-      closed action per part. Saves Room.blend and Room.glb
-      to out_dir and writes apply.json.
+      closed action per part; small pieces the cut left touching nothing of the object go
+      (drop_loose). Saves Room.blend and Room.glb to out_dir and writes apply.json.
 
   {"op": "check", "items": [...ids], "out_dir": ...}
       For each object, alone, from its four diagonals: closed (frame 1) and fully open (frame 30).
@@ -332,6 +332,99 @@ def animate(part, spec):
                                                        else "_slide")
 
 
+TOUCH = 0.005  # metres: pieces of one object this close touch (the room check's own reach)
+LOOSE_SHARE = 0.05  # a piece left touching nothing goes if under this share of the object's surface
+
+
+def islands(obj):
+    """The connected pieces of a mesh object, vertices welded by position (texture seams split the
+    mesh, not the surface): [(polygon indices, world vertices, polygons over them, area)]."""
+    mesh = obj.data
+    co = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", co)
+    m = np.array(obj.matrix_world)
+    world = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+    _, weld = np.unique(np.round(world / 1e-5).astype(np.int64), axis=0, return_inverse=True)
+    weld = weld.reshape(-1)
+    root = list(range(int(weld.max()) + 1 if len(weld) else 0))
+
+    def find(a):
+        while root[a] != a:
+            root[a] = root[root[a]]
+            a = root[a]
+        return a
+
+    polygons = [[int(weld[v]) for v in poly.vertices] for poly in mesh.polygons]
+    for poly in polygons:
+        first = find(poly[0])
+        for v in poly[1:]:
+            other = find(v)
+            if other != first:
+                root[other] = first
+    groups = {}
+    for index, poly in enumerate(polygons):
+        groups.setdefault(find(poly[0]), []).append(index)
+    out = []
+    for faces in groups.values():
+        used = sorted({v for i in faces for v in mesh.polygons[i].vertices})
+        local = {v: k for k, v in enumerate(used)}
+        out.append((faces, world[used], [[local[v] for v in mesh.polygons[i].vertices] for i in faces],
+                    sum(mesh.polygons[i].area for i in faces) * abs(np.linalg.det(m[:3, :3])) ** (2 / 3)))
+    return out
+
+
+def drop_loose(owned, removable):
+    """After the cut: remove the small pieces of the cut meshes (`removable`) that touch nothing else
+    of the object (`owned`, its parts in the closed pose included), e.g. a sliver of the body the
+    part's box cut free; the room's check finds such a piece floating. Reached from the largest
+    piece and from those on the object's bottom, through pieces that touch (TOUCH)."""
+    from mathutils.bvhtree import BVHTree
+
+    rows = [(obj, *piece) for obj in owned if obj.type == "MESH" and len(obj.data.polygons)
+            for piece in islands(obj)]
+    if len(rows) < 2:
+        return []
+    trees = [BVHTree.FromPolygons([Vector(v) for v in verts], polys) for _, _, verts, polys, _ in rows]
+    low = np.array([verts.min(0) for _, _, verts, _, _ in rows])
+    high = np.array([verts.max(0) for _, _, verts, _, _ in rows])
+    area = np.array([row[4] for row in rows])
+    bottom = low[:, 2].min()
+    reached = {int(np.argmax(area))} | {k for k in range(len(rows)) if low[k, 2] <= bottom + TOUCH}
+    pending, remaining = list(reached), set(range(len(rows))) - reached
+
+    def touch(i, j):
+        if trees[i].overlap(trees[j]):
+            return True
+        small, large = (i, j) if len(rows[i][2]) <= len(rows[j][2]) else (j, i)
+        for v in rows[small][2]:
+            hit = trees[large].find_nearest(Vector(v), TOUCH)
+            if hit[0] is not None:
+                return True
+        return False
+
+    while pending and remaining:
+        i = pending.pop()
+        for j in sorted(remaining):
+            gap = np.maximum(0, np.maximum(low[i] - high[j], low[j] - high[i]))
+            if np.linalg.norm(gap) <= TOUCH and touch(i, j):
+                reached.add(j)
+                remaining.discard(j)
+                pending.append(j)
+    dropped = {}
+    for k in sorted(remaining):
+        obj, faces = rows[k][0], rows[k][1]
+        if obj in removable and area[k] < LOOSE_SHARE * area.sum():
+            dropped.setdefault(obj, []).extend(faces)
+    for obj, faces in dropped.items():
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[bm.faces[i] for i in faces], context="FACES")
+        bm.to_mesh(obj.data)
+        bm.free()
+    return [{"node": obj.name, "faces": len(faces)} for obj, faces in dropped.items()]
+
+
 def cut_object(handle, parts, report):
     oid = handle["room_id"]
     own = own_objects(handle)
@@ -346,7 +439,7 @@ def cut_object(handle, parts, report):
         coll.objects.link(hinges)
     hinges.parent = handle
     hinges.matrix_world = frame
-    made = []
+    made, cut = [], []
     for spec in parts:
         low, high = spec["box_min"], spec["box_max"]
         pieces = [p for p in (split(o, frame, low, high) for o in body) if p is not None]
@@ -354,6 +447,7 @@ def cut_object(handle, parts, report):
             report["skipped"].append({"id": oid, "part": spec["name"], "reason": "no faces in box"})
             continue
         part = join(pieces, f"{oid}_{spec['name']}")
+        cut.append(part)
         for coll in list(part.users_collection):
             coll.objects.unlink(part)
         for coll in handle.users_collection:
@@ -389,7 +483,9 @@ def cut_object(handle, parts, report):
             for coll in handle.users_collection:
                 coll.objects.link(box)
         made.append({"name": spec["name"], "node": part.name, "faces": len(part.data.polygons)})
-    report["cut"].append({"id": oid, "parts": made})
+    bpy.context.view_layer.update()
+    loose = drop_loose(own_objects(handle), set(body) | set(cut))
+    report["cut"].append({"id": oid, "parts": made, **({"loose": loose} if loose else {})})
 
 
 def export(out_dir):

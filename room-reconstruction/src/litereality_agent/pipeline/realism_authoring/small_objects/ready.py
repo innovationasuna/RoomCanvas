@@ -11,7 +11,6 @@ session still built itself stays a candidate and gets its model by name as befor
 from __future__ import annotations
 
 import os
-import shutil
 from pathlib import Path
 
 import litereality_agent
@@ -47,7 +46,8 @@ def root() -> Path | None:
 
 
 def describe(glb: Path, folder: Path) -> dict:
-    """What the brief says about one model: its proportions, what it is and its reference image."""
+    """What the brief says about one model (its copy in the room): its proportions, what it is and
+    its reference image (beside its source in `folder`)."""
     from litereality_agent.room_ops import glb as room_glb
 
     # glTF is Y-up: Blender's width, depth and height are x, z and y here. A TRELLIS model's root
@@ -63,20 +63,32 @@ def describe(glb: Path, folder: Path) -> dict:
 
 
 def stage(room: Path) -> list[dict]:
-    """Copy the models into room/Models/ (one that changed is copied again) and describe them;
-    [] when there are none. A copy the session already placed stays, so its Room.py still builds."""
+    """Copy the models into room/Models/ without their loose pieces (rebuild.drop_fragments; one
+    whose source changed is copied again) and describe them; [] when there are none. A copy the
+    session already placed stays, so its Room.py still builds."""
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
     folder = root()
     if folder is None:
         return []
     rows = []
+    sources = room / FOLDER / ".sources.json"  # which source each copy was made from
+    made = cache.read_json(sources) if sources.is_file() else {}
+    made = made if isinstance(made, dict) else {}
     for glb in sorted(p for p in folder.glob("*.glb") if not p.name.startswith(".")):
         target = room / FOLDER / glb.name
-        if not target.is_file() or cache.file_hash(target) != cache.file_hash(glb):
+        key = cache.file_hash(glb)
+        if not target.is_file() or made.get(glb.name) != key:
             target.parent.mkdir(exist_ok=True)
-            part = target.with_name(f".{glb.name}.part")
-            shutil.copyfile(glb, part)
-            part.replace(target)
-        rows.append(describe(glb, folder))
+            part = target.with_name(f".{glb.stem}.part.glb")
+            try:
+                rebuild.drop_fragments(glb, part)
+                part.replace(target)
+            finally:
+                part.unlink(missing_ok=True)
+            made[glb.name] = key
+            cache.atomic_json(sources, made)
+        rows.append(describe(target, folder))
     return rows
 
 
