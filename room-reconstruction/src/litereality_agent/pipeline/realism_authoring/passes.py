@@ -45,11 +45,21 @@ def environment(**values):
 
 def run(context, options: dict) -> dict:
     """Both passes on the build in room_preview/; returns {"room": the room to check, relative to
-    the scene, "small_objects": "ok"|"failed", "articulate": "ok"|"failed"|"skipped", "warnings"}.
+    the scene, "small_objects": "ok"|"partial"|"failed", "articulate": "ok"|"partial"|"failed"|"skipped",
+    "left": {pass: ids it could not do} when partial, "warnings"}.
     Their records say stage "author" also when publish runs them on a new build: the replay tells
     them from the passes an older flow ran over the published room on their own."""
     with environment(LITEREALITY_STAGE="author"):
         return _run(context, options)
+
+
+def _left(out, key: str) -> list:
+    """What a pass that finished could not do, from its summary.json (`undone` items, `failed_objects`)."""
+    try:
+        left = json.loads((out / "summary.json").read_text()).get(key) or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return left if isinstance(left, list) else []
 
 
 def _run(context, options: dict) -> dict:
@@ -70,7 +80,12 @@ def _run(context, options: dict) -> dict:
         made, rc = None, str(exc)
     if made is not None:
         room = made
-        report[SMALL] = "ok"
+        left = _left(out, "undone")
+        report[SMALL] = "partial" if left else "ok"
+        if left:
+            report["left"] = {SMALL: left}
+            report["warnings"].append(f"small objects left {len(left)} item(s) as the author made them: "
+                                      f"{', '.join(left)}; see {out / 'summary.md'}")
         saved(context, SMALL, made / "Room.glb", stage="author")
     else:
         report[SMALL] = "failed"
@@ -84,12 +99,17 @@ def _run(context, options: dict) -> dict:
                                  [context.scene_dir, "--out", out], log_name=PARTS)
         parts = out / "room_preview"
         ok = not rc and (parts / "Room.glb").is_file()
+        left = _left(out, "failed_objects") if ok else []
         telemetry.record(traces, "articulate_done", stage="author", status="ok" if ok else "failed",
-                         exit=rc)
+                         exit=rc, **({"failed": len(left)} if left else {}))
         if ok:
             room = parts
             saved(context, "articulated", parts / "Room.glb", stage="author")
-            report[PARTS] = "ok"
+            report[PARTS] = "partial" if left else "ok"
+            if left:
+                report.setdefault("left", {})[PARTS] = left
+                report["warnings"].append(f"openable parts were not worked out for {len(left)} object(s): "
+                                          f"{', '.join(left)}; see {out / 'summary.md'}")
         else:
             report[PARTS] = "failed"
             report["warnings"].append(f"openable parts did not finish (exit {rc}); see {log}")

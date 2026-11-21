@@ -878,3 +878,14 @@ def test_trellis_on_a_shared_card_waits_for_room_and_gives_up_without_it(tmp_pat
     monkeypatch.setattr(rebuild, "free_mib", lambda device: 9000)
     assert not rebuild.room_for_trellis(log, env=shared, sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
     assert "TRELLIS skipped" in log.read_text()
+
+def test_items_never_judged_or_not_rebuilt_are_undone_not_kept(tmp_path):
+    from litereality_agent.pipeline.realism_authoring.small_objects.run import Pass
+
+    done = Pass.__new__(Pass)
+    done.items = [{"id": "Kept", "decision": {"decision": "procedural"}},
+                  {"id": "Dropped", "decision": {"decision": "drop"}},
+                  {"id": "Rebuilt", "decision": {"decision": "trellis"}, "glb": "Rebuilt.glb"},
+                  {"id": "Unjudged", "decision_error": "RuntimeError: timed out"},
+                  {"id": "NoMesh", "decision": {"decision": "trellis"}, "glb_error": "TRELLIS wrote no mesh"}]
+    assert done.undone() == ["Unjudged", "NoMesh"]

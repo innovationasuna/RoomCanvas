@@ -72,7 +72,7 @@ def run_one(self, identifier):
                         raise RuntimeError('没有唯一可用的已发布房间，请检查服务器日志。')
                     preview = previews[0]
                     ended = read_json(preview / 'acceptance.json').get('passes', {}).get('articulate')
-                    record['enhancement'] = {'status': 'completed' if ended == 'ok' else 'failed',
+                    record['enhancement'] = {'status': 'completed' if ended in ('ok', 'partial') else 'failed',
                                              'attempt_id': attempts[-1].name}
                 elif not execution_error and (attempts[-1] / 'articulate-exit').read_text().strip() == '0':
                     # An older launcher ran the openable parts after publishing, into run/articulate.

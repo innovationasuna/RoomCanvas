@@ -1171,6 +1171,13 @@ class WorkingClock(unittest.TestCase):
         self.assertEqual([(round(a), round(b)) for a, b in replay.attempt_spans(self.scene)], [(T0, T0 + 900)])
 
 
+class PassesLeftUndone(unittest.TestCase):
+    def test_items_a_pass_could_not_do_are_said(self):
+        self.assertEqual(replay.small_summary({'rebuilt': 2, 'kept': 3, 'undone': 1}),
+                         '小物品处理好了：按照片重做 2 件，3 件保持原样，1 件没处理成，仍是原来的样子')
+        self.assertEqual(replay.small_summary({'rebuilt': 2, 'kept': 3}), '小物品处理好了：按照片重做 2 件，3 件保持原样')
+
+
 class Service(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

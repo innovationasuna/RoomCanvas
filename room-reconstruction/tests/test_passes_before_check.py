@@ -107,7 +107,7 @@ def test_a_repair_that_changed_nothing_says_so(tmp_path, monkeypatch):
     assert [(r["status"], r["changed"]) for r in done] == [("repaired", False)]
 
 
-def run_passes(c, monkeypatch, fail=(), options=None):
+def run_passes(c, monkeypatch, fail=(), options=None, left=None):
     """passes.run with each pass's module stood in for: it writes its room unless it is to fail."""
     from litereality_agent.pipeline.realism_authoring import pass_cache
 
@@ -123,6 +123,9 @@ def run_passes(c, monkeypatch, fail=(), options=None):
         out.mkdir(parents=True, exist_ok=True)
         for name in pass_cache.ROOM_FILES:
             (out / name).write_text(f"{short} {name}")
+        if left and short in left:  # what the pass could not do, as its summary.json says
+            key = "undone" if short == "small_objects" else "failed_objects"
+            (out.parent / "summary.json").write_text(json.dumps({key: left[short]}))
         if short == "small_objects":
             pass_cache.record_bundle(out, "key", pass_cache.ROOM_FILES)
             (out.parent / "dependencies.json").write_text(json.dumps({"dependencies": {"preview": {
@@ -164,6 +167,16 @@ def test_a_pass_that_fails_is_left_out(tmp_path, monkeypatch):
     report, calls = run_passes(c, monkeypatch, options={"articulate": False})
     assert [name for name, _ in calls] == ["small_objects"]
     assert (report["articulate"], report["room"]) == ("skipped", SMALL)
+
+
+def test_a_pass_that_left_items_undone_says_which(tmp_path, monkeypatch):
+    c = context(tmp_path)
+    built(c)
+    report, _ = run_passes(c, monkeypatch, left={"small_objects": ["TissueBox0"], "articulate": ["Storage1"]})
+    assert (report["small_objects"], report["articulate"], report["room"]) == ("partial", "partial", PARTS)
+    assert report["left"] == {"small_objects": ["TissueBox0"], "articulate": ["Storage1"]}
+    assert any("TissueBox0" in w for w in report["warnings"]) and any("Storage1" in w for w in report["warnings"])
+    assert [r.get("failed") for r in trace(c) if r["kind"] == "articulate_done"] == [1]
 
 
 @pytest.fixture
