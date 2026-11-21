@@ -130,20 +130,27 @@ class CacheManager:
         return entries
 
     def inventory(self):
-        rows = []
+        rows, unique = [], {}
         for row in self._entries().values():
-            sizes = []
+            blobs, files = {}, 0
             for path, anchor in row['paths']:
                 try:
                     if regular(path, anchor):
-                        sizes.append(path.stat().st_size)
+                        info = path.stat()
+                        key = f'{info.st_dev}:{info.st_ino}'
+                        blob = blobs.setdefault(key, {'id': key, 'bytes': info.st_size,
+                                                      'links': info.st_nlink, 'refs': 0})
+                        blob['refs'] += 1
+                        unique[key] = info.st_size
+                        files += 1
                 except FileNotFoundError:
                     pass
-            if sizes:
+            if files:
                 rows.append({'id': row['id'], 'name': row['name'], 'kinds': sorted(row['kinds']),
-                             'files': len(sizes), 'bytes': sum(sizes)})
+                             'files': files, 'bytes': sum(b['bytes'] for b in blobs.values()),
+                             'blobs': list(blobs.values())})
         rows.sort(key=lambda row: (row['id'] == 'catalog', row['name'], row['id']))
-        return {'entries': rows, 'total_bytes': sum(r['bytes'] for r in rows),
+        return {'entries': rows, 'total_bytes': sum(unique.values()),
                 'total_files': sum(r['files'] for r in rows), 'background_paused': self.paused.exists()}
 
     def clear(self, ids=None, all=False):
@@ -162,9 +169,11 @@ class CacheManager:
                 for path, anchor in entries[identifier]['paths']:
                     try:
                         if regular(path, anchor):
-                            size = path.stat().st_size
+                            info = path.stat()
                             path.unlink()
-                            freed += size
+                            # Unlinking one of several names does not release the shared data.
+                            if info.st_nlink == 1:
+                                freed += info.st_size
                             removed += 1
                     except FileNotFoundError:
                         pass

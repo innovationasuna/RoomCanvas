@@ -7,6 +7,8 @@ python3 scripts/fetch_samples.py --verify       # also compare the sha256 of the
 python3 scripts/fetch_samples.py --check        # only report; exit 1 if a model is missing or wrong
 
 samples/models.json lists each model: where it goes, the release tag and asset, its size and sha256.
+A model the room cache (runs/room-cache/, see serve.py) already holds, same size and sha256, is linked from
+there instead of downloaded (a hard link, or a copy across file systems); --cache <dir> looks elsewhere.
 The repository is private, so the download needs a login: the gh CLI when it is logged in (gh auth login),
 otherwise a token in GH_TOKEN or GITHUB_TOKEN. A download replaces Room.glb only after its size and sha256
 match, so an interrupted or wrong one never does. Standard library only.
@@ -17,8 +19,10 @@ import http.client
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -47,6 +51,51 @@ def sha256(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+_digests = {}  # (path, inode, size, mtime) -> sha256, so a file is hashed once while it stays the same
+
+
+def known_sha256(path, info):
+    key = (str(path), info.st_ino, info.st_size, info.st_mtime_ns)
+    if key not in _digests:
+        _digests[key] = sha256(path)
+    return _digests[key]
+
+
+def same_file(places, size, digest):
+    """A file with this size and sha256 among `places` (files, and every file under a directory), or None.
+    Only files of the same size are hashed; unfinished downloads (*.part) are skipped."""
+    for place in map(Path, places):
+        for path in sorted(place.rglob('*')) if place.is_dir() else [place]:
+            try:
+                info = path.lstat()
+                if (stat.S_ISREG(info.st_mode) and info.st_size == size and not path.name.endswith('.part')
+                        and known_sha256(path, info) == digest):
+                    return path
+            except OSError:  # removed while looking
+                continue
+    return None
+
+
+def place(source, target):
+    """Make `target` a file with the content of `source` without downloading it: a hard link (no extra space;
+    removing one name leaves the other), or a copy where linking fails (another file system). Like a
+    download, it is made beside the target and renamed, so an interrupted one never leaves a partial file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Background prefetch and an on-demand request can reuse the same target concurrently.
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix='.' + target.name + '-', suffix='.part')
+    os.close(fd)
+    part = Path(name)
+    part.unlink()
+    try:
+        try:
+            os.link(source, part)
+        except OSError:
+            shutil.copyfile(source, part)
+        os.replace(part, target)
+    finally:
+        part.unlink(missing_ok=True)  # left when target already was this very file
 
 
 def problem(path, entry, verify=True):
@@ -137,11 +186,13 @@ def advice(repo, entries):
                               for entry in entries])
 
 
-def fetch(rooms=(), root=None, check=False, verify=False, missing_only=False, ways=None, log=print):
+def fetch(rooms=(), root=None, check=False, verify=False, missing_only=False, ways=None, log=print, cache=None):
     """Bring the models (of `rooms`, default all) to what samples/models.json lists and return the entries
     still missing or wrong, after saying once how to get them. `check` only reports. `missing_only`
-    (serve.py at start-up) leaves a model that is here but differs alone: it may be someone's new version."""
+    (serve.py at start-up) leaves a model that is here but differs alone: it may be someone's new version.
+    A model already in `cache` (default runs/room-cache/) is linked from there, not downloaded."""
     root = Path(root or ROOT)
+    cache = Path(cache or root / 'runs/room-cache')
     repo, models = load(root)
     unknown = sorted(set(rooms) - {room(entry) for entry in models})
     if unknown:
@@ -155,6 +206,11 @@ def fetch(rooms=(), root=None, check=False, verify=False, missing_only=False, wa
             log(f'{entry["path"]}: {why}; left as it is (python3 scripts/fetch_samples.py {room(entry)} replaces it)')
             continue
         if not check:
+            same = same_file([cache], entry['bytes'], entry['sha256'])
+            if same:
+                place(same, root / entry['path'])
+                log(f'{entry["path"]}: the same file is already in {same.parent}; linked, not downloaded')
+                continue
             ways = methods() if ways is None else ways
             if ways:
                 log(f'Fetching {entry["path"]} ({entry["bytes"] / 1e6:.0f} MB) from release {entry["tag"]}…')
@@ -175,9 +231,10 @@ def main(argv=None):
     parser.add_argument('rooms', nargs='*', metavar='ROOM', help='directory names under samples/ (default: every listed model)')
     parser.add_argument('--check', action='store_true', help='report what is missing or wrong and exit 1; download nothing')
     parser.add_argument('--verify', action='store_true', help='also compare the sha256 of the models already here')
+    parser.add_argument('--cache', type=Path, help='room cache to link identical models from (default: runs/room-cache)')
     args = parser.parse_args(argv)
     try:
-        left = fetch(args.rooms, check=args.check, verify=args.verify, log=lambda line: print(line, flush=True))
+        left = fetch(args.rooms, check=args.check, verify=args.verify, log=lambda line: print(line, flush=True), cache=args.cache)
     except ValueError as error:
         parser.error(str(error))
     if not left:

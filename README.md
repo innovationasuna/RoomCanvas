@@ -139,7 +139,7 @@ python3 web/scripts/serve.py --ssh <SSH 主机> --no-download
 
 打开 <http://127.0.0.1:7880/web/>，选卧室 `room3`、办公室 `office`、`Room_3934` 或 `Activity Classroom`。`--ssh` 用一条 SSH 连接转发服务器上的网关（本机 `7865`，服务器 `127.0.0.1:7870`），网关再把物体重建和房间重建请求分给各自的服务，按 `Ctrl-C` 停止时一起关闭。服务器上要先启动网关，命令见下方“服务器启动命令速查”；不用网关时，给 `--remote <监听地址>:7862`（和 `--room-remote <地址>:<端口>`）就回到两条隧道；只用编辑器、不连服务器时去掉 `--ssh`。安装细节、更新和重启见 [物体重建](docs/OBJECT_RECONSTRUCTION.md#部署) 和 [房间重建](docs/ROOM_RECONSTRUCTION.md)。
 
-示例房间的模型（`samples/*/Room.glb`，三个共约 195 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件。`serve.py` 启动时在后台下载缺少的模型，下载完刷新页面即可；也可以先运行 `python3 scripts/fetch_samples.py`。仓库是私有的，下载前要先 `gh auth login`，或把能读本仓库的令牌放进 `GH_TOKEN`；两样都没有时，终端会列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后放到对应路径。详见 [示例房间的模型](web/README.md#示例房间的模型)。
+示例房间的模型（`samples/*/Room.glb`，四个共约 459 MB：office 36 MB、room3 70 MB、room-3934 89 MB、activity-classroom 264 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件。`serve.py` 启动时在后台下载缺少的模型，下载完刷新页面即可；也可以先运行 `python3 scripts/fetch_samples.py`。仓库是私有的，下载前要先 `gh auth login`，或把能读本仓库的令牌放进 `GH_TOKEN`；两样都没有时，终端会列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后放到对应路径。详见 [示例房间的模型](web/README.md#示例房间的模型)。
 
 **服务器启动**：安装完成后，一条命令启动房间服务、物体服务和网关（已在运行的会跳过）；`status` 只查看状态。
 
@@ -151,7 +151,8 @@ python3 web/scripts/serve.py --ssh <SSH 主机> --server-dir <服务器仓库目
 ```
 
 - **本机一条命令**：加 `--server-dir`（如 AutoDL 上的 `/root/autodl-tmp/RoomCanvas`）后，`serve.py` 用同一条 SSH 连接在服务器上运行 `scripts/start_server.sh`（已在运行的服务不动），只输一次密码。
-- **已完成的房间和重建回放存到本机**：`serve.py --ssh` 在后台把服务器上已完成任务的回放（点云、各版房间模型、配图）和房间文件下载到本机 `runs/room-cache/`（终端显示进度，每 5 分钟检查一次新任务），页面优先读本机副本，不再经隧道。之后不加 `--ssh` 启动，或服务器关机时，这些房间和回放照样能打开。还在重建的任务不缓存；任务重试后旧副本会删掉重新下载。加 `--no-download` 不下载（缺少的示例房间模型也只提示、不下载），`--cache <目录>` 换位置。
+- **已完成的房间和重建回放存到本机**：`serve.py --ssh` 在后台把服务器上已完成任务的回放（点云、各版房间模型、配图）和房间文件下载到本机 `runs/room-cache/`（终端显示进度，每 5 分钟检查一次新任务），页面优先读本机副本，不再经隧道。之后不加 `--ssh` 启动，或服务器关机时，这些房间和回放照样能打开。还在重建的任务不缓存；任务重试后旧副本会删掉重新下载。加 `--no-download` 关闭后台下载；打开关联扫描任务的房间时，缺少的模型仍会按需获取，`--cache <目录>` 换位置。
+- **下载多少**：不连服务器（不加 `--ssh`）时只下载示例房间的模型，约 459 MB。连服务器时先下载示例模型，再下载已完成任务的回放和房间；相同内容的文件只下载一次：下载前向房间服务要文件的大小和 sha256，本机已有相同的文件（缓存里的，或示例模型）就用硬链接放到对应位置（跨磁盘时复制），不再下载；下载的文件核对 sha256 后才保存。以服务器上现有的两个已完成任务为例（2026-11-21 测量，1 MB 按 10⁶ 字节）：回放和房间文件共 418 个、2839 MB（Activity Classroom 2380 MB，Room_3934 459 MB），其中重复的内容（各任务最后一版模型就是发布的房间，也是示例模型；部分配图相同）去掉后为 2386 MB，与示例模型相同的又占 353 MB，所以首次启动合计下载约 2.49 GB（示例模型 459 MB + 服务器 2033 MB），去重前约 3.30 GB。示例模型下载不了时，服务器部分为 2386 MB。`--no-download` 关闭后台预下载，打开房间时仍可按需获取缺少的模型。去重需要服务器上的房间服务是支持 sha256 的版本，旧版本照常全部下载。
 
 - 房间服务监听 `127.0.0.1:7866`，物体服务默认 `127.0.0.1:7862`，网关 `127.0.0.1:7870`。物体服务要绑别的地址（如容器 IP）时加 `--object-host <地址>`，网关会跟着指向它。
 - 日志：房间服务和网关在 `runs/web-room-jobs/`，物体服务在 `$VIEWFORGE_ROOT/logs/web.log`。

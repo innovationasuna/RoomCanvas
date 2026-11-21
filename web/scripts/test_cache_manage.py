@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from functools import partial
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -62,6 +63,34 @@ class LocalCache(unittest.TestCase):
         self.assertEqual(entries['scan:' + JOB]['files'], 3)
         self.assertEqual(entries['scan:' + JOB]['bytes'], len('classroompublishedreplay'))
         self.assertEqual(data['total_files'], 5)
+
+    def test_shared_files_count_once_and_only_last_unlink_frees_bytes(self):
+        sample = self.root / 'samples/classroom/Room.glb'
+        targets = [self.cache / f'assets/{JOB}/Room.glb',
+                   self.cache / f'jobs/{JOB}/replay/files/round/Room.glb', self.root / 'samples/office/Room.glb']
+        for target in targets:
+            target.unlink(); os.link(sample, target)
+        inventory = self.manager.inventory()
+        self.assertEqual(inventory['total_bytes'], len('classroom') + len('{"rooms": []}'))
+        classroom = next(row for row in inventory['entries'] if row['id'] == 'scan:' + JOB)
+        self.assertEqual(classroom['bytes'], len('classroom'))
+        self.assertEqual(classroom['blobs'][0]['refs'], 3)
+        self.assertEqual(classroom['blobs'][0]['links'], 4)
+        result = self.manager.clear(['scan:' + JOB])
+        self.assertEqual(result['removed_files'], 3)
+        self.assertEqual(result['freed_bytes'], 0)
+        self.assertEqual((self.root / 'samples/office/Room.glb').read_text(), 'classroom')
+        result = self.manager.clear(['sample:office'])
+        self.assertEqual(result['freed_bytes'], len('classroom'))
+
+    def test_clear_all_retains_external_links_and_counts_independent_copies(self):
+        outside = self.root / 'original.glb'
+        os.link(self.root / 'samples/office/Room.glb', outside)
+        expected = self.manager.inventory()['total_bytes'] - len('office')
+        result = self.manager.clear(all=True)
+        self.assertEqual(result['freed_bytes'], expected)
+        self.assertEqual(result['cache']['total_bytes'], 0)
+        self.assertEqual(outside.read_text(), 'office')
 
     def test_selected_clear_preserves_other_rooms_and_all_clear_preserves_sources(self):
         result = self.manager.clear(['scan:' + JOB])

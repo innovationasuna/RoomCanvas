@@ -56,7 +56,7 @@
 | --- | --- | --- |
 | [`web/scripts/serve.py`](../../web/scripts/serve.py) | 本地网页端口 `7880`；`--viewforge`、`--room-backend`；`--ssh` 默认接远端 gateway `127.0.0.1:7870` | 默认 `runs/room-cache`；`--cache` 可改，`--no-download` 关闭自动补缓存。 |
 | [`web/scripts/gateway.py`](../../web/scripts/gateway.py) | `127.0.0.1:7870`；objects `127.0.0.1:7862`，rooms `127.0.0.1:7866` | 只路由已有接口，不选择 GPU，不执行重建。 |
-| [`web/scripts/room_service.py`](../../web/scripts/room_service.py) | `127.0.0.1:7866`；`--data-dir` 必填 | 一键启动默认 `runs/web-room-jobs`。任务记录、执行器和 HTTP 的维护边界以当前模块导入为准。 |
+| [`web/scripts/room_service.py`](../../web/scripts/room_service.py) | `127.0.0.1:7866`；`--data-dir` 必填 | 一键启动默认 `runs/web-room-jobs`。任务记录、执行器和 HTTP 的维护边界以当前模块导入为准。文件的 `HEAD` 不传内容，带 `X-RoomCanvas-SHA256`，供本机缓存去重。 |
 | [`object-reconstruction/scripts/web.py`](../../object-reconstruction/scripts/web.py) | `127.0.0.1:7862`；`--host`、`--port` | `VIEWFORGE_ROOT`；uploads、任务状态、资产 ready 与尺寸标定各自维护。 |
 
 阶段复用、服务任务状态和事件回放不是同一个状态源：pipeline 输入指纹决定是否强制从头重做（选项变化和上游重跑只引起不强制的重跑）；任务存储表示排队/运行；事件表示发生过什么。新缓存保存内容 receipt，无法证明输入一致的旧缓存明确失效并移至 `.stale`。author 多文件检查点位于 `.room_checkpoint.d`，恢复摘要为 `.author_resume.json`，房间初始化所用的输入指纹记在 `.author_inputs`，重新初始化未完成时有 `.author_pending` 标记，复制中的房间位于 `.room-copying`；同一数据目录只能运行一个房间重建服务，第二个会报错退出；检查点只表示源码语法与本地资源一致（资源检查只决定是否保存新检查点，不参与恢复判断），不能冒充 Blender 构建或质量验收通过。

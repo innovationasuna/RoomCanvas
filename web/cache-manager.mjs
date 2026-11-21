@@ -8,6 +8,18 @@ export function formatBytes(bytes) {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
+export function releasableBytes(rows) {
+  const blobs = new Map();
+  for (const row of rows) {
+    // Older servers report independent file sizes, without shared-data records.
+    for (const blob of row.blobs || [{id: row.id, bytes: row.bytes, refs: 1, links: 1}]) {
+      const previous = blobs.get(blob.id);
+      blobs.set(blob.id, {...blob, refs: blob.refs + (previous?.refs || 0)});
+    }
+  }
+  return [...blobs.values()].reduce((sum, blob) => sum + (blob.refs >= blob.links ? blob.bytes : 0), 0);
+}
+
 export function mountCacheManager() {
   const $ = id => document.getElementById(id);
   const dialog = $('cache-dialog'), entry = $('open-cache'), list = $('cache-list');
@@ -19,7 +31,7 @@ export function mountCacheManager() {
 
   function updateControls() {
     const chosen = rows.filter(row => selected.has(row.id));
-    $('cache-selection').textContent = chosen.length ? `已选 ${chosen.length} 项 · ${formatBytes(chosen.reduce((sum, row) => sum + row.bytes, 0))}` : '选择要清理的房间缓存';
+    $('cache-selection').textContent = chosen.length ? `已选 ${chosen.length} 项 · 预计释放 ${formatBytes(releasableBytes(chosen))}` : '选择要清理的房间缓存';
     selectAll.checked = rows.length > 0 && chosen.length === rows.length;
     selectAll.indeterminate = chosen.length > 0 && chosen.length < rows.length;
     selectAll.disabled = busy || !rows.length;
@@ -71,8 +83,8 @@ export function mountCacheManager() {
   async function clear(all) {
     if (busy || !(all ? rows.length : selected.size)) return;
     const chosen = all ? rows : rows.filter(row => selected.has(row.id));
-    const bytes = chosen.reduce((sum, row) => sum + row.bytes, 0);
-    if (!window.confirm(`清理${all ? '全部' : '选中的'} ${chosen.length} 项本地缓存（${formatBytes(bytes)}）？服务器结果和已保存的布局会保留，再次查看可能需要重新下载。`)) return;
+    const bytes = releasableBytes(chosen);
+    if (!window.confirm(`清理${all ? '全部' : '选中的'} ${chosen.length} 项本地缓存（预计释放 ${formatBytes(bytes)}）？服务器结果和已保存的布局会保留，再次查看可能需要重新下载。`)) return;
     busy = true; updateControls(); report(''); message.textContent = '正在清理…';
     try {
       const result = await request('/web/cache/clear', {method: 'POST', headers: {'Content-Type': 'application/json'},

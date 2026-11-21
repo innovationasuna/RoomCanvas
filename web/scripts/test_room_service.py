@@ -1,5 +1,6 @@
 """Offline API/worker integration. No GPU, agent CLI, credentials or real captures used."""
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import io
 import json
 import os
@@ -251,6 +252,20 @@ class APIIntegration(unittest.TestCase):
         self.assertEqual(objects['floor'], 'Floor')
         with urlopen(self.base + job['room']['dir'] + '/Room.glb') as response:
             self.assertEqual(response.read(4), b'glTF')
+        # A HEAD gives the file's size and sha256 and no body; the sha256 is worked out once while the file stays.
+        room = self.root / 'jobs' / self.identifier / 'assets/Room.glb'
+        worker = f'http://127.0.0.1:{self.worker.server_port}'
+        digest = hashlib.sha256(room.read_bytes()).hexdigest()
+        with patch.object(service.hashlib, 'sha256', wraps=hashlib.sha256) as hashing:
+            for _ in range(2):
+                with urlopen(Request(worker + job['room']['dir'] + '/Room.glb', method='HEAD'), timeout=10) as response:
+                    self.assertEqual(response.read(), b'')
+                    self.assertEqual(response.headers['Content-Length'], str(room.stat().st_size))
+                    self.assertEqual(response.headers[service.DIGEST], digest)
+            self.assertEqual(hashing.call_count, 1)
+        with urlopen(Request(worker + '/room-reconstruction/jobs', method='HEAD'), timeout=10) as response:
+            self.assertEqual(response.read(), b'')
+            self.assertNotIn(service.DIGEST, response.headers)
         with self.assertRaises(HTTPError) as error:
             self.request(job['room']['dir'] + '/task.log')
         self.assertEqual(error.exception.code, 404)

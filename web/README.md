@@ -73,7 +73,7 @@ python3 web/scripts/serve.py
 
 ### 示例房间的模型
 
-示例房间的 `Room.glb` 不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
+示例房间的 `Room.glb`（四个共约 459 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
 
 ```bash
 python3 scripts/fetch_samples.py            # 下载缺少或大小不对的模型
@@ -84,9 +84,11 @@ python3 scripts/fetch_samples.py --verify   # 已有的模型也核对 sha256
 
 仓库是私有的，不能匿名下载：脚本先用已登录的 `gh`（`gh auth login`），没有时用环境变量 `GH_TOKEN` 或 `GITHUB_TOKEN` 中能读本仓库的令牌；两样都没有时列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后按所列路径存放。下载先写到同目录的 `Room.glb.part`，大小和 sha256 都对上才替换 `Room.glb`。
 
-`serve.py` 默认启动时在后台下载缺少的模型。使用 `python3 web/scripts/serve.py --ssh <host> --no-download` 关闭所有后台模型和回放下载，也不再提示登录 GitHub。对于 `web/rooms.json` 中带 `scan` 的示例房间（例如 Activity Classroom），打开时若缺少本地模型，会仅从已连接的房间服务获取对应任务的 `Room.glb`，终端显示下载进度；校验大小和 SHA-256 与清单一致后保存到 `samples/<房间>/Room.glb`，再交给浏览器加载。首页和 `HEAD` 检查不会触发模型下载，下次打开直接读取本地文件。未关联扫描任务的示例仍需通过上面的脚本获取。
+`serve.py` 默认启动时在后台下载缺少的模型。使用 `python3 web/scripts/serve.py --ssh <host> --no-download` 关闭所有后台模型和回放下载，也不再提示登录 GitHub。对于 `web/rooms.json` 中带 `scan` 的示例房间（例如 Activity Classroom），打开时若缺少本地模型，先复用本地缓存中大小和 SHA-256 相同的文件；没有可复用文件时，再从已连接的房间服务获取对应任务的 `Room.glb`，终端显示下载进度；校验大小和 SHA-256 与清单一致后保存到 `samples/<房间>/Room.glb`，再交给浏览器加载。首页和 `HEAD` 检查不会触发模型下载，下次打开直接读取本地文件。未关联扫描任务的示例仍需通过上面的脚本获取。
 
 按需下载失败或版本不匹配时不保留不完整文件，也不自动改用 GitHub；恢复连接或更新配套房间资源后刷新重试。本机已有的模型不会被按需下载覆盖；要换回清单里的版本，运行 `python3 scripts/fetch_samples.py <房间>`。
+
+`serve.py` 先下载示例模型，再下载房间缓存（`runs/room-cache/`），两边相同内容的文件只下载一次：房间缓存里已有大小和 sha256 都与清单一致的模型时，`fetch_samples.py` 直接链接过来（`--cache <目录>` 换缓存位置）；房间缓存遇到与示例模型相同的文件也链接过去。链接用硬链接（不多占空间，删掉其中一个不影响另一个），跨磁盘时复制。硬链接的两个文件共用同一份数据，要换示例模型时先删除 `Room.glb` 再放入新文件，不要直接覆盖写入原文件。
 
 新增示例房间或更换模型：把模型上传为 release 附件，再在 `samples/models.json` 增加或修改对应的一条。
 
@@ -100,7 +102,7 @@ wc -c < samples/<房间>/Room.glb && shasum -a 256 samples/<房间>/Room.glb    
 
 ### 清理本地缓存
 
-首页右下角的 **本地缓存** 按房间显示已下载的模型、回放文件数量和占用空间。勾选后使用“清理选中缓存”，或使用“清理全部缓存”；同一房间的示例模型与回放会合并为一项。“离线房间列表”单独列出，清理后离线时可能暂时看不到服务器房间列表。
+首页右下角的 **本地缓存** 按房间显示已下载的模型、回放文件数量和占用空间。勾选后使用“清理选中缓存”，或使用“清理全部缓存”；同一房间的示例模型与回放会合并为一项。总占用按同一份文件数据去重；不同房间共用的数据不会重复计算。选择条目后显示预计可释放空间，只有该数据的所有硬链接都被选中才计入；若仍被其他房间或缓存目录外的文件引用，清理只删除所选副本，不计入释放空间。“离线房间列表”单独列出，清理后离线时可能暂时看不到服务器房间列表。
 
 清理仅删除 `samples/models.json` 中列出的本地 `Room.glb`，以及 `runs/room-cache/` 中可识别的下载副本。仓库内的房间清单和缩略图、原始扫描、服务器重建结果、浏览器中保存的布局和回收站记录都会保留。正在读取或下载文件时会提示稍后再试，避免下载完成后又把已清理的文件写回来。
 

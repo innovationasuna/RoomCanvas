@@ -20,7 +20,9 @@ services alone), so one password starts everything.
 Finished rooms and replays are kept under runs/room-cache/ and read from there (room_cache.py); with --ssh the
 missing ones download in the background. Without the server the cached ones still open.
 The sample rooms' models (samples/*/Room.glb) are release assets, not files in git: the missing ones are fetched
-in the background at start-up (scripts/fetch_samples.py) while the page already works.
+in the background at start-up (scripts/fetch_samples.py) while the page already works, before the rooms and
+replays (GitHub is usually faster than the tunnel). A file whose content is already here (a sample room that is
+also a finished job's room, a replay's last version that is also the room) is linked, not downloaded again.
 Missing samples linked to a scan are also fetched from the room service when opened, even with --no-download.
 Only the requested model is fetched, verified against samples/models.json, and kept beside its metadata.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
@@ -172,7 +174,13 @@ class Handler(SimpleHTTPRequestHandler):
         with self.cache_control().download(), lock:
             if not target.is_file():
                 part = None
+                failure = None
                 try:
+                    same = fetch_samples.same_file([self.cache], entry['bytes'], entry['sha256'])
+                    if same:
+                        fetch_samples.place(same, target)
+                        self.log_message('房间模型：本机已有相同文件，已复用 %s', entry['path'])
+                        return self.send_kept(target)
                     self.log_message('房间模型：按需下载 %s（%.1f MB）', entry['path'], entry['bytes'] / 1e6)
                     source = f'{self.room_backend}/room-reconstruction/assets/{scan}/Room.glb'
                     with urllib.request.urlopen(source, timeout=120) as response:
@@ -199,12 +207,15 @@ class Handler(SimpleHTTPRequestHandler):
                     self.log_message('房间模型：已缓存 %s', entry['path'])
                 except (OSError, http.client.HTTPException) as error:
                     self.log_message('房间模型：下载失败 %s (%s)', entry['path'], error)
-                    return self.room_json(503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
+                    failure = (503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
                 except ValueError as error:
-                    return self.room_json(502, {'error': str(error)})
+                    failure = (502, {'error': str(error)})
                 finally:
                     if part:
                         part.unlink(missing_ok=True)
+                # Complete cleanup before the browser receives an error and can retry.
+                if failure:
+                    return self.room_json(*failure)
         return self.send_kept(target)
 
     def room_json(self, status, data, stale=False):
@@ -511,8 +522,8 @@ class Tunnel:
             self.process.kill()
 
 
-def fetch_sample_models(download=True, log=print, control=None):
-    """Optionally fetch missing samples at startup; --no-download leaves them for explicit requests."""
+def fetch_sample_models(download=True, log=print, cache=None, then=None, control=None):
+    """Optionally fetch samples before room prefetch; --no-download keeps both on demand."""
     if not download:
         log('后台模型下载已关闭；打开有关联扫描任务的房间时，将按需从房间服务获取缺失模型。')
         return []
@@ -521,9 +532,12 @@ def fetch_sample_models(download=True, log=print, control=None):
             if not allowed:
                 log('清理缓存后，后台预下载已暂停；打开房间时仍可按需获取模型。')
                 return []
-            return fetch_samples.fetch(check=not download, missing_only=True, log=log)
+            return fetch_samples.fetch(check=False, missing_only=True, log=log, cache=cache)
     except (OSError, ValueError, KeyError) as error:
         log(f'Sample models not checked (samples/models.json): {error}')
+    finally:
+        if then:
+            then()
 
 
 class Server(ThreadingHTTPServer):
@@ -578,10 +592,16 @@ def main():
             parser.error(str(error))
         tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
         if not args.no_download:
-            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True), control=control).start()
+            try:  # only manifest-listed sample models may be reused, never their tracked metadata
+                samples = [ROOT / entry['path'] for entry in fetch_samples.load()[1]]
+            except (OSError, ValueError, KeyError):
+                samples = []
+            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True),
+                                   also=samples, control=control)
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
-    # Started once the tunnel is open, so its lines stay out of the SSH password prompt.
-    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True), control), daemon=True).start()
+    # Seed the shared files from samples before starting room prefetch; both honor the cleanup pause.
+    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)),
+                     kwargs={'cache': Handler.cache, 'then': sync and sync.start, 'control': control}, daemon=True).start()
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
           + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')
