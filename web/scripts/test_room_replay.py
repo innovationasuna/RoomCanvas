@@ -775,6 +775,20 @@ class PassesBeforeTheCheck(unittest.TestCase):
         says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
         self.assertEqual(says, ['按检查出的问题修好了房间', '按检查意见尝试修改，房间没有变化'])
 
+    def test_the_items_of_the_author_stages_pass_are_cards_with_their_pictures(self):
+        # The pass writes beside the room (realism_authoring/small_objects); its pictures are found and served there.
+        photo = write(self.scene / 'realism_authoring/small_objects/evidence/TissueBox0/view0.jpg', b'jpg', T0 + 600)
+        data = replay.timeline(self.root, 'completed', T0 + 1300)
+        cards = [e for e in data['events'] if e.get('work') == 'small']
+        self.assertEqual([(e['stage'], e['object_id'], e['object_name']) for e in cards],
+                         [('assemble', 'TissueBox0', '纸巾盒'), ('review2', 'WaterBottle1', '瓶子')])
+        self.assertEqual(cards[0]['img'], 'small-objects/evidence/TissueBox0/view0.jpg')
+        self.assertEqual(replay.scene_file(self.scene, cards[0]['img']), photo.resolve())
+        self.assertIsNone(replay.scene_file(self.scene, 'small-objects/evidence/../../room/Room.py'))
+        dest = self.root / 'slim'
+        replay.slim(self.root / 'run', dest)
+        self.assertEqual((dest / 'small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'jpg')
+
     def test_without_a_repair_the_rooms_of_the_passes_show_before_the_check(self):
         data = replay.timeline(self.root, 'running', T0 + 1005)
         self.assertEqual([(e['t'] - T0, e['stage'], e.get('model')) for e in data['events'] if e.get('kind') == 'milestone'
