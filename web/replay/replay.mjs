@@ -5,12 +5,14 @@ import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DU
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
+import {cards, upTo, objects, lines, pictures, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
 const api = `/room-reconstruction/jobs/${job}/replay`;
 const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
 const KIND = {tool: '操作', image: '图片', result: '检查'};
+const NEAR = 48;  // px from the bottom: a reader this close follows new records; further up, they keep their place
 const POLL = 5000;
 // ms the camera stays on an object once there (it takes shape in 3 s); long enough that it goes on to the
 // next object rather than backing out in between.
@@ -18,6 +20,10 @@ const WATCH = 6000;
 
 let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
+// The record's cards (log.mjs), the card of each event, the last card shown, the cards a reader opened (kept
+// across live updates), and whether the next update should bring the current record into view (a seek).
+let deck = [], cardOf = [], shownCard = -1, reveal = false;
+const open = new Set();
 const player = window.player = new Player(span());
 let view = null;
 
@@ -76,7 +82,8 @@ async function poll() {
   view.ensureScaffold();
   try {
     const next = await fetchData();
-    if (next.events.length !== data.events.length || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
+    // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
+    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
       const wasEnd = player.t >= span() - 0.01;
       data = next;
       rebuild();
@@ -94,10 +101,16 @@ async function poll() {
 // Door / window ids in build order, so Wall0_Door_0 maps to the assembled room's Door0 and so on.
 let openings = {};
 function rebuild() {
+  // A reader who scrolled up keeps the card they were reading where it was.
+  const log = $('log'), top = () => log.getBoundingClientRect().top;
+  const kept = tl && !nearEnd() && [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top());
+  const anchor = kept && {key: kept.dataset.key, offset: kept.getBoundingClientRect().top - top()};
   // Older services named the checks 验收 and scored them: show them as checks, without scores.
   data.stages = data.stages.map((s) => ({...s, name: withoutScores(s.name), desc: withoutScores(s.desc)}));
   tl = buildTimeline(data);
   player.duration = tl.duration;
+  deck = cards(tl.events);
+  cardOf = deck.flatMap((card, c) => card.members.map(() => c));
   openings = {Door: [], Window: []};
   for (const e of tl.events) for (const id of e.show || []) {
     const m = id.match(/_(Door|Window)_\d+$/);
@@ -107,6 +120,7 @@ function rebuild() {
   lastIdx = -2; lastKey = '';
   $('log').innerHTML = `<div class="user">帮我把「${esc(data.name || '这个房间')}」的扫描重建成能在网页里编辑的 3D 房间。</div><div class="who"><i>R</i>RoomCanvas</div>`;
   shownTo = -1;
+  shownCard = -1;
   if (!tl.events.length) $('log').insertAdjacentHTML('beforeend', '<p class="pending">任务排队中，开始重建后这里会实时显示过程。</p>');
   $('dots').innerHTML = data.stages.map((s, k) => `<i data-k="${k}" title="${esc(s.name)}"></i>`).join('');
   const pct = (t) => `${t / span() * 100}%`;
@@ -117,38 +131,110 @@ function rebuild() {
   fitLabels();
   $('live').hidden = !data.live;
   render(player.t, player, true);
+  const again = anchor && [...log.querySelectorAll('[data-key]')].find((el) => el.dataset.key === anchor.key);
+  if (again) log.scrollTop += again.getBoundingClientRect().top - top() - anchor.offset;
 }
 
 // ---------- left: the record, newest at the bottom ----------
-const talk = (e) => `<p class="say ${e.kind === 'milestone' ? 'ms' : e.kind === 'review' ? 'rv' : ''}" data-i="${e.i}">${esc(withoutScores(e.say))}</p>`;
-const chip = (e) => `<div class="chip" data-i="${e.i}"><span class="app">${KIND[e.kind] || '操作'}</span><span>${esc(withoutScores(e.say))}</span></div>`;
-const shot = (e) => e.img ? `<div class="shot" data-z="${e.i}"><img src="${files(e.img)}" alt="" loading="lazy"></div>` : '';
+// Cards (log.mjs): a line with a small picture beside it; a run of objects with a picture of each; a stretch of
+// the agent's work with its first and latest lines, the rest folded. A card shows only what had happened by the
+// current record, so moving the playhead into a card adds or takes away its lines and pictures.
+const say = (e) => esc(withoutScores(e.say));
+const nearEnd = () => $('log').scrollHeight - $('log').scrollTop - $('log').clientHeight < NEAR;
+const pic = (k, src) => `<span class="th" data-z="${k}" data-src="${esc(src)}"><img src="${files(src)}" alt="" loading="lazy"></span>`;
+function line(k, n = 1) {
+  const e = tl.events[k], talk = ['think', 'milestone', 'review'].includes(e.kind);
+  return `<p class="line${e.kind === 'milestone' ? ' ms' : e.kind === 'review' ? ' rv' : ''}" data-i="${k}">` +
+    (talk ? '' : `<span class="k">${KIND[e.kind] || '操作'}</span>`) + say(e) + (n > 1 ? `<span class="times">×${n}</span>` : '') + '</p>';
+}
+const fold = (text) => `<button type="button" class="fold" data-more>${text}</button>`;
+function single(ks) {
+  const k = ks.at(-1), e = tl.events[k];
+  // A check's verdict keeps its photo / model pair whole, low and wide under the words.
+  if (e.kind === 'review') return line(k) + (e.img ? `<span class="wide" data-z="${k}" data-src="${esc(e.img)}"><img src="${files(e.img)}" alt="" loading="lazy"></span>` : '');
+  return `<div class="row">${line(k, ks.length)}${e.img ? pic(k, e.img) : ''}</div>`;
+}
+// Names without a picture, each once with how many: 椅子 ×3、门.
+function named(items) {
+  const count = new Map();
+  items.forEach((o) => count.set(o.name, (count.get(o.name) || 0) + 1));
+  return [...count].map(([name, n]) => esc(name) + (n > 1 ? ` ×${n}` : '')).join('、');
+}
+function objectCard(ks, opened) {
+  const items = objects(tl.events, ks), shown = items.filter((o) => o.img), bare = items.filter((o) => !o.img);
+  // Two rows of three at most; the last place says how many more until opened.
+  const fits = opened || shown.length <= 6 ? shown.length : 5;
+  const cells = shown.slice(0, fits).map((o) => `<span class="cell" data-z="${o.k}" data-src="${esc(o.img)}" data-i="${o.k}">` +
+    `<img src="${files(o.img)}" alt="" loading="lazy"><span class="nm">${esc(o.name)}</span></span>`).join('') +
+    (fits < shown.length ? `<button type="button" class="cell more" data-more>+${shown.length - fits}</button>` : '');
+  return `<div class="card objects"><p class="line lead" data-i="${ks.at(-1)}">${WORK[tl.events[ks[0]].work].replace('{n}', items.length)}</p>` +
+    (cells ? `<div class="grid">${cells}</div>` : '') + (bare.length ? `<p class="bare">另有 ${named(bare)}</p>` : '') +
+    (opened ? `<div class="detail">${lines(tl.events, ks).map((l) => line(l.k, l.n)).join('')}</div>` : '') +
+    fold(opened ? '收起' : `展开 ${ks.length} 条记录`) + '</div>';
+}
+function workCard(ks, opened) {
+  const all = lines(tl.events, ks), shots = pictures(tl.events, ks);
+  const text = opened || all.length <= 2 ? all.map((l) => line(l.k, l.n)).join('') + (all.length > 2 ? fold('收起') : '')
+    : line(all[0].k, all[0].n) + fold(`… 另有 ${all.length - 2} 条`) + line(all.at(-1).k, all.at(-1).n);
+  return `<div class="card work"><div class="text">${text}</div>` +
+    (shots.length ? `<div class="pics n${shots.length}">${shots.map((p) => pic(p.k, p.src)).join('')}</div>` : '') + '</div>';
+}
+function draw(c, idx) {
+  const card = deck[c], ks = upTo(card, idx), stage = card.stage !== deck[c - 1]?.stage;
+  const opened = open.has(card.key);
+  const body = ks.length > 1 && card.type === 'objects' ? objectCard(ks, opened)
+    : ks.length > 1 && card.type === 'work' ? workCard(ks, opened) : single(ks);
+  const holder = document.createElement('div');
+  holder.innerHTML = `<div data-c="${c}" data-key="${esc(card.key)}">` +
+    (stage ? `<div class="stage-h">${esc(data.stages.find((s) => s.id === card.stage)?.name)}</div>` : '') + body + '</div>';
+  const old = $('log').querySelector(`[data-c="${c}"]`);
+  old ? old.replaceWith(holder.firstChild) : $('log').append(holder.firstChild);
+}
 function renderLog(idx) {
-  if (idx < shownTo) {
-    $('log').querySelectorAll('[data-e]').forEach((el) => +el.dataset.e > idx && el.remove());
-    shownTo = idx;
-  }
-  for (let i = shownTo + 1; i <= idx; i++) {
-    const e = tl.events[i], prev = tl.events[i - 1];
-    const head = !prev || prev.stage !== e.stage ? `<div class="stage-h">${esc(data.stages.find((s) => s.id === e.stage)?.name)}</div>` : '';
-    const body = ['think', 'milestone', 'review'].includes(e.kind) ? talk(e) : chip(e);
-    $('log').insertAdjacentHTML('beforeend', `<div data-e="${i}">${head}${body}${shot(e)}</div>`);
-  }
-  const grew = idx > shownTo;
+  const follow = nearEnd(), grew = idx > shownTo;
+  const last = idx < 0 ? -1 : cardOf[idx];
+  for (let c = shownCard; c > last; c--) $('log').querySelector(`[data-c="${c}"]`)?.remove();
+  // The card shown last may have gained or lost lines; the ones after it are new.
+  for (let c = Math.max(0, Math.min(shownCard, last)); c <= last; c++) draw(c, idx);
+  shownCard = last;
   shownTo = idx;
+  mark(idx);
+  if (reveal) {
+    // A seek: bring the current record (or its card) into view.
+    reveal = false;
+    const el = $('log').querySelector('.now') || $('log').querySelector(`[data-c="${last}"]`);
+    if (el) {
+      const r = el.getBoundingClientRect(), box = $('log').getBoundingClientRect();
+      if (r.bottom > box.bottom) $('log').scrollTop += r.bottom - box.bottom + 12;
+      else if (r.top < box.top) $('log').scrollTop -= box.top - r.top + 12;
+    }
+  } else if (grew && follow) {
+    $('log').scrollTop = 1e9;
+  }
+}
+function mark(idx) {
   $('log').querySelectorAll('.now').forEach((el) => el.classList.remove('now'));
-  $('log').querySelector(`[data-i="${idx}"]`)?.classList.add('now');
-  if (grew) $('log').scrollTop = 1e9;
+  $('log').querySelectorAll(`[data-i="${idx}"]`).forEach((el) => el.classList.add('now'));
+}
+function zoom(k, src) {
+  const e = tl.events[k];
+  // A rebuilt small object: once the room was rendered with it, the photo beside the rebuilt model.
+  const later = (e.media || []).findLast((m) => m.role === 'comparison' && m.minute <= tl.realAt(player.t));
+  player.pause();
+  $('lb').innerHTML = `<div><img src="${files(later?.src || src || e.img)}" alt=""><div class="cap">${say(e)}</div></div>`;
+  $('lb').classList.add('on');
 }
 $('log').addEventListener('click', (ev) => {
-  const z = ev.target.closest('[data-z]');
-  if (z) {
-    const e = tl.events[+z.dataset.z];
-    player.pause();
-    $('lb').innerHTML = `<div><img src="${files(e.img)}" alt=""><div class="cap">${esc(withoutScores(e.say))}</div></div>`;
-    $('lb').classList.add('on');
+  const more = ev.target.closest('[data-more]');
+  if (more) {
+    const c = +more.closest('[data-c]').dataset.c, key = deck[c].key;
+    open.has(key) ? open.delete(key) : open.add(key);
+    draw(c, shownTo);
+    mark(shownTo);
     return;
   }
+  const z = ev.target.closest('[data-z]');
+  if (z) return zoom(+z.dataset.z, z.dataset.src);
   const c = ev.target.closest('[data-i]');
   if (c) seekTo(tl.events[+c.dataset.i].at + 0.01);
 });
@@ -162,7 +248,9 @@ $('dots').onclick = (ev) => {
 // ---------- timeline ----------
 function seekTo(t) {
   player.pause();
+  reveal = true;  // the record moved to is brought into view (seek renders at once)
   player.seek(t);
+  reveal = false;
   following = t >= span() - 0.01;
 }
 function fitLabels() {
@@ -293,7 +381,7 @@ $('log').addEventListener('load', (event) => {
   const img = event.target;
   if (img.tagName !== 'IMG' || !img.naturalHeight) return;
   const ratio = img.naturalWidth / img.naturalHeight;
-  if (ratio < 0.4 || ratio > 4) img.closest('.shot')?.remove();
+  if (ratio < 0.4 || ratio > 4) img.closest('.th, .wide')?.remove();
 }, true);
 
 start();

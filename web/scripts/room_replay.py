@@ -65,6 +65,9 @@ TRACES = 'scene_init/obj_stage/traces'
 # scene is RUN/pipeline/<scene>); the page names their rooms by these paths, which scene_file maps there.
 ARTICULATED = 'articulate/room_preview/Room.glb'
 SMALL_OBJECTS = 'small-objects/room_preview/Room.glb'
+# Pictures the small-object pass keeps of an item (its folder beside the room): the photo crop it judged the item
+# from, and the photo beside the rebuilt model once the room is rendered.
+SMALL_PICTURES = re.compile(r'^small-objects/evidence/[\w.-]+/(?:view0|pair_before|pair_after)\.jpg$')
 PASSES = ('small_objects', 'articulated')  # room models of those passes: timed by their records only
 
 
@@ -116,11 +119,20 @@ def model_path(scene, rel):
     return path
 
 
+def small_folder(scene):
+    """The small-object pass's folder: the one its room is in."""
+    return model_path(scene, SMALL_OBJECTS).parent.parent
+
+
 def scene_file(scene, rel):
-    """Resolve an allowlisted file inside the scene directory (or a later pass's room), or None."""
+    """Resolve an allowlisted file inside the scene directory (or a later pass's room or pictures), or None."""
     if rel in (ARTICULATED, SMALL_OBJECTS):
         path = model_path(scene, rel)
         return path.resolve() if path.is_file() else None
+    if SMALL_PICTURES.fullmatch(rel or '') and '..' not in rel.split('/'):
+        folder = small_folder(scene).resolve()
+        path = (folder / rel.split('/', 1)[1]).resolve()
+        return path if folder in path.parents and path.is_file() else None
     if not FILES.fullmatch(rel or '') or '..' in rel.split('/'):
         return None
     path = (Path(scene) / rel).resolve()
@@ -144,10 +156,11 @@ def _rel(scene, path):
     return str(Path(path).relative_to(scene)) if path else None
 
 
-def _object_image(scene, name):
-    """A picture of an object: its finished model's front view, else its reference, else its photo."""
-    for pattern in (f'scene_init/obj_stage/reconstructed_objs/{name}/previews/preview_front.png',
-                    f'scene_init/obj_stage/object_init/*_refs/*/{name}/reference_1024.png',
+def _object_image(scene, name, made=True):
+    """A picture of an object: its finished model's front view, else its reference, else its photo. Before its
+    model is `made` (its clear picture just generated), only the reference or photo."""
+    model = [f'scene_init/obj_stage/reconstructed_objs/{name}/previews/preview_front.png'] if made else []
+    for pattern in (*model, f'scene_init/obj_stage/object_init/*_refs/*/{name}/reference_1024.png',
                     f'scene_init/obj_stage/object_init/*_refs/*/{name}/input2imagegen.jpg'):
         found = _first(Path(scene).glob(pattern))
         if found:
@@ -192,11 +205,32 @@ def object_names(scene):
 # Small objects the pass rebuilds are named in English by the room (TissueBox0); the common ones in plain words.
 SMALL = [('tissue', '纸巾盒'), ('bottle', '瓶子'), ('plant|flower|succulent', '绿植'), ('vase', '花瓶'),
          ('cardboard|carton', '纸箱'), ('book', '书'), ('cup|mug', '杯子'), ('lamp', '台灯'), ('pillow|cushion', '靠垫'),
-         ('slipper|shoe', '鞋'), ('basket', '篮子'), ('clock', '钟'), ('box', '盒子')]
+         ('slipper|shoe', '鞋'), ('basket', '篮子'), ('clock', '钟'), ('box', '盒子'), ('shelf', '架上物品')]
 
 
 def small_name(key):
     return next((word for pattern, word in SMALL if re.search(pattern, key, re.I)), '一件小物品')
+
+
+def small_names(keys, name):
+    """Plain names for the items a pass rebuilt, numbered when several share one (瓶子1, 瓶子2), as objects are."""
+    words = {}
+    for key in sorted(keys):
+        word = name(key) if name(key) != key else small_name(key)
+        words.setdefault('小物品' if word == '一件小物品' else word, []).append(key)
+    return {key: word if len(same) == 1 else f'{word}{k + 1}' for word, same in words.items() for k, key in enumerate(same)}
+
+
+def small_media(scene, key, until=None):
+    """Pictures of an item the small-object pass rebuilt, each with the time it was written: its photo crop, and the
+    photo beside the rebuilt model (rendered when the room is applied, so shown only from then)."""
+    folder = small_folder(scene) / 'evidence' / key
+    media = []
+    for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
+        t = _mtime(folder / name)
+        if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work
+            media.append({'src': f'small-objects/evidence/{key}/{name}', 'role': role, 't': t})
+    return media
 
 
 def finished(scene, attempt):
@@ -257,6 +291,13 @@ def pipeline_events(scene, until=None):
     small_from = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start'), default=-1)
     pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')),
                     default=-1)
+    small_items = small_names({r['name'] for r in rows[small_from + 1:] if r.get('kind') == 'small_object_done'
+                               and r.get('method') == 'trellis' and r.get('status') == 'ok' and r.get('name')}, name)
+
+    def thing(key, work=None):
+        """Which object an event is about, and the kind of work done to it (the page shows a run of the same
+        work on several objects together)."""
+        return {'object_id': key, 'object_name': name(key), **({'work': work} if work else {})}
 
     def add(row, stage, say, kind='tool', once=None, **extra):
         if once:  # a resumed run repeats its early stages; show them once
@@ -292,7 +333,8 @@ def pipeline_events(scene, until=None):
             elif stage == 'reconstruct':
                 add(r, 'plan', '形状复杂的物品已由 AI 重建完成')
         elif kind == 'image_generation' and status == 'ok' and r.get('name'):
-            add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'], img=_object_image(scene, r['name']))
+            add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'],
+                img=_object_image(scene, r['name'], made=False), **thing(r['name'], 'image'))
         elif kind == 'object_done' and status == 'ok' and r.get('name'):
             # Objects reconstructed by AI, each at the time its model was written; a resumed run
             # records reused models again with that time, so they read as made then. A model taken
@@ -300,7 +342,7 @@ def pipeline_events(scene, until=None):
             # this run, not part of what the replay shows: it reads as made, once, like any other.
             taken = r.get('method') == 'provided' or (r.get('reused') and r.get('source'))
             say, once = f'做好{name(r["name"])}的模型', f'obj:{r["name"]}:' + ('provided' if taken else str(round(r["t"])))
-            add(r, 'plan', say, 'tool', once=once, show=[r['name']], img=_object_image(scene, r['name']))
+            add(r, 'plan', say, 'tool', once=once, show=[r['name']], img=_object_image(scene, r['name']), **thing(r['name'], 'model'))
         elif kind == 'classify':
             add(r, 'plan', f'选好做法：{r.get("procedural", 0)} 件用程序建模，{r.get("trellis", 0)} 件交给 AI 重建', 'think')
         elif kind == 'agent_step' and r.get('name'):
@@ -310,15 +352,16 @@ def pipeline_events(scene, until=None):
                 continue  # its object_done says it was made
             say = (f'{name(r["name"])}的模型这次没做成' if r.get('is_error')
                    else f'{"重做" if again else "做好"}{name(r["name"])}的模型')
-            add(r, 'plan', say, 'error' if r.get('is_error') else 'tool',
-                show=[r['name']], img=_object_image(scene, r['name']))
+            add(r, 'plan', say, 'error' if r.get('is_error') else 'tool', show=[r['name']], img=_object_image(scene, r['name']),
+                **thing(r['name'], None if r.get('is_error') or again else 'model'))
         elif kind == 'chair_qc' and r.get('cluster'):
             add(r, 'plan', f'做好{name(r["cluster"])}，检查形状' + ('，有需要留意的地方' if status == 'warn' else ''), 'result',
-                show=[r['cluster']], img=_object_image(scene, r['cluster']))
+                show=[r['cluster']], img=_object_image(scene, r['cluster']), **thing(r['cluster'], None if status == 'warn' else 'shape'))
         elif kind == 'chair_qc_retry' and r.get('cluster'):
             ok = status != 'fail'
             add(r, 'plan', f'重新生成{name(r["cluster"])}（第 {r.get("attempt", 1)} 次），' + ('形状检查通过' if ok else '形状还不对'),
-                'result' if ok else 'error', show=[r['cluster']] if ok else None, img=_object_image(scene, r['cluster']))
+                'result' if ok else 'error', show=[r['cluster']] if ok else None, img=_object_image(scene, r['cluster']),
+                **thing(r['cluster']))
         elif kind == 'chair_qc_restored' and r.get('cluster'):
             add(r, 'plan', f'{name(r["cluster"])}重新生成都没通过，沿用原来的模型', 'error')
         elif kind in ('openings_physics', 'procedural_physics'):
@@ -333,10 +376,12 @@ def pipeline_events(scene, until=None):
             add(r, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', 'think')
         elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
               and r.get('name')):
-            # One line per rebuilt item (recorded once per run); kept and dropped ones only count below.
-            item = name(r['name'])
-            add(r, 'small_objects', f'{small_name(r["name"]) if item == r["name"] else item}换成了按照片重建的模型',
-                once='small:' + r['name'])
+            # One line per rebuilt item (recorded once per run), with its photo; kept and dropped ones only count below.
+            media = small_media(scene, r['name'], until)
+            item = small_items.get(r['name']) or small_name(r['name'])
+            add(r, 'small_objects', f'{item}换成了按照片重建的模型', once='small:' + r['name'],
+                img=next((m['src'] for m in media if m['role'] == 'photo'), None), media=media,
+                object_id=r['name'], object_name=item, work='small')
         elif kind == 'small_objects_done' and k > small_from:
             small_done = r
 
@@ -618,7 +663,7 @@ def agent_records(scene, until=None, repair=False):
             if until and t > until:
                 continue
             pass_name = path.name.split('.')[1]
-            text, img = '', None
+            text, imgs = '', []
             if kind == 'think':
                 text = r.get('text', '')
             elif kind == 'tool':
@@ -634,13 +679,12 @@ def agent_records(scene, until=None, repair=False):
                 saved = saved if isinstance(saved, list) else re.findall(r"'([^']+)'", saved or '')
                 if not saved:
                     continue
-                pictures = [name for name in saved if not NOT_PICTURE.search(name.rsplit('/', 1)[-1])]
-                img = f'{TRACES}/{pictures[0]}' if pictures else None
                 # Pictures are named by pass and the session's own step number, so the next session of the pass
                 # writes over them: one written since that session started is not this session's.
                 rewritten = next((starts[j] for j in range(k + 1, len(sessions)) if pass_name in passes[j]), None)
-                if img and rewritten and (_mtime(Path(scene) / img) or 0) >= rewritten:
-                    img = None
+                imgs = [f'{TRACES}/{name}' for name in saved if not NOT_PICTURE.search(name.rsplit('/', 1)[-1])]
+                imgs = [img for img in imgs if FILES.fullmatch(img)
+                        and not (rewritten and (_mtime(Path(scene) / img) or 0) >= rewritten)]
                 text = f'looked at {r.get("n_images", len(saved))} images'
             elif kind in ('session_start', 'session_end'):
                 text = kind + (': ' + str(r.get('summary', ''))[:600] if kind == 'session_end' else '')
@@ -649,12 +693,20 @@ def agent_records(scene, until=None, repair=False):
             tag = path.name.split('.')[2] + ':' if path.parent.name == 'history' else ''
             session.append({'key': f'{pass_name}:{tag}{r.get("seq", len(session))}', 't': t, 'kind': kind,
                             'text': re.sub(r'/workspace/\S+/', '', text)[:700],
-                            'img': img if img and FILES.fullmatch(img) else None, 'session': k, 'session_t': starts[k]})
+                            'img': imgs[0] if imgs else None, 'imgs': imgs, 'session': k, 'session_t': starts[k]})
         session.sort(key=lambda r: r['t'])
         for r in session:
             r['seq'] = len(out)
             out.append(r)
     return out
+
+
+MEDIA = 4  # pictures an agent line keeps (the page shows one or two of a stretch of work)
+
+
+def seen(records):
+    """The pictures the agent looked at in these records, each once, in order."""
+    return list(dict.fromkeys(img for r in records for img in r.get('imgs') or []))
 
 
 def rule_agent_events(records, window=180, who='建模 agent ', prefix='a'):
@@ -671,8 +723,10 @@ def rule_agent_events(records, window=180, who='建模 agent ', prefix='a'):
         parts += [f'看了 {len(images)} 组图片'] if images else []
         parts += [f'拿到 {checks} 次检查结果'] if checks else []
         say = f'{who}继续工作' + ('：' + '，'.join(parts) if parts else '')
+        pictures = seen(group)
         events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool', 'say': say,
-                       'img': images[-1]['img'] if images else None, 'rule': True})
+                       'img': pictures[-1] if pictures else None, 'media': [{'src': img} for img in pictures[-MEDIA:]],
+                       'session': f'{prefix}{group[0]["session"]}', 'rule': True})
         group.clear()
 
     for r in records:
@@ -692,7 +746,7 @@ PROMPT = """你在给“房间重建过程回放”网页写左栏说明，读�
 这些都是 agent 自己的检查：写“自查”“检查”，不要写“验收”或“验收通过”（验收专指之后独立的验收轮次，结果另行显示）。
 每条给出它概括的 seq 范围（from/to，覆盖全部记录、相互不重叠、按顺序），kind 取 think（想法）、tool（操作）、result（结果或检查）、error（出错）之一。
 stage 取 {stages} 之一：assemble=搭建完整房间（读资料、看照片、搭初稿、补陈设），adjust=核查并调整（查穿插和外观差异、校准位置、调细节），check=自查并再修改（对照照片自查、按自查继续改、收尾送检）。stage 不能比前一条靠前，第一条不能早于 {current}。
-如果某条对应的记录里有 img，可以在 image_seq 填那条记录的 seq，否则填 null。
+如果这条的 from–to 范围内有记录带 img（列出了它看的图片名），可以在 image_seq 填其中最能说明这一步的那条记录的 seq，否则填 null；不要填范围以外的 seq。
 只输出 JSON 数组，例如 [{{"from": 0, "to": 3, "stage": "assemble", "kind": "think", "say": "先看完全部照片，再搭一版初稿", "image_seq": null}}]。
 
 前面已经写好的几条（保持衔接，不要重复）：
@@ -804,7 +858,7 @@ class Summary:
         previous = [i['say'] for b in self.data['batches'][-1:] for i in b['items']][-4:]
         current = next((i['stage'] for b in reversed(self.data['batches']) for i in reversed(b['items'])), 'assemble')
         records = [{'seq': r['seq'], 'minute': round((r['t'] - minute0) / 60, 1), 'kind': r['kind'], 'text': r['text'],
-                    **({'img': True} if r.get('img') else {})} for r in chunk]
+                    **({'img': [img.rsplit('/', 1)[-1] for img in r['imgs']]} if r.get('imgs') else {})} for r in chunk]
         prompt = PROMPT.format(lo=max(1, len(chunk) // 12), hi=max(2, len(chunk) // 5), stages='/'.join(AGENT_STAGES),
                                current=current, previous='\n'.join(previous) or '（无）',
                                records=json.dumps(records, ensure_ascii=False))
@@ -816,7 +870,8 @@ class Summary:
                 continue
             stage = item.get('stage') if item.get('stage') in AGENT_STAGES else AGENT_STAGES[order]
             order = max(order, AGENT_STAGES.index(stage))  # never step back
-            image = by_seq.get(item.get('image_seq')) if item.get('image_seq') is not None else None
+            seq = item.get('image_seq')
+            image = by_seq.get(seq) if isinstance(seq, int) and lo <= seq <= hi else None  # a picture of this line's own records
             items.append({'from': lo, 'to': hi, 't': by_seq[hi]['t'], 'stage': AGENT_STAGES[order],
                           'kind': item.get('kind') if item.get('kind') in ('think', 'tool', 'result', 'error') else 'tool',
                           'say': str(item.get('say', '')).strip()[:60], 'img': image.get('img') if image else None})
@@ -852,10 +907,16 @@ def timeline(job_dir, status='completed', until=None):
     summary = Summary(job_dir)
     summary.align(scene)  # an older cache, renumbered here and saved by the condensing worker
     covered = -1
+    by_seq = {r['seq']: r for r in records}
     for batch in summary.data['batches']:
         for item in batch['items']:
+            # A line shows only pictures the agent looked at within its own records: the one chosen for it, else the
+            # first of them (a cache may name one outside, or none).
+            pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
+            img = item.get('img') if item.get('img') in pictures else pictures[0] if pictures else None
             events.append({'id': f'a{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
-                           'say': item['say'], 'img': item.get('img')})
+                           'say': item['say'], 'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
+                           **({'session': f'a{by_seq[item["from"]]["session"]}'} if item['from'] in by_seq else {})})
         covered = batch['to']
     for k in dict.fromkeys(r['session'] for r in records):  # each session worded on its own
         own = [r for r in records if r['session'] == k]
@@ -897,6 +958,9 @@ def timeline(job_dir, status='completed', until=None):
     for event in events:
         event['minute'] = round((event['t'] - start) / 60, 3)
         event.pop('issues', None)
+        for media in event.get('media') or []:  # when each picture was there to show
+            if 't' in media:
+                media['minute'] = round((media.pop('t') - start) / 60, 3)
     build = build_schedule(scene, until) if start else None
     if build:
         build = {'base': round((build['base'] - start) / 60, 3),
@@ -1121,6 +1185,9 @@ def slim(run, dest):
     # The later passes' rooms (the openable-parts one was published), beside the scene, and how each launcher
     # attempt ended (whether a later one was a retry).
     extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
+    small = small_folder(scene)
+    extra += [(path, dest / 'small-objects' / path.relative_to(small)) for path in small.glob('evidence/*/*.jpg')
+              if SMALL_PICTURES.fullmatch('small-objects/' + str(path.relative_to(small)))]
     extra += [(path, dest / path.relative_to(run)) for pattern in ('attempt-*/exit', 'attempt-*/run-config.json', '*/attempt-*/exit',
                                                                    '*/attempt-*/run-config.json') for path in run.glob(pattern)]
     for path, target in extra:

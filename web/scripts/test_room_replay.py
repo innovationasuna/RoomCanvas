@@ -369,6 +369,14 @@ class LiveRecords(unittest.TestCase):
         images = [r['img'] for r in replay.agent_records(self.scene) if r['key'].startswith('extra:')]
         self.assertEqual(images, [f'{replay.TRACES}/img/author_0010_Wall9_stitched.jpg', None])
 
+    def test_a_clear_picture_does_not_show_the_model_made_after_it(self):
+        def first(work):
+            return next(e for e in replay.pipeline_events(self.scene, T0 + 1300) if e.get('work') == work)
+        self.assertEqual((first('image')['object_id'], first('image')['img']), ('Storage0', None))
+        self.assertEqual(first('model')['img'], 'scene_init/obj_stage/reconstructed_objs/Storage0/previews/preview_front.png')
+        write(self.scene / 'scene_init/obj_stage/object_init/object_refs/storage/Storage0/reference_1024.png')
+        self.assertEqual(first('image')['img'], 'scene_init/obj_stage/object_init/object_refs/storage/Storage0/reference_1024.png')
+
     def test_a_finished_object_is_said_once_and_retries_still_show(self):
         says = [e['say'] for e in sorted(replay.pipeline_events(self.scene, T0 + 1300), key=lambda e: e['t'])
                 if e.get('show') == ['Storage0']]
@@ -587,6 +595,28 @@ class PhasedRun(unittest.TestCase):
             f.write(json.dumps({'t': T0 + 2520, 'kind': 'model_saved', 'model': 'small_objects', 'path': str(outside)}) + '\n')
         self.assertIsNone(replay.scene_file(self.scene, replay.SMALL_OBJECTS))  # outside the run: refused
 
+    def test_a_rebuilt_item_shows_its_photo_and_once_applied_the_rebuilt_model(self):
+        photo = write(self.run / 'small-objects/evidence/TissueBox0/view0.jpg', b'photo', T0 + 2050)
+        write(self.run / 'small-objects/evidence/TissueBox0/pair_after.jpg', b'pair', T0 + 2505)
+        write(self.run / 'small-objects/evidence/TissueBox0/decision_reply.txt')
+        items = [e for e in replay.timeline(self.root, 'completed', T0 + 4000)['events'] if e.get('work') == 'small']
+        self.assertEqual([(e['object_id'], e['object_name'], e['img']) for e in items],
+                         [('TissueBox0', '纸巾盒', 'small-objects/evidence/TissueBox0/view0.jpg'), ('WaterBottle1', '瓶子', None)])
+        self.assertEqual([m['role'] for m in items[0]['media']], ['photo', 'comparison'])
+        self.assertGreater(items[0]['media'][1]['minute'], items[0]['minute'])  # rendered after the item was done
+        live = [e for e in replay.timeline(self.root, 'running', T0 + 2400)['events'] if e.get('work') == 'small']
+        self.assertEqual([m['role'] for m in live[0]['media']], ['photo'])
+        self.assertEqual(replay.scene_file(self.scene, 'small-objects/evidence/TissueBox0/view0.jpg'), photo.resolve())
+        for refused in ('small-objects/evidence/TissueBox0/decision_reply.txt', 'small-objects/evidence/../room_preview/Room.glb'):
+            self.assertIsNone(replay.scene_file(self.scene, refused))
+        replay.slim(self.run, self.root / 'slim')
+        self.assertEqual((self.root / 'slim/small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'photo')
+
+    def test_rebuilt_items_sharing_a_name_are_numbered(self):
+        self.assertEqual(replay.small_names({'WaterBottle1', 'WaterBottle0', 'ShelfC0R0B', 'Thing7', 'Thing8'}, lambda key: key),
+                         {'WaterBottle0': '瓶子1', 'WaterBottle1': '瓶子2', 'ShelfC0R0B': '架上物品',
+                          'Thing7': '小物品1', 'Thing8': '小物品2'})
+
     def test_a_slim_copy_keeps_the_pass_and_how_each_attempt_ended(self):
         dest = self.root / 'slim'
         replay.slim(self.run, dest)
@@ -691,10 +721,13 @@ class Condensing(unittest.TestCase):
         self.assertTrue(summary.condense(self.records, self.fake(answer), T0, final=True))
         items = summary.data['batches'][0]['items']
         self.assertEqual([i['stage'] for i in items], ['adjust', 'adjust'])  # never steps back
-        self.assertEqual(items[0]['img'], 'scene_init/obj_stage/traces/img/author_0004_a.jpg')
+        self.assertIsNone(items[0]['img'])  # the picture it named is in the next line's records
         self.assertFalse(replay.Summary(self.job).condense(self.records, self.fake(answer), T0, final=True))
         self.assertEqual(len(self.calls), 1)  # cached, not asked again
         timeline = replay.timeline(self.job, 'completed', T0 + 1300)
+        lines = {e['id']: e for e in timeline['events'] if e.get('session')}
+        self.assertEqual([(k, e['img'], e['session']) for k, e in lines.items()],
+                         [('a0', None, 'a0'), ('a3', 'scene_init/obj_stage/traces/img/author_0004_a.jpg', 'a0')])
         says = [e['say'] for e in timeline['events']]
         self.assertIn('自评 6.5 分', says)
         self.assertFalse(any(s.startswith('建模 agent 继续工作') for s in says))

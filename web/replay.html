@@ -37,25 +37,50 @@
   .tag.ok {background: var(--rc-active); color: var(--rc-green);}
   main {display: grid; grid-template-columns: clamp(250px, 22vw, 330px) minmax(0, 1fr); min-height: 0;}
   .side {display: grid; grid-template-rows: minmax(0, 1fr) auto; background: var(--rc-panel); border-right: 1px solid var(--rc-line); min-height: 0; min-width: 0; overflow: hidden;}
-  .log {overflow-y: auto; overflow-x: hidden; padding: 16px 18px 24px; min-width: 0;}
+  .log {overflow-y: auto; overflow-x: hidden; padding: 16px 18px 24px; min-width: 0; container-type: inline-size;}
   .user {margin-left: 48px; background: var(--rc-raised); border-radius: 8px 8px 3px 8px; padding: 10px 14px; margin-bottom: 18px;}
   .who {display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px;}
   .who i {width: 22px; height: 22px; border-radius: 5px; background: var(--rc-green); color: var(--rc-bg); display: grid; place-items: center; font-style: normal; font-size: 12px;}
-  .say {margin: 0 0 10px; cursor: pointer; overflow-wrap: anywhere;}
-  .say.ms {font-weight: 600;}
-  .say.rv {border-left: 3px solid var(--rc-amber); padding-left: 10px;}
-  .say.now {color: var(--rc-green);}
-  .chip {display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--rc-field); color: var(--rc-text); font-size: 13px; border: 1px solid var(--rc-line); cursor: pointer; overflow-wrap: anywhere;}
-  .chip .app {font-size: 11px; color: var(--rc-muted); background: var(--rc-raised); border: 1px solid var(--rc-line); border-radius: 5px; padding: 0 6px; white-space: nowrap;}
-  .chip.err {background: #3a2b27; border-color: #6b4a42;}
-  .chip:hover {border-color: var(--rc-control);}
-  .chip.now {border-color: var(--rc-green); background: var(--rc-active); color: var(--rc-green);}
-  .chip.now .app {color: var(--rc-green);}
+  /* The record: a line with its picture beside it; cards gather a run of objects or a stretch of the agent's work. */
+  .line {margin: 0 0 10px; cursor: pointer; overflow-wrap: anywhere;}
+  .line .k {font-size: 11px; color: var(--rc-muted); margin-right: 6px;}
+  .line .times {font-size: 12px; color: var(--rc-muted); margin-left: 6px; font-variant-numeric: tabular-nums;}
+  .line.ms {font-weight: 600;}
+  .line.rv {border-left: 3px solid var(--rc-amber); padding-left: 10px;}
+  .line.now, .line.now .k {color: var(--rc-green);}
+  .row {display: flex; gap: 10px; align-items: flex-start; margin: 0 0 10px;}
+  .row > .line, .card .text {flex: 1; min-width: 0; margin-bottom: 0;}
+  .card {margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--rc-line); border-radius: 8px; background: var(--rc-field); font-size: 13px;}
+  .card.work {display: flex; gap: 10px; align-items: flex-start;}
+  .card .line {margin: 0;}
+  .card .line + .line, .card .fold + .line {margin-top: 4px;}
+  .card .lead {font-weight: 600; font-size: 14px;}
+  .log button.fold {display: block; border: 0; background: none; padding: 2px 0; font-size: 12px; color: var(--rc-muted);}
+  .log button.fold:is(:hover, :focus-visible) {color: var(--rc-green); background: none;}
+  .card .detail {margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rc-line);}
+  .th {flex: none; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--rc-line); background: var(--rc-raised); cursor: zoom-in;}
+  .th img {display: block; width: 100%; height: 100%; object-fit: cover;}
+  .pics {flex: none; display: grid; gap: 4px;}
+  .pics.n2 .th {width: 56px; height: 56px;}
+  .wide {display: block; width: fit-content; max-width: 100%; height: 96px; margin: -4px 0 10px; cursor: zoom-in;}
+  .wide img {display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
+  .grid {display: grid; grid-template-columns: repeat(3, minmax(0, 96px)); gap: 6px; margin: 8px 0 2px;}
+  .cell {display: grid; gap: 2px; min-width: 0; cursor: zoom-in;}
+  .cell img {display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
+  .cell .nm {font-size: 11px; color: var(--rc-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+  .cell.now img {border-color: var(--rc-green);}
+  .cell.now .nm {color: var(--rc-green);}
+  .log button.more {aspect-ratio: 1; place-items: center; padding: 0; border: 1px dashed var(--rc-line); border-radius: 6px; background: none; color: var(--rc-muted); font-size: 14px; cursor: pointer;}
+  .card .bare {margin: 6px 0 0; font-size: 12px; color: var(--rc-muted);}
   .stage-h {font-size: 12px; color: var(--rc-muted); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px;}
   .stage-h::after {content: ''; flex: 1; border-top: 1px solid var(--rc-line);}
   .pending {font-size: 13px; color: var(--rc-muted);}
-  .shot {display: flex; gap: 4px; height: 112px; margin: -2px 0 10px; cursor: zoom-in;}
-  .shot img {height: 100%; width: auto; max-width: 100%; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-field);}
+  /* A narrow record (the column at its narrowest): smaller pictures, so the words keep their width. */
+  @container (max-width: 240px) {
+    .th {width: 56px; height: 56px;}
+    .pics.n2 .th {width: 48px; height: 48px;}
+    .wide {height: 80px;}
+  }
   .plan {border-top: 1px solid var(--rc-line); padding: 12px 18px 14px;}
   .plan .top {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--rc-muted);}
   .plan .top > span:first-child {white-space: nowrap;}
