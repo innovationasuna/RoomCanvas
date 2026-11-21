@@ -411,9 +411,17 @@ class SampleServing(unittest.TestCase):
         self.assertEqual(self.get()[:2], (200, b'room'))
 
     def test_interrupted_transfer_is_discarded_and_can_be_retried(self):
+        from unittest.mock import patch
+        observed = []
+        original = Handler.room_json
+        def reply(handler, *args, **kwargs):
+            observed.append(list(self.target.parent.iterdir()))
+            return original(handler, *args, **kwargs)
         self.service.files[self.source] = b'ro'
         self.service.lengths[self.source] = 4
-        self.assertIn(self.get()[0], (502, 503))
+        with patch.object(Handler, 'room_json', reply):
+            self.assertIn(self.get()[0], (502, 503))
+        self.assertEqual(observed, [[]], 'clean up before sending the error response')
         self.assertEqual(list(self.target.parent.iterdir()), [])
         self.service.files[self.source] = b'room'
         self.assertEqual(self.get()[:2], (200, b'room'))

@@ -174,6 +174,7 @@ class Handler(SimpleHTTPRequestHandler):
         with self.cache_control().download(), lock:
             if not target.is_file():
                 part = None
+                failure = None
                 try:
                     same = fetch_samples.same_file([self.cache], entry['bytes'], entry['sha256'])
                     if same:
@@ -206,12 +207,15 @@ class Handler(SimpleHTTPRequestHandler):
                     self.log_message('房间模型：已缓存 %s', entry['path'])
                 except (OSError, http.client.HTTPException) as error:
                     self.log_message('房间模型：下载失败 %s (%s)', entry['path'], error)
-                    return self.room_json(503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
+                    failure = (503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
                 except ValueError as error:
-                    return self.room_json(502, {'error': str(error)})
+                    failure = (502, {'error': str(error)})
                 finally:
                     if part:
                         part.unlink(missing_ok=True)
+                # Complete cleanup before the browser receives an error and can retry.
+                if failure:
+                    return self.room_json(*failure)
         return self.send_kept(target)
 
     def room_json(self, status, data, stale=False):
