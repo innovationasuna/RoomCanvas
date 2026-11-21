@@ -117,7 +117,11 @@ def run(context: RunContext, options: dict) -> StageResult:
     if collision_rc:
         warnings.append(f"collision correction exited {collision_rc}; see {collision_log}")
     from litereality_agent.pipeline.realism_authoring import passes as finishing
-    from litereality_agent.pipeline.realism_authoring.acceptance import SCHEMA, fingerprint
+    from litereality_agent.pipeline.realism_authoring.acceptance import (
+        SCHEMA,
+        fingerprint,
+        same_room,
+    )
     from litereality_agent.room_ops import api
 
     # The room was checked once by author (and repaired if it failed); publishing does not check again.
@@ -132,7 +136,7 @@ def run(context: RunContext, options: dict) -> StageResult:
     # The checked build is still the room's (author's last build, nothing changed since): publish it
     # as it was checked, with what the passes made of it, instead of building it again.
     current = (completed is not None and blend.is_file()
-               and checked.get("fingerprint") == fingerprint(context.authored_room, context.preview_dir)
+               and same_room(checked.get("fingerprint"), fingerprint(context.authored_room, context.preview_dir))
                and (context.scene_dir / completed["room"] / "Room.blend").is_file())
     acceptance = context.preview_dir / "acceptance.json"
     acceptance.unlink(missing_ok=True)
