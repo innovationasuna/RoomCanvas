@@ -98,6 +98,27 @@ wc -c < samples/<房间>/Room.glb && shasum -a 256 samples/<房间>/Room.glb    
 
 更换模型时建议换一个附件名而不是覆盖原附件，旧提交才能继续取到当时的模型。
 
+### 清理本地缓存
+
+首页右下角的 **本地缓存** 按房间显示已下载的模型、回放文件数量和占用空间。勾选后使用“清理选中缓存”，或使用“清理全部缓存”；同一房间的示例模型与回放会合并为一项。“离线房间列表”单独列出，清理后离线时可能暂时看不到服务器房间列表。
+
+清理仅删除 `samples/models.json` 中列出的本地 `Room.glb`，以及 `runs/room-cache/` 中可识别的下载副本。仓库内的房间清单和缩略图、原始扫描、服务器重建结果、浏览器中保存的布局和回收站记录都会保留。正在读取或下载文件时会提示稍后再试，避免下载完成后又把已清理的文件写回来。
+
+清理成功后暂停后台预下载，状态保存在 `.roomcanvas/cache-downloads-paused`，重启服务仍有效。关联扫描任务的示例房间再次打开时仍可按需获取；未关联扫描任务的示例需用 `fetch_samples.py` 手动下载。普通房间和回放在服务在线时仍可直接读取，清理不会触发新的下载。
+
+前端与命令行使用相同的清理逻辑。命令行以 `list` 返回的 ID 选择条目，支持一次传入多个 ID：
+
+```bash
+python3 web/scripts/cache_manage.py list
+python3 web/scripts/cache_manage.py list --json
+python3 web/scripts/cache_manage.py clear sample:office sample:room3
+python3 web/scripts/cache_manage.py clear --all
+# 可选：重新允许后台预下载；使用 --no-download 启动的服务仍保持按需获取
+python3 web/scripts/cache_manage.py resume
+```
+
+若网页服务指定了自定义缓存目录，命令行传入相同目录，例如 `python3 web/scripts/cache_manage.py --cache /path/to/room-cache list`。本地 HTTP 接口为 `GET /web/cache` 和 `POST /web/cache/clear`，后者接受 `application/json` 请求体 `{"ids":["sample:office"]}` 或 `{"all":true}`，仅接受同源的本机请求；返回释放的字节数、删除文件数、未成功项和最新缓存列表。
+
 ## 重建房间
 
 房间选择页的 **重建房间**（也可直接打开 `web/#reconstruct`）上传一个房间的完整扫描包（扫描 App 导出的 tar 或 ZIP，最大 2 GB），提交后显示实际的流水线阶段，失败可以重试；关闭页面不影响服务器上的任务，完成的房间自动加入列表。`serve.py` 只把 `/room-reconstruction/` 下的健康检查、任务、目录和已发布文件转给房间重建服务，写请求只接受本页面发出的，大文件分块转发。扫描格式、服务启动和接口见 [从网页重建房间](../docs/ROOM_RECONSTRUCTION.md#从网页重建房间)。

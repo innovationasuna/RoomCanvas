@@ -26,6 +26,7 @@ Only the requested model is fetched, verified against samples/models.json, and k
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
+from contextlib import nullcontext
 import http.client
 import json
 import re
@@ -48,6 +49,7 @@ from urllib.parse import quote, unquote, urlsplit
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
 import room_cache  # noqa: E402
+from cache_manage import CacheBusy, CacheManager  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = r'[\w.-]+'
@@ -119,6 +121,35 @@ class Handler(SimpleHTTPRequestHandler):
     sample_locks = {}
     sample_locks_guard = threading.Lock()
 
+    def cache_control(self):
+        return CacheManager(ROOT, self.cache)
+
+    def cache_clear(self):
+        origin = self.headers.get('Origin')
+        host = self.headers.get('Host', '')
+        if (urlsplit('//' + host).hostname not in {'127.0.0.1', 'localhost', '::1'}
+                or (origin and urlsplit(origin).netloc != host)
+                or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+            return self.room_json(403, {'error': '不允许跨站清理本地缓存。'})
+        if self.headers.get_content_type() != 'application/json':
+            return self.room_json(415, {'error': '请使用 JSON 提交清理请求。'})
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 65536:
+                raise ValueError('清理请求大小无效。')
+            self.connection.settimeout(15)
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict) or set(data) - {'ids', 'all'}:
+                raise ValueError('清理请求格式无效。')
+            result = self.cache_control().clear(data.get('ids'), all=data.get('all', False))
+        except CacheBusy as error:
+            return self.room_json(409, {'error': str(error)})
+        except (ValueError, UnicodeError) as error:
+            return self.room_json(400, {'error': str(error)})
+        except OSError:
+            return self.room_json(500, {'error': '无法清理缓存，请检查本地文件权限后重试。'})
+        return self.room_json(200, result)
+
     def missing_sample(self, path):
         """Only manifest-listed models with a known scan may use the room service as a source."""
         if not path.startswith('/samples/') or not path.endswith('/Room.glb'):
@@ -138,7 +169,7 @@ class Handler(SimpleHTTPRequestHandler):
         target = ROOT / entry['path']
         with self.sample_locks_guard:
             lock = self.sample_locks.setdefault(target, threading.Lock())
-        with lock:
+        with self.cache_control().download(), lock:
             if not target.is_file():
                 part = None
                 try:
@@ -193,6 +224,11 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/web/cache':
+            try:
+                return self.room_json(200, self.cache_control().inventory())
+            except (OSError, ValueError):
+                return self.room_json(500, {'error': '无法读取本地缓存，请检查文件权限后重试。'})
         sample = self.missing_sample(path)
         if sample:
             return self.sample_get(*sample)
@@ -286,7 +322,7 @@ class Handler(SimpleHTTPRequestHandler):
     def room_answer(self, path, timeout):
         """Return status, bytes, content type and whether a temporary outage required the saved answer."""
         kept = room_cache.local(self.cache, path)
-        with room_cache.answer_writer(kept) as publish:
+        with self.cache_control().download(), room_cache.answer_writer(kept) as publish:
             try:
                 with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
                     body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
@@ -309,16 +345,23 @@ class Handler(SimpleHTTPRequestHandler):
             return failure
 
     def send_kept(self, path, head=False):
-        self.send_response(200)
-        self.send_header('Content-Type', room_cache.content_type(path))
-        self.send_header('Content-Length', str(path.stat().st_size))
-        self.send_header('Last-Modified', self.date_time_string(path.stat().st_mtime))
-        self.end_headers()
-        if not head:
-            with path.open('rb') as source:
-                shutil.copyfileobj(source, self.wfile)
+        with self.cache_control().download():
+            try:
+                source = path.open('rb')
+            except FileNotFoundError:
+                return self.room_json(404, {'error': '本地缓存已清理，请刷新后重新加载。'})
+            with source:
+                self.send_response(200)
+                self.send_header('Content-Type', room_cache.content_type(path))
+                self.send_header('Content-Length', str(path.stat().st_size))
+                self.send_header('Last-Modified', self.date_time_string(path.stat().st_mtime))
+                self.end_headers()
+                if not head:
+                    shutil.copyfileobj(source, self.wfile)
 
     def do_POST(self):
+        if urlsplit(self.path).path == '/web/cache/clear':
+            return self.cache_clear()
         restore = re.fullmatch(r'/web/rooms/([A-Za-z0-9_-]{1,100})/restore', urlsplit(self.path).path)
         if restore:
             origin = self.headers.get('Origin')
@@ -468,13 +511,17 @@ class Tunnel:
             self.process.kill()
 
 
-def fetch_sample_models(download=True, log=print):
+def fetch_sample_models(download=True, log=print, control=None):
     """Optionally fetch missing samples at startup; --no-download leaves them for explicit requests."""
     if not download:
         log('后台模型下载已关闭；打开有关联扫描任务的房间时，将按需从房间服务获取缺失模型。')
         return []
     try:
-        return fetch_samples.fetch(check=not download, missing_only=True, log=log)
+        with control.download(background=True) if control else nullcontext(True) as allowed:
+            if not allowed:
+                log('清理缓存后，后台预下载已暂停；打开房间时仍可按需获取模型。')
+                return []
+            return fetch_samples.fetch(check=not download, missing_only=True, log=log)
     except (OSError, ValueError, KeyError) as error:
         log(f'Sample models not checked (samples/models.json): {error}')
 
@@ -517,6 +564,7 @@ def main():
     Handler.viewforge = args.viewforge.rstrip('/')
     Handler.room_backend = args.room_backend.rstrip('/')
     Handler.cache = args.cache.resolve()
+    control = CacheManager(ROOT, Handler.cache)
     tunnel = sync = None
     if args.gateway:  # paths already tell the services apart, so both backends are the one forwarded port
         Handler.room_backend = Handler.viewforge
@@ -530,10 +578,10 @@ def main():
             parser.error(str(error))
         tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
         if not args.no_download:
-            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True)).start()
+            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True), control=control).start()
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     # Started once the tunnel is open, so its lines stay out of the SSH password prompt.
-    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)), daemon=True).start()
+    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True), control), daemon=True).start()
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
           + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')
