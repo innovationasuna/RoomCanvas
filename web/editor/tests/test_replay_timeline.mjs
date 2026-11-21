@@ -36,6 +36,18 @@ test('events sit inside their stage and the clock reads real time', () => {
   assert.equal(clock(122.5), '2:02:30');
 });
 
+test('the clock leaves out the stretches in which nothing shown was worked on', () => {
+  const idle = [[40.5, 58], [61, 90]];
+  const tl = buildTimeline({stages, events, idle});
+  assert.equal(tl.workAt(10), 10);
+  assert.equal(tl.workAt(50), 40.5);  // inside a pause the clock stands still
+  assert.equal(tl.workAt(60), 42.5);
+  assert.equal(tl.workAt(120), 120 - 17.5 - 29);
+  // playback and the real time behind it are unchanged; without idle data the clock is real time
+  assert.equal(tl.duration, buildTimeline({stages, events}).duration);
+  assert.equal(buildTimeline({stages, events}).workAt(120), 120);
+});
+
 test('the scan shows only while it is read, then fades out for good', () => {
   const tl = buildTimeline({stages, events});
   const [scan, layout] = [tl.stages[0].replay, tl.stages[1].replay];
