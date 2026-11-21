@@ -1078,6 +1078,17 @@ class Sessions(unittest.TestCase):
         """summary.json as the code before the sessions were numbered on wrote it (no 'numbering')."""
         write(self.job / 'replay' / 'summary.json', json.dumps({'version': replay.SUMMARY_VERSION, 'batches': batches, 'reviews': {}}))
 
+    def test_lines_whose_records_are_gone_are_not_shown(self):
+        # Condensed while a session's records were there (seq 5..7); then they were moved away.
+        replay.Summary(self.job).condense(self.first, self.run_('assemble'), T0, final=True)
+        summary = replay.Summary(self.job)
+        summary.data['batches'].append({'from': 5, 'to': 7, 'items': [
+            {'from': 5, 'to': 7, 't': T0 + 9000, 'stage': 'assemble', 'kind': 'tool', 'say': '不在了'}]})
+        summary.save()
+        events = replay.timeline(self.job, 'completed')['events']
+        self.assertNotIn('不在了', [e['say'] for e in events])
+        self.assertIn('第 1 段', [e['say'] for e in events])  # the records that are there keep their line
+
     def test_an_old_cache_across_sessions_is_renumbered_by_time(self):
         # Session 1 (seq 0..4) condensed; then session 2 counted from 0 again, condensed only past 4.
         self.old_cache([{'from': 0, 'to': 4, 'items': [{'from': 0, 'to': 4, 't': T0 + 600, 'stage': 'adjust', 'kind': 'tool', 'say': '第一段'}]}])
