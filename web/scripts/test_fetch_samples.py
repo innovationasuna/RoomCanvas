@@ -179,6 +179,27 @@ class FetchSamples(unittest.TestCase):
         self.assertTrue(source.samefile(target))
         self.assertEqual(list(target.parent.iterdir()), [target])
 
+    def test_concurrent_release_downloads_use_separate_parts_and_preserve_a_new_model(self):
+        from concurrent.futures import ThreadPoolExecutor
+        barrier = threading.Barrier(2)
+        parts = []
+        entry = self.entries[0]
+        target = self.root / entry['path']
+        def release(repo, entry, part):
+            parts.append(part)
+            part.write_bytes(MODELS['office'])
+            barrier.wait(timeout=5)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: fetch_samples.fetch_one('owner/repo', entry, self.root, [release], missing_only=True), range(2)))
+        self.assertNotEqual(*parts)
+        self.assertEqual(target.read_bytes(), MODELS['office'])
+        self.assertEqual(list(target.parent.iterdir()), [target])
+        def replaced(repo, entry, part):
+            part.write_bytes(MODELS['office'])
+            target.write_bytes(b'my new model')
+        fetch_samples.fetch_one('owner/repo', entry, self.root, [replaced], missing_only=True)
+        self.assertEqual(target.read_bytes(), b'my new model')
+
     def test_gh_downloads_the_named_asset_to_the_part_file(self):
         def gh(command, **options):
             self.calls.append(command)
@@ -186,7 +207,9 @@ class FetchSamples(unittest.TestCase):
             return type('Done', (), {'returncode': 0, 'stderr': ''})()
         with patch.object(fetch_samples.subprocess, 'run', gh):
             self.assertEqual(self.fetch('office', ways=[fetch_samples.gh_download]), [])
-        part = str(self.root / 'samples/office/Room.glb.part')
+        part = self.calls[0][self.calls[0].index('-O') + 1]
+        self.assertEqual(Path(part).parent, self.root / 'samples/office')
+        self.assertTrue(Path(part).name.startswith('.Room-') and part.endswith('.part'))
         self.assertEqual(self.calls, [['gh', 'release', 'download', 'sample-rooms', '-R', 'owner/repo', '-p', 'office-Room.glb', '-O', part, '--clobber']])
         self.assertEqual(self.files(), ['models.json', 'office/Room.glb'])
 
