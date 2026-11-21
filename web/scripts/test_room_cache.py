@@ -1,4 +1,5 @@
 """python3 -m unittest discover -s web/scripts"""
+import hashlib
 import http.client
 import json
 import socket
@@ -27,12 +28,14 @@ def free_port():
 
 
 class FakeService:
-    """A room service with one finished job (also a room) and one running job."""
+    """A room service with one finished job (also a room) and one running job. A HEAD for a file gives its
+    sha256, as room_service.py does; `digests=False` is an older service, which answers a HEAD with 501."""
 
-    def __init__(self):
+    def __init__(self, digests=True):
         self.updated = 1.0
         self.errors = {}
-        self.asked = []
+        self.asked = []  # the GETs
+        self.digests, self.wrong = digests, set()  # `wrong`: files whose HEAD gives another sha256
         self.files = {
             f'{P}jobs/{DONE}/replay/scaffold/points.bin': b'pts', f'{P}jobs/{DONE}/replay/scaffold/layout.json': b'{}',
             f'{P}jobs/{DONE}/replay/files/room_preview/Room.glb': b'final', f'{P}jobs/{DONE}/replay/files/seed/Room.glb': b'seed',
@@ -44,6 +47,17 @@ class FakeService:
         class Answer(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_HEAD(self):
+                if not service.digests:
+                    return self.send_error(501)
+                if self.path not in service.files:
+                    return self.send_error(404)
+                data = service.files[self.path]
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header(room_cache.DIGEST, hashlib.sha256(b'other' if self.path in service.wrong else data).hexdigest())
+                self.end_headers()
 
             def do_GET(self):
                 service.asked.append(self.path)
@@ -158,6 +172,74 @@ class Download(unittest.TestCase):
         self.sync.once()
         self.assertEqual(kept.read_bytes(), b'new room')
         self.assertEqual(room_cache.local(self.cache, thumbnail).read_bytes(), b'new thumbnail')
+
+
+class SameContent(unittest.TestCase):
+    """A file whose content is already here (another path in the cache, a sample room) is linked, not downloaded."""
+
+    def setUp(self):
+        self.service = FakeService()
+        self.final = f'{P}jobs/{DONE}/replay/files/room_preview/Room.glb'
+        self.seed = f'{P}jobs/{DONE}/replay/files/seed/Room.glb'
+        self.room = f'{P}assets/{DONE}/Room.glb'
+        self.service.files[self.room] = self.service.files[self.final]  # the published room is the last version
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.addCleanup(self.service.close)
+        self.cache, self.samples = Path(folder.name) / 'cache', Path(folder.name) / 'samples'
+        self.sample = self.samples / 'demo/Room.glb'
+        self.sample.parent.mkdir(parents=True)
+        self.sample.write_bytes(b'seed')  # a sample room that is this job's first version
+        self.tracked = self.samples / 'demo/room_objects.json'  # in git: never linked, though the same
+        self.tracked.write_bytes(self.service.files[f'{P}assets/{DONE}/room_objects.json'])
+        self.lines = []
+        self.sync = room_cache.Sync(self.service.url, self.cache, log=self.lines.append, also=[self.sample])
+
+    def kept(self, path):
+        return room_cache.local(self.cache, path)
+
+    def test_each_content_is_downloaded_once(self):
+        self.sync.once()
+        for path, data in self.service.files.items():
+            self.assertEqual(self.kept(path).read_bytes(), data, path)
+        self.assertNotIn(self.seed, self.service.asked)
+        self.assertNotIn(self.room, self.service.asked)
+        self.assertIn(self.final, self.service.asked)
+        self.assertTrue(self.kept(self.seed).samefile(self.sample))  # hard links: no second copy on disk
+        self.assertTrue(self.kept(self.room).samefile(self.kept(self.final)))
+        self.assertFalse(self.kept(f'{P}assets/{DONE}/room_objects.json').samefile(self.tracked))
+        self.assertEqual(sum('MB，本机已有相同文件' in line for line in self.lines), 2)
+        self.assertIn('其中 2 个本机已有相同文件，未下载', self.lines[-1])
+        self.assertIn(f'{P}assets/{DONE}/thumbnail.jpg', self.sync.absent)  # a HEAD's 404 counts like a GET's
+        self.assertFalse(list(self.cache.rglob('*.part')))
+
+    def test_a_download_that_does_not_have_the_given_sha256_is_not_kept(self):
+        self.service.wrong.add(self.final)
+        self.sync.once()
+        self.assertFalse(self.kept(self.final).exists())
+        self.assertNotIn(self.final, self.sync.absent)
+        self.assertTrue(any('sha256 不符，未保存' in line for line in self.lines))
+        self.service.wrong.clear()
+        self.sync.once()  # tried again
+        self.assertEqual(self.kept(self.final).read_bytes(), b'final')
+
+    def test_an_older_service_without_sha256_is_downloaded_from_as_before(self):
+        self.service.digests = False
+        self.sync.once()
+        for path, data in self.service.files.items():
+            self.assertEqual(self.kept(path).read_bytes(), data, path)
+            self.assertIn(path, self.service.asked)
+        self.assertFalse(self.kept(self.seed).samefile(self.sample))
+
+    def test_a_retried_job_loses_its_copies_but_the_sample_room_stays(self):
+        self.sync.once()
+        self.assertTrue(self.kept(self.seed).samefile(self.sample))
+        self.service.files[self.seed] = b'new seed'
+        self.service.updated = 5.0
+        self.sync.once()
+        self.assertEqual(self.sample.read_bytes(), b'seed')
+        self.assertEqual(self.kept(self.seed).read_bytes(), b'new seed')
+        self.assertIn(self.seed, self.service.asked)
 
 
 class Serving(unittest.TestCase):

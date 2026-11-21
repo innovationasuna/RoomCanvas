@@ -73,7 +73,7 @@ python3 web/scripts/serve.py
 
 ### 示例房间的模型
 
-示例房间的 `Room.glb`（三个共约 195 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
+示例房间的 `Room.glb`（四个共约 459 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
 
 ```bash
 python3 scripts/fetch_samples.py            # 下载缺少或大小不对的模型
@@ -85,6 +85,8 @@ python3 scripts/fetch_samples.py --verify   # 已有的模型也核对 sha256
 仓库是私有的，不能匿名下载：脚本先用已登录的 `gh`（`gh auth login`），没有时用环境变量 `GH_TOKEN` 或 `GITHUB_TOKEN` 中能读本仓库的令牌；两样都没有时列出缺少的文件和下载地址，在浏览器里登录 GitHub 下载后按所列路径存放。下载先写到同目录的 `Room.glb.part`，大小和 sha256 都对上才替换 `Room.glb`。
 
 `serve.py` 启动时在后台下载缺少的模型（加 `--no-download` 只提示），下载不了不影响首页和其他房间，缺模型的房间在编辑器里提示“找不到房间模型”。本机已有但与清单不同的模型只提示、不覆盖；要换回清单里的版本，运行 `python3 scripts/fetch_samples.py <房间>`。
+
+`serve.py` 先下载示例模型，再下载房间缓存（`runs/room-cache/`），两边相同内容的文件只下载一次：房间缓存里已有大小和 sha256 都与清单一致的模型时，`fetch_samples.py` 直接链接过来（`--cache <目录>` 换缓存位置）；房间缓存遇到与示例模型相同的文件也链接过去。链接用硬链接（不多占空间，删掉其中一个不影响另一个），跨磁盘时复制。硬链接的两个文件共用同一份数据，要换示例模型时先删除 `Room.glb` 再放入新文件，不要直接覆盖写入原文件。
 
 新增示例房间或更换模型：把模型上传为 release 附件，再在 `samples/models.json` 增加或修改对应的一条。
 

@@ -20,7 +20,9 @@ services alone), so one password starts everything.
 Finished rooms and replays are kept under runs/room-cache/ and read from there (room_cache.py); with --ssh the
 missing ones download in the background. Without the server the cached ones still open.
 The sample rooms' models (samples/*/Room.glb) are release assets, not files in git: the missing ones are fetched
-in the background at start-up (scripts/fetch_samples.py) while the page already works.
+in the background at start-up (scripts/fetch_samples.py) while the page already works, before the rooms and
+replays (GitHub is usually faster than the tunnel). A file whose content is already here (a sample room that is
+also a finished job's room, a replay's last version that is also the room) is linked, not downloaded again.
 Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
 """
 import argparse
@@ -396,13 +398,17 @@ class Tunnel:
             self.process.kill()
 
 
-def fetch_sample_models(download=True, log=print):
-    """Fetch the sample rooms' models that are not here (scripts/fetch_samples.py), or only name them. The
-    server runs either way: a model that cannot be fetched is reported once, with how to get it."""
+def fetch_sample_models(download=True, log=print, cache=None, then=None):
+    """Fetch the sample rooms' models that are not here (scripts/fetch_samples.py), or only name them, then
+    start `then` (the room cache's download). The server runs either way: a model that cannot be fetched is
+    reported once, with how to get it."""
     try:
-        return fetch_samples.fetch(check=not download, missing_only=True, log=log)
+        return fetch_samples.fetch(check=not download, missing_only=True, log=log, cache=cache)
     except (OSError, ValueError, KeyError) as error:
         log(f'Sample models not checked (samples/models.json): {error}')
+    finally:
+        if then:
+            then()
 
 
 class Server(ThreadingHTTPServer):
@@ -456,10 +462,16 @@ def main():
             parser.error(str(error))
         tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
         if not args.no_download:
-            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True)).start()
+            try:  # the sample models (samples/models.json) may be linked too; their folders also hold tracked files
+                samples = [ROOT / entry['path'] for entry in fetch_samples.load()[1]]
+            except (OSError, ValueError, KeyError):
+                samples = []
+            sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True), also=samples)
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
-    # Started once the tunnel is open, so its lines stay out of the SSH password prompt.
-    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)), daemon=True).start()
+    # Started once the tunnel is open, so its lines stay out of the SSH password prompt. The room cache starts
+    # after the sample models, so a model both have is downloaded once (from GitHub) and linked.
+    threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True), Handler.cache,
+                                                       sync and sync.start), daemon=True).start()
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
           + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')

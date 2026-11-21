@@ -3,9 +3,12 @@
 
 python3 web/scripts/room_service.py --data-dir /path/to/roomcanvas-jobs
 Only loopback is exposed; use SSH forwarding to access a remote worker.
+A HEAD for a file answers like the GET without the body, and also gives the file's sha256 (X-RoomCanvas-SHA256),
+so serve.py's room cache can tell a file it already has without downloading it again.
 """
 import argparse
 import gzip
+import hashlib
 import json
 import mimetypes
 from pathlib import Path
@@ -31,6 +34,25 @@ MAX_EXPANDED = 8 * 1024**3
 MAX_ENTRIES = 50000
 ID = r'[0-9a-f]{32}'
 PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
+DIGEST = 'X-RoomCanvas-SHA256'
+_digests, _digests_lock = {}, threading.Lock()
+
+
+def sha256(path):
+    """A file's sha256, worked out again only when its size or modification time changes (models are hundreds of MB)."""
+    info = path.stat()
+    key = (info.st_size, info.st_mtime_ns)
+    with _digests_lock:
+        known = _digests.get(path)
+    if known and known[0] == key:
+        return known[1]
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    with _digests_lock:
+        _digests[path] = key, digest.hexdigest()
+    return digest.hexdigest()
 
 
 from room_scan import extract_scan as _extract_scan
@@ -58,7 +80,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    def do_HEAD(self):
+        self.do_GET()  # the same answer without the body; a file also says its sha256
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -110,12 +136,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_file(asset)
 
     def send_file(self, asset, cache=False):
+        digest = sha256(asset) if self.command == 'HEAD' else None
         self.send_response(200)
         self.send_header('Content-Type', mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
         self.send_header('Content-Length', str(asset.stat().st_size))
         if cache:  # finished runs do not change; live ones may rewrite a model
             self.send_header('Cache-Control', 'max-age=3600')
+        if digest:
+            self.send_header(DIGEST, digest)
         self.end_headers()
+        if digest:
+            return
         with asset.open('rb') as source:
             shutil.copyfileobj(source, self.wfile)
 

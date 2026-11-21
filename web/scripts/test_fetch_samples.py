@@ -149,6 +149,27 @@ class FetchSamples(unittest.TestCase):
             self.assertEqual(len(fetch_samples.methods({'GH_TOKEN': 'secret'})), 1)
             self.assertEqual(fetch_samples.methods({}), [])
 
+    def test_a_model_the_room_cache_already_has_is_linked_not_downloaded(self):
+        cache = self.root / 'runs/room-cache'
+        kept = cache / 'assets' / ('a' * 32) / 'Room.glb'
+        kept.parent.mkdir(parents=True)
+        kept.write_bytes(MODELS['office'])
+        (cache / 'other.glb').write_bytes(MODELS['office'][:-1] + b'X')  # same size, other content
+        self.assertEqual(self.fetch(), [])
+        self.assertEqual(self.calls, [('owner/repo', 'sample-rooms', 'room3-Room.glb')])
+        model = self.root / 'samples/office/Room.glb'
+        self.assertEqual(model.read_bytes(), MODELS['office'])
+        self.assertTrue(model.samefile(kept))  # a hard link: no second copy on disk
+        self.assertIn('samples/office/Room.glb: the same file is already in', self.lines[0])
+        self.assertEqual(self.files(), ['models.json', 'office/Room.glb', 'room3/Room.glb'])
+        model.unlink()  # removing one name leaves the other
+        self.assertEqual(kept.read_bytes(), MODELS['office'])
+        with patch.object(fetch_samples.os, 'link', side_effect=OSError('cross-device link')):
+            self.assertEqual(self.fetch('office', cache=cache), [])
+        self.assertFalse(model.samefile(kept))  # another file system: copied
+        self.assertEqual(model.read_bytes(), MODELS['office'])
+        self.assertEqual(len(self.calls), 1)
+
     def test_gh_downloads_the_named_asset_to_the_part_file(self):
         def gh(command, **options):
             self.calls.append(command)
