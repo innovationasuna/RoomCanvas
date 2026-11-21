@@ -48,10 +48,11 @@ def root() -> Path | None:
 
 def describe(glb: Path, folder: Path) -> dict:
     """What the brief says about one model: its proportions, what it is and its reference image."""
-    import trimesh
+    from litereality_agent.room_ops import glb as room_glb
 
-    # glTF is Y-up: Blender's width, depth and height are x, z and y here.
-    x, y, z = trimesh.load(glb, force="scene").extents
+    # glTF is Y-up: Blender's width, depth and height are x, z and y here. A TRELLIS model's root
+    # is a node named `world`, which trimesh would read as its own root (room_ops/glb).
+    x, y, z = room_glb.load(glb, force="scene", skip_materials=True).extents
     receipt = cache.read_json(folder / f"{glb.stem}.json")
     inputs = receipt.get("inputs") if isinstance(receipt, dict) else None
     reference = folder / "work" / glb.stem / "reference.png"

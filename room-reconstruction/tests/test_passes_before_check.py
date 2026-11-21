@@ -28,8 +28,10 @@ def context(tmp_path):
 
 def built(c):
     c.preview_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("Room.blend", "Room.glb", "room_layout.json", "manifest.json"):
+    for name in ("Room.blend", "Room.glb", "room_layout.json"):
         (c.preview_dir / name).write_text(f"build {name}")
+    (c.preview_dir / "manifest.json").write_text(json.dumps(
+        {"assets": [{"object": "Storage0", "glb": "Object/Storage0.glb", "kind": "static"}]}))
 
 
 def trace(c):
@@ -126,7 +128,10 @@ def test_the_openable_parts_take_the_small_objects_room_and_both_are_recorded(tm
     report, calls = run_passes(c, monkeypatch)
     assert calls == [("small_objects", "/an/operator/setting"), ("articulate", str(c.scene_dir / SMALL))]
     assert report == {"room": PARTS, "small_objects": "ok", "articulate": "ok", "warnings": []}
-    assert (c.scene_dir / PARTS / "manifest.json").read_text() == "build manifest.json"  # for the check
+    # For the check: the build's assets, named where the build has them (not in the pass's Object/).
+    asset = json.loads((c.scene_dir / PARTS / "manifest.json").read_text())["assets"][0]
+    assert asset["glb"] == "../../room_preview/Object/Storage0.glb"
+    assert (c.scene_dir / PARTS / asset["glb"]).resolve() == (c.preview_dir / "Object/Storage0.glb").resolve()
     rows = trace(c)
     assert [(r["kind"], r.get("model")) for r in rows] == [
         ("model_saved", "small_objects"), ("articulate_start", None), ("articulate_done", None),
@@ -209,3 +214,27 @@ def test_publish_builds_a_changed_room_again_and_completes_it_the_same_way(publi
     publish.run(c, {"compare_frames": 0})
     assert ran.index("build_from_room") < ran.index(("passes", {"articulate": True}))
     assert (c.preview_dir / "Room.glb").read_text() == "baked complete Room.blend"
+
+
+def test_a_pass_room_is_checked_from_the_command_line_without_writing_beside_it(tmp_path, monkeypatch):
+    c = context(tmp_path)
+    built(c)
+    room = tmp_path / "elsewhere" / "room_preview"  # an older flow's pass room, outside the scene
+    room.mkdir(parents=True)
+    for name in ("Room.glb", "room_layout.json"):
+        (room / name).write_text(f"pass {name}")
+    seen = {}
+
+    def validate(authored, preview):
+        seen["room"] = authored
+        seen["glb"] = (preview / "Room.glb").read_text()
+        asset = json.loads((preview / "manifest.json").read_text())["assets"][0]
+        seen["source"] = (preview / asset["glb"]).resolve()
+        return {"ok": True, "pass": True, "objects": 0, "declared_support": 0, "failing": [],
+                "counts": {"support": 0, "articulation": 0, "mesh_clash": 0, "open_meshes": 0, "overlap": 0}}
+
+    monkeypatch.setattr("litereality_agent.pipeline.room_qc.validate.validate", validate)
+    assert passes.main([str(c.authoring_root), str(room)]) == 0
+    assert seen == {"room": c.authored_room.resolve(), "glb": "pass Room.glb",
+                    "source": (c.preview_dir / "Object/Storage0.glb").resolve()}
+    assert sorted(p.name for p in room.iterdir()) == ["Room.glb", "room_layout.json"]

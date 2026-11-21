@@ -186,23 +186,27 @@ def bake_room(blend, glb, *, blender: "str | None" = None, resolution: int = 102
 
 def save_blend_as(blend, target, *, blender: "str | None" = None) -> int:
     """Save `blend` as `target`. Blender keeps file paths relative to the .blend (`//../room/…`), so
-    a plain file copy into another folder would point them elsewhere; saving it re-aims them. The
-    copy is written beside `target` and moved into place, so a failure leaves `target` as it was."""
+    a plain file copy into another folder would point them elsewhere; saving it there re-aims them
+    (`relative_remap`, which `copy=True` does not do). It is saved beside `target` under another
+    name and then renamed, so its paths hold from there and a failure leaves `target` as it was."""
     blend, target = Path(blend), Path(target)
     log_path = target.parent / "save_as.log"
-    with tempfile.TemporaryDirectory(dir=target.parent, prefix=".save-as-") as folder, \
-            log_path.open("w") as log:
-        saved = Path(folder) / target.name
-        rc = subprocess.run(
-            [blender or blender_bin(), "-b", str(blend), "--python-exit-code", "1", "--python-expr",
-             "import bpy, sys; bpy.ops.wm.save_as_mainfile(filepath=sys.argv[-1], copy=True)",
-             "--", str(saved)],
-            stdout=log, stderr=subprocess.STDOUT,
-        ).returncode
-        if rc:
-            return rc
-        if not saved.is_file() or not saved.stat().st_size:
-            print(f"Blender saved no {target.name}", file=log)
-            return 1
+    saved = target.with_name(f".{target.stem}.saving.blend")
+    try:
+        with log_path.open("w") as log:
+            rc = subprocess.run(
+                [blender or blender_bin(), "-b", str(blend), "--python-exit-code", "1", "--python-expr",
+                 "import bpy, sys; bpy.ops.wm.save_as_mainfile(filepath=sys.argv[-1], relative_remap=True)",
+                 "--", str(saved)],
+                stdout=log, stderr=subprocess.STDOUT,
+            ).returncode
+            if rc:
+                return rc
+            if not saved.is_file() or not saved.stat().st_size:
+                print(f"Blender saved no {target.name}", file=log)
+                return 1
         saved.replace(target)
         return 0
+    finally:
+        saved.unlink(missing_ok=True)
+        saved.with_name(saved.name + "1").unlink(missing_ok=True)  # Blender's backup of an earlier save

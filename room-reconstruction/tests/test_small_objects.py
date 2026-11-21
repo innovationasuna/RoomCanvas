@@ -201,6 +201,13 @@ def test_only_an_evenly_scaled_parent_keeps_a_turned_child_as_it_is():
     axes = (tabletop @ turned(0.15, 1))[:3, :3]
     assert abs(axes[:, 0] @ axes[:, 1]) > 0.03
     assert not fit.keeps_shape(np.zeros((4, 4)))
+    # An empty scaled by the inverse of the part's own stretch stands level again on it, so the
+    # child can stay under the part its support_part names (and move with it).
+    lengths = fit.stretch(tabletop)
+    assert np.allclose(lengths, [1.095, 1.247, 0.623])
+    assert fit.keeps_shape(tabletop @ np.diag([*(1 / v for v in lengths), 1]))
+    assert fit.stretch(tabletop @ turned(0.15, [1, 2, 1])) is None  # skewed axes: cannot be undone
+    assert fit.stretch(np.zeros((4, 4))) is None
 
 
 def test_crop_keeps_a_minimum_size_inside_the_frame():

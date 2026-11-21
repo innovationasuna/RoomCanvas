@@ -13,9 +13,10 @@ they left on disk, and on a rebuilt room keep the work of every item that did no
 
 from __future__ import annotations
 
+import json
 import os
-import shutil
 from contextlib import contextmanager
+from pathlib import Path
 
 from litereality_agent import telemetry
 from litereality_agent.pipeline.support import run_module
@@ -95,7 +96,55 @@ def _run(context, options: dict) -> dict:
     else:
         report[PARTS] = "skipped"
     if room != build:
-        # What the check reads beside the layout (validate): the asset manifest of the build.
-        shutil.copyfile(build / "manifest.json", room / "manifest.json")
+        manifest(build, room)
     report["room"] = str(room.relative_to(context.scene_dir))
     return report
+
+
+def manifest(build: Path, room: Path) -> None:
+    """What the check reads beside a pass's layout (validate): the build's asset manifest, each
+    asset's mesh named where the build has it. The pass's own Object/ holds only what it added,
+    and the check compares each object's motion with its source there."""
+    doc = json.loads((build / "manifest.json").read_text())
+    for asset in doc.get("assets", []):
+        if asset.get("glb"):
+            asset["glb"] = os.path.relpath(build / asset["glb"], room)
+    (room / "manifest.json").write_text(json.dumps(doc, indent=2))
+
+
+def main(argv=None) -> int:
+    """The check of a pass's room as author makes it (validate, with `manifest`), for any room_preview/,
+    e.g. one an older flow's pass wrote on its own; nothing is written beside that room.
+
+        python -m litereality_agent.pipeline.realism_authoring.passes <scene>/realism_authoring \\
+            <a pass's room_preview> [--json report.json]
+    """
+    import argparse
+    import sys
+    import tempfile
+
+    from litereality_agent.pipeline.room_qc.validate import summary, validate
+
+    parser = argparse.ArgumentParser(description=main.__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("authoring", type=Path, help="realism_authoring/ (room/ and the build in room_preview/)")
+    parser.add_argument("room", type=Path, help="the pass's room_preview/ (Room.glb, room_layout.json)")
+    parser.add_argument("--json", type=Path, help="write the full report here")
+    args = parser.parse_args(argv)
+    authoring, room = args.authoring.resolve(), args.room.resolve()
+    with tempfile.TemporaryDirectory(prefix="pass-check-") as folder:
+        folder = Path(folder).resolve()  # relative paths from here to the build
+        for name in ("Room.glb", "room_layout.json", "Object"):
+            if (room / name).exists():
+                (folder / name).symlink_to(room / name)
+        manifest(authoring / "room_preview", folder)
+        report = validate(authoring / "room", folder)
+    if args.json:
+        args.json.write_text(json.dumps(report, indent=1))
+    print(summary(report))
+    sys.stdout.flush()
+    return 0 if report.get("pass") else (2 if report.get("ok") else 1)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

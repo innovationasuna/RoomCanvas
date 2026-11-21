@@ -73,10 +73,24 @@ def world_vertices(objects):
 def reparent(obj, parent):
     """Hang obj under parent where it stands. The author rests small things on parts it has stretched
     unevenly (a tabletop); a turned object under one is sheared, so it would end up skewed and the
-    web editor refuses a room whose objects it cannot regroup unchanged. It then goes under the
-    nearest ancestor that is not stretched (fit.keeps_shape); rests_on/support_part still name what
-    it stands on."""
+    web editor refuses a room whose objects it cannot regroup unchanged. It then goes under an empty
+    on that part scaled to take the stretch out (`<obj>_level`, fit.stretch), so it still hangs from
+    and moves with the part its support_part names, as the build parents it (the check requires
+    that). Under a part whose axes are skewed too, it goes under the nearest ancestor that is not
+    stretched (fit.keeps_shape); rests_on/support_part still name what it stands on."""
     world = obj.matrix_world.copy()
+    if parent is not None and not fit.keeps_shape(np.array(parent.matrix_world)):
+        lengths = fit.stretch(np.array(parent.matrix_world))
+        if lengths is not None:
+            level = bpy.data.objects.new(f"{obj.name}_level", None)
+            level.empty_display_size = 0.02
+            for coll in obj.users_collection or parent.users_collection:
+                coll.objects.link(level)
+            level.parent = parent
+            level.matrix_parent_inverse = Matrix.Identity(4)
+            level.matrix_basis = Matrix.Diagonal((*(1 / v for v in lengths), 1.0))
+            bpy.context.view_layer.update()
+            parent = level
     while parent is not None and not fit.keeps_shape(np.array(parent.matrix_world)):
         parent = parent.parent
     obj.parent = parent
@@ -141,17 +155,23 @@ def remove_item(item, live, report):
     return props, dependents
 
 
-def import_glb(path):
+def import_glb(path, name):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
-    return [o for o in bpy.data.objects if o not in before]
+    imported = [o for o in bpy.data.objects if o not in before]
+    # A TRELLIS mesh's root empty is named `world`, the name trimesh gives its own scene root: the
+    # check would read the whole room as hanging from it (room_ops/glb.py). Named after the item.
+    for o in imported:
+        if o.name == "world" or o.name.startswith("world."):
+            o.name = f"{name}_root"
+    return imported
 
 
 def place(item, live, out_dir, report):
     old = [o for m in item["members"] if m in live for o in own_objects(live[m])]
     target = fit.footprint(world_vertices(old))
     props, dependents = remove_item(item, live, report["removed"])
-    imported = import_glb(item["glb"])
+    imported = import_glb(item["glb"], item["id"])
     for image in {node.image for obj in imported if obj.type == "MESH"
                   for mat in obj.data.materials if mat and mat.node_tree
                   for node in mat.node_tree.nodes if node.type == "TEX_IMAGE" and node.image}:

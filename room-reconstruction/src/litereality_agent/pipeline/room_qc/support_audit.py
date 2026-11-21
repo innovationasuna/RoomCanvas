@@ -88,9 +88,12 @@ def mesh_bodies(glb, objects):
 
     import trimesh
 
+    from litereality_agent.room_ops import glb as room_glb
+
     # Geometry only: with materials every part copies its textures and concatenating packs them
-    # into atlases, tens of GB for a room with a few 4096 px textures.
-    scene = trimesh.load(str(glb), force="scene", skip_materials=True)
+    # into atlases, tens of GB for a room with a few 4096 px textures. A node named `world` (a
+    # TRELLIS mesh's root) would take trimesh's scene root over: renamed first (room_ops/glb).
+    scene = room_glb.load(glb, force="scene", skip_materials=True)
     handles = {o.get("handle") or o["id"]: o["id"] for o in objects}
     requested_parts = {o["support_part"] for o in objects if o.get("support_part")}
     parents = scene.graph.transforms.parents

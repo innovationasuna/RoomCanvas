@@ -171,6 +171,12 @@ def import_glb(path):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     imported = [o for o in bpy.data.objects if o not in before]
+    # A TRELLIS mesh's root empty is named `world`, the name trimesh gives its own scene root: the
+    # room's checks would read the whole room as hanging from it (room_ops/glb.py). Not in a room.
+    stem = os.path.splitext(os.path.basename(path))[0]
+    for o in imported:
+        if o.name == "world" or o.name.startswith("world."):
+            o.name = f"{stem}_root"
     # Articulated assets (doors/windows) ship a closed->open animation. The assembled room must
     # hold the CLOSED/rest pose for bbox/placement (else a window swung open reads as ~4.8 m), so
     # evaluate frame 0 (closed). We KEEP the animation (do NOT clear it) so the clip survives into

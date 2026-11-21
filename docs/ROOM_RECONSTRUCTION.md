@@ -286,6 +286,8 @@ python3 web/scripts/serve.py
 
 结果在 `<新目录>/room_preview/`，包含 `Room.blend`、`Room.glb` 和 `room_layout.json`；`overview.jpg` 展示开合对比。按 [接入网页](#接入网页) 将该目录及 `<新目录>/room/Objects/` 复制到本机，再生成 `room_objects.json`，即可在编辑器中操作可动部件。
 
+单独跑出的房间（小物件或可动部件的 `<新目录>/room_preview/`）可以按 author 检查房间的同一套规则查一遍，只读，不在结果旁写文件：`"$PY" -m litereality_agent.pipeline.realism_authoring.passes '<运行目录>/pipeline/<场景>/realism_authoring' '<新目录>/room_preview'`（需要 `PYTHONPATH=room-reconstruction/src`；加 `--json <文件>` 保存完整报告；退出码 0 通过、2 不通过、1 没能检查）。
+
 单独运行时也和完整重建一样记下 `articulate_start`、`articulate_done` 和 `model_saved`（`articulated`）；加了 `--through` 或 `--only` 的运行不出房间，不记。回放按固定位置 `<运行目录>/articulate/room_preview/Room.glb` 找这个房间，所以 `<新目录>` 用 `<运行目录>/articulate`。
 
 以前发布的房间要带上单独跑的小物件，顺序是小物件 → 可动部件，小物件结果放在 `<运行目录>/small-objects`，可动部件加 `--set LR_ARTICULATE_SOURCE=<运行目录>/small-objects/room_preview`：它读这个房间（`Room.blend`、`Room.glb`、`room_layout.json` 及小物件的网格），部件关节仍写在 author 房间的 `Objects/` 旁。该目录必须是小物件完整跑完的结果，且由当前的 author 房间生成，否则报错；换了来源房间，可动部件这一步整体重做。不会自动改用小物件的结果，免得用到过期的房间。
