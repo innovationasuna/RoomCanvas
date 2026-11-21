@@ -2,7 +2,8 @@
 """Run the reconstruction module on the 3090 server, configuring only machine paths and keys.
 
 usage: run_room.py SCAN RUN_DIR [--from STAGE] [--through STAGE] [--repair-rounds N] [--revise]
-                   [--set KEY=VALUE ...] [--no-articulate] [--check]
+                   [--repair-steps N] [--repair-seconds S] [--set KEY=VALUE ...] [--no-articulate]
+                   [--check]
        run_room.py --small-objects SCENE_DIR OUT_DIR [--check]
        run_room.py --articulate SCENE_DIR OUT_DIR [--through STEP] [--only ID ...] [--check]
        run_room.py --premake-small-objects PHOTOS_DIR OUT_DIR [--only KIND ...] [--check]
@@ -94,6 +95,8 @@ p.add_argument("--through")
 p.add_argument("--set", action="append", default=[])
 p.add_argument("--repair-rounds", default="1", choices="01", help="repair once when the check fails (0: check only)")
 p.add_argument("--revise", action="store_true", help="one more authoring session on the finished room")
+p.add_argument("--repair-steps", help="tool calls of the one repair (the CLI's default when not given)")
+p.add_argument("--repair-seconds", help="wall seconds of the one repair (the CLI's default when not given)")
 p.add_argument("--small-objects", action="store_true", help="run the small-object pass instead")
 p.add_argument("--articulate", action="store_true", help="run the openable-parts pass instead")
 p.add_argument("--premake-small-objects", action="store_true",
@@ -160,6 +163,8 @@ if a.revise:
     cmd += ["--revise"]
 if a.no_articulate:
     cmd += ["--no-articulate"]
+for flag, value in (("--repair-steps", a.repair_steps), ("--repair-seconds", a.repair_seconds)):
+    cmd += [flag, value] if value else []
 if a.from_stage:
     cmd += ["--from", a.from_stage]
 if a.through:
