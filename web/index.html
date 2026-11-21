@@ -38,6 +38,10 @@
     </section>
     </div>
     <div class="room-tools">
+      <button type="button" class="trash-entry" id="open-cache" aria-haspopup="dialog" aria-controls="cache-dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h3"/></svg>
+        <span>本地缓存</span>
+      </button>
       <button type="button" class="trash-entry" id="open-trash" aria-haspopup="dialog" aria-controls="trash-dialog" aria-expanded="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg>
         <span>回收站</span><span class="trash-count" id="trash-count" hidden></span>
@@ -45,6 +49,18 @@
     </div>
     <noscript><p>请启用 JavaScript 以查看房间并开始布置。</p></noscript>
   </main>
+  <dialog id="cache-dialog" class="reconstruction-dialog cache-dialog" aria-labelledby="cache-title" aria-describedby="cache-intro">
+    <div class="reconstruction-head"><h2 id="cache-title">本地缓存</h2><button type="button" class="home-button" id="close-cache" aria-label="关闭缓存管理">关闭</button></div>
+    <p class="reconstruction-intro" id="cache-intro">管理下载到这台电脑的房间模型和回放。清理会释放本地空间，服务器结果和已保存的布局会保留。</p>
+    <p id="cache-status" class="cache-status" role="status" aria-live="polite"></p>
+    <div class="cache-toolbar"><label><input id="cache-select-all" type="checkbox">全选</label><span id="cache-selection"></span><button type="button" class="home-button" id="refresh-cache">刷新</button></div>
+    <div id="cache-list" class="cache-list" aria-busy="false"></div>
+    <p class="cache-note">不同房间可能共用文件，总占用已去重。共享文件的最后一个副本清理后才会释放空间。</p>
+    <p id="cache-paused" class="cache-note" hidden>后台预下载已暂停，再次打开有关联扫描任务的房间时仍可按需获取模型。其他示例模型需手动重新下载。</p>
+    <p id="cache-message" class="cache-status" role="status" aria-live="polite"></p>
+    <p id="cache-error" class="error" role="alert" hidden></p>
+    <div class="cache-actions"><button type="button" class="home-button cache-clear-all" id="clear-cache-all" disabled>清理全部缓存</button><button type="button" class="home-button primary" id="clear-cache-selected" disabled>清理选中缓存</button></div>
+  </dialog>
   <dialog id="trash-dialog" class="reconstruction-dialog trash-dialog" aria-labelledby="trash-title" aria-describedby="trash-intro">
     <div class="reconstruction-head"><h2 id="trash-title">回收站</h2><button type="button" class="home-button" id="close-trash" aria-label="关闭回收站">关闭</button></div>
     <p class="reconstruction-intro" id="trash-intro">删除的房间保留在这里，恢复后会重新出现在房间列表中。</p>

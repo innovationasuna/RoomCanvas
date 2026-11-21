@@ -170,6 +170,15 @@ class FetchSamples(unittest.TestCase):
         self.assertEqual(model.read_bytes(), MODELS['office'])
         self.assertEqual(len(self.calls), 1)
 
+    def test_concurrent_reuse_has_separate_temporary_files(self):
+        from concurrent.futures import ThreadPoolExecutor
+        source = self.put('office', MODELS['office'])
+        target = self.root / 'cache/Room.glb'
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda _: fetch_samples.place(source, target), range(12)))
+        self.assertTrue(source.samefile(target))
+        self.assertEqual(list(target.parent.iterdir()), [target])
+
     def test_gh_downloads_the_named_asset_to_the_part_file(self):
         def gh(command, **options):
             self.calls.append(command)

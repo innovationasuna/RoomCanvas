@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_cache  # noqa: E402
-from serve import ROOT, Handler, Server, tunnel_command  # noqa: E402
+from serve import ROOT, Handler, RoomDeletions, Server, tunnel_command  # noqa: E402
 
 DONE, RUNNING = 'a' * 32, 'b' * 32
 P = '/room-reconstruction/'
@@ -36,6 +36,7 @@ class FakeService:
         self.errors = {}
         self.asked = []  # the GETs
         self.digests, self.wrong = digests, set()  # `wrong`: files whose HEAD gives another sha256
+        self.lengths = {}
         self.files = {
             f'{P}jobs/{DONE}/replay/scaffold/points.bin': b'pts', f'{P}jobs/{DONE}/replay/scaffold/layout.json': b'{}',
             f'{P}jobs/{DONE}/replay/files/room_preview/Room.glb': b'final', f'{P}jobs/{DONE}/replay/files/seed/Room.glb': b'seed',
@@ -78,7 +79,7 @@ class FakeService:
                     return self.send_error(404)
                 self.send_response(200)
                 self.send_header('Content-Type', kind)
-                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Content-Length', str(service.lengths.get(self.path, len(body))))
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -322,6 +323,105 @@ class Serving(unittest.TestCase):
 class Quiet(Handler):
     def log_message(self, *args):
         pass
+
+
+class SampleServing(unittest.TestCase):
+    """Opening a missing sample fetches only its pinned model, without background sync or GitHub."""
+
+    def setUp(self):
+        import hashlib
+        from unittest.mock import patch
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.target = self.root / 'samples/classroom/Room.glb'
+        self.path = '/samples/classroom/Room.glb'
+        self.source = f'{P}assets/{DONE}/Room.glb'
+        self.target.parent.mkdir(parents=True)
+        (self.root / 'web').mkdir()
+        (self.root / 'web/rooms.json').write_text(json.dumps({'rooms': [
+            {'id': 'classroom', 'name': 'Classroom', 'dir': '../samples/classroom', 'scan': DONE}]}))
+        (self.root / 'samples/models.json').write_text(json.dumps({'repo': 'unused', 'models': [
+            {'path': self.path[1:], 'bytes': 4, 'sha256': hashlib.sha256(b'room').hexdigest()}]}))
+        self.enterContext(patch('serve.ROOT', self.root))
+        self.enterContext(patch('serve.fetch_samples.methods', side_effect=AssertionError('GitHub must not be used')))
+        self.service = FakeService()
+        self.addCleanup(self.service.close)
+        class SampleHandler(Quiet):
+            room_backend = self.service.url
+            cache = self.root / 'cache'
+            deletions = RoomDeletions(self.root / 'deleted.json')
+        self.page = Server(('127.0.0.1', 0), partial(SampleHandler, directory=str(self.root)))
+        self.addCleanup(self.page.server_close)
+        self.addCleanup(self.page.shutdown)
+        threading.Thread(target=self.page.serve_forever, daemon=True).start()
+
+    def get(self, path=None, method='GET'):
+        request = urllib.request.Request(f'http://127.0.0.1:{self.page.server_port}{path or self.path}', method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read(), response.headers
+        except urllib.error.HTTPError as error:
+            return error.code, error.read(), error.headers
+
+    def test_listing_and_head_do_not_download_get_is_cached_and_works_offline(self):
+        self.assertEqual(self.get('/web/rooms.json')[0], 200)
+        self.assertEqual(self.service.asked, [f'{P}catalog'])
+        self.service.asked.clear()
+        status, body, headers = self.get(method='HEAD')
+        self.assertEqual((status, body, headers['Content-Length']), (200, b'', '4'))
+        self.assertEqual(self.service.asked, [])
+        self.assertFalse(self.target.exists())
+        self.assertEqual(self.get(self.path + '?v=1')[:2], (200, b'room'))
+        self.assertEqual(self.target.read_bytes(), b'room')
+        self.assertEqual(self.service.asked, [self.source])
+        self.service.errors[self.source] = 503
+        self.assertEqual(self.get()[:2], (200, b'room'))
+        self.assertEqual(self.service.asked, [self.source])
+
+    def test_concurrent_opens_download_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            results = list(pool.map(lambda _: self.get()[:2], range(3)))
+        self.assertEqual(results, [(200, b'room')] * 3)
+        self.assertEqual(self.service.asked, [self.source])
+
+    def test_missing_sample_reuses_identical_cached_model_without_network(self):
+        cache = self.root / f'cache/assets/{DONE}/Room.glb'
+        room_cache.save(cache, b'room')
+        self.service.errors[self.source] = 503
+        self.assertEqual(self.get()[:2], (200, b'room'))
+        self.assertEqual(self.service.asked, [])
+        self.assertEqual(self.target.stat().st_ino, cache.stat().st_ino)
+
+    def test_wrong_version_is_not_published_and_refresh_can_retry(self):
+        for wrong in (b'older', b'xxxx'):
+            self.service.files[self.source] = wrong
+            self.assertEqual(self.get()[0], 502)
+            self.assertFalse(self.target.exists())
+            self.assertEqual(list(self.target.parent.iterdir()), [])
+        self.service.files[self.source] = b'room'
+        self.assertEqual(self.get()[:2], (200, b'room'))
+
+    def test_unavailable_backend_can_retry_without_leaving_a_partial_model(self):
+        self.service.errors[self.source] = 503
+        self.assertEqual(self.get()[0], 503)
+        self.assertEqual(list(self.target.parent.iterdir()), [])
+        self.service.errors.clear()
+        self.assertEqual(self.get()[:2], (200, b'room'))
+
+    def test_interrupted_transfer_is_discarded_and_can_be_retried(self):
+        self.service.files[self.source] = b'ro'
+        self.service.lengths[self.source] = 4
+        self.assertIn(self.get()[0], (502, 503))
+        self.assertEqual(list(self.target.parent.iterdir()), [])
+        self.service.files[self.source] = b'room'
+        self.assertEqual(self.get()[:2], (200, b'room'))
+
+    def test_unlisted_path_cannot_trigger_a_download(self):
+        for path in ('/samples/unknown/Room.glb', '/samples/classroom/../Room.glb', '/samples/classroom/Room.glb/extra'):
+            self.assertEqual(self.get(path)[0], 404)
+        self.assertEqual(self.service.asked, [])
 
 
 class StartServer(unittest.TestCase):

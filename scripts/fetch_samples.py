@@ -22,6 +22,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -82,8 +83,11 @@ def place(source, target):
     removing one name leaves the other), or a copy where linking fails (another file system). Like a
     download, it is made beside the target and renamed, so an interrupted one never leaves a partial file."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + '.part')
-    part.unlink(missing_ok=True)
+    # Background prefetch and an on-demand request can reuse the same target concurrently.
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix='.' + target.name + '-', suffix='.part')
+    os.close(fd)
+    part = Path(name)
+    part.unlink()
     try:
         try:
             os.link(source, part)

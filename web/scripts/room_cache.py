@@ -12,7 +12,7 @@ sha256 (HEAD); a file here with the same content (in the cache, or a sample mode
 is kept only when it has that sha256. A service that does not give the sha256 (an older one) is downloaded from as
 before.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import http.client
 import json
@@ -103,11 +103,15 @@ def job_files(job, replay):
 class Sync:
     """Downloads what the cache is missing, one file at a time, again every `every` seconds."""
 
-    def __init__(self, backend, cache, every=300, log=print, also=()):
+    def __init__(self, backend, cache, every=300, log=print, also=(), control=None):
         self.backend, self.cache, self.every, self.log = backend, Path(cache), every, log
         self.also = [Path(place) for place in also]  # more files (the sample models) or folders to link from
         self.stopped = threading.Event()
         self.absent = set()  # files the service does not have (a room without a thumbnail): not asked again
+        self.control = control
+
+    def downloading(self):
+        return self.control.download(background=True) if self.control else nullcontext(True)
 
     def start(self):
         threading.Thread(target=self.run, daemon=True).start()
@@ -152,7 +156,7 @@ class Sync:
             if self.stopped.wait(self.every):
                 return
 
-    def once(self):
+    def missing(self):
         jobs = self.answer(f'{PREFIX}jobs')['jobs']
         rooms = {room['dir'].rstrip('/').rsplit('/', 1)[-1] for room in self.answer(f'{PREFIX}catalog')['rooms']}
         first, models, pictures, assets = [], [], [], []
@@ -163,7 +167,13 @@ class Sync:
             first += files[0]; models += files[1]; pictures += files[2]
             if job['id'] in rooms:
                 assets += [f'{PREFIX}assets/{job["id"]}/{name}' for name in ('Room.glb', 'room_objects.json', 'thumbnail.jpg')]
-        missing = [p for p in first + models + assets + pictures if p not in self.absent and not local(self.cache, p).exists()]
+        return [p for p in first + models + assets + pictures if p not in self.absent and not local(self.cache, p).exists()]
+
+    def once(self):
+        with self.downloading() as allowed:
+            if not allowed:
+                return
+            missing = self.missing()
         if not missing:
             return
         self.log(f'房间缓存：本地缺 {len(missing)} 个文件，后台下载到 {self.cache}')
@@ -171,23 +181,26 @@ class Sync:
         for path in missing:
             if self.stopped.is_set():
                 return
-            try:
-                known = self.identity(path)
-                same = known and same_file([self.cache, *self.also], *known)
-                if same:
-                    place(same, local(self.cache, path))
-                    done += 1; linked += 1
-                    self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{known[0] / 1e6:.1f} MB，本机已有相同文件 {same}，未下载）')
+            with self.downloading() as allowed:
+                if not allowed:
+                    return
+                try:
+                    known = self.identity(path)
+                    same = known and same_file([self.cache, *self.also], *known)
+                    if same:
+                        place(same, local(self.cache, path))
+                        done += 1; linked += 1
+                        self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{known[0] / 1e6:.1f} MB，本机已有相同文件 {same}，未下载）')
+                        continue
+                    data = self.get(path, timeout=120)
+                except urllib.error.HTTPError as error:
+                    if error.code == 404:  # e.g. a room without a thumbnail, or a job without a scaffold
+                        self.absent.add(path)
                     continue
-                data = self.get(path, timeout=120)
-            except urllib.error.HTTPError as error:
-                if error.code == 404:  # e.g. a room without a thumbnail, or a job without a scaffold
-                    self.absent.add(path)
-                continue
-            if known and (len(data), hashlib.sha256(data).hexdigest()) != known:
-                self.log(f'房间缓存：{path[len(PREFIX):]} 下载的内容与服务器给的 sha256 不符，未保存，稍后重试')
-                continue
-            save(local(self.cache, path), data)
+                if known and (len(data), hashlib.sha256(data).hexdigest()) != known:
+                    self.log(f'房间缓存：{path[len(PREFIX):]} 下载的内容与服务器给的 sha256 不符，未保存，稍后重试')
+                    continue
+                save(local(self.cache, path), data)
             done += 1
             self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{len(data) / 1e6:.1f} MB）')
         self.log(f'房间缓存：下载完成（{done} 个文件' + (f'，其中 {linked} 个本机已有相同文件，未下载）' if linked else '）'))
