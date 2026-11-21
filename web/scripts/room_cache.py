@@ -81,7 +81,9 @@ def job_files(job, replay):
     """The paths the replay page reads for one job: scaffold first, then room models, then pictures."""
     base = f'{PREFIX}jobs/{job}/replay'
     models = sorted((replay.get('models') or {}).items(), key=lambda kv: (kv[0] != 'seed', kv[0] != 'final', kv[0]))
-    pictures = dict.fromkeys(e['img'] for e in replay.get('events', []) if isinstance(e.get('img'), str))
+    pictures = dict.fromkeys(src for e in replay.get('events', [])
+                             for src in [e.get('img'), *(m.get('src') for m in e.get('media') or [] if isinstance(m, dict))]
+                             if isinstance(src, str))
     return ([f'{base}/scaffold/points.bin', f'{base}/scaffold/layout.json', f'{base}/scaffold/colors.bin'],
             [f'{base}/files/{rel}' for _, rel in models],
             [f'{base}/files/{rel}' for rel in pictures])

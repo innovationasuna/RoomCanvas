@@ -108,11 +108,11 @@ class Paths(unittest.TestCase):
 
     def test_a_replay_needs_its_scaffold_models_seed_first_and_each_picture_once(self):
         first, models, pictures = room_cache.job_files(DONE, {'models': {'round0': 'r0.glb', 'final': 'f.glb', 'seed': 's.glb'},
-                                                               'events': [{'img': 'a.jpg'}, {}, {'img': 'a.jpg'}, {'img': 'b.jpg'}]})
+                                                               'events': [{'img': 'a.jpg'}, {}, {'img': 'a.jpg'}, {'img': 'b.jpg', 'media': [{'src': 'b.jpg'}, {'src': 'c.jpg'}]}]})
         base = f'{P}jobs/{DONE}/replay'
         self.assertEqual(first, [f'{base}/scaffold/points.bin', f'{base}/scaffold/layout.json', f'{base}/scaffold/colors.bin'])
         self.assertEqual(models, [f'{base}/files/s.glb', f'{base}/files/f.glb', f'{base}/files/r0.glb'])
-        self.assertEqual(pictures, [f'{base}/files/a.jpg', f'{base}/files/b.jpg'])
+        self.assertEqual(pictures, [f'{base}/files/a.jpg', f'{base}/files/b.jpg', f'{base}/files/c.jpg'])
 
 
 class Download(unittest.TestCase):
