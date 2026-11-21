@@ -49,6 +49,13 @@ def fingerprint(room: Path, preview: Path) -> dict:
     }
 
 
+def same_room(recorded, current: dict) -> bool:
+    """The room and its build are the ones checked. The check code's digests are recorded but not
+    compared: newer checks do not unmake a finished room, which would reopen its paid authoring session
+    (see pipeline/fingerprint.py); rerunning the check is asked for (--revise, or --from author)."""
+    return isinstance(recorded, dict) and all(recorded.get(key) == current.get(key) for key in ("source", "build"))
+
+
 def done(report: dict) -> bool:
     """The room may go on: it passed the check, or failed it and was repaired once (then published)."""
     return report.get("accepted") is True or report.get("status") in ("repaired", "published")
@@ -60,7 +67,7 @@ def is_accepted(room: Path, preview: Path, name="author_acceptance.json") -> boo
         return (
             report.get("schema") == SCHEMA
             and done(report)
-            and report.get("fingerprint") == fingerprint(room, preview)
+            and same_room(report.get("fingerprint"), fingerprint(room, preview))
         )
     except (OSError, ValueError, TypeError):
         return False

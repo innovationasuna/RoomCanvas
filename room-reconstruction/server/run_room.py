@@ -112,7 +112,8 @@ if a.premake_small_objects and a.through:
 
 env = dict(os.environ)
 env.update(read_env_file(HOME / ".env"))  # keys and image settings only
-for key in ("ROOMCANVAS_GPU", "CUDA_VISIBLE_DEVICES", "ROOMCANVAS_GPU_LOCK_DIR", "ROOMCANVAS_GPU_SHARED_MIB"):
+for key in ("ROOMCANVAS_GPU", "CUDA_VISIBLE_DEVICES", "ROOMCANVAS_GPU_LOCK_DIR", "ROOMCANVAS_GPU_SHARED_MIB",
+            "ROOMCANVAS_GPU_PEAK_MIB", "ROOMCANVAS_GPU_HEADROOM_MIB", "ROOMCANVAS_TRELLIS_PEAK_MIB"):
     if key in os.environ:
         env[key] = os.environ[key]  # the launcher's explicit device restrictions take precedence
 for key in ("LR_AGENT_PROVIDER",):  # leave provider choice to the code's defaults
@@ -191,7 +192,8 @@ attempts = sorted(a.run_dir.glob("attempt-*"))
 attempt = a.run_dir / f"attempt-{len(attempts) + 1:02d}"
 attempt.mkdir()
 # A shared machine can name the card (ROOMCANVAS_GPU, default auto) and accept other people's light
-# use of it (ROOMCANVAS_GPU_SHARED_MIB, default 0: only a completely idle card).
+# use of it (ROOMCANVAS_GPU_SHARED_MIB, default 0: only a completely idle card) when the card still has
+# room for this run's peak (gpu.py); the small objects' TRELLIS waits for room for its own.
 def trace(scene: Path, kind: str, **data) -> None:
     """One record in the scene's trace for the reconstruction replay (as telemetry.record writes it)."""
     traces = scene / "scene_init/obj_stage/traces"

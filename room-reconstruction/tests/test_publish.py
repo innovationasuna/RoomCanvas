@@ -221,6 +221,11 @@ def test_complete_requires_fresh_acceptance(scene: Path) -> None:
         "schema": SCHEMA, "accepted": True,
         "fingerprint": fingerprint(context.authored_room, context.preview_dir)}))
     assert publish.complete(context) is True
+    # Newer check code does not unmake the finished room (it would reopen the paid authoring session).
+    report = json.loads((context.preview_dir / "acceptance.json").read_text())
+    report["fingerprint"]["checks"] = {"validate.py": "an older version"}
+    (context.preview_dir / "acceptance.json").write_text(json.dumps(report))
+    assert publish.complete(context) is True
     glb.write_bytes(b"changed")
     assert publish.complete(context) is False
 
