@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import numpy as np
@@ -83,6 +84,46 @@ def adopt_reference(source: Path, out: Path) -> None:
     sheet.save(out / "reference.png")
 
 
+# TRELLIS on a card shared with other people (ROOMCANVAS_GPU_SHARED_MIB > 0) starts only when the card has
+# room for its peak (16.4 GB measured on a tall item) and a margin; it waits for that, and gives up rather
+# than crowd them out (the items then keep the stand-ins).
+TRELLIS_PEAK_MIB = 16800
+WAIT_SECONDS, POLL_SECONDS = 2 * 3600, 30
+
+
+def free_mib(device: str) -> int | None:
+    """Free memory on the card the run holds (CUDA_VISIBLE_DEVICES is its UUID), or None if unknown."""
+    try:
+        out = subprocess.run(["nvidia-smi", f"--id={device}", "--query-gpu=memory.total,memory.used",
+                              "--format=csv,noheader,nounits"], capture_output=True, text=True, check=True).stdout
+        total, used = (int(v) for v in out.strip().splitlines()[0].split(","))
+        return total - used
+    except (OSError, subprocess.CalledProcessError, ValueError, IndexError):
+        return None
+
+
+def room_for_trellis(log: Path, env=os.environ, sleep=time.sleep, clock=time.monotonic) -> bool:
+    """True once the shared card has room for TRELLIS (at once on a card the run has to itself)."""
+    if int(env.get("ROOMCANVAS_GPU_SHARED_MIB", "0") or 0) <= 0 or not env.get("CUDA_VISIBLE_DEVICES"):
+        return True
+    device = env["CUDA_VISIBLE_DEVICES"].split(",")[0].strip()
+    need = int(env.get("ROOMCANVAS_TRELLIS_PEAK_MIB", TRELLIS_PEAK_MIB)) + int(env.get("ROOMCANVAS_GPU_HEADROOM_MIB", 2048))
+    deadline, said = clock() + WAIT_SECONDS, False
+    while True:
+        free = free_mib(device)
+        if free is None or free >= need:
+            return True
+        if clock() >= deadline:
+            with log.open("a") as handle:
+                handle.write(f"[small-objects] the shared GPU kept less than {need} MiB free; TRELLIS skipped\n")
+            return False
+        if not said:
+            with log.open("a") as handle:
+                handle.write(f"[small-objects] waiting for {need} MiB free on the shared GPU ({free} MiB now)\n")
+            said = True
+        sleep(POLL_SECONDS)
+
+
 def run_trellis(references: dict[str, Path], work: Path, log: Path) -> dict[str, dict]:
     """TRELLIS over every reference, the model loaded once per process; returns
     {id: {"glb": path, "pipeline": type}} for the meshes that were written.
@@ -119,10 +160,14 @@ def run_trellis(references: dict[str, Path], work: Path, log: Path) -> dict[str,
 
     set_aside: list[str] = []
     while todo := sorted(oid for oid in references if oid not in result and oid not in set_aside):
+        if not room_for_trellis(log):
+            return result
         run(todo, "default")
         if all(oid not in result for oid in todo):  # no progress: the first one is the problem
             set_aside.append(todo[0])
     for oid in set_aside:
+        if not room_for_trellis(log):
+            return result
         run([oid], "512")
     return result
 

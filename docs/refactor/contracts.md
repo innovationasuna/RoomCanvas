@@ -45,7 +45,7 @@
 | `ROOMCANVAS_GPU_LOCK_DIR` | 新的共用锁目录，默认 `~/.cache/roomcanvas/gpu-locks`，要求本机绝对路径。多服务账号使用同一物理卡时必须指向同一可访问目录；各自的 home 默认路径不会互斥。 |
 | 物体旧锁 `VIEWFORGE_GPU_LOCK` | 显式指定时继续独占该文件；默认 `$VIEWFORGE_ROOT/cache/gpu.lock` 以共享模式持有，与旧程序的独占操作兼容，也允许新程序在不同 GPU 上运行。物理 UUID 锁始终独占。 |
 | 房间旧锁 | 继续持有 `$ROOMCANVAS_HOME/runtime/locks/gpu-<UUID>.lock`，同时持有新共用物理锁。 |
-| `ROOMCANVAS_GPU_SHARED_MIB` | 默认 `0`：允许显存不超过 100 MiB 且没有计算进程的空闲卡；设为正值时按该显存阈值允许已有轻量占用，不代表跳过锁。 |
+| `ROOMCANVAS_GPU_SHARED_MIB` | 默认 `0`：允许显存不超过 100 MiB 且没有计算进程的空闲卡；设为正值时按该显存阈值允许已有轻量占用，不代表跳过锁。共用时还要求整卡剩余显存不少于本任务峰值加余量（`ROOMCANVAS_GPU_PEAK_MIB` 默认 8400、`ROOMCANVAS_GPU_HEADROOM_MIB` 默认 2048）；小物品的 TRELLIS 开始前再等整卡剩余不少于 `ROOMCANVAS_TRELLIS_PEAK_MIB`（默认 16800）加余量，最多等 2 小时，仍不够就跳过、这些小物品保留替身。 |
 | 等待与继承 | 房间 `--wait-gpu` 和物体任务等待资源时每 2 秒重试一次、等待期间不持有任何锁，最长 30 分钟，超时以明确错误结束。物体任务只在网页服务里等一次，等待期间状态为 `queued`，拿到锁后经 `--lock-fd` 交给重建脚本。房间任务等待期间在 `runtime-timing.json` 写入 `gpu_waiting_since`，任务状态带 `gpu_waiting`；未取得显卡时记录 `gpu_error`。锁 FD 传递到子进程，父进程关闭自己的 FD 不提前解锁仍工作的子进程。COVER 使用继承锁时校验同一物理卡和同一锁文件。 |
 
 新旧兼容锁不是可删除的临时文件；不能通过删除锁文件“解除占用”。GPU0 验证时使用 `ROOMCANVAS_GPU=0 CUDA_VISIBLE_DEVICES=0`，由统一入口解析为 UUID。
