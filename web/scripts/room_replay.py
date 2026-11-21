@@ -666,8 +666,11 @@ def review_events(scene, until=None):
         events.append(event)
     for k, r in enumerate(_repairs(scene, until)):
         fixed = r.get('status') == 'repaired'
+        # Newer runs record whether the repair changed the room; older ones (no `changed`) read as before.
+        say = ('按检查意见尝试修改，房间没有变化' if fixed and r.get('changed') is False
+               else '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本')
         events.append({'id': f'fix{k}', 't': r['t'], 'stage': 'review2', 'kind': 'result' if fixed else 'error',
-                       'say': '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本'})
+                       'say': say})
     return events
 
 

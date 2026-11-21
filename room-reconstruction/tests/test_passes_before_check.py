@@ -41,7 +41,7 @@ def trace(c):
 class Steps:
     """What finish did, in order: builds, the passes and their room, the check, the repair."""
 
-    def __init__(self, c, monkeypatch, passed=False):
+    def __init__(self, c, monkeypatch, passed=False, edits=True):
         self.c, self.order, self.checked = c, [], []
 
         def build(context, module, args, **kwargs):
@@ -65,7 +65,8 @@ class Steps:
 
         async def repair(*args, **kwargs):
             self.order.append("repair")
-            (c.authored_room / "Room.py").write_text("SHELL = {'repaired': True}")
+            if edits:
+                (c.authored_room / "Room.py").write_text("SHELL = {'repaired': True}")
 
         monkeypatch.setattr(A, "run_module", build)
         monkeypatch.setattr(A, "_complete", complete)
@@ -93,6 +94,17 @@ def test_the_repaired_room_goes_through_the_passes_again_and_is_not_checked_agai
     assert report["status"] == "repaired" and A.done(report)
     kinds = [r["kind"] for r in trace(c) if r["kind"] in ("repair_start", "repair_done")]
     assert kinds == ["repair_start", "repair_done"]
+    assert report["repair_changed"] is True and trace(c)[-1]["changed"] is True
+
+
+def test_a_repair_that_changed_nothing_says_so(tmp_path, monkeypatch):
+    """Out of budget before any edit, or only looking: the result is the checked room built again."""
+    c = context(tmp_path)
+    Steps(c, monkeypatch, edits=False)
+    report = A.finish(c, {})
+    assert report["status"] == "repaired" and report["repair_changed"] is False
+    done = [r for r in trace(c) if r["kind"] == "repair_done"]
+    assert [(r["status"], r["changed"]) for r in done] == [("repaired", False)]
 
 
 def run_passes(c, monkeypatch, fail=(), options=None):

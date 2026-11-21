@@ -763,6 +763,18 @@ class PassesBeforeTheCheck(unittest.TestCase):
                          (self.scene / 'realism_authoring/articulate/room_preview/Room.glb').resolve())
         self.assertFalse([e for e in data['events'] if re.search('沿用|复用', e['say'])])
 
+    def test_a_repair_that_changed_nothing_says_so_and_an_older_record_reads_as_before(self):
+        rows = replay.trace_rows(self.scene)
+        done = next(r for r in rows if r['kind'] == 'repair_done')
+        self.assertNotIn('changed', done)  # this run's records are of the older kind
+        says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
+        self.assertEqual(says, ['按检查出的问题修好了房间'])
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(json.dumps({'t': T0 + 1135, 'kind': 'repair_done', 'status': 'repaired', 'changed': False,
+                                'stage': 'author', 'run': 'attempt-02'}) + '\n')
+        says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
+        self.assertEqual(says, ['按检查出的问题修好了房间', '按检查意见尝试修改，房间没有变化'])
+
     def test_without_a_repair_the_rooms_of_the_passes_show_before_the_check(self):
         data = replay.timeline(self.root, 'running', T0 + 1005)
         self.assertEqual([(e['t'] - T0, e['stage'], e.get('model')) for e in data['events'] if e.get('kind') == 'milestone'

@@ -305,6 +305,7 @@ def finish(context, options: dict) -> dict:
         return report
     note = None
     traces = context.object_root / "traces"
+    checked = fingerprint(context.authored_room, preview)["source"]  # the room as it was checked
     telemetry.record(traces, "repair_start", attempt=attempt.name)
     try:
         asyncio.run(
@@ -315,6 +316,10 @@ def finish(context, options: dict) -> dict:
         )
     except Exception as exc:  # out of budget or interrupted: what it saved is still the room
         note = str(exc)
+    # Whether the repair changed the room at all: one out of budget, or one that only looked, did
+    # not, and its result is then the checked room built again (said so, not "repaired").
+    changed = fingerprint(context.authored_room, preview)["source"] != checked
+    report["repair_changed"] = changed
     rc, log = _build(context, preview)
     if rc:
         # The repair left a room that does not build: put the checked one back.
@@ -330,6 +335,6 @@ def finish(context, options: dict) -> dict:
     if note:
         report["repair_note"] = note
     telemetry.record(context.object_root / "traces", "repair_done", attempt=attempt.name,
-                     status=report["status"], note=note)
+                     status=report["status"], note=note, changed=changed)
     (preview / "author_acceptance.json").write_text(json.dumps(report, indent=2))
     return report
