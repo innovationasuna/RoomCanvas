@@ -16,7 +16,7 @@ import room_service
 import gateway
 import room_cache
 import serve
-from service_auth import AuthMiddleware, load_token, urlopen
+from service_auth import UNAUTHORIZED, AuthMiddleware, load_token, urlopen
 
 TOKEN = 'c' * 64
 
@@ -80,7 +80,8 @@ class ProtectedServices(unittest.TestCase):
                         connection.request(method, path, headers={'Authorization': value} if value else {})
                         response = connection.getresponse()
                         self.assertEqual(response.status, 401)
-                        self.assertEqual(response.read(), b'')
+                        # Says why (an old client or page shows it), with nothing about the credential itself.
+                        self.assertEqual(response.read(), b'' if method == 'HEAD' else UNAUTHORIZED)
                         connection.close()
             base = f'http://127.0.0.1:{server.server_port}'
             with urlopen(base + '/room-reconstruction/health', token=TOKEN) as response:

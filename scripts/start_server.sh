@@ -31,7 +31,8 @@ export PYTHONPATH="$REPO/scripts${PYTHONPATH:+:$PYTHONPATH}"
 if [ "$ACTION" = start ]; then python3 "$REPO/scripts/service_auth.py"; fi
 
 healthy() {  # healthy <host> <port> <path>
-    python3 - "$@" <<'PYHEALTH' 2>/dev/null
+    # The object service's scripts/env.sh replaces PYTHONPATH, so name scripts/ here, not only above.
+    PYTHONPATH="$REPO/scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$@" <<'PYHEALTH' 2>/dev/null
 import sys, urllib.request, urllib.error
 from service_auth import load_token, urlopen
 url = f"http://{sys.argv[1]}:{sys.argv[2]}{sys.argv[3]}"

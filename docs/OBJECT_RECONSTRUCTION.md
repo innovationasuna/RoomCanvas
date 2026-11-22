@@ -41,7 +41,8 @@ sh scripts/setup_server.sh objects
 source configs/local.env && source scripts/env.sh
 mkdir -p "$VIEWFORGE_ROOT/logs"
 nohup python scripts/web.py --host 127.0.0.1 --port 7862 >> "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
-curl --fail --show-error http://127.0.0.1:7862/health
+# 服务要求凭证（见 web/README.md“共享服务器的服务凭证”）；不要把凭证写在命令行参数里
+PYTHONPATH=../scripts python3 -c "from service_auth import load_token, urlopen; print(urlopen('http://127.0.0.1:7862/health', token=load_token()).read().decode())"
 ```
 
 等服务启动后再执行 `curl`，预期返回 `{"service":"roomcanvas-objects","status":"ok"}`；失败时查看 `$VIEWFORGE_ROOT/logs/web.log`。安装脚本会创建 `logs/`；启动命令中的 `mkdir -p` 也兼容已有环境。`/health` 只确认 API 在线，不代表 GPU 推理或权重已验证。
@@ -78,7 +79,8 @@ source configs/local.env && source scripts/env.sh
 python -m pip install -r configs/api-requirements.txt
 mkdir -p "$VIEWFORGE_ROOT/logs"
 nohup python scripts/web.py --host 127.0.0.1 --port 7862 >> "$VIEWFORGE_ROOT/logs/web.log" 2>&1 &
-curl --fail --show-error http://127.0.0.1:7862/health
+# 服务要求凭证（见 web/README.md“共享服务器的服务凭证”）；不要把凭证写在命令行参数里
+PYTHONPATH=../scripts python3 -c "from service_auth import load_token, urlopen; print(urlopen('http://127.0.0.1:7862/health', token=load_token()).read().decode())"
 ```
 
 沿用之前的监听地址。上面的 pip 命令仅刷新 API 依赖；重建依赖或权重要求有变时，先按 [安装说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#安装) 核对配方，在新运行目录安装。只重启、不更新时，省略 `git pull` 和依赖安装。

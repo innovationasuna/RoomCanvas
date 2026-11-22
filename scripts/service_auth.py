@@ -1,5 +1,6 @@
 """Private service credentials shared by the gateway, backends and SSH client."""
 import hmac
+import json
 import os
 from pathlib import Path
 import re
@@ -49,6 +50,11 @@ def authorized(headers, token):
     return bool(token) and len(values) == 1 and hmac.compare_digest(values[0].encode(), ('Bearer ' + token).encode())
 
 
+# What a request without the service credential is told, so a page or an old client says why.
+UNAUTHORIZED = json.dumps({'error': '服务器需要服务凭证：请把本机 RoomCanvas 更新到最新版本并用 serve.py --ssh 启动，'
+                                    '或用 --token-file 指定凭证。'}, ensure_ascii=False).encode()
+
+
 class HTTPAuth:
     """Reject before dispatch, including HEAD, health and upload requests."""
     service_token = None
@@ -60,8 +66,11 @@ class HTTPAuth:
             self.close_connection = True
             self.send_response(401)
             self.send_header('WWW-Authenticate', 'Bearer')
-            self.send_header('Content-Length', '0')
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(UNAUTHORIZED)))
             self.end_headers()
+            if self.command != 'HEAD':
+                self.wfile.write(UNAUTHORIZED)
             return False
         return True
 
@@ -75,8 +84,11 @@ class AuthMiddleware:
             values = [v for k, v in scope.get('headers', []) if k.lower() == b'authorization']
             if len(values) != 1 or not hmac.compare_digest(values[0], ('Bearer ' + self.token).encode()):
                 await send({'type': 'http.response.start', 'status': 401,
-                            'headers': [(b'www-authenticate', b'Bearer'), (b'content-length', b'0')]})
-                await send({'type': 'http.response.body', 'body': b''})
+                            'headers': [(b'www-authenticate', b'Bearer'),
+                                        (b'content-type', b'application/json; charset=utf-8'),
+                                        (b'content-length', str(len(UNAUTHORIZED)).encode())]})
+                await send({'type': 'http.response.body',
+                            'body': b'' if scope.get('method') == 'HEAD' else UNAUTHORIZED})
                 return
         await self.app(scope, receive, send)
 
