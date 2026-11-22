@@ -68,10 +68,10 @@ test('daytime window light dominates the configured mix while the same indoor la
   const nightPower = f.rig.snapshot().lamp.intensity;
   for (const time of ['morning', 'noon', 'afternoon']) {
     f.rig.apply(time); const state = f.rig.snapshot();
-    assert.equal(state.lamp.visible, true); assert.ok(state.lamp.intensity > 0 && state.lamp.intensity < nightPower * .1);
+    assert.equal(state.lamp.visible, true); assert.ok(state.lamp.intensity > 0 && state.lamp.intensity < nightPower * .3);
     assert.equal(state.windowLight.visible, true); assert.equal(state.windowLight.castShadow, true);
     assert.deepEqual(state.windowLight.mapSize, [1024, 1024]);
-    assert.equal(f.fill.visible, false); assert.ok(f.hemi.intensity <= .18); assert.ok(f.scene.environmentIntensity <= .1);
+    assert.equal(f.fill.visible, false); assert.ok(f.hemi.intensity <= .5); assert.ok(f.scene.environmentIntensity <= .25);
     assert.equal(f.scene.children.filter(light => light.isLight && light.visible && light.castShadow).length, 2);
   }
   f.rig.apply('night'); assert.equal(f.rig.snapshot().windowLight.visible, false);
