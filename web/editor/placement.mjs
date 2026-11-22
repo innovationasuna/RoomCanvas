@@ -269,12 +269,36 @@ export function seatBand(triangles, floorY, {from = .25, to = .8, window = .06, 
   if (!flat.length) return null;
   const [xs, zs] = [0, 1].map(k => [flat.reduce((min, t) => Math.min(min, t.box[k][0]), Infinity),
     flat.reduce((max, t) => Math.max(max, t.box[k][1]), -Infinity)]);
-  const counts = new Map();
-  for (let x = xs[0] + cell / 2; x < xs[1]; x += cell) for (let z = zs[0] + cell / 2; z < zs[1]; z += cell) {
-    let top = -Infinity;
-    for (const t of flat) {
-      if (t.y > top && x >= t.box[0][0] && x <= t.box[0][1] && z >= t.box[1][0] && z <= t.box[1][1] && inTriangle([x, z], t.flat)) top = t.y;
+  // Keep the original repeated-addition coordinates: multiplying a cell index by
+  // cell can round differently at a mesh edge and change the number of covered points.
+  const [xPoints, zPoints] = [xs, zs].map(([low, high]) => {
+    const points = [];
+    for (let value = low + cell / 2; value < high; value += cell) points.push(value);
+    return points;
+  });
+  function lowerBound(points, target) {
+    let low = 0, high = points.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (points[mid] < target) low = mid + 1;
+      else high = mid;
     }
+    return low;
+  }
+  // Visit only the samples inside each triangle's closed bounding box, instead
+  // of checking every triangle at every point. Overlapping faces still count once.
+  const tops = new Float64Array(xPoints.length * zPoints.length).fill(-Infinity);
+  for (const t of flat) {
+    const xStart = lowerBound(xPoints, t.box[0][0]), zStart = lowerBound(zPoints, t.box[1][0]);
+    for (let ix = xStart; ix < xPoints.length && xPoints[ix] <= t.box[0][1]; ix++) {
+      for (let iz = zStart; iz < zPoints.length && zPoints[iz] <= t.box[1][1]; iz++) {
+        const index = ix * zPoints.length + iz;
+        if (t.y > tops[index] && inTriangle([xPoints[ix], zPoints[iz]], t.flat)) tops[index] = t.y;
+      }
+    }
+  }
+  const counts = new Map();
+  for (const top of tops) {
     if (top > -Infinity) counts.set(Math.round(top * 100), (counts.get(Math.round(top * 100)) || 0) + 1);
   }
   let best = null;

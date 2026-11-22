@@ -22,7 +22,7 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
+import download_parts
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -83,19 +83,13 @@ def place(source, target):
     removing one name leaves the other), or a copy where linking fails (another file system). Like a
     download, it is made beside the target and renamed, so an interrupted one never leaves a partial file."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    # Background prefetch and an on-demand request can reuse the same target concurrently.
-    fd, name = tempfile.mkstemp(dir=target.parent, prefix='.' + target.name + '-', suffix='.part')
-    os.close(fd)
-    part = Path(name)
-    part.unlink()
-    try:
+    with download_parts.temporary(target) as part:
+        part.unlink()
         try:
             os.link(source, part)
         except OSError:
             shutil.copyfile(source, part)
         os.replace(part, target)
-    finally:
-        part.unlink(missing_ok=True)  # left when target already was this very file
 
 
 def problem(path, entry, verify=True):
@@ -161,11 +155,8 @@ def fetch_one(repo, entry, root, ways, missing_only=False):
     """Download beside the model's place, check the file, then move it there; a failed download leaves nothing."""
     path = Path(root) / entry['path']
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix='.Room-', suffix='.part')
-    os.close(fd)
-    part = Path(name)
     errors = []
-    try:
+    with download_parts.temporary(path) as part:
         for way in ways:
             try:
                 way(repo, entry, part)
@@ -177,8 +168,6 @@ def fetch_one(repo, entry, root, ways, missing_only=False):
                 return
             except FetchError as error:
                 errors.append(str(error))
-    finally:
-        part.unlink(missing_ok=True)
     raise FetchError('; '.join(errors) or 'no GitHub login (gh CLI or GH_TOKEN)')
 
 
@@ -200,6 +189,9 @@ def fetch(rooms=(), root=None, check=False, verify=False, missing_only=False, wa
     unknown = sorted(set(rooms) - {room(entry) for entry in models})
     if unknown:
         raise ValueError(f'no sample model for: {", ".join(unknown)} (samples/models.json has {", ".join(map(room, models))})')
+    if not check:
+        download_parts.cleanup(root / "samples")
+        download_parts.cleanup(cache, legacy_cache=True)
     left = []
     for entry in models:
         why = problem(root / entry['path'], entry, verify) if not rooms or room(entry) in rooms else None
