@@ -27,7 +27,7 @@ function createWorkspace() {
   const panelSurface = element('div', 'rc-panel-surface');
   panelSurface.setAttribute('aria-hidden', 'true'); stage.prepend(panelSurface);
   $('.rc-warehouse-dock').remove();
-  $('#viewport').setAttribute('aria-label', '三维房间。单击选择物品，拖动已选物品移动；按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。');
+  $('#viewport').setAttribute('aria-label', '三维房间。单击选择物品，拖动已选物品移动；按住Shift＋左键拖动旋转镜头，右键拖动平移，滚轮缩放。');
 
   // Project operations belong with the room name, not beside every everyday tool.
   const project = $('.rc-project'), title = project.querySelector('strong');
@@ -240,7 +240,7 @@ function createWorkspace() {
     <div class="rc-help-body">
       <div class="rc-help-grid">
         <section><h3>观察房间</h3><dl class="rc-help-controls">
-          <div><dt>中键拖动</dt><dd>旋转镜头</dd></div>
+          <div><dt>Shift＋左键拖动</dt><dd>旋转镜头</dd></div>
           <div><dt>右键拖动</dt><dd>平移视角</dd></div>
           <div><dt>滚轮</dt><dd>放大 / 缩小</dd></div>
         </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局。</p></section>
@@ -251,7 +251,7 @@ function createWorkspace() {
         </dl><p class="rc-help-note">松手即停，调整满意后确认放置。</p></section>
         <section><h3>走进空间</h3><p>切换“体验”可开合门窗。进入漫游后：</p><dl class="rc-help-controls">
           <div><dt><kbd>W A S D</kbd></dt><dd>走动</dd></div>
-          <div><dt>中键拖动</dt><dd>转头</dd></div>
+          <div><dt>Shift＋左键拖动</dt><dd>转头</dd></div>
           <div><dt><kbd>Esc</kbd></dt><dd>退出漫游</dd></div>
         </dl></section>
         <section><h3>完整工具与手势</h3><p>左侧“设置”选择“完整”，展开精细参数。</p><p>点击左侧工具栏顶部的手势按钮开启手势：左手比 1 / 2 / 3 / 4 切换动作，右手捏合调整、竖拇指确认。</p></section>
