@@ -32,13 +32,16 @@ class Recovery(unittest.TestCase):
             self.assertEqual(jobs.records, {valid['id']: valid})
             self.assertEqual(jobs.pending.get_nowait(), valid['id'])
             self.assertEqual([p.read_text() for p in paths], bad)
-            with self.assertLogs('room_jobs', level='WARNING'):
+            with self.assertNoLogs('room_jobs', level='WARNING'):  # said once, not on every rescan
                 jobs.load_new()
             fixed = dict(valid, id=paths[0].parent.name, status='completed', replay_only=True)
             paths[0].write_text(json.dumps(fixed))
-            with self.assertLogs('room_jobs', level='WARNING'):
+            with self.assertNoLogs('room_jobs', level='WARNING'):
                 jobs.load_new()
             self.assertEqual(jobs.records[fixed['id']], fixed)
+            paths[1].write_text('{"id": "changed again"')  # a new version of a damaged file is said again
+            with self.assertLogs('room_jobs', level='WARNING'):
+                jobs.load_new()
 
     def test_unreadable_record_is_skipped(self):
         with patch.object(Path, 'read_text', side_effect=PermissionError('unreadable')):

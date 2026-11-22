@@ -18,6 +18,9 @@ import room_status
 from room_contract import PREFIX, STAGES
 
 
+_reported = {}  # damaged record -> (size, mtime) when it was logged: the job list is reread every few seconds
+
+
 def read_record(path):
     """A damaged job must not prevent other jobs from loading or being listed."""
     try:
@@ -30,9 +33,18 @@ def read_record(path):
             raise ValueError('invalid job status')
         if not isinstance(record['name'], str) or not isinstance(record['created'], (int, float)) or not math.isfinite(record['created']):
             raise ValueError('invalid job name or creation time')
+        _reported.pop(path, None)
         return record
     except (OSError, ValueError, KeyError, TypeError) as error:
-        logging.getLogger(__name__).warning('Skipping damaged job record %s: %s', path, error)
+        try:
+            info = path.stat()
+            stamp = (info.st_size, info.st_mtime_ns)
+        except OSError:
+            stamp = None
+        if stamp is None or _reported.get(path) != stamp:  # once per version of the file
+            logging.getLogger(__name__).warning('Skipping damaged job record %s: %s', path, error)
+            if stamp is not None:
+                _reported[path] = stamp
         return None
 
 
