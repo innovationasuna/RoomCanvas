@@ -19,13 +19,13 @@ import json
 import mimetypes
 import shutil
 import sys
-import tempfile
 import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+import download_parts
 from fetch_samples import place, same_file  # noqa: E402
 
 PREFIX = '/room-reconstruction/'
@@ -50,14 +50,9 @@ def local(cache, path):
 
 def save(target, data):
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = tempfile.NamedTemporaryFile(dir=target.parent, delete=False)
-    part = Path(temporary.name)
-    try:
-        with temporary:
-            temporary.write(data)
+    with download_parts.temporary(target) as part:
+        part.write_bytes(data)
         part.replace(target)
-    finally:
-        part.unlink(missing_ok=True)
 
 
 _answer_lock = threading.Lock()
