@@ -32,6 +32,16 @@ def photo(kind='JPEG', size=(8, 6)):
     return data.getvalue()
 
 
+def mpo_photo():
+    """A JPEG primary plus a smaller grayscale auxiliary image, as in HDR photos."""
+    data = io.BytesIO()
+    exif = Image.Exif()
+    exif[274] = 6  # Rotate the primary image 90 degrees clockwise on import.
+    with Image.new('RGB', (8, 6), (200, 80, 40)) as primary, Image.new('L', (4, 3), 128) as auxiliary:
+        primary.save(data, format='MPO', save_all=True, append_images=[auxiliary], exif=exif)
+    return data.getvalue()
+
+
 def fake_infer(rows):
     for row in rows:
         with Image.open(row['image']) as image:
@@ -130,6 +140,55 @@ class ObjectsTests(unittest.TestCase):
         metadata = json.loads((inputs/'imports/chair_002.json').read_text())
         self.assertEqual(metadata['original_filename'], 'ok.jpg')
         self.assertEqual(Path(metadata['original']).read_bytes(), photo())
+
+    def test_mpo_jpeg_imports_primary_with_orientation_and_preserves_original(self):
+        data = mpo_photo()
+        with Image.open(io.BytesIO(data)) as source:
+            self.assertEqual(source.format, 'MPO')
+            self.assertEqual(source.n_frames, 2)
+            expected = source.transpose(Image.Transpose.ROTATE_270).tobytes()
+        for suffix in ('jpg', 'jpeg'):
+            with self.subTest(suffix=suffix):
+                name = f'hdr_{suffix}'
+                filename = f'phone.{suffix}'
+                response = self.client.post('/viewforge/objects/create', data={'name': name},
+                                            files=[('photos', (filename, data, 'image/jpeg'))])
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()['images'], [name])
+                self.assertEqual(response.json()['errors'], [])
+                directory = self.root/'data/inputs'/name
+                metadata = json.loads((directory/'imports'/f'{name}.json').read_text())
+                self.assertEqual(metadata['original_filename'], filename)
+                self.assertEqual(Path(metadata['original']).suffix, '.jpg')
+                self.assertEqual(Path(metadata['original']).read_bytes(), data)
+                with Image.open(metadata['image']) as normalized:
+                    self.assertEqual(normalized.format, 'PNG')
+                    self.assertEqual(normalized.mode, 'RGB')
+                    self.assertEqual(normalized.size, (6, 8))
+                    self.assertEqual(normalized.tobytes(), expected)
+                    self.assertNotIn(274, normalized.getexif())
+
+    def test_mpo_capture_keeps_existing_photos(self):
+        created = self.create(photos=1).json()
+        built = self.build(created['images'])
+        response = self.client.post('/viewforge/objects/capture', data={'run': built['run']},
+                                    files=[('photos', ('phone.jpeg', mpo_photo(), 'image/jpeg'))])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['kept'], created['images'])
+        self.assertEqual(len(response.json()['added']), 1)
+        self.assertEqual(response.json()['errors'], [])
+
+    def test_mpo_with_truncated_primary_is_rejected_without_publishing(self):
+        data = mpo_photo()
+        truncated = data[:data.index(b'\xff\xd9') - 7]
+        with Image.open(io.BytesIO(truncated)) as source:
+            self.assertEqual(source.format, 'MPO')
+        response = self.client.post('/viewforge/objects/create', data={'name': 'broken_hdr'},
+                                    files=[('photos', ('broken.jpeg', truncated, 'image/jpeg'))])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('broken.jpeg', response.json()['error'])
+        self.assertFalse((self.root/'data/inputs/broken_hdr').exists())
+        self.assertEqual(list((self.root/'data').rglob('.import-*')), [])
 
     def test_streamed_upload_without_length_obeys_same_limit(self):
         with patch.object(objects, 'MAX_UPLOAD', 32):

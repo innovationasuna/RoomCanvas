@@ -34,9 +34,12 @@ def import_photos(root, object_name, files, parent_run_id=None, image_prefix=Non
                         if image_prefix else 'capture_' + uuid.uuid4().hex)
             try:
                 with Image.open(source) as image:
-                    if image.format not in ('JPEG', 'PNG'):
+                    if image.format not in ('JPEG', 'MPO', 'PNG'):
                         raise ValueError('Unsupported format')
-                    ext = '.jpg' if image.format == 'JPEG' else '.png'
+                    ext = '.png' if image.format == 'PNG' else '.jpg'
+                    # HDR JPEGs may be MPO: reconstruct only the primary image,
+                    # keeping the auxiliary gain map in the unchanged original.
+                    image.seek(0)
                     image.load()
                     normalized = ImageOps.exif_transpose(image).convert('RGB')
             except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
