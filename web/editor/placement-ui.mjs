@@ -32,7 +32,7 @@ export function updatePlacementPanel({pending, wall, wallRelocation, value}) {
   $('#session-rotate-left').disabled = $('#session-rotate-right').disabled = !!wall;
   $('#lock-preview').textContent = wallRelocation ? '锁定墙面后微调' : pending?.locked ? '在画面中选择位置' : '停止跟随鼠标';
   $('#lock-preview').setAttribute('aria-pressed', String(!!pending?.locked));
-  $('#interaction-help').textContent = pending ? wallRelocation ? '移动鼠标选择墙面 · 单击锁定后微调' : pending.locked ? '拖动物品或使用右侧工具 · Enter 确认' : wall ? '移动鼠标选择墙面 · 单击锁定' : '移动鼠标摆放 · 单击锁定 · R 旋转' : '中键拖动旋转 · 右键拖动平移 · 滚轮缩放';
+  $('#interaction-help').textContent = pending ? wallRelocation ? '移动鼠标选择墙面 · 单击锁定后微调' : pending.locked ? '拖动物品或使用右侧工具 · Enter 确认' : wall ? '移动鼠标选择墙面 · 单击锁定' : '移动鼠标摆放 · 单击锁定 · R 旋转' : 'Shift＋左键拖动旋转 · 右键拖动平移 · 滚轮缩放';
   if (pending) $('#save-state').textContent = '预览尚未保存 · 确认后自动保存';
   const pose = wallRelocation?.candidate?.[pending?.id] || value;
   $('#candidate-coordinate').textContent = pose ? `X ${pose.x.toFixed(2)} · ${wall ? `高度偏移 ${(pose.y || 0).toFixed(2)}` : `Y ${(pose.y || 0).toFixed(2)} · Z ${pose.z.toFixed(2)}`} · ${Math.round(pose.yaw*180/Math.PI)}°` : '';

@@ -521,7 +521,7 @@ function beginWallRelocation() {
   if (wallRelocation) return;
   setEditingWall(null);
   if (pending) pending.locked = false;
-  wallRelocation = {id: selected, candidate: null, valid: false, target: null, message: '请选择目标墙面。中键拖动可调整视角。'};
+  wallRelocation = {id: selected, candidate: null, valid: false, target: null, message: '请选择目标墙面。Shift＋左键拖动可调整视角。'};
   motionNotice = null; hovered = null;
   $('#wall-target').value = '';
   // Reveal complete walls while choosing; restore the user's original cutaway on exit.
@@ -873,7 +873,7 @@ function bindEvents() {
     if (!wallRelocation) return;
     if (!target) {
       clearWallGhost();
-      wallRelocation = {...wallRelocation, candidate: null, valid: false, target: null, message: '请选择目标墙面。中键拖动可调整视角。'};
+      wallRelocation = {...wallRelocation, candidate: null, valid: false, target: null, message: '请选择目标墙面。Shift＋左键拖动可调整视角。'};
       updateInspector(); requestRender(); return;
     }
     const point = target.center.slice();
@@ -1004,8 +1004,10 @@ function bindEvents() {
   };
   // Only a drag that starts on an already selected object moves it. A first click only inspects.
   renderer.domElement.addEventListener('pointerdown', (event) => {
-    if (event.button === 1) event.preventDefault(); // Rotate the camera without the browser's middle-button autoscroll.
+    if (event.button === 1) event.preventDefault(); // Ignore middle presses, including the browser's autoscroll.
     if (event.button !== 0 || !event.isPrimary) {pointerStart = null; return;}
+    // OrbitControls swaps PAN to rotation while Shift is held. Plain left-drag remains reserved for objects.
+    controls.mouseButtons.LEFT = event.shiftKey ? THREE.MOUSE.PAN : null;
     pointerStart = {x: event.clientX, y: event.clientY, id: event.pointerId, dragged: false};
     if (mode === 'edit' && selected && !falling && !wallRelocation && (!pending || pending.locked) && pick(event.clientX, event.clientY) === selected) {
       pointerStart.moveObject = selected;
@@ -1053,13 +1055,13 @@ function bindEvents() {
       if (pending && wallRelocation) {
         const target = pickWall(event.clientX, event.clientY);
         if (target) {previewWall(target.name, target.point); lockWallPreview();}
-        else showToast('请点击墙面实体部分；中键拖动可以调整视角');
+        else showToast('请点击墙面实体部分；Shift＋左键拖动可以调整视角');
       } else if (pending && !pending.locked) {
         followPointer(event.clientX, event.clientY);
         pending.locked = true; updateInspector();
       } else if (wallRelocation) {
         const target = pickWall(event.clientX, event.clientY);
-        if (target) previewWall(target.name, target.point); else showToast('请点击墙面实体部分；中键拖动可以调整视角');
+        if (target) previewWall(target.name, target.point); else showToast('请点击墙面实体部分；Shift＋左键拖动可以调整视角');
       } else if (mode === 'edit') {const id = pick(event.clientX, event.clientY); if (id) inspectObject(id); else if (!pending) select(null);}
       else if (mode === 'preview') {const part = pickOpenable(event.clientX, event.clientY); if (part) {hinged.toggle(part); showOpenHint(part, event.clientX, event.clientY);}}
     }
@@ -1386,7 +1388,7 @@ function followPointer(clientX, clientY, force = false, grab = null) {
   host.style.cursor = pending.valid ? 'crosshair' : 'not-allowed';
 }
 
-const OPEN_HELP = '点击门窗体验开合 · 中键拖动旋转 · 右键拖动平移 · 滚轮缩放';
+const OPEN_HELP = '点击门窗体验开合 · Shift＋左键拖动旋转 · 右键拖动平移 · 滚轮缩放';
 function setMode(nextMode) {
   if (nextMode === 'walk' && !walk) return;
   if (pending && nextMode !== 'edit') {showToast('请先确认或取消当前调整，再进入体验'); return;}
@@ -1428,7 +1430,7 @@ function exitWalk() {
   hideOpenHint();
 }
 function walkHelp() {
-  $('#interaction-help').textContent = 'WASD / 方向键走动 · Shift 快走 · Q / E 升高、降低视线 · 中键拖动转头 · 点门、柜门开关 · Esc 退出';
+  $('#interaction-help').textContent = 'WASD / 方向键走动 · Shift 快走 · Q / E 升高、降低视线 · Shift＋左键拖动转头 · 点门、柜门开关 · Esc 退出';
 }
 function walkAim(at, event) {
   if (performance.now() - walkAimAt < 120) return;
@@ -1967,8 +1969,8 @@ async function load() {
   renderer.domElement.setAttribute('aria-label', '房间三维场景，点选物品或使用物品列表');
   host.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement);
-  // Reserve the left button for object selection and placement, including with modifier keys.
-  controls.mouseButtons = {LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN};
+  // The capture listener enables left-button camera movement only for a Shift-drag.
+  controls.mouseButtons = {LEFT: null, MIDDLE: null, RIGHT: THREE.MOUSE.PAN};
   controls.enableDamping = false;
   controls.minZoom = .45; controls.maxZoom = 8;
   controls.minDistance = .2;

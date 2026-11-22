@@ -1,6 +1,6 @@
 import {createRayQueries} from './ray-queries.mjs';
 // 漫游: walk through the room at eye height. WASD or the arrow keys walk, Shift hurries, Q and E
-// raise and lower the eye, middle-button dragging looks and Esc leaves. The mouse is never locked: a locked
+// raise and lower the eye, Shift + left-button dragging looks and Esc leaves. The mouse is never locked: a locked
 // mouse brings the browser's own banner, and Esc would only give the mouse back. A click on a door,
 // cabinet door or drawer opens or closes it, as in 预览.
 // The body is a column of RADIUS. Rays across the floor at knee, waist and chest height, from its
@@ -162,10 +162,9 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, queries,
     return {x: (event.clientX - rect.left) / rect.width * 2 - 1, y: -(event.clientY - rect.top) / rect.height * 2 + 1};
   };
   function pointerdown(event) {
-    if (![0, 1].includes(event.button) || !event.isPrimary || drag) return;
-    if (event.button === 1) event.preventDefault();
+    if (event.button !== 0 || !event.isPrimary || drag) return;
     canvas.setPointerCapture?.(event.pointerId);
-    drag = {id: event.pointerId, button: event.button, look: event.button === 1 || event.pointerType === 'touch',
+    drag = {id: event.pointerId, button: event.button, look: event.shiftKey || event.pointerType === 'touch',
       x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
   }
   function pointermove(event) {

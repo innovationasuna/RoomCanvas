@@ -44,7 +44,7 @@
 <header class="rc-top">
  <a class="rc-brand" id="home-link" href="../" title="全部房间"><span class="rc-logo"><svg><use href="#icon-room"/></svg></span>RoomCanvas</a>
  <div class="rc-project"><strong>房间</strong></div>
- <div class="rc-modes" aria-label="工作模式"><button class="rc-mode" data-mode="edit" aria-pressed="true">布置</button><button class="rc-mode" data-mode="preview" aria-pressed="false">预览</button><button class="rc-mode" data-mode="walk" aria-pressed="false" title="第一人称在房间里走动：WASD 走，中键拖动转头，Esc 退出">漫游</button></div>
+ <div class="rc-modes" aria-label="工作模式"><button class="rc-mode" data-mode="edit" aria-pressed="true">布置</button><button class="rc-mode" data-mode="preview" aria-pressed="false">预览</button><button class="rc-mode" data-mode="walk" aria-pressed="false" title="第一人称在房间里走动：WASD 走，Shift＋左键拖动转头，Esc 退出">漫游</button></div>
 </header>
 <main class="rc-stage">
  <div id="viewport" class="rc-canvas" role="application" tabindex="0" aria-label="三维房间。选择物品后拖动摇杆移动、圆盘旋转，Enter确认，Esc取消。"></div>
@@ -102,7 +102,7 @@
   <p id="selected-name" class="rc-object-title">挑一件物品，试着摆放</p>
   <p id="selected-category" class="rc-object-size">从房间或下方物品库开始</p>
   <div class="rc-state"><span class="rc-state-dot"></span><span id="session-status" aria-live="polite">选择 → 虚影预览 → 确认放置</span></div>
-  <p id="empty-selection" class="rc-idle-tip">单击已有物品可调整位置。按住中键拖动旋转镜头，右键拖动平移，滚轮缩放。</p>
+  <p id="empty-selection" class="rc-idle-tip">单击已有物品可调整位置。Shift＋左键拖动空白处或未选中的物品可旋转视角；右键平移，滚轮缩放。</p>
   <div id="selection-controls" hidden>
    <div class="rc-pending-actions">
     <button class="rc-action" hidden id="session-rotate-left">↶ 左转 15°</button><button class="rc-action" hidden id="session-rotate-right">↷ 右转 15°</button>
@@ -174,7 +174,7 @@
  <div id="drop-label" class="rc-drop-label" hidden></div>
  <div id="selection-label" class="selection-label" hidden></div>
  <div id="open-hint" class="rc-open-hint" role="status" hidden></div>
- <div class="rc-help"><span id="interaction-help">中键拖动旋转 · 右键拖动平移 · 滚轮缩放</span></div>
+ <div class="rc-help"><span id="interaction-help">Shift＋左键拖动旋转 · 右键拖动平移 · 滚轮缩放</span></div>
  <nav class="rc-view-tools" aria-label="场景与视角">
   <button class="rc-tool" id="overview" aria-label="恢复整体视角" data-view="overview">整体</button>
   <button class="rc-tool" id="top" aria-label="俯视房间" data-view="top">俯视</button>
