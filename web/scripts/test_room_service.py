@@ -21,6 +21,11 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_service as service
+from service_auth import urlopen as service_urlopen
+
+def urlopen(request, timeout=60):
+    return service_urlopen(request, token='a' * 64, timeout=timeout)
+
 import serve
 
 CAMERA = json.dumps({"intrinsics": [1, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -166,7 +171,7 @@ class Preview(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         jobs = service.Jobs(Path(self.temp.name) / 'jobs', Path.cwd(), runner='cli')
-        handler = type('PreviewHandler', (service.Handler,), {'jobs': jobs, 'preview': True, 'log_message': lambda *args: None})
+        handler = type('PreviewHandler', (service.Handler,), {'service_token': 'a' * 64, 'jobs': jobs, 'preview': True, 'log_message': lambda *args: None})
         self.server = service.ThreadingHTTPServer(('127.0.0.1', 0), handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f'http://127.0.0.1:{self.server.server_port}/room-reconstruction'
@@ -190,10 +195,10 @@ class APIIntegration(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.jobs = service.Jobs(self.root / 'jobs', Path.cwd(), runner='cli')
-        worker_handler = type('WorkerHandler', (service.Handler,), {'jobs': self.jobs, 'log_message': lambda *args: None})
+        worker_handler = type('WorkerHandler', (service.Handler,), {'service_token': 'a' * 64, 'jobs': self.jobs, 'log_message': lambda *args: None})
         self.worker = service.ThreadingHTTPServer(('127.0.0.1', 0), worker_handler)
         threading.Thread(target=self.worker.serve_forever, daemon=True).start()
-        proxy_handler = type('ProxyHandler', (serve.Handler,), {
+        proxy_handler = type('ProxyHandler', (serve.Handler,), {'backend_token': 'a' * 64,
             'deletions': serve.RoomDeletions(self.root / 'deleted-rooms.json'),
             'room_backend': f'http://127.0.0.1:{self.worker.server_port}', 'cache': self.root / 'room-cache',
             'log_message': lambda *args: None})

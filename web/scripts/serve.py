@@ -16,7 +16,7 @@ this script opens one SSH connection forwarding both (local ports taken from --v
 reopens it whenever it drops, and closes it on exit. --cpa also forwards 127.0.0.1:8317 on <host> back to this
 computer, so the server's Codex can use the CLIProxyAPI (the user's own subscription) running here.
 --server-dir runs scripts/start_server.sh in that directory on <host> over the same connection (it leaves running
-services alone), so one password starts everything.
+services alone); the service credential is read over SSH before forwarding requests.
 Finished rooms and replays are kept under runs/room-cache/ and read from there (room_cache.py); with --ssh the
 missing ones download in the background. Without the server the cached ones still open.
 The sample rooms' models (samples/*/Room.glb) are release assets, not files in git: the missing ones are fetched
@@ -50,6 +50,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
+import service_auth  # noqa: E402
 import room_cache  # noqa: E402
 from cache_manage import CacheBusy, CacheManager  # noqa: E402
 
@@ -116,6 +117,11 @@ class RoomDeletions:
 
 
 class Handler(SimpleHTTPRequestHandler):
+    backend_token = None
+
+    def open_backend(self, request, timeout=60):
+        return service_auth.urlopen(request, token=self.backend_token, timeout=timeout)
+
     viewforge = 'http://127.0.0.1:7865'
     room_backend = 'http://127.0.0.1:7866'
     deletions = RoomDeletions(ROOT / '.roomcanvas/deleted-rooms.json')
@@ -183,7 +189,7 @@ class Handler(SimpleHTTPRequestHandler):
                     self.log_message('房间模型：按需下载 %s（%.1f MB）', entry['path'], entry['bytes'] / 1e6)
                     resource = f'assets/{scan}' if scan else f'samples/{fetch_samples.room(entry)}'
                     source = f'{self.room_backend}/room-reconstruction/{resource}/Room.glb'
-                    with urllib.request.urlopen(source, timeout=120) as response:
+                    with self.open_backend(source, timeout=120) as response:
                         size = response.headers.get('Content-Length')
                         if size is not None and int(size) != entry['bytes']:
                             raise ValueError('服务器模型版本与本地房间清单不匹配，请更新房间资源后重试')
@@ -269,7 +275,7 @@ class Handler(SimpleHTTPRequestHandler):
                 # Running/failed scans are jobs rather than published catalog rooms.
                 if any(identifier.startswith('scan-') and identifier not in known for identifier in deleted):
                     try:
-                        with urllib.request.urlopen(self.room_backend + '/room-reconstruction/jobs', timeout=2) as response:
+                        with self.open_backend(self.room_backend + '/room-reconstruction/jobs', timeout=2) as response:
                             for job in json.load(response)['jobs']:
                                 known.setdefault('scan-' + job['id'], {
                                     'id': 'scan-' + job['id'], 'name': job['name'], 'status': job['status'],
@@ -345,7 +351,7 @@ class Handler(SimpleHTTPRequestHandler):
         kept = room_cache.local(self.cache, path)
         with self.cache_control().download(), room_cache.answer_writer(kept) as publish:
             try:
-                with urllib.request.urlopen(self.room_backend + path, timeout=timeout) as response:
+                with self.open_backend(self.room_backend + path, timeout=timeout) as response:
                     body, status, kind = response.read(), response.status, response.headers.get('Content-Type', 'application/json')
             except urllib.error.HTTPError as error:
                 with error:
@@ -435,7 +441,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def relay(self, request, timeout, room=False):
         try:
-            response = urllib.request.urlopen(request, timeout=timeout)
+            response = self.open_backend(request, timeout=timeout)
         except urllib.error.HTTPError as error:
             response = error  # ViewForge's own error message (JSON) goes to the page as it is.
         except OSError as error:  # refused, timed out, or reset by an SSH tunnel whose remote side is down
@@ -555,6 +561,31 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 64
 
 
+def remote_token(host, path=None):
+    # SSH carries the credential directly into this process; never a URL, browser or local file.
+    script = """import os, pathlib, stat, sys, time
+p = pathlib.Path(sys.argv[1]).expanduser()
+for attempt in range(150):
+    try:
+        fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW)
+        break
+    except FileNotFoundError:
+        time.sleep(.2)
+else:
+    raise SystemExit('Service credential is missing; start the updated server first')
+with os.fdopen(fd) as f:
+    info = os.fstat(f.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise SystemExit('Service credential must be private to the SSH user')
+    print(f.read(1024).strip())
+"""
+    command = 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(path or service_auth.DEFAULT_FILE)
+    result = subprocess.run(['ssh', host, command], capture_output=True, text=True, timeout=45)
+    if result.returncode:
+        raise ValueError('无法通过 SSH 读取服务凭证，请先启动更新后的服务并确认 --remote-token-file 路径')
+    return service_auth.validate_token(result.stdout.strip())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=7880)
@@ -572,7 +603,12 @@ def main():
     parser.add_argument('--cache', type=Path, default=Handler.cache, help='local copies of finished rooms and replays (default: runs/room-cache)')
     parser.add_argument('--no-download', action='store_true',
                         help='disable background sample/room/replay downloads; opening a sample may still fetch its missing model')
+    parser.add_argument('--token-file', type=Path, help='private local copy of the server credential (external tunnels)')
+    parser.add_argument('--remote-token-file', help='server credential path read over SSH; default ~/.local/state/roomcanvas/service.token')
     args = parser.parse_args()
+    if args.remote_token_file and not args.ssh:
+        parser.error('--remote-token-file needs --ssh')
+    Handler.backend_token = service_auth.load_token(args.token_file) if args.token_file else None
     if args.server_dir and not args.ssh:
         parser.error('--server-dir needs --ssh')
     if args.cpa and not args.ssh:
@@ -605,13 +641,19 @@ def main():
         except ValueError as error:
             parser.error(str(error))
         tunnel = Tunnel(command, open_tunnel(command, [port for port, _ in forwards]))
+        try:
+            if Handler.backend_token is None:
+                Handler.backend_token = remote_token(args.ssh, args.remote_token_file)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            tunnel.close()
+            parser.error(str(error))
         if not args.no_download:
             try:  # only manifest-listed sample models may be reused, never their tracked metadata
                 samples = [ROOT / entry['path'] for entry in fetch_samples.load()[1]]
             except (OSError, ValueError, KeyError):
                 samples = []
             sync = room_cache.Sync(Handler.room_backend, Handler.cache, log=lambda line: print(line, flush=True),
-                                   also=samples, control=control)
+                                   also=samples, control=control, token=Handler.backend_token)
     server = Server(('127.0.0.1', args.port), partial(Handler, directory=str(ROOT)))
     # Seed the shared files from samples before starting room prefetch; both honor the cleanup pause.
     threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)),

@@ -12,6 +12,11 @@ import argparse
 import http.client
 import json
 import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from service_auth import HTTPAuth, load_token
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOM_PREFIX = '/room-reconstruction/'
@@ -30,7 +35,7 @@ def split_address(text):
     return match.group(1), int(match.group(2))
 
 
-class Gateway(BaseHTTPRequestHandler):
+class Gateway(HTTPAuth, BaseHTTPRequestHandler):
     objects = ('127.0.0.1', 7862)
     rooms = ('127.0.0.1', 7866)
     preview = False
@@ -98,7 +103,9 @@ def main():
     parser.add_argument('--objects', default='127.0.0.1:7862', help='object service <host>:<port>')
     parser.add_argument('--rooms', default='127.0.0.1:7866', help='room service <host>:<port>')
     parser.add_argument('--preview', action='store_true', help='no GPU: refuse object reconstruction (the room service refuses its own)')
+    parser.add_argument('--token-file', help='private service credential file')
     args = parser.parse_args()
+    Gateway.service_token = load_token(args.token_file, create=True)
     Gateway.preview = args.preview
     try:
         Gateway.objects, Gateway.rooms = split_address(args.objects), split_address(args.rooms)
