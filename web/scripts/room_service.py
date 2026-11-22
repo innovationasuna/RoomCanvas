@@ -27,6 +27,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from service_auth import HTTPAuth, load_token
 sys.path.insert(0, str(ROOT / 'room-reconstruction/src'))
 from room_contract import PREFIX, STAGES, ASSETS  # noqa: E402,F401
 MAX_UPLOAD = 2 * 1024**3
@@ -69,7 +71,7 @@ class Jobs(JobStore):
         super().__init__(*args, extract=lambda archive, dest: extract_scan(archive, dest), **kwargs)
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(HTTPAuth, BaseHTTPRequestHandler):
     jobs = None
     preview = False  # no GPU: browse only
     samples = ROOT / 'samples'
@@ -229,7 +231,9 @@ def main():
     parser.add_argument('--timeout', type=int, default=21600)
     parser.add_argument('--preview', action='store_true', help='no GPU: serve rooms, assets and replays, refuse new reconstructions')
     parser.add_argument('--no-replay-summary', action='store_true', help='do not condense agent logs with codex (rule wording only)')
+    parser.add_argument('--token-file', help='private service credential file')
     args = parser.parse_args()
+    Handler.service_token = load_token(args.token_file, create=True)
     args.data_dir.mkdir(parents=True, exist_ok=True)
     try:  # Jobs refuses a data directory another service process is using.
         Handler.jobs = Jobs(args.data_dir, args.pipeline_dir, args.uv, args.timeout, args.runner, args.python)

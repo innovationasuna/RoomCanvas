@@ -27,8 +27,24 @@ done
 ROOM_PORT=7866 OBJECT_PORT=7862 GATEWAY_PORT=7870
 DATA="$ROOMCANVAS_HOME/runs/web-room-jobs"
 
+export PYTHONPATH="$REPO/scripts${PYTHONPATH:+:$PYTHONPATH}"
+if [ "$ACTION" = start ]; then python3 "$REPO/scripts/service_auth.py"; fi
+
 healthy() {  # healthy <host> <port> <path>
-    python3 -c 'import sys,urllib.request; urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}{sys.argv[3]}", timeout=3)' "$@" 2>/dev/null
+    python3 - "$@" <<'PYHEALTH' 2>/dev/null
+import sys, urllib.request, urllib.error
+from service_auth import load_token, urlopen
+url = f"http://{sys.argv[1]}:{sys.argv[2]}{sys.argv[3]}"
+try:
+    urllib.request.urlopen(url, timeout=3).close()
+except urllib.error.HTTPError as error:
+    if error.code != 401:
+        raise SystemExit(1)
+else:
+    raise SystemExit(1)
+with urlopen(url, token=load_token(), timeout=3) as response:
+    assert response.status == 200
+PYHEALTH
 }
 
 start() {  # start <name> <host> <port> <health path> <log> <command...>

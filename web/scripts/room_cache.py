@@ -26,6 +26,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+import service_auth
 from fetch_samples import place, same_file  # noqa: E402
 
 PREFIX = '/room-reconstruction/'
@@ -103,12 +104,13 @@ def job_files(job, replay):
 class Sync:
     """Downloads what the cache is missing, one file at a time, again every `every` seconds."""
 
-    def __init__(self, backend, cache, every=300, log=print, also=(), control=None):
+    def __init__(self, backend, cache, every=300, log=print, also=(), control=None, token=None):
         self.backend, self.cache, self.every, self.log = backend, Path(cache), every, log
         self.also = [Path(place) for place in also]  # more files (the sample models) or folders to link from
         self.stopped = threading.Event()
         self.absent = set()  # files the service does not have (a room without a thumbnail): not asked again
         self.control = control
+        self.token = token
 
     def downloading(self):
         return self.control.download(background=True) if self.control else nullcontext(True)
@@ -121,14 +123,14 @@ class Sync:
         self.stopped.set()
 
     def get(self, path, timeout=60):
-        with urllib.request.urlopen(self.backend + path, timeout=timeout) as response:
+        with service_auth.urlopen(self.backend + path, token=self.token, timeout=timeout) as response:
             return response.read()
 
     def identity(self, path):
         """The file's size and sha256 as the service gives them, or None when it does not (an older service).
         A 404 is raised, like the GET's."""
         try:
-            with urllib.request.urlopen(urllib.request.Request(self.backend + path, method='HEAD'), timeout=60) as response:
+            with service_auth.urlopen(urllib.request.Request(self.backend + path, method='HEAD'), token=self.token, timeout=60) as response:
                 digest = response.headers.get(DIGEST)
                 return (int(response.headers['Content-Length']), digest) if digest else None
         except urllib.error.HTTPError as error:

@@ -23,8 +23,19 @@ class ApiTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.client = TestClient(create_app(self.root))
+        self.client = TestClient(create_app(self.root, token='a' * 64), headers={'Authorization': 'Bearer ' + 'a' * 64})
         self.addCleanup(self.client.close)
+
+    def test_all_routes_require_credentials_before_uploads_or_jobs_are_created(self):
+        with TestClient(create_app(self.root, token='a' * 64)) as anonymous:
+            for method, path in [('GET', '/health'), ('GET', '/viewforge/assets/catalog'),
+                                 ('HEAD', '/viewforge/assets/catalog'), ('POST', '/viewforge/objects/create'),
+                                 ('POST', '/viewforge/objects/reconstruct'), ('POST', '/viewforge/dimensions/run')]:
+                for headers in ({}, {'Authorization': 'Bearer wrong'}):
+                    with self.subTest(method=method, path=path, headers=headers):
+                        response = anonymous.request(method, path, headers=headers)
+                        self.assertEqual(response.status_code, 401)
+            self.assertFalse((self.root / 'data').exists())
 
     def test_service_loads_without_gradio_and_does_not_mount_legacy_ui(self):
         code = '''import importlib.abc, sys
@@ -36,7 +47,7 @@ sys.meta_path.insert(0, NoOldUI())
 sys.path.insert(0, sys.argv[1])
 from web import create_app
 from starlette.testclient import TestClient
-with TestClient(create_app(sys.argv[2])) as client:
+with TestClient(create_app(sys.argv[2], token='a' * 64), headers={'Authorization': 'Bearer ' + 'a' * 64}) as client:
     assert client.get('/health').json()['status'] == 'ok'
 '''
         result = subprocess.run([sys.executable, '-c', code, str(Path(__file__).resolve().parents[1]/'scripts'), str(self.root)], capture_output=True, text=True)

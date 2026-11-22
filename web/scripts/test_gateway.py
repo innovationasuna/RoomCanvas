@@ -35,6 +35,7 @@ class Routing(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.objects, cls.rooms = backend('objects'), backend('rooms')
+        Gateway.service_token = 'a' * 64
         Gateway.objects = ('127.0.0.1', cls.objects.server_port)
         Gateway.rooms = ('127.0.0.1', cls.rooms.server_port)
         cls.gateway = ThreadingHTTPServer(('127.0.0.1', 0), Gateway)
@@ -48,7 +49,7 @@ class Routing(unittest.TestCase):
 
     def call(self, method, path, body=None, headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', self.gateway.server_port, timeout=10)
-        connection.request(method, path, body=body, headers=headers or {})
+        connection.request(method, path, body=body, headers={'Authorization': 'Bearer ' + 'a' * 64, **(headers or {})})
         response = connection.getresponse()
         return response.status, json.loads(response.read())
 

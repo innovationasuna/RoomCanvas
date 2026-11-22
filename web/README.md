@@ -242,6 +242,14 @@ python3 web/scripts/cache_manage.py resume
 | 添加与导入物品 | `editor/object-*.mjs`、`imported-objects.mjs`、`add-object*.mjs`、`import-materials.mjs`：上传重建、目录读取、尺寸标定与材质 |
 | 脚本与测试 | `scripts/serve.py` 本机网页服务与隧道，`scripts/room_service.py` 服务器上的房间重建 API；其余为物品清单、发布、缩略图与模型检查；`editor/tests/`：Node 单元测试 |
 
+## 共享服务器的服务凭证
+
+网关、房间服务和物体服务均要求 Bearer 凭证，包括健康检查、模型读取和上传。启动时默认创建或复用 SSH 用户的 `~/.local/state/roomcanvas/service.token`（0600 权限）；可通过 `ROOMCANVAS_TOKEN_FILE` 或各服务的 `--token-file` 指定同一个私有文件。凭证位于源码目录之外，不应加入 Git。
+
+`serve.py --ssh <host>` 会通过 SSH 将服务凭证读入内存，并为转发和后台下载附加请求头，浏览器无需输入凭证。自定义服务器文件位置时加 `--remote-token-file <服务器路径>`；使用已有外部隧道时，使用 `--token-file <本机私有凭证副本>`。仅查看离线缓存不需要凭证。凭证保护的是服务器接口，本机网页代理仍仅用于自己的电脑。
+
+部署本次改动时，三个服务需要一并使用更新后的代码并在合适的任务空闲窗口重启。`start_server.sh` 会同时检查匿名访问被拒绝、带凭证访问正常，旧版无鉴权进程不会被误报为正常，也不会被脚本自动终止。不要在重建任务运行中为了升级强行重启。
+
 ## 测试
 
 单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行。模型检查读示例房间的 `Room.glb`，先取回模型（见 [示例房间的模型](#示例房间的模型)；CI 按 `samples/models.json` 缓存）：

@@ -14,6 +14,11 @@ from urllib.request import urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_replay as replay
 import room_service as service
+from service_auth import urlopen as service_urlopen
+
+def urlopen(request, timeout=60):
+    return service_urlopen(request, token='a' * 64, timeout=timeout)
+
 
 T0 = 1_800_000_000.0
 
@@ -670,7 +675,7 @@ class PhasedRun(unittest.TestCase):
     def test_the_replay_route_serves_the_pass(self):
         jobs = service.Jobs(self.data, Path.cwd(), runner='cli')
         identifier = replay.register(self.data, self.run, 'phased')
-        handler = type('H', (service.Handler,), {'jobs': jobs, 'log_message': lambda *a: None})
+        handler = type('H', (service.Handler,), {'service_token': 'a' * 64, 'jobs': jobs, 'log_message': lambda *a: None})
         server = service.ThreadingHTTPServer(('127.0.0.1', 0), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -1187,7 +1192,7 @@ class Service(unittest.TestCase):
         self.data.mkdir()
         self.jobs = service.Jobs(self.data, Path.cwd(), runner='cli')
         self.identifier = replay.register(self.data, root / 'old-run', 'demo')
-        handler = type('H', (service.Handler,), {'jobs': self.jobs, 'log_message': lambda *a: None})
+        handler = type('H', (service.Handler,), {'service_token': 'a' * 64, 'jobs': self.jobs, 'log_message': lambda *a: None})
         self.server = service.ThreadingHTTPServer(('127.0.0.1', 0), handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f'http://127.0.0.1:{self.server.server_port}/room-reconstruction'
