@@ -1414,7 +1414,13 @@ def register(data_dir, run, name, until=None):
     (folder / 'run').symlink_to(run, target_is_directory=True)
     record = {'id': identifier, 'name': name, 'status': 'completed', 'created': rows[0]['t'] if rows else time.time(),
               'updated': until, 'until': until, 'runner': 'server', 'replay_only': True, 'scan': scene.name}
-    (folder / 'job.json').write_text(json.dumps(record, ensure_ascii=False))
+    # A running service discovers job.json: publish only the complete record.
+    temporary = folder / 'job.tmp'
+    try:
+        temporary.write_text(json.dumps(record, ensure_ascii=False))
+        temporary.replace(folder / 'job.json')
+    finally:
+        temporary.unlink(missing_ok=True)
     return identifier
 
 

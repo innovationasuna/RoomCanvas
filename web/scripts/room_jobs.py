@@ -1,8 +1,11 @@
 """Persistent job state and queue, independent of HTTP transport."""
 import fcntl
 import json
+import logging
+import math
 import os
 import queue
+import re
 import shutil
 import sys
 import tempfile
@@ -13,6 +16,24 @@ import room_executor
 import room_replay
 import room_status
 from room_contract import PREFIX, STAGES
+
+
+def read_record(path):
+    """A damaged job must not prevent other jobs from loading or being listed."""
+    try:
+        record = json.loads(path.read_text())
+        if not isinstance(record, dict):
+            raise ValueError('expected a job object')
+        if record['id'] != path.parent.name or not re.fullmatch(r'[0-9a-f]{32}', record['id']):
+            raise ValueError('job id does not match its directory')
+        if record['status'] not in ('queued', 'running', 'preparing', 'completed', 'failed'):
+            raise ValueError('invalid job status')
+        if not isinstance(record['name'], str) or not isinstance(record['created'], (int, float)) or not math.isfinite(record['created']):
+            raise ValueError('invalid job name or creation time')
+        return record
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        logging.getLogger(__name__).warning('Skipping damaged job record %s: %s', path, error)
+        return None
 
 
 class Jobs:
@@ -36,13 +57,18 @@ class Jobs:
         for staged in self.root.glob('.upload-*'):
             shutil.rmtree(staged, ignore_errors=True)
         for path in sorted(self.root.glob('*/job.json')):
-            record = json.loads(path.read_text())
-            self.records[record['id']] = record
+            record = read_record(path)
+            if record is None:
+                continue
             if record['status'] in {'running', 'preparing'}:
                 record.update(status='failed', error='服务曾重启。重试会检查上次进程是否结束，并复用已完成的阶段。')
-                self.save(record)
+                try:
+                    self.save(record)
+                except OSError as error:
+                    logging.getLogger(__name__).warning('Cannot save recovered job %s: %s', path, error)
             elif record['status'] == 'queued':
                 self.pending.put(record['id'])
+            self.records[record['id']] = record
 
     def save(self, record, directory=None):
         record['updated'] = time.time()
@@ -79,11 +105,8 @@ class Jobs:
         with self.lock:
             for path in self.root.glob('*/job.json'):
                 if path.parent.name not in self.records:
-                    try:
-                        record = json.loads(path.read_text())
-                    except (OSError, ValueError):
-                        continue
-                    if record.get('replay_only'):
+                    record = read_record(path)
+                    if record is not None and record.get('replay_only'):
                         self.records[record['id']] = record
 
     def replay_worker(self, run=None, interval=20):
