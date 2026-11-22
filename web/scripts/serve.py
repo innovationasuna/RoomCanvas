@@ -179,7 +179,6 @@ class Handler(SimpleHTTPRequestHandler):
             lock = self.sample_locks.setdefault(target, threading.Lock())
         with self.cache_control().download(), lock:
             if not target.is_file():
-                part = None
                 failure = None
                 try:
                     same = fetch_samples.same_file([self.cache], entry['bytes'], entry['sha256'])
@@ -195,8 +194,7 @@ class Handler(SimpleHTTPRequestHandler):
                         if size is not None and int(size) != entry['bytes']:
                             raise ValueError('服务器模型版本与本地房间清单不匹配，请更新房间资源后重试')
                         target.parent.mkdir(parents=True, exist_ok=True)
-                        with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.Room-', suffix='.part', delete=False) as output:
-                            part = Path(output.name)
+                        with fetch_samples.download_parts.temporary(target) as part, part.open('wb') as output:
                             received, reported = 0, 0
                             while chunk := response.read(1024 * 1024):
                                 received += len(chunk)
@@ -206,20 +204,18 @@ class Handler(SimpleHTTPRequestHandler):
                                 if received - reported >= 16 * 1024 * 1024:
                                     self.log_message('房间模型：%s %.1f / %.1f MB', entry['path'], received / 1e6, entry['bytes'] / 1e6)
                                     reported = received
-                    if fetch_samples.problem(part, entry):
-                        raise ValueError('房间模型不完整或版本不匹配，未保存；请检查服务连接及房间资源后重试')
-                    # A concurrent startup fetch may already have supplied the model.
-                    if not target.exists():
-                        part.replace(target)
-                    self.log_message('房间模型：已缓存 %s', entry['path'])
+                            output.flush()
+                            if fetch_samples.problem(part, entry):
+                                raise ValueError('房间模型不完整或版本不匹配，未保存；请检查服务连接及房间资源后重试')
+                            # A concurrent startup fetch may already have supplied the model.
+                            if not target.exists():
+                                part.replace(target)
+                            self.log_message('房间模型：已缓存 %s', entry['path'])
                 except (OSError, http.client.HTTPException) as error:
                     self.log_message('房间模型：下载失败 %s (%s)', entry['path'], error)
                     failure = (503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
                 except ValueError as error:
                     failure = (502, {'error': str(error)})
-                finally:
-                    if part:
-                        part.unlink(missing_ok=True)
                 if failure and failure[0] == 503 and not scan:
                     # Unlinked samples also work without a room server when GitHub is configured.
                     ways = fetch_samples.methods()
@@ -629,6 +625,10 @@ def main():
     Handler.room_backend = args.room_backend.rstrip('/')
     Handler.cache = args.cache.resolve()
     control = CacheManager(ROOT, Handler.cache)
+    try:
+        control.cleanup_parts()
+    except (CacheBusy, OSError) as error:
+        print(f'未完成下载暂未清理：{error}', flush=True)
     tunnel = sync = None
     if args.gateway:  # paths already tell the services apart, so both backends are the one forwarded port
         Handler.room_backend = Handler.viewforge

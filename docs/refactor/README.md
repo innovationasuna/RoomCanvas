@@ -166,4 +166,4 @@ main 工作区的四份重构文档原本未被 Git 跟踪。核对确认它们�
 | 重构分支的 `docs/editor-refactor-validation.md` | [editor-validation.md](editor-validation.md) |
 | 重构分支的 `docs/refactor-contracts.md` | [contracts.md](contracts.md) |
 
-`docs/OBJECT_RECONSTRUCTION_PERFORMANCE.md` 属于单独的 GPU 1 / `perf/object-reconstruction-profile` 实验，保留在原工作区，不混入本轮 GPU 0 重构的结论。服务器验证分支的 README 与原始记录按其验证版本保留。
+[`docs/OBJECT_RECONSTRUCTION_PERFORMANCE.md`](../OBJECT_RECONSTRUCTION_PERFORMANCE.md) 记录单独的 GPU 1 / `perf/object-reconstruction-profile` 实验，不属于本轮 GPU 0 重构的结论。服务器验证分支的 README 与原始记录按其验证版本保留。

@@ -14,8 +14,11 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import download_parts
 JOB = re.compile(r'[0-9a-f]{32}')
 SAMPLE = re.compile(r'samples/([\w-]+)/Room\.glb', re.ASCII)
 
@@ -124,6 +127,8 @@ class CacheManager:
                         for directory, dirs, files in os.walk(job / sub, followlinks=False):
                             dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
                             for leaf in files:
+                                if download_parts.is_part(leaf, legacy_cache=True):
+                                    continue
                                 add(identifier, name, '重建回放', Path(directory) / leaf, self.cache)
         for leaf in ('jobs/answer.json', 'catalog/answer.json'):
             add('catalog', '离线房间列表', '列表数据', self.cache / leaf, self.cache)
@@ -153,6 +158,15 @@ class CacheManager:
         return {'entries': rows, 'total_bytes': sum(unique.values()),
                 'total_files': sum(r['files'] for r in rows), 'background_paused': self.paused.exists()}
 
+    def _cleanup_parts(self):
+        sample = download_parts.cleanup(self.root / 'samples')
+        cache = download_parts.cleanup(self.cache, legacy_cache=True)
+        return sample[0] + cache[0], sample[1] + cache[1]
+
+    def cleanup_parts(self):
+        with self.lock(exclusive=True):
+            return self._cleanup_parts()
+
     def clear(self, ids=None, all=False):
         if type(all) is not bool or (all and ids) or (not all and (
                 not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids))):
@@ -164,7 +178,8 @@ class CacheManager:
                 raise ValueError('缓存列表已变化，请刷新后重新选择。')
             # Persist before removal so another process cannot immediately refill the cache.
             self.paused.touch()
-            freed, removed, errors = 0, 0, []
+            freed, removed = self._cleanup_parts() if all else (0, 0)
+            errors = []
             for identifier in selected:
                 for path, anchor in entries[identifier]['paths']:
                     try:
