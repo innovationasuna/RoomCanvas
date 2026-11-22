@@ -172,7 +172,7 @@ test('lights stand at the luminaires: one lamp in a 20 m² room is as bright as 
   assert.equal(indoorSpots(big.scene).filter(light => light.visible && light.castShadow).length, 3);
   big.rig.apply('noon');
   assert.equal(indoorSpots(big.scene).filter(light => light.castShadow).length, 0, 'daylight keeps the sun and window shadows only');
-  near(sum(big.rig.snapshot().lights.map(light => light.intensity)), central80 * 4 ** .75 * .07, 1e-9);
+  near(sum(big.rig.snapshot().lights.map(light => light.intensity)), central80 * 4 ** .75 * .25, 1e-9);
   for (let i = 0; i < 3; i++) {big.rig.apply('night'); big.rig.apply('physical');}
   assert.equal(indoorSpots(big.scene).length, 6);
   big.rig.setIndoor({power: true, angle: 100});

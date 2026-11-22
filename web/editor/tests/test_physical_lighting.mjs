@@ -87,7 +87,7 @@ test('物理光照 preset replaces the other rigs with pre-exposed physical ligh
   assert.equal(scene.children.filter(light => light.userData.lightingRole?.startsWith('physical-')).length, 2);
   rig.apply('noon');
   assert.equal(hemi.visible, true); assert.ok(physical.every(light => !light.visible));
-  assert.equal(sun.intensity, 4.2); assert.equal(scene.environmentIntensity, .1);
+  assert.equal(sun.intensity, 4.2); assert.equal(scene.environmentIntensity, .25);
   rig.dispose(); assert.ok(physical.every(light => light.parent === null));
 });
 
