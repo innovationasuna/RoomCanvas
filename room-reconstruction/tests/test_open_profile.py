@@ -234,6 +234,8 @@ def test_a_room_older_than_mark_small_is_told_where_to_copy_it(tmp_path, monkeyp
         current.replace('small_marker=o.get("small_marker"),', ''),
         current.replace('self.objects[rid]["small_marker"] = True', 'pass'),
         current.replace('handle["small_marker"] = True', 'pass'),
+        current.replace("faces = [(3, 2, 1, 0)", "faces = [(0, 1, 2, 3)"),
+        current.replace('o["marker_pose"] = {', 'stale_pose = {'),
     ):
         (room / "Room.py").write_text(incomplete)
         _, _, spec, _ = _author(tmp_path, monkeypatch)

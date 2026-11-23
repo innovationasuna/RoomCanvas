@@ -65,19 +65,38 @@ BLENDER_OPS = Path(__file__).with_name("blender_ops.py")
 RES_DIV = 2  # renders at half the capture resolution are plenty for a side-by-side
 # What an item's judgement and rebuild leave in items.json; cleared when its own inputs change.
 DERIVED = ("decision", "decision_error", "reference", "reference_error", "glb", "glb_error",
-           "fragments", "trellis_pipeline", "material")
+           "fragments", "trellis_pipeline", "clean_glb", "material")
 
 
 def ready_model(item):
-    return item.get("glb") if "material" in item else None
+    glb = item.get("glb")
+    return glb if "material" in item and glb and Path(glb).is_file() else None
 
 
 def failure_reason(item):
+    if item.get("kept_for"):
+        return f"still supports {item['kept_for']}"
     if not item.get("decision"):
         return item.get("decision_error") or "not judged"
     if not item.get("reference") and not item["decision"].get("source") and item.get("reference_error"):
         return item["reference_error"]
     return item.get("glb_error") or "not rebuilt"
+
+
+def needed_supports(objects, items):
+    """Keep a whole drop group if a surviving layout object relies on any member."""
+    by_id = {obj["id"]: obj for obj in objects}
+    dropping = {member: item for item in items if item.get("decision", {}).get("decision") == "drop"
+                for member in item["members"]}
+    pending = [obj for obj in objects if obj["id"] not in dropping]
+    kept = {}
+    while pending:
+        child = pending.pop()
+        group = dropping.get(child.get("rests_on") or child.get("attached_to"))
+        if group and group["id"] not in kept:
+            kept[group["id"]] = child["id"]
+            pending.extend(by_id[member] for member in group["members"])
+    return kept
 
 
 class Pass:
@@ -149,6 +168,8 @@ class Pass:
         self.reported.add(item["id"])
         decision = item.get("decision", {}).get("decision")
         method = {"drop": "dropped", "procedural": "procedural"}.get(decision, "kept")
+        if item.get("kept_for"):
+            method = "kept"
         if decision == "trellis" and ready_model(item):
             method = "trellis"
         extra = {"marker": True} if item.get("marker") else {}
@@ -294,7 +315,8 @@ class Pass:
     def find(self):
         # An item that is the same candidate as before keeps what was done for it, also in a
         # rebuilt room; one that changed or is gone starts over (pass_cache.carry).
-        items, changed = pass_cache.carry(self.items, candidates.find_candidates(self.layout))
+        supplied = {entry["id"] for entry in self.layout["objects"] if self.model(entry)}
+        items, changed = pass_cache.carry(self.items, candidates.find_candidates(self.layout, supplied))
         if changed:
             self.log(f"changed in the room, judged and rebuilt again: {', '.join(changed)}")
             for oid in changed:  # one retire per folder name: the two folders share the id
@@ -414,6 +436,15 @@ class Pass:
         if jobs:
             asyncio.run(self._ask_all(jobs))
         changed = {item["id"] for item in self.active() if self.enforce(item)}
+        supports = needed_supports(self.layout["objects"], self.items)
+        for item in self.items:
+            oid = item["id"]
+            if item.get("kept_for") != supports.get(oid):
+                if oid in supports:
+                    item["kept_for"] = supports[oid]
+                else:
+                    item.pop("kept_for")
+                changed.add(oid)
         if changed:
             self.save()
         for item in self.active():
@@ -424,8 +455,28 @@ class Pass:
         from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
 
         wanted = [i for i in self.active() if i.get("decision", {}).get("decision") == "trellis"]
-        todo = [i for i in wanted if not i["decision"].get("source")
-                and not i.get("reference") and not i.get("glb")]
+        retry = []
+        for item in wanted:
+            glb = item.get("glb")
+            if ready_model(item) and rebuild.usable_mesh(Path(glb)):
+                self.finished(item, reused=True)
+                continue
+            # Older runs used glb for a clean mesh, or only recorded successful fragment removal.
+            clean = item.get("clean_glb")
+            if not clean and glb and "material" not in item:
+                clean = glb
+            if not clean and "fragments" in item:
+                clean = self.out / "rebuild" / item["id"] / "mesh.glb"
+            if clean and not item["decision"].get("source") and rebuild.usable_mesh(Path(clean)):
+                item["clean_glb"] = str(clean)
+            else:
+                item.pop("clean_glb", None)
+            if item.get("reference") and not Path(item["reference"]).is_file():
+                item.pop("reference")
+            item.pop("glb", None)
+            item.pop("material", None)
+            retry.append(item)
+        todo = [i for i in retry if not i["decision"].get("source") and not i.get("reference")]
 
         def reference(item):
             folder = self.out / "rebuild" / item["id"]
@@ -433,7 +484,7 @@ class Pass:
             tiles = [*evidence.photo_inputs(self.photos(item), folder / "tiles"),
                      *evidence.generator_inputs(item["views"], folder / "tiles")]
             # A marker's own description stands in when Astra gave none.
-            description = item["decision"]["description"] or item.get("description", "")
+            description = item["decision"].get("description") or item.get("description", "")
             meta = rebuild.make_reference(item, tiles, description, folder)
             return str(folder / "reference.png"), (meta or {}).get("cost_usd") or 0
 
@@ -448,33 +499,36 @@ class Pass:
                 else:
                     item.pop("reference_error", None)
                 self.save()
-        pending = {i["id"]: Path(i["reference"]) for i in wanted if i.get("reference")
-                   and not i.get("glb") and not i["decision"].get("source")}
-        made = {}
+        work = self.out / "rebuild" / "_trellis"
+        pending, made = {}, {}
+        for item in retry:
+            if item["decision"].get("source") or item.get("clean_glb") or not item.get("reference"):
+                continue
+            oid = item["id"]
+            raw = work / "glb" / f"{oid}.glb"
+            if raw.is_file():
+                made[oid] = {"glb": raw, "pipeline": item.get("trellis_pipeline", "unknown")}
+            else:
+                pending[oid] = Path(item["reference"])
         batch_error = None
         if pending:
             self.log(f"TRELLIS on {len(pending)} items")
-            work = self.out / "rebuild" / "_trellis"
             work.mkdir(parents=True, exist_ok=True)
             try:
-                made = rebuild.run_trellis(pending, work, self.out / "logs" / "trellis.log")
+                made.update(rebuild.run_trellis(pending, work, self.out / "logs" / "trellis.log"))
             except Exception as exc:
                 batch_error = f"{type(exc).__name__}: {exc}"
                 self.log(batch_error)
                 # A later subprocess can fail to start after an earlier one wrote some meshes.
-                made = {oid: {"glb": path, "pipeline": "unknown"} for oid in pending
-                        if (path := work / "glb" / f"{oid}.glb").is_file()}
-        for item in wanted:
+                made.update({oid: {"glb": path, "pipeline": "unknown"} for oid in pending
+                             if (path := work / "glb" / f"{oid}.glb").is_file()})
+        for item in retry:
             oid = item["id"]
-            if ready_model(item):
-                self.finished(item, reused=True)
-                continue
-            if item["decision"].get("source") or oid in made or item.get("glb"):
+            if item["decision"].get("source") or oid in made or (item.get("clean_glb") and item.get("reference")):
                 try:
                     self.finish_model(item, made.get(oid))
                     item.pop("glb_error", None)
                 except Exception as exc:
-                    item.pop("glb", None)
                     item["glb_error"] = f"{type(exc).__name__}: {exc}"
             elif oid in pending:
                 item["glb_error"] = batch_error or "TRELLIS wrote no mesh"
@@ -500,9 +554,10 @@ class Pass:
                     # --skip-existing would otherwise reuse a corrupt TRELLIS output.
                     cache.retire([raw], self.out)
                     raise
-                item["trellis_pipeline"] = generated["pipeline"]
-            else:  # resume a mesh checkpoint made before material correction
-                clean = Path(item["glb"])
+                item.update(clean_glb=str(clean), trellis_pipeline=generated["pipeline"])
+                self.save()
+            else:
+                clean = Path(item["clean_glb"])
             material = rebuild.correct_material(clean, Path(item["reference"]), item["category"], model)
         item.update(glb=str(model), material=material)
 
@@ -510,7 +565,7 @@ class Pass:
         drop, replace = [], []
         for item in items:
             decision = item.get("decision", {}).get("decision")
-            if decision == "drop":
+            if decision == "drop" and not item.get("kept_for"):
                 drop.append({"id": item["id"], "members": item["members"]})
             elif decision == "trellis" and ready_model(item):  # a failed rebuild keeps its model
                 # Seen only in the operator's photos: no capture camera to face.
@@ -562,6 +617,8 @@ class Pass:
     def outcome(self, item) -> str:
         decision = item.get("decision", {}).get("decision")
         unchanged = "marker box kept" if item.get("marker") else "unchanged"
+        if item.get("kept_for"):
+            return unchanged + " (" + failure_reason(item) + ")"
         if decision is None:
             return unchanged + " (no decision: " + failure_reason(item) + ")"
         if decision == "procedural":
@@ -578,7 +635,7 @@ class Pass:
         """Items this pass could not do: never judged, or a rebuild that made no model. They keep the
         author's stand-in, as kept ones do, but were not chosen to stay."""
         return [item["id"] for item in self.items
-                if item.get("decision", {}).get("decision") is None
+                if item.get("kept_for") or item.get("decision", {}).get("decision") is None
                 or (item["decision"]["decision"] == "trellis" and not ready_model(item))]
 
     def summarize(self):

@@ -194,6 +194,19 @@ def touching(pieces: list, tolerance: float, roots: set[int]) -> set[int]:
     return reached
 
 
+def usable_mesh(path: Path) -> bool:
+    """An existing checkpoint can have been truncated or lost since its item was saved."""
+    from litereality_agent.room_ops import glb
+
+    if not path.is_file():
+        return False
+    try:
+        scene = glb.load(path, force="scene", process=False)
+        return any(len(scene.geometry[scene.graph[node][1]].faces) for node in scene.graph.nodes_geometry)
+    except Exception:
+        return False
+
+
 def drop_fragments(source: Path, target: Path, size: float | None = None) -> dict:
     """Keep the pieces that hang together and drop the rest, however large; texture and UVs
     untouched. Kept: the largest piece, every piece standing on the model's bottom (the things of a

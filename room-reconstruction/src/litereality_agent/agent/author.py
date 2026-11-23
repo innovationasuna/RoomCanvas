@@ -482,7 +482,25 @@ TEMPLATE = Path(__file__).resolve().parents[1] / "room_ops" / "compile" / "build
 MARK_SMALL_TEMPLATE = (
     "Complete the RoomScene.mark_small migration in Room.py using {template}. Copy the method, "
     "the bottom face winding in _unit_cube_mesh, and the small_marker, description and marker_pose "
-    "arguments and fields in _register and index. Preserve the room's other edits.\n")
+    "fields in _register and index, including the live box pose calculation. Preserve the room's other edits.\n")
+
+
+def _has_downward_cube_bottom(module):
+    cube = next((n for n in module.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "_unit_cube_mesh"), None)
+    if cube is None:
+        return False
+    geometry = {n.targets[0].id: n.value for n in cube.body if isinstance(n, ast.Assign)
+                and isinstance(n.targets[0], ast.Name)}
+    try:
+        vertices = ast.literal_eval(geometry["verts"])
+        floor = min(p[2] for p in vertices)
+        faces = ([vertices[i] for i in face] for face in ast.literal_eval(geometry["faces"]))
+        bottoms = [f for f in faces if f and all(p[2] == floor for p in f)]
+        return bool(bottoms) and all(sum(p[0] * q[1] - q[0] * p[1] for p, q in
+                                         zip(f, f[1:] + f[:1])) < 0 for f in bottoms)
+    except (KeyError, ValueError, TypeError, IndexError):
+        return False
 
 
 def _has_marker_api(path):
@@ -498,11 +516,11 @@ def _has_marker_api(path):
     register = methods["_register"]
     args = {arg.arg for arg in register.args.args + register.args.kwonlyargs}
 
-    def writes_fields(method, target):
+    def writes_fields(method, target, required=fields):
         stored = {n.slice.value for n in ast.walk(method) if isinstance(n, ast.Subscript)
                   and isinstance(n.ctx, ast.Store) and isinstance(n.slice, ast.Constant)
                   and ast.unparse(n.value) == target}
-        return fields <= stored
+        return required <= stored
 
     def registers(method, *, reindex=False):
         for call in ast.walk(method):
@@ -516,8 +534,10 @@ def _has_marker_api(path):
         return False
 
     marker = methods["mark_small"]
-    return (fields <= args and writes_fields(register, "self.objects[rid]")
+    return (_has_downward_cube_bottom(module)
+            and fields <= args and writes_fields(register, "self.objects[rid]")
             and writes_fields(marker, "handle") and registers(marker)
+            and writes_fields(methods["index"], "o", {"marker_pose"})
             and registers(methods["index"], reindex=True))
 
 

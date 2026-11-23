@@ -193,11 +193,6 @@ def place(item, live, out_dir, report):
     sx, sy, sz = pose["scale"]
     anchor = Vector(((low[0] + high[0]) / 2, (low[1] + high[1]) / 2, low[2]))
     turn = Matrix.Rotation(pose["yaw"], 4, "Z")
-    matrix = (Matrix.Translation(origin) @ turn @ Matrix.Diagonal((sx, sy, sz, 1))
-              @ Matrix.Translation(-anchor))
-    for root in roots:
-        root.matrix_world = matrix @ root.matrix_world
-
     collection = bpy.data.collections.new(item["id"])
     bpy.context.scene.collection.children.link(collection)
     handle = bpy.data.objects.new(item["id"], None)
@@ -218,8 +213,13 @@ def place(item, live, out_dir, report):
         for coll in list(obj.users_collection):
             coll.objects.unlink(obj)
         collection.objects.link(obj)
+    # Keep the asset root's rotation below the nonuniform scale so both stay representable as TRS.
+    fitted = bpy.data.objects.new(f"{item['id']}_fit", None)
+    collection.objects.link(fitted)
+    fitted.parent = handle
+    fitted.matrix_basis = Matrix.Diagonal((sx, sy, sz, 1)) @ Matrix.Translation(-anchor)
     for root in roots:
-        reparent(root, handle)
+        root.parent = fitted
     if props["parent"] is not None:
         reparent(handle, props["parent"])
     for dependent in dependents:

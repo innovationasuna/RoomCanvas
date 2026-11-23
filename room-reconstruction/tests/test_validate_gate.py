@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from litereality_agent.pipeline.room_qc import validate as V
 
 
@@ -97,7 +99,9 @@ def test_no_build_is_a_clear_error_not_a_pass(tmp_path: Path):
     assert not rep["ok"] and not rep["pass"] and "compile" in rep["error"]
 
 
-def test_two_markers_on_one_table_block_only_when_their_meshes_intersect(tmp_path):
+@pytest.mark.parametrize("second", [{"small_marker": True}, {}, {"source_glb": "mug.glb"}],
+                         ids=["marked", "hand-built", "premade"])
+def test_props_on_one_table_block_only_when_their_meshes_intersect(tmp_path, second):
     import numpy as np
     import trimesh
 
@@ -105,11 +109,12 @@ def test_two_markers_on_one_table_block_only_when_their_meshes_intersect(tmp_pat
     (tmp_path / "manifest.json").write_text('{"assets": []}')
     for x, clash in [(0.25, True), (0.4, False)]:
         mugs = [_obj(f"Mug{i}", "mug", (left, .2, .75), (left + .1, .3, .85),
-                     rests_on="Table0", small_marker=True) for i, left in enumerate([.2, x])]
+                     rests_on="Table0", handle=f"CupHandle{i}", **props)
+                for i, (left, props) in enumerate([(.2, {"small_marker": True}), (x, second)])]
         objects = [FLOOR, dict(TABLE, rests_on="Floor0"), *mugs]
         scene = trimesh.Scene()
         for obj in objects:
-            name = obj["id"]
+            name = obj.get("handle") or obj["id"]
             scene.graph.update(frame_from=obj.get("rests_on", "world"), frame_to=name)
             lo, hi = np.array(obj["bbox_min"]), np.array(obj["bbox_max"])
             mesh = trimesh.creation.box(extents=hi-lo)
@@ -123,3 +128,25 @@ def test_two_markers_on_one_table_block_only_when_their_meshes_intersect(tmp_pat
         assert report["pass"] is (not clash)
         assert [(f["kind"], f["id"], f["with"]) for f in report["failing"]] == (
             [("object_clash", "Mug1", "Mug0")] if clash else [])
+
+
+def test_registered_blind_stays_in_the_opening_sweep_and_beams_in_structure(tmp_path):
+    import trimesh
+
+    from litereality_agent.agent.tools.check_collisions.source import collision_mesh as cm
+
+    objects = [{"id": "Window0", "category": "window", "handle": "WindowHandle"},
+               {"id": "Shade0", "category": "blind", "attached_to": "Window0"},
+               {"id": "Beam0", "category": "beam"}]
+    scene = trimesh.Scene()
+    scene.add_geometry(trimesh.creation.box(), node_name="window_sash", parent_node_name="WindowHandle")
+    scene.graph.update(frame_from="world", frame_to="WindowHandle")
+    scene.graph.update(frame_from="window_sash", frame_to="Shade0")
+    scene.add_geometry(trimesh.creation.box(), node_name="shade_mesh", parent_node_name="Shade0")
+    scene.add_geometry(trimesh.creation.box(), node_name="Beam0")
+    scene.export(tmp_path / "Room.glb")
+    (tmp_path / "room_layout.json").write_text(json.dumps(_layout(objects)))
+    bodies = cm.build_bodies(tmp_path / "Room.glb", {})
+    assert not bodies["furniture"] and len(bodies["structure"].faces) == 12
+    assert len(bodies["leaves"]["Window0"].faces) == 24
+    assert not cm.open_clearance(bodies, {})

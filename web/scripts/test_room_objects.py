@@ -80,10 +80,12 @@ class BuildTest(unittest.TestCase):
 
     def test_rebuilt_loose_lamp_has_its_own_movable_group(self):
         loose = dict(item('DeskLamp0', 'light', rests_on='Shelf', rebuilt='trellis'), movable=True)
-        result = build(room(loose, item('WallLamp0', 'light', attached_to='Wall0', rebuilt='model')))
+        ready = item('DeskLamp1', 'light', rests_on='Shelf', rebuilt='model')
+        result = build(room(loose, ready, item('WallLamp0', 'light', attached_to='Wall0', rebuilt='model')))
         roles = {o['id']: o['role'] for o in result['objects']}
         groups = {g['id']: g['members'] for g in result['groups']}
-        self.assertEqual((roles['DeskLamp0'], groups['DeskLamp0']), ('furniture', ['DeskLamp0']))
+        for name in ('DeskLamp0', 'DeskLamp1'):
+            self.assertEqual((roles[name], groups[name]), ('furniture', [name]))
         for fixed in ('WallLamp0', 'Lamp'):
             self.assertEqual(roles[fixed], 'fixture')
             self.assertNotIn(fixed, groups)

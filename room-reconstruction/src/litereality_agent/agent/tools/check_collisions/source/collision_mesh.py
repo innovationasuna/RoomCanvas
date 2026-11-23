@@ -39,6 +39,8 @@ _STRUCTURE_RE = re.compile(r"^(Wall|Ceiling)\d+$")
 _FLOOR_RE = re.compile(r"^Floor\d+$")
 _OPENING_RE = re.compile(r"^(Door|Window)\d+$")
 _FURN_RE = re.compile(r"^(%s)\d+$" % "|".join(FURNITURE_PREFIXES))
+_STRUCTURE_CATS = {"wall", "ceiling", "shell", "room_shell", "bulkhead", "boxed_services",
+                   "column", "beam", "skirting", "trim", "trunking"}
 # a moving leaf part vs the fixed frame, by GLB part-node name
 _FRAME_MARK = ("frame",)
 _MOVING_MARK = ("leaf", "sash", "blind", "curtain", "glass", "pane")
@@ -78,33 +80,31 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
     preds = nx.predecessor(G, base)  # one BFS: node → [parent]
 
     furn_cat = {i: o.get("category") for i, o in (shell.get("objects") or {}).items()}
-    structure_h, floor_h, furn_h, opening_h = set(), set(), set(), set()
-    for n in G.nodes:
-        if _STRUCTURE_RE.match(n):
-            structure_h.add(n)
-        elif _FLOOR_RE.match(n):
-            floor_h.add(n)
-        elif _OPENING_RE.match(n):
-            opening_h.add(n)
-        elif furn_cat.get(n) in _FURNITURE_CATS or _FURN_RE.match(n):
-            furn_h.add(n)
     layout_path = Path(glb_path).with_name("room_layout.json")
     objects = json.loads(layout_path.read_text())["objects"] if layout_path.is_file() else []
     if isinstance(objects, dict):
         objects = objects.values()
-    by_id = {o["id"]: o.get("handle") or o["id"] for o in objects}
-    markers = {by_id[o["id"]] for o in objects if o.get("small_marker") or o.get("movable")}
-    furn_h.update(markers & G.nodes)
+    by_handle = {o.get("handle") or o["id"]: o for o in objects}
+    structure_h, floor_h, furn_h, opening_h = set(), set(), set(), set()
+    for n in G.nodes:
+        entry = by_handle.get(n, {})
+        name = entry.get("id", n)
+        category = entry.get("category")
+        if category in _STRUCTURE_CATS or _STRUCTURE_RE.match(name):
+            structure_h.add(n)
+        elif category == "floor" or _FLOOR_RE.match(name):
+            floor_h.add(n)
+        elif category in {"door", "window", "opening"} or _OPENING_RE.match(name):
+            opening_h.add(n)
+        elif entry or furn_cat.get(n) in _FURNITURE_CATS or _FURN_RE.match(n):
+            furn_h.add(n)
+    # A mounted blind inside its opening still belongs to the frame/leaf collision geometry.
+    furn_h = {h for h in furn_h if not (by_handle.get(h, {}).get("attached_to")
+                                        and _handle_of(h, preds, opening_h))}
     handles = structure_h | floor_h | furn_h | opening_h
-
-    allowed = set()
-    for obj in objects:
-        child = by_id[obj["id"]]
-        support = by_id.get(obj.get("rests_on") or obj.get("attached_to"))
-        if support and (child in markers or support in markers):
-            parent_body = _handle_of(support, preds, handles)
-            if parent_body:
-                allowed.add(frozenset((child, parent_body)))
+    ids = {h: by_handle[h]["id"] if h in by_handle else h for h in handles}
+    allowed = {frozenset((obj["id"], support)) for obj in objects
+               if (support := obj.get("rests_on") or obj.get("attached_to"))}
 
     parts: dict[str, list] = defaultdict(list)  # handle → [(part_node_name, world mesh)]
     for node in scene.graph.nodes_geometry:
@@ -128,15 +128,16 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
         structure_meshes += frame  # the frame is fixed wall structure
         lm = _concat(moving)
         if lm is not None:
-            leaves[op] = lm
+            leaves[ids[op]] = lm
 
-    furniture = {h: _concat([m for _, m in parts.get(h, [])]) for h in furn_h if parts.get(h)}
+    furniture = {ids[h]: _concat([m for _, m in parts[h]]) for h in furn_h if parts.get(h)}
     furniture = {k: v for k, v in furniture.items() if v is not None}
     return {
         "support_pairs": allowed,
         "structure": _concat(structure_meshes),
-        "walls": {h: _concat([m for _, m in parts.get(h, [])])
-                  for h in structure_h if h.startswith("Wall") and parts.get(h)},
+        "walls": {ids[h]: _concat([m for _, m in parts[h]]) for h in structure_h
+                  if parts.get(h) and (ids[h] in (shell.get("walls") or {})
+                                       or ids[h].startswith("Wall"))},
         "floor": _concat([m for h in floor_h for _, m in parts.get(h, [])]),
         "furniture": furniture,
         "leaves": leaves,

@@ -1053,16 +1053,31 @@ class RoomScene:
 
     def index(self):
         """(Re)build the object registry from the live scene graph."""
+        bpy.context.view_layer.update()
         self.objects = {}
         for o in bpy.data.objects:  # shell meshes
             if o.type == "MESH" and re.match(r"(Wall|Floor|Ceiling)\d+$", o.name):
                 self._register(o.name, category_of(o.name), [o])
         for o in bpy.data.objects:  # asset handles
             if o.type == "EMPTY" and o.get("room_id"):
+                meshes = mesh_descendants(o)
+                if o.get("small_marker") and len(meshes) == 1:
+                    box = meshes[0]
+                    low, high = Vector(box.bound_box[0]), Vector(box.bound_box[6])
+                    bottom = (low + high) / 2
+                    bottom.z = low.z
+                    axes = box.matrix_world.to_3x3().col
+                    x = axes[0]
+                    o["marker_pose"] = {
+                        "bottom": [round(v, 6) for v in box.matrix_world @ bottom],
+                        "size": [round(length * axes[i].length, 6)
+                                 for i, length in enumerate(high - low)],
+                        "yaw_deg": round(math.degrees(math.atan2(x.y, x.x)), 4),
+                    }
                 self._register(
                     o["room_id"],
                     o.get("category", category_of(o.name)),
-                    mesh_descendants(o),
+                    meshes,
                     source=o.get("source_glb"),
                     handle=o.name,
                     rests_on=o.get("rests_on"),
@@ -1223,10 +1238,6 @@ class RoomScene:
         else:
             scale = tuple(want / have for want, have in zip(size, own))
         pose = Matrix.Translation(Vector(bottom)) @ Matrix.Rotation(math.radians(yaw_deg), 4, "Z")
-        M = (pose @ Matrix.Diagonal((*scale, 1.0))
-             @ Matrix.Translation((-(mn.x + mx.x) / 2, -(mn.y + mx.y) / 2, -mn.z)))
-        for r in roots:
-            r.matrix_world = M @ r.matrix_world
         # The handle stands where the object does, turned with it, as the small-object pass
         # leaves its rebuilds: an editor moving or turning the object turns it about itself.
         coll = get_or_make_collection(COLL_ADDED)
@@ -1242,9 +1253,14 @@ class RoomScene:
             if value:
                 handle[key] = value
         coll.objects.link(handle)
+        # A rotated asset root cannot carry an unequal world-axis scale without shear.
+        fit = bpy.data.objects.new(f"{name}_fit", None)
+        coll.objects.link(fit)
+        fit.parent = handle
+        fit.matrix_basis = (Matrix.Diagonal((*scale, 1.0))
+                            @ Matrix.Translation((-(mn.x + mx.x) / 2, -(mn.y + mx.y) / 2, -mn.z)))
         for r in roots:
-            r.parent = handle
-            r.matrix_parent_inverse = pose.inverted()
+            r.parent = fit
         for o in imported:
             move_to_collection(o, coll)
         bpy.context.view_layer.update()  # settle parenting before reading bbox
@@ -1351,6 +1367,7 @@ class RoomScene:
         An articulated support is deliberately NOT guessed: the author must name its
         supporting part (e.g. the moving desktop). The export validator rejects ambiguity.
         """
+        bpy.context.view_layer.update()
         handles = {o.get("room_id"): o for o in bpy.data.objects if o.get("room_id")}
         for child in handles.values():
             target = child.get("rests_on") or child.get("attached_to")

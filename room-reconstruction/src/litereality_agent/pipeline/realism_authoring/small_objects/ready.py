@@ -1,7 +1,7 @@
 """The operator's small-object models made up front (premake), handed to the author session to place.
 
 With LR_SMALL_OBJECTS_MODELS=<dir> (premake's output: <Kind>.glb, its <Kind>.json receipt and
-work/<Kind>/reference.png), every model is copied into the room as Models/<Kind>.glb before the
+work/<Kind>/reference.png), each usable model is copied into the room as Models/<Kind>.glb before the
 session, and the brief lists them: the session puts each one where the photographs show it with
 `RoomScene.place_model` instead of marking a stand-in for the pass to swap. A model put in that
 way has a `source_glb`, so the small-object pass after the session leaves it alone; a thing the
@@ -12,6 +12,7 @@ model by name as before (run.Pass.model).
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import litereality_agent
@@ -28,8 +29,8 @@ close-ups. Put each one where the photographs show it, in Room.py:
 `bottom` is the centre of its underside on the measured surface; `size` its measured (width,
 depth, height), or only its height to keep the model's proportions; `yaw_deg` turns its front
 (-Y) the way it faces in the photographs. Name the copies <Kind>, <Kind>0, <Kind>1 ... Use these
-models rather than building those things from primitives, and declare their support like any
-group. Small things without a model you mark, not model: `scene.mark_small("<Kind>0", ...)`, one
+listed models for new placements, with `rests_on` for loose objects or `attached_to` for fixed
+fixtures. Mark small things without a listed model: `scene.mark_small("<Kind>0", ...)`, one
 box at the measured place and size; after your session a pass rebuilds them from the
 photographs.{template}
 {rows}
@@ -47,14 +48,14 @@ def root() -> Path | None:
     return folder
 
 
-def describe(glb: Path, folder: Path) -> dict:
+def describe(glb: Path, folder: Path, *, mesh: Path | None = None) -> dict:
     """What the brief says about one model (its copy in the room): its proportions, what it is and
     its reference image (beside its source in `folder`)."""
     from litereality_agent.room_ops import glb as room_glb
 
     # glTF is Y-up: Blender's width, depth and height are x, z and y here. A TRELLIS model's root
     # is a node named `world`, which trimesh would read as its own root (room_ops/glb).
-    x, y, z = room_glb.load(glb, force="scene", skip_materials=True).extents
+    x, y, z = room_glb.load(mesh or glb, force="scene", skip_materials=True).extents
     receipt = cache.read_json(folder / f"{glb.stem}.json")
     inputs = receipt.get("inputs") if isinstance(receipt, dict) else None
     reference = folder / "work" / glb.stem / "reference.png"
@@ -79,18 +80,29 @@ def stage(room: Path) -> list[dict]:
     made = made if isinstance(made, dict) else {}
     for glb in sorted(p for p in folder.glob("*.glb") if not p.name.startswith(".")):
         target = room / FOLDER / glb.name
-        key = cache.file_hash(glb)
-        if not target.is_file() or made.get(glb.name) != key:
+        try:
+            key = cache.file_hash(glb)
+            if target.is_file() and made.get(glb.name) == key:
+                try:
+                    rows.append(describe(target, folder))
+                    continue
+                except Exception:
+                    pass  # rebuild an unreadable room copy from its source
             target.parent.mkdir(exist_ok=True)
             part = target.with_name(f".{glb.stem}.part.glb")
             try:
                 rebuild.drop_fragments(glb, part)
+                row = describe(target, folder, mesh=part)
                 part.replace(target)
             finally:
                 part.unlink(missing_ok=True)
-            made[glb.name] = key
-            cache.atomic_json(sources, made)
-        rows.append(describe(target, folder))
+        except Exception as exc:
+            print(f"[ready-models] skipping {glb.name}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr, flush=True)
+            continue
+        made[glb.name] = key
+        cache.atomic_json(sources, made)
+        rows.append(row)
     return rows
 
 
