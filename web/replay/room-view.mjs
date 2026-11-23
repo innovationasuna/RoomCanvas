@@ -112,13 +112,15 @@ export class RoomView {
     c.enableDamping = true;
     c.maxPolarAngle = Math.PI * 0.47;
     this.frame(new THREE.Box3(new THREE.Vector3(-2, -1.5, -2), new THREE.Vector3(2, 1.2, 2)));
-    c.addEventListener('start', () => {this.userHeld = true; this.aimTo = null; this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};});
+    c.addEventListener('start', () => {this.userMoved = this.userHeld = true; this.stopCamera();});
     this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};
     this.wantSpin = false;
+    this.paused = false;
     this.speed = 1;         // playback speed the viewer chose
     this.rate = 1;          // the speed right now: sped up, the replay still slows down for what is worth watching
     this.time = 1;          // ms on the view's own clock, which runs at that speed
     this.userHeld = false;
+    this.userMoved = false;
     this.aimTo = null;
     this.focusTo = null;
     this.wallFades = [];
@@ -159,10 +161,12 @@ export class RoomView {
     const size = box.getSize(new THREE.Vector3());
     this.radius = Math.max(size.x, size.z, 3);
     const offset = new THREE.Vector3(1, 1.05, 1.08).normalize().multiplyScalar(this.radius * 2.15);
-    this.camera.position.copy(this.center).add(offset);
-    this.controls.target.copy(this.center);
     this.defaultDist = offset.length();
     this.defaultPolar = new THREE.Spherical().setFromVector3(offset).phi;
+    // A late layout refines the overview, but keeps the model's or the viewer's framing.
+    if (this.modelsFramed || this.userMoved) return;
+    this.camera.position.copy(this.center).add(offset);
+    this.controls.target.copy(this.center);
   }
 
   // Load the point cloud and layout once they exist; a live job may not have them yet, so callers retry.
@@ -639,8 +643,26 @@ export class RoomView {
   }
 
   // ---------- camera direction (the page decides when to spin, aim or pose) ----------
-  release() {this.userHeld = false;}
-  spin(on) {this.wantSpin = on;}
+  stopCamera() {
+    this.aimTo = this.focusTo = null;
+    this.vel.theta = this.vel.phi = this.vel.dist = 0;
+    this.vel.target.set(0, 0, 0);
+  }
+  setPlaying(playing) {
+    this.wantSpin = playing;
+    if (this.paused === !playing) return;
+    this.paused = !playing;
+    this.lastTick = performance.now();
+    this.controls.enableDamping = playing;
+    if (playing) {this.userHeld = false; return;}
+    this.stopCamera();
+    // Flush OrbitControls' pending drag without applying that remaining motion to the paused frame.
+    const position = this.camera.position.clone(), target = this.controls.target.clone();
+    this.controls.update();
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.controls.update();
+  }
   // Turn to what was just built; close (moves in toward the objects) while they take shape.
   aim(keys, {close = false} = {}) {
     const box = new THREE.Box3();
@@ -732,7 +754,7 @@ export class RoomView {
     }
     return best;
   }
-  pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center.clone(), at: 0};}
+  pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center, at: 0};}
   settledFor() {return this.aimTo?.at ? this.time - this.aimTo.at : 0;}
   // What is going on that is worth watching: the camera is on its way to an object ('move'), or an object
   // takes shape or a new model fades in ('form').
@@ -743,13 +765,13 @@ export class RoomView {
   clearAim() {
     if (!this.aimTo) return;
     this.aimTo = null;
-    this.focusTo = this.center.clone();
+    this.focusTo = this.center;
   }
 
   tick() {
     if (this.disposed) return;
     const now = performance.now();
-    const elapsed = (now - (this.lastTick ?? now)) / 1000;
+    const elapsed = this.paused ? 0 : (now - (this.lastTick ?? now)) / 1000;
     // Sped up, the replay still runs at normal speed while the camera moves in, only a little faster while
     // an object takes shape, and fast in between: the camera work is that of normal speed (the camera itself
     // never moves faster, it would whip round the room).
@@ -759,6 +781,11 @@ export class RoomView {
     const fdt = Math.min(elapsed, 0.25) * this.rate;     // fades follow the clock, so they finish on time at low frame rates
     this.lastTick = now;
     this.time += elapsed * 1000 * this.rate;
+    // A load started during playback can still deliver its effects after the pause.
+    if (this.paused) {
+      if (this.incoming && this.incoming === this.wanted) this.swap(this.incoming);
+      if (this.forming.active.size) this.forming.finishAll();
+    }
     if (this.incoming && fdt > 0) {
       this.mix = Math.min(this.mix + fdt / FADE_SECONDS, 1);
       this.setFade(this.models[this.incoming].root, this.mix);
@@ -810,7 +837,7 @@ export class RoomView {
     for (const w of this.wallFades) {
       const d = new THREE.Vector2(w.c.x - tgt.x, w.c.z - tgt.z).normalize();
       const goal = 1 - 0.88 * THREE.MathUtils.smoothstep(d.dot(view), 0.05, 0.6);
-      w.a += (goal - w.a) * (1 - Math.exp(-dt * 5));
+      w.a = this.paused ? goal : w.a + (goal - w.a) * (1 - Math.exp(-dt * 5));
       const f = w.root.userData.fade ?? 1;
       const shown = w.a > 0.97 && f === 1;
       if (w.receivers && shown !== w.receiving) {

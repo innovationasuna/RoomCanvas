@@ -19,7 +19,7 @@ const POLL = 5000;
 const WATCH = 6000;
 
 let lastAdded = null;
-let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
+let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, posed = false;
 // The record's cards (log.mjs), the card of each event, the last card shown, the cards a reader opened (kept
 // across live updates), and whether the next update should bring the current record into view (a seek).
 let deck = [], cardOf = [], shownCard = -1, reveal = false;
@@ -327,14 +327,14 @@ addEventListener('keydown', (ev) => {
 
 // ---------- camera: slow spin while playing; turn to what was just built; layout from above ----------
 function directCamera(t, p) {
-  if (p.playing && !wasPlaying) view.release();
-  wasPlaying = p.playing;
   const end = t >= span();
+  // Paused, the view holds still; at the end the finished room keeps its slow turn.
+  view.setPlaying(p.playing || end);
+  if (!p.playing) {hold = 0; posed = false; return;}
   const inLayout = !end && tl.stageAt(t)?.id === 'layout';
   if (inLayout && !posed) {view.pose(0.75, 0.6); posed = true; hold = 0;}
   if (!inLayout && posed) {view.pose(null, view.defaultPolar); posed = false; hold = 1;}
   if (hold && view.settledFor() > hold) {view.clearAim(); hold = 0;}
-  view.spin(p.playing || end);
 }
 
 player.on((t, p) => render(t, p));
@@ -378,7 +378,7 @@ function render(t, p, force = false) {
   }
   const scene = sceneAt(tl, t);
   const addedAll = tl.build?.reveal.map((r) => r.node);
-  view.apply(scene, {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
+  view.apply(scene, {quiet: !p.playing, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
   // Turn to the parts the agent just added (while playing forward).
   const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
   lastAdded = scene.added;
@@ -390,7 +390,7 @@ function render(t, p, force = false) {
   const e = tl.events[idx];
   // Once the room shell shows, a finished object takes shape in place: move in close to watch it (not to
   // one made again, which is already there and passes in a moment).
-  if (idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
+  if (p.playing && idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   renderLog(idx);
 }
 
