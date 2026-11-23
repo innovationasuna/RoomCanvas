@@ -56,7 +56,6 @@ import fetch_samples  # noqa: E402
 from mobile_share import SnapshotStore, lan_addresses, LazyShareServer, SnapshotJanitor, MAX_MODEL  # noqa: E402
 import service_auth  # noqa: E402
 import room_cache  # noqa: E402
-from replay_history import file_digest  # noqa: E402
 from cache_manage import CacheBusy, CacheManager  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -354,13 +353,14 @@ class Handler(SimpleHTTPRequestHandler):
     def room_get(self, path):
         """A finished job's file from the local copy when there is one; JSON answers live, else the kept one."""
         kept = room_cache.local(self.cache, path)
-        if kept and room_cache.is_file(path) and kept.is_file():
+        if kept and room_cache.is_file(path):
             version = path.endswith('.glb') and re.fullmatch(r'sha256=([0-9a-f]{64})', urlsplit(self.path).query)
-            try:
-                if not version or file_digest(kept, kept.stat()) == version[1]:
-                    return self.send_kept(kept)
-            except FileNotFoundError:
-                pass
+            if version:
+                staged = room_cache.staged_model(kept, version[1])
+                if self.send_kept(staged, model_digest=version[1]) or self.send_kept(kept, model_digest=version[1]):
+                    return
+            elif kept.is_file():
+                return self.send_kept(kept)
         if kept is None or room_cache.is_file(path):
             if kept and self.send_legacy_picture(path):
                 return
@@ -402,19 +402,21 @@ class Handler(SimpleHTTPRequestHandler):
                     pass
             return failure
 
-    def send_kept(self, path, head=False, digest=None):
+    def send_kept(self, path, head=False, digest=None, model_digest=None):
         with self.cache_control().download():
             try:
                 source = path.open('rb')
             except FileNotFoundError:
-                if digest is not None:
+                if digest is not None or model_digest is not None:
                     return False
                 return self.room_json(404, {'error': '本地缓存已清理，请刷新后重新加载。'})
             with source:
+                stat = os.fstat(source.fileno())
+                if model_digest and not room_cache.matches_digest(path, model_digest, stat):
+                    return False
                 picture = source.read() if digest is not None else None
                 if picture is not None and hashlib.sha256(picture).hexdigest() != digest:
                     return False
-                stat = os.fstat(source.fileno())
                 self.send_response(200)
                 self.send_header('Content-Type', room_cache.content_type(path))
                 self.send_header('Content-Length', str(len(picture) if picture is not None else stat.st_size))

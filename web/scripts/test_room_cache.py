@@ -13,7 +13,7 @@ from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_cache  # noqa: E402
@@ -177,15 +177,13 @@ class Paths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             handler = object.__new__(Handler)
             handler.cache, handler.room_backend = Path(folder), 'http://localhost'
-            handler.relay, handler.send_kept = Mock(), Mock()
+            handler.open_backend = Mock(side_effect=ConnectionRefusedError)
             kept = room_cache.local(handler.cache, path)
             room_cache.save(kept, b'old')
-            for content in (b'old', b'new'):
-                handler.path = path + '?sha256=' + hashlib.sha256(content).hexdigest()
-                handler.do_GET()
-            handler.send_kept.assert_called_once_with(kept)
-            handler.relay.assert_called_once()
-            self.assertEqual(handler.relay.call_args.args[0].full_url, handler.room_backend + path)
+            self.assertEqual(self.request(handler, path + '?sha256=' + hashlib.sha256(b'old').hexdigest()), (200, b'old'))
+            self.assertEqual(self.request(handler, path + '?sha256=' + hashlib.sha256(b'new').hexdigest())[0], 503)
+            handler.open_backend.assert_called_once()
+            self.assertEqual(handler.open_backend.call_args.args[0].full_url, handler.room_backend + path)
 
     def test_resaved_articulated_model_opens_offline_without_a_job_timestamp_change(self):
         base = f'{P}jobs/{DONE}/replay'
@@ -208,28 +206,50 @@ class Paths(unittest.TestCase):
             kept = room_cache.local(handler.cache, path)
             self.assertEqual(kept.read_bytes(), old)
 
+            def assert_offline_pair(content):
+                handler.open_backend = Mock(side_effect=ConnectionRefusedError)
+                status, body = self.request(handler, base)
+                self.assertEqual(status, 200)
+                saved = json.loads(body)['events'][-1]['artifact_digest']
+                self.assertEqual(saved, hashlib.sha256(content).hexdigest())
+                handler.open_backend.reset_mock()
+                self.assertEqual(self.request(handler, path + '?sha256=' + saved), (200, content))
+                handler.open_backend.assert_not_called()
+
             answers[base]['events'].append({'model': 'articulated', 'artifact_digest': digest})
+            response = BytesIO(json.dumps(answers[base]).encode())
+            response.status, response.headers = 200, {'Content-Type': 'application/json'}
+            handler.open_backend = Mock(return_value=response)
+            status, live = self.request(handler, base)
+            self.assertEqual((status, json.loads(live)), (200, answers[base]))
+            assert_offline_pair(old)
+
             self.assertIn(path, sync.missing())
             sync.once()  # GET still returns old bytes, and the older service gives no HEAD digest.
-            self.assertEqual(kept.read_bytes(), old)
+            assert_offline_pair(old)
             files[path] = b'third model'
             sync.identity = lambda p: (len(files[p]), hashlib.sha256(files[p]).hexdigest())
             sync.once()  # Even matching HEAD and GET bytes must agree with the timeline.
-            self.assertEqual(kept.read_bytes(), old)
+            assert_offline_pair(old)
             files[path] = new
+            staged = room_cache.staged_model(kept, digest)
+            replace = Path.replace
+
+            def interrupt(source, target):
+                if source == staged and target == kept:
+                    raise InterruptedError('interrupted after publishing the timeline')
+                return replace(source, target)
+
             with kept.open('rb') as earlier:
+                with patch.object(Path, 'replace', interrupt), self.assertRaises(InterruptedError):
+                    sync.once()
+                assert_offline_pair(new)
                 sync.once()
                 self.assertEqual(earlier.read(), old)
+            self.assertEqual(kept.read_bytes(), new)
+            self.assertFalse(staged.exists())
+            assert_offline_pair(new)
             self.assertNotIn(path, sync.missing())
-
-            handler.open_backend = Mock(side_effect=ConnectionRefusedError)
-            status, body = self.request(handler, base)
-            self.assertEqual(status, 200)
-            saved = json.loads(body)['events'][-1]['artifact_digest']
-            self.assertEqual(saved, digest)
-            handler.open_backend.reset_mock()
-            self.assertEqual(self.request(handler, path + '?sha256=' + saved), (200, new))
-            handler.open_backend.assert_not_called()
 
     def test_slow_earlier_request_cannot_replace_a_newer_successful_answer(self):
         with tempfile.TemporaryDirectory() as folder:

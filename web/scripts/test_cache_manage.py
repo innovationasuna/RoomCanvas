@@ -231,6 +231,36 @@ with CacheManager(sys.argv[1]).download():
         downloads = [p for p in service.asked if room_cache.is_file(p)]
         self.assertEqual(len(downloads), 1)
 
+    def test_cleanup_after_linking_articulated_model_stops_pending_downloads(self):
+        prefix = room_cache.PREFIX
+        base = f'{prefix}jobs/{JOB}/replay'
+        rel = 'round/Room.glb'
+        path = f'{base}/files/{rel}'
+        model = room_cache.local(self.cache, path)
+        answer = room_cache.local(self.cache, base)
+        sample = self.root / 'samples/classroom/Room.glb'
+        digest = hashlib.sha256(sample.read_bytes()).hexdigest()
+
+        def timeline(version):
+            return {'models': {'articulated': rel}, 'events': [
+                {'model': 'articulated', 'artifact_digest': version, 'img': 'later.jpg'}]}
+
+        room_cache.save(answer, json.dumps(timeline(hashlib.sha256(model.read_bytes()).hexdigest())).encode())
+        answers = {prefix + 'jobs': {'jobs': [{'id': JOB, 'status': 'completed'}]},
+                   prefix + 'catalog': {'rooms': []}, base: timeline(digest)}
+
+        def log(line):
+            if path.removeprefix(prefix) in line:
+                self.assertEqual(model.read_bytes(), sample.read_bytes())
+                self.assertEqual(json.loads(answer.read_bytes()), timeline(digest))
+                self.manager.clear(all=True)
+
+        sync = room_cache.Sync('http://unused', self.cache, control=self.manager, also=[sample], log=log)
+        sync.identity = lambda p: (sample.stat().st_size, digest) if p == path else None
+        sync.get = lambda p, timeout=60: b'scaffold' if '/scaffold/' in p else json.dumps(answers[p]).encode()
+        sync.once()
+        self.assertEqual(self.manager.inventory()['total_files'], 0)
+
     def test_cleared_model_can_be_downloaded_on_demand_again(self):
         service = FakeService()
         self.addCleanup(service.close)

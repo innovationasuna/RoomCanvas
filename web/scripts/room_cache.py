@@ -12,11 +12,14 @@ sha256 (HEAD); a file here with the same content (in the cache, or a sample mode
 is kept only when it has that sha256. A service that does not give the sha256 (an older one) is downloaded from as
 before.
 """
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
+from functools import partial
 import hashlib
 import http.client
 import json
 import mimetypes
+import os
+import re
 import shutil
 import sys
 import threading
@@ -55,11 +58,53 @@ def local(cache, path):
     return target if is_file(path) else target / ANSWER
 
 
+def articulated_file(replay):
+    rel = (replay.get('models') or {}).get('articulated')
+    if rel:
+        for event in reversed(replay.get('events', [])):
+            if event.get('model') == 'articulated':
+                return rel, event.get('artifact_digest')
+    return None, None
+
+
+def matches_digest(path, digest, opened=None):
+    try:
+        stat = path.stat()
+        return (opened is None or os.path.samestat(stat, opened)) and file_digest(path, stat) == digest
+    except FileNotFoundError:
+        return False
+
+
+def staged_model(path, digest):
+    return path.with_name(f'.{path.name}.{digest}.ready')
+
+
 def save(target, data):
     target.parent.mkdir(parents=True, exist_ok=True)
     with download_parts.temporary(target) as part:
         part.write_bytes(data)
         part.replace(target)
+
+
+def save_answer(target, data):
+    rel, digest = articulated_file(json.loads(data)) if target.parent.name == 'replay' else (None, None)
+    staged = None
+    if digest:
+        if not re.fullmatch('[0-9a-f]{64}', digest) or Path(rel).is_absolute() or '..' in Path(rel).parts:
+            return False
+        model = target.parent / 'files' / rel
+        if not matches_digest(model, digest):
+            staged = staged_model(model, digest)
+            if not matches_digest(staged, digest):
+                # A first partial replay can still show its other stages offline.
+                if not target.exists():
+                    save(target, data)
+                return False
+    save(target, data)
+    if staged:
+        # The new timeline can already serve its staged GLB if publication is interrupted here.
+        staged.replace(model)
+    return True
 
 
 _answer_lock = threading.Lock()
@@ -78,8 +123,10 @@ def answer_writer(target):
     def publish(data):
         with state['lock']:
             if order > state['saved']:
-                save(target, data)
+                if not save_answer(target, data):
+                    return False
                 state['saved'] = order
+            return True
 
     try:
         yield publish
@@ -144,11 +191,13 @@ class Sync:
                 raise
             return None  # an older service answers 501 to a HEAD
 
-    def answer(self, path):
-        with answer_writer(local(self.cache, path)) as publish:
+    def answer(self, path, writers=None, pending=None):
+        with ExitStack() as reading:
+            publish = (writers or reading).enter_context(answer_writer(local(self.cache, path)))
             data = self.get(path)
             answer = json.loads(data)
-            publish(data)
+            if not publish(data) and pending is not None:
+                pending[path] = partial(publish, data)
             return answer
 
     def run(self):
@@ -164,7 +213,7 @@ class Sync:
             if self.stopped.wait(self.every):
                 return
 
-    def missing(self):
+    def missing(self, writers=None, pending=None):
         jobs = self.answer(f'{PREFIX}jobs')['jobs']
         rooms = {room['dir'].rstrip('/').rsplit('/', 1)[-1] for room in self.answer(f'{PREFIX}catalog')['rooms']}
         first, models, pictures, assets = [], [], [], []
@@ -173,13 +222,11 @@ class Sync:
             if self.stale(job):
                 continue
             base = f'{PREFIX}jobs/{job["id"]}/replay'
-            replay = self.answer(base)
+            replay = self.answer(base, writers, pending)
             files = job_files(job['id'], replay)
-            articulated = (replay.get('models') or {}).get('articulated')
-            if articulated:
-                for event in replay.get('events', []):
-                    if event.get('model') == 'articulated':
-                        digests[f'{base}/files/{articulated}'] = event.get('artifact_digest')
+            rel, digest = articulated_file(replay)
+            if digest:
+                digests[f'{base}/files/{rel}'] = digest
             first += files[0]; models += files[1]; pictures += files[2]
             if job['id'] in rooms:
                 assets += [f'{PREFIX}assets/{job["id"]}/{name}' for name in ('Room.glb', 'room_objects.json', 'thumbnail.jpg')]
@@ -187,21 +234,23 @@ class Sync:
         for path in first + models + assets + pictures:
             target, digest = local(self.cache, path), digests.get(path)
             if digest:
-                try:
-                    if file_digest(target, target.stat()) == digest:
-                        continue
-                except FileNotFoundError:
-                    pass
+                if matches_digest(target, digest):
+                    continue
             elif path in self.absent or target.exists():
                 continue
             missing[path] = digest
         return missing
 
     def once(self):
-        with self.downloading() as allowed:
-            if not allowed:
-                return
-            missing = self.missing()
+        pending = {}
+        with ExitStack() as writers:
+            with self.downloading() as allowed:
+                if not allowed:
+                    return
+                missing = self.missing(writers, pending)
+            self.download_files(missing, pending)
+
+    def download_files(self, missing, pending):
         if not missing:
             return
         self.log(f'房间缓存：本地缺 {len(missing)} 个文件，后台下载到 {self.cache}')
@@ -218,23 +267,29 @@ class Sync:
                         self.log(f'房间缓存：{path[len(PREFIX):]} 服务器给的 sha256 与时间线不符，稍后重试')
                         continue
                     same = known and same_file([self.cache, *self.also], *known)
-                    if same:
-                        place(same, local(self.cache, path))
-                        done += 1; linked += 1
-                        self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{known[0] / 1e6:.1f} MB，本机已有相同文件 {same}，未下载）')
-                        continue
-                    data = self.get(path, timeout=120)
+                    data = None if same else self.get(path, timeout=120)
                 except urllib.error.HTTPError as error:
                     if error.code == 404:  # e.g. a room without a thumbnail, or a job without a scaffold
                         self.absent.add(path)
                     continue
                 digest = expected or (known and known[1])
-                if digest and ((known and len(data) != known[0]) or hashlib.sha256(data).hexdigest() != digest):
+                if not same and digest and ((known and len(data) != known[0]) or hashlib.sha256(data).hexdigest() != digest):
                     self.log(f'房间缓存：{path[len(PREFIX):]} 下载的内容与 sha256 不符，未保存，稍后重试')
                     continue
-                save(local(self.cache, path), data)
+                target = local(self.cache, path)
+                if expected:
+                    target = staged_model(target, expected)
+                if same:
+                    place(same, target)
+                    linked += 1
+                    detail = f'{known[0] / 1e6:.1f} MB，本机已有相同文件 {same}，未下载'
+                else:
+                    save(target, data)
+                    detail = f'{len(data) / 1e6:.1f} MB'
+                if expected and (publish := pending.get(path.partition('/files/')[0])):
+                    publish()
             done += 1
-            self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{len(data) / 1e6:.1f} MB）')
+            self.log(f'房间缓存：{done}/{len(missing)} {path[len(PREFIX):]}（{detail}）')
         self.log(f'房间缓存：下载完成（{done} 个文件' + (f'，其中 {linked} 个本机已有相同文件，未下载）' if linked else '）'))
 
     def stale(self, job):

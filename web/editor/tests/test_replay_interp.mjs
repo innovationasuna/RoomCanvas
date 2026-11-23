@@ -138,7 +138,7 @@ test('moved seed objects stay visible while only the new supports form and rewin
   }
 });
 
-for (const first of ['final', 'seed']) test(`paused interpolation waits for casement identities when ${first} is requested first`, async t => {
+for (const first of ['final', 'seed', 'round5']) test(`paused interpolation waits for casement identities when ${first} is requested first`, async t => {
   const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
   const pending = new Map();
   t.mock.method(GLTFLoader.prototype, 'loadAsync', key => {
@@ -154,17 +154,28 @@ for (const first of ['final', 'seed']) test(`paused interpolation waits for case
   const seed = group('seed', group('Window0', ...panes.map(name => group(name))));
   view.objectIds.add('Window0');
   const options = {modelUrl: key => key, addedAll: frames, quiet: true};
+  if (first === 'round5') {
+    view.models.round5 = {root: group('round5')};
+    view.apply({model: 'round5', modelEvent: {round: 6}}, options);
+  }
   if (first === 'seed') view.apply({model: 'seed', built: new Set()}, options);
   view.apply({model: 'final', added: new Set(), built: new Set()}, options);
-  assert.deepEqual([...pending.keys()], first === 'seed' ? ['seed', 'final'] : ['final', 'seed']);
+  assert.deepEqual([...pending.keys()], first === 'final' ? ['final', 'seed'] : ['seed', 'final']);
   pending.get('final').resolve({scene: final});
   await view.models.final.promise;
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(final.visible, false);
+  if (first === 'round5') {
+    assert.equal(view.current, 'round5');
+    assert.equal(view.models.round5.root.visible, true);
+    assert.equal(view.versionLabel(), '检查第 6 轮');
+  }
   pending.get('seed').resolve({scene: seed});
   await view.models.seed.promise;
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(view.current, 'final');
+  assert.equal(view.versionLabel(), '组装中的房间 · 按记录推算');
+  if (first === 'round5') assert.equal(view.models.round5.root.visible, false);
   const visible = [];
   final.traverseVisible(node => visible.push(node.name));
   assert.deepEqual(visible.filter(name => name.startsWith('Casement')), panes);

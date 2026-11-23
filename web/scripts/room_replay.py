@@ -541,8 +541,8 @@ def pipeline_events(scene, until=None):
         result = {'say': '装好可开合部件' if counted and joints else '完成开合处理'}
         if evidence.get('time'):
             result.update(model='articulated', artifact_digest=evidence['artifact_digest'])
-            if counted and evidence['source'] == 'event':
-                result['joints'] = joints
+        if counted and (not evidence or evidence.get('source') == 'event'):
+            result['joints'] = joints
         return result
 
     part_saves = [k for k in saves if rows[k]['model'] == 'articulated']

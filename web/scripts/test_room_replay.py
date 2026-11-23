@@ -5,6 +5,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -885,6 +886,22 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED),
                          (self.scene / 'realism_authoring/articulate/room_preview/Room.glb').resolve())
         self.assertFalse([e for e in data['events'] if re.search('沿用|复用', e['say'])])
+
+    def test_replay_reader_keeps_each_integrated_save_joint_count(self):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        first, last = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == 'articulated']
+        first['joints'], last['joints'] = 3, 0
+        trace.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        events = replay.pipeline_events(self.scene)
+        script = """import {readReplay} from './replay/timeline.mjs';
+            import {readFileSync} from 'node:fs';
+            console.log(JSON.stringify(readReplay(JSON.parse(readFileSync(0))).events));"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).resolve().parents[1],
+                                input=json.dumps({'stages': [], 'events': events}), text=True, capture_output=True, check=True)
+        parts = [e for e in json.loads(result.stdout) if re.fullmatch(r'parts\d+', e['id'])]
+        self.assertEqual([(e.get('joints'), e['say'], e.get('model')) for e in parts],
+                         [(3, '装好可开合部件', None), (0, '完成开合处理', 'articulated')])
 
     def test_a_repair_that_changed_nothing_says_so_and_an_older_record_reads_as_before(self):
         rows = replay.trace_rows(self.scene)

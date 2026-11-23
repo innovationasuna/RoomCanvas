@@ -847,10 +847,10 @@ export class RoomView {
     const digest = model === 'articulated' && state.modelEvent?.artifact_digest;
     // Reparented seed meshes need their original names before the final room can be masked.
     const waitingForSeed = model === 'final' && state.added && seedUrl && !this.models.seed?.root;
-    const key = waitingForSeed ? null : digest ? `${model}:${digest}` : model;
+    const key = waitingForSeed ? this.current || this.incoming || null : digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
     if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
-    const inRoom = !!key && (this.current === key || this.incoming === key);
+    const inRoom = !waitingForSeed && !!key && (this.current === key || this.incoming === key);
     const hasRoom = !!(this.current || this.incoming);
     if (this.points) {
       this.points.material.userData.reveal.value = state.points;
