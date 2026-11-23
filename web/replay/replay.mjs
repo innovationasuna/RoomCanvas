@@ -83,9 +83,11 @@ async function poll() {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
     if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
-      const wasEnd = player.t >= span() - 0.01, restore = keepReading($('log'), tl.events, appendedEvents(data.events, next.events));
+      // New records only pull a reader down while the replay follows the live end, not while one looks back.
+      const wasEnd = player.t >= span() - 0.01, follow = following || wasEnd;
+      const restore = keepReading($('log'), tl.events, follow && appendedEvents(data.events, next.events));
       data = next;
-      rebuild(following || wasEnd);
+      rebuild(follow);
       restore(tl.events);
     }
     $('liveError').hidden = true;

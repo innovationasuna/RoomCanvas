@@ -148,11 +148,11 @@ async function page(t, live, data = {}) {
   };
   view.physical = () => {};
   view.ensureScaffold = () => {};
-  const element = () => Object.assign(new EventTarget(), {
+  const element = () => Object.defineProperty(Object.assign(new EventTarget(), {
     value: '1', children: [], dataset: {}, style: {}, classList: {toggle() {}},
     append() {}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({left: 0, width: 100}),
-  });
+  }), 'firstChild', {get: element});  // a card is parsed into a holder and its first child moved into the log
   function node(id) {
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
