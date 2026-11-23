@@ -15,12 +15,10 @@ import os
 import sys
 from pathlib import Path
 
-import litereality_agent
 from litereality_agent import artifact_cache as cache
 
 FOLDER = "Models"  # in the room: Room.py names the models it places by this relative path
 SOURCES = ".sources.json"
-TEMPLATE = Path(litereality_agent.__file__).parent / "room_ops" / "compile" / "build_room.py"
 
 PROMPT = """\
 READY MODELS for small things in this room are in `{folder}/`, made up front from the operator's
@@ -33,7 +31,7 @@ depth, height), or only its height to keep the model's proportions; `yaw_deg` tu
 listed models for new placements, with `rests_on` for loose objects or `attached_to` for fixed
 fixtures. Mark small things without a listed model: `scene.mark_small("<Kind>0", ...)`, one
 box at the measured place and size; after your session a pass rebuilds them from the
-photographs.{template}
+photographs.
 {rows}
 """
 
@@ -111,7 +109,7 @@ def stage(room: Path) -> list[dict]:
     return rows
 
 
-def prompt(rows: list[dict], room: Path) -> str:
+def prompt(rows: list[dict]) -> str:
     """The brief's paragraph for these models ("" without any)."""
     if not rows:
         return ""
@@ -122,10 +120,4 @@ def prompt(rows: list[dict], room: Path) -> str:
         if row["reference"]:
             line += f"; looks like {row['reference']}"
         lines.append(line)
-    try:
-        current = "def place_model" in (room / "Room.py").read_text(encoding="utf-8")
-    except OSError:
-        current = True
-    template = "" if current else (f" This Room.py predates `RoomScene.place_model`: copy that "
-                                   f"method into it from {TEMPLATE}.")
-    return PROMPT.format(folder=FOLDER, template=template, rows="\n".join(lines))
+    return PROMPT.format(folder=FOLDER, rows="\n".join(lines))

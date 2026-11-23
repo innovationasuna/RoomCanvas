@@ -503,13 +503,27 @@ def _has_downward_cube_bottom(module):
         return False
 
 
-def _has_marker_api(path):
+def _template_migrations(path, prompt):
     try:
         module = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):
-        return False
+        module = ast.Module(body=[], type_ignores=[])
     room = next((n for n in module.body if isinstance(n, ast.ClassDef) and n.name == "RoomScene"), None)
     methods = {n.name: n for n in room.body if isinstance(n, ast.FunctionDef)} if room else {}
+    notes = []
+    place = methods.get("place_model")
+    if place is None:
+        if "scene.place_model(" in prompt:
+            notes.append(f"Copy the missing RoomScene.place_model method from {TEMPLATE} into Room.py.")
+    elif any(isinstance(n, ast.Call) and ast.unparse(n) == "world_bbox(meshes)" for n in ast.walk(place)):
+        notes.append(f"Replace only RoomScene.place_model in Room.py with the method from {TEMPLATE}. "
+                     "It fits rotated models using evaluated world-space vertices.")
+    if "mark_small(" in prompt and not _has_marker_api(module, methods):
+        notes.append(MARK_SMALL_TEMPLATE.format(template=TEMPLATE))
+    return "".join("\n" + note for note in notes)
+
+
+def _has_marker_api(module, methods):
     fields = {"small_marker", "description", "marker_pose"}
     if not {"mark_small", "_register", "index"} <= methods.keys():
         return False
@@ -662,8 +676,7 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
             path=evidence / "operator" if evidence else operator)
     if brief:
         prompt += "\n" + brief
-    if "mark_small(" in prompt and not _has_marker_api(room / "Room.py"):
-        prompt += MARK_SMALL_TEMPLATE.format(template=TEMPLATE)
+    prompt += _template_migrations(room / "Room.py", prompt)
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "

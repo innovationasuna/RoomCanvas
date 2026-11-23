@@ -814,13 +814,9 @@ def test_ready_models_are_copied_into_the_room_and_listed_for_the_author(tmp_pat
     assert rows == [{"kind": "TissueBox", "glb": "Models/TissueBox.glb", "proportions": [2.0, 1.0, 1.0],
                      "description": "a white tissue box",
                      "reference": str(models / "work" / "TissueBox" / "reference.png")}]
-    brief = ready.prompt(rows, room)
+    brief = ready.prompt(rows)
     assert "scene.place_model(" in brief and "Models/TissueBox.glb: a white tissue box" in brief
     assert "scene.mark_small(" in brief  # what has no model is marked for the pass
-    assert str(ready.TEMPLATE) in brief  # this Room.py is older than place_model
-    (room / "Room.py").write_text("class RoomScene:\n    def place_model(self): ...\n")
-    assert str(ready.TEMPLATE) not in ready.prompt(rows, room)
-    assert "def place_model" in ready.TEMPLATE.read_text()
     monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(tmp_path / "missing"))
     with pytest.raises(FileNotFoundError, match="LR_SMALL_OBJECTS_MODELS"):
         ready.stage(room)
@@ -1111,7 +1107,7 @@ def test_marker_overhang_has_strict_underside_support(monkeypatch):
 
     import trimesh
 
-    from litereality_agent.pipeline.realism_authoring.small_objects.ready import TEMPLATE
+    from litereality_agent.agent.author import TEMPLATE
     from litereality_agent.pipeline.room_qc.support_audit import vertical_contacts
 
     bpy = MagicMock()
@@ -1127,9 +1123,9 @@ def test_marker_overhang_has_strict_underside_support(monkeypatch):
 
 
 def test_the_room_template_has_the_marker():
-    from litereality_agent.pipeline.realism_authoring.small_objects import ready
+    from litereality_agent.agent.author import TEMPLATE
 
-    source = ready.TEMPLATE.read_text()
+    source = TEMPLATE.read_text()
     assert "def mark_small" in source and 'handle["small_marker"] = True' in source
 
 
@@ -1254,7 +1250,7 @@ def test_place_model_measures_rotated_cylinder_vertices(monkeypatch):
 
     import trimesh
 
-    from litereality_agent.pipeline.realism_authoring.small_objects.ready import TEMPLATE
+    from litereality_agent.agent.author import TEMPLATE
 
     cylinder = trimesh.creation.cylinder(radius=.05, height=.1, sections=64)
     transform = trimesh.transformations.rotation_matrix(math.pi / 4, [0, 0, 1])

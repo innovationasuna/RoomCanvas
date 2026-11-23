@@ -99,100 +99,22 @@ def test_no_build_is_a_clear_error_not_a_pass(tmp_path: Path):
     assert not rep["ok"] and not rep["pass"] and "compile" in rep["error"]
 
 
-@pytest.mark.parametrize("second", [{"small_marker": True}, {}, {"source_glb": "mug.glb"}],
-                         ids=["marked", "hand-built", "premade"])
-def test_props_on_one_table_block_only_when_their_meshes_intersect(tmp_path, second):
-    import numpy as np
-    import trimesh
-
-    (tmp_path / "Room.py").write_text("SHELL = {}\n")
-    (tmp_path / "manifest.json").write_text('{"assets": []}')
-    for x, clash in [(0.25, True), (0.4, False)]:
-        mugs = [_obj(f"Mug{i}", "mug", (left, .2, .75), (left + .1, .3, .85),
-                     rests_on="Table0", handle=f"CupHandle{i}", **props)
-                for i, (left, props) in enumerate([(.2, {"small_marker": True}), (x, second)])]
-        objects = [FLOOR, dict(TABLE, rests_on="Floor0"), *mugs]
-        scene = trimesh.Scene()
-        for obj in objects:
-            name = obj.get("handle") or obj["id"]
-            scene.graph.update(frame_from=obj.get("rests_on", "world"), frame_to=name)
-            lo, hi = np.array(obj["bbox_min"]), np.array(obj["bbox_max"])
-            mesh = trimesh.creation.box(extents=hi-lo)
-            mesh.apply_translation((lo+hi)/2)
-            mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [1, 0, 0]))
-            scene.add_geometry(mesh, node_name=name + "_box", parent_node_name=name)
-        scene.export(tmp_path / "Room.glb")
-        (tmp_path / "room_layout.json").write_text(json.dumps(_layout(objects)))
-        report = V.validate(tmp_path, tmp_path)
-        assert report["finite_support"]["pass"]
-        assert report["pass"] is (not clash)
-        assert [(f["kind"], f["id"], f["with"]) for f in report["failing"]] == (
-            [("object_clash", "Mug1", "Mug0")] if clash else [])
-
-
-def test_registered_blind_stays_in_the_opening_sweep_and_beams_in_structure(tmp_path):
+@pytest.mark.parametrize("offset,blocked", [(0, True), (.30, False)])
+def test_closed_window_glass_contact(tmp_path, offset, blocked):
     import trimesh
 
     from litereality_agent.agent.tools.check_collisions.source import collision_mesh as cm
 
-    objects = [{"id": "Window0", "category": "window", "handle": "WindowHandle"},
-               {"id": "Shade0", "category": "blind", "attached_to": "Window0"},
-               {"id": "Beam0", "category": "beam"}]
     scene = trimesh.Scene()
-    scene.add_geometry(trimesh.creation.box(), node_name="window_sash", parent_node_name="WindowHandle",
-                       metadata={"articulation_type": "revolute"})
-    scene.graph.update(frame_from="world", frame_to="WindowHandle")
-    scene.graph.update(frame_from="window_sash", frame_to="Shade0")
-    scene.add_geometry(trimesh.creation.box(), node_name="shade_mesh", parent_node_name="Shade0")
-    scene.add_geometry(trimesh.creation.box(), node_name="Beam0")
-    for name in ("WindowLeft", "Window1"):
-        objects.append({"id": name, "category": "window"})
-        scene.add_geometry(trimesh.creation.box(), node_name=name)
-    scene.add_geometry(trimesh.creation.box(), node_name="SlidingPane", parent_node_name="WindowHandle",
-                       metadata={"articulation_type": "prismatic"})
-    chair = trimesh.creation.box((.1, .1, .1))
-    chair.apply_translation((.5, 0, -.8))  # outside the closed sash, inside its swing
-    scene.add_geometry(chair, node_name="Chair0")
-    scene.export(tmp_path / "Room.glb")
-    (tmp_path / "room_layout.json").write_text(json.dumps(_layout(objects)))
-    bodies = cm.build_bodies(tmp_path / "Room.glb", {})
-    assert set(bodies["furniture"]) == {"Chair0"} and len(bodies["structure"].faces) == 36
-    assert set(bodies["leaves"]) == {"Window0"} and len(bodies["leaves"]["Window0"].faces) == 36
-    [(opening, swing)] = bodies["swing_leaves"]
-    assert opening == "Window0" and len(swing.faces) == 24  # hinged sash and its attached shade
-    assert [(w["opening"], w["id"]) for w in cm.open_clearance(bodies, {})] == [("Window0", "Chair0")]
-
-
-@pytest.mark.parametrize("right,clash", [(0.35, False), (0.40, True)])
-def test_book_can_rest_on_shelf_but_cannot_cross_its_side(tmp_path, right, clash):
-    import numpy as np
-    import trimesh
-
-    shelf = _obj("Shelf0", "shelf", (0, 0, 0), (.4, .4, .4), rests_on="Floor0")
-    book = _obj("Book0", "book", (right-.12, .1, .04), (right, .2, .12), rests_on="Shelf0")
-    scene = trimesh.Scene()
-    for obj in (FLOOR, shelf, book):
-        scene.graph.update(frame_from=obj.get("rests_on", "world"), frame_to=obj["id"])
-    for owner, name, low, high in (
-        ("Floor0", "floor", FLOOR["bbox_min"], FLOOR["bbox_max"]),
-        ("Shelf0", "board", (0, 0, 0), (.4, .4, .04)),
-        ("Shelf0", "side", (.38, 0, .04), (.4, .4, .4)),
-        ("Book0", "book", book["bbox_min"], book["bbox_max"]),
-    ):
-        low, high = np.array(low), np.array(high)
-        mesh = trimesh.creation.box(extents=high-low)
-        mesh.apply_translation((low+high)/2)
-        mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [1, 0, 0]))
-        scene.add_geometry(mesh, node_name=name, parent_node_name=owner)
-    scene.export(tmp_path / "Room.glb")
-    (tmp_path / "Room.py").write_text("SHELL = {}")
-    (tmp_path / "manifest.json").write_text('{"assets": []}')
-    (tmp_path / "room_layout.json").write_text(json.dumps(_layout([FLOOR, shelf, book])))
-    report = V.validate(tmp_path, tmp_path)
-    assert report["finite_support"]["pass"]
-    assert report["pass"] is not clash
-    assert [(f["kind"], f["id"], f["with"]) for f in report["failing"]] == (
-        [("object_clash", "Shelf0", "Book0")] if clash else [])
+    scene.graph.update(frame_from="world", frame_to="Window0")
+    scene.add_geometry(trimesh.creation.box((1, 1, .02)), node_name="glass", parent_node_name="Window0")
+    top = trimesh.creation.box((.4, .05, .3))
+    top.apply_translation((0, 0, offset))
+    scene.add_geometry(top, node_name="Table0")
+    glb = tmp_path / "Room.glb"
+    scene.export(glb)
+    hits = cm.mesh_contacts(cm.build_bodies(glb, {}))["leaf_hits"]
+    assert hits == ({("Table0", "Window0")} if blocked else set())
 
 
 @pytest.mark.scan

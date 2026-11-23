@@ -53,7 +53,7 @@ def test_entrypoint_defaults_budgets_per_profile(monkeypatch):
 # ── operator material (LR_AUTHOR_EXTRA) ──────────────────────────────────────
 
 
-def _author(tmp_path, monkeypatch, profile="open"):
+def _author(tmp_path, monkeypatch, profile="open", brief=""):
     """One author session against a stand-in harness; returns (exit, room, spec, trace start)."""
     import asyncio
     from pathlib import Path
@@ -91,7 +91,7 @@ def _author(tmp_path, monkeypatch, profile="open"):
     monkeypatch.setattr(author, "surfaces_for", lambda _room: [])
     monkeypatch.setattr("litereality_agent.agent.scratch.bind", lambda **_kwargs: None)
     monkeypatch.setattr("litereality_agent.agent.scratch.prompt_line", lambda: "")
-    rc = asyncio.run(author.run(room, refs, scan, "test", 1, profile))
+    rc = asyncio.run(author.run(room, refs, scan, "test", 1, profile, brief=brief))
     return rc, room, seen.get("spec"), seen.get("start")
 
 
@@ -243,3 +243,28 @@ def test_a_room_older_than_mark_small_is_told_where_to_copy_it(tmp_path, monkeyp
     (room / "Room.py").write_text(current)
     _, _, spec, _ = _author(tmp_path, monkeypatch)
     assert note not in spec.prompt and "scene.mark_small(" in spec.prompt
+
+
+def test_reused_room_gets_a_targeted_place_model_migration(tmp_path, monkeypatch):
+    from litereality_agent.pipeline.realism_authoring.small_objects import ready
+
+    brief = ready.prompt([dict(glb="Models/Cup.glb", description="cup", proportions=[1, 1, 1],
+                               reference=None)])
+    _, room, spec, _ = _author(tmp_path, monkeypatch, profile="base", brief=brief)
+    assert f"Copy the missing RoomScene.place_model method from {author.TEMPLATE}" in spec.prompt
+    source = room / "Room.py"
+    # The fit from both the original template and the later one with mark_small.
+    source.write_text("""class RoomScene:
+    def place_model(self, name, glb_path, bottom, size):
+        imported = import_glb(glb_path)
+        meshes = [o for o in imported if o.type == "MESH"]
+        mn, mx = world_bbox(meshes)
+        own = [max(v, 1e-6) for v in mx - mn]
+""")
+    note = f"Replace only RoomScene.place_model in Room.py with the method from {author.TEMPLATE}"
+    for models in (brief, ""):
+        _, _, spec, _ = _author(tmp_path, monkeypatch, brief=models)
+        assert note in spec.prompt
+    source.write_text(author.TEMPLATE.read_text())  # other methods still call world_bbox(meshes)
+    _, _, spec, _ = _author(tmp_path, monkeypatch, brief=brief)
+    assert note not in spec.prompt and "Copy the missing RoomScene.place_model" not in spec.prompt
