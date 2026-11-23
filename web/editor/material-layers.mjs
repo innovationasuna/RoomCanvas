@@ -10,7 +10,7 @@
 // order, so the later ones win. Code that changes the mesh's own look (lighting presets, an
 // imported object's lit/unlit mode) goes through setOwnMaterial / setOwnShadows, which keeps the
 // layers on top.
-export const LAYERS = ['seeThrough', 'wallChoice', 'editingWall', 'selected', 'preview'];
+export const LAYERS = ['timeExterior', 'seeThrough', 'wallChoice', 'editingWall', 'selected', 'preview'];
 
 // mesh → {own: {material, castShadow, receiveShadow}, layers: Map(name → layer), made: [materials]}.
 // Not in userData: Object3D.clone() copies userData through JSON.

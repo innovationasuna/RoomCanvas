@@ -32,7 +32,7 @@ export function createMobileLighting(THREE, {renderer, scene, visibility, bounds
   sun.shadow.bias = -.00025; sun.shadow.normalBias = .012; sun.shadow.radius = 4;
   fill.position.set(-5, 4, -4);
   scene.add(hemisphere, sun, sun.target, fill);
-  const rig = createTimeLighting(THREE, {renderer, scene, room: model, config, walls, bounds, floorY, ceilingY,
+  const rig = createTimeLighting(THREE, {renderer, scene, room: model, config: {...config, luminaires: settings.luminaires}, walls, bounds, floorY, ceilingY,
     profile, environment: settings.environment !== false, indoor: settings.indoor});
   rig.apply(preset, {warm: !!settings.warm});
   for (const light of scene.children) if (light.isLight && light !== sun && light.shadow) light.shadow.mapSize.set(512, 512);
@@ -43,7 +43,7 @@ export function createMobileLighting(THREE, {renderer, scene, visibility, bounds
   const material = new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false, side: THREE.DoubleSide});
   const entries = [];
   for (const root of wallRoots) root.traverseVisible(mesh => {
-    if (!mesh.isMesh || [mesh.material].flat().some(m => m.transparent || m.transmission > 0)) return;
+    if (!mesh.isMesh || !mesh.castShadow || [mesh.material].flat().some(m => m.transparent || m.transmission > 0)) return;
     const proxy = new THREE.Mesh(mesh.geometry, material);
     proxy.matrixAutoUpdate = false; proxy.matrix.copy(mesh.matrixWorld); proxy.castShadow = true;
     proxy.visible = false; proxies.add(proxy); entries.push({root, proxy});

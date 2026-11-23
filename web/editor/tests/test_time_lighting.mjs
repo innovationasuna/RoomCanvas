@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
 import {createTimeLighting, timePreset} from '../time-lighting.mjs';
 import {setSeeThrough} from '../wall-visibility.mjs';
+import {captureRoom} from '../mobile-snapshot.mjs';
 import {indoorLighting} from '../indoor-lighting.mjs';
 
-function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition} = {}) {
+function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition, backdropMaterials, glazing} = {}) {
   const bounds = new THREE.Box3(new THREE.Vector3(...low), new THREE.Vector3(...high));
   const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
   const scene = new THREE.Scene(); scene.background = new THREE.Color('#e9ede5');
@@ -15,16 +16,21 @@ function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition} = {}) {
   };
   const wall = box('Wall1', [4, 3, .1], [0, 1.5, -2]);
   const roof = box('Ceiling0', [4, .1, 4], [0, 3, 0]); roof.visible = false;
-  const window = box('Window0', [2, 1.5, .05], [0, 1.5, -1.9], new THREE.MeshPhysicalMaterial({transmission: 1, emissive: 0x999999}));
+  const window = box('Window0', [2, 1.5, .05], [0, 1.5, -1.9], glazing ?? new THREE.MeshPhysicalMaterial({transmission: 1, emissive: 0x999999}));
+  if (backdropMaterials) {
+    const photo = box('DaylightBackdrop', [2, 1.5, .01], [0, 0, -.1], backdropMaterials);
+    window.add(photo);
+    box('SharedElsewhere', [.2, .2, .1], [1, 1, 1], backdropMaterials[0]);
+  }
   if (fixturePosition !== null) box('Lamp0', [.2, .15, .2], fixturePosition || [center.x + size.x * .3, high[1] - .1, center.z - size.z * .2]);
   room.updateMatrixWorld(true);
   const hemi = new THREE.HemisphereLight(0xffffff, 0x87919d, 1.1), sun = new THREE.DirectionalLight(0xffffff, 3), fill = new THREE.DirectionalLight(0xffffff, .65);
   sun.position.set(-3.5, 8, 4); sun.target.position.set(0, 0, 0); sun.castShadow = true;
   scene.add(hemi, sun, sun.target, fill);
-  const renderer = {shadowMap: {needsUpdate: false}};
+  const renderer = {toneMappingExposure: 1.1, shadowMap: {needsUpdate: false}};
   // No ceiling luminaires listed (Lamp0 is not one): these tests cover the central-lamp fallback;
   // test_room_luminaires.mjs covers rooms lit from their luminaires.
-  const config = {openings: {Wall1: ['Window0']}, label: name => ({Window0: '窗户', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name), luminaires: []};
+  const config = {openings: {Wall1: ['Window0']}, label: name => ({Window0: '窗户', DaylightBackdrop: '窗外景', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name), luminaires: []};
   const rig = createTimeLighting(THREE, {renderer, scene, room, config, walls: [{name: 'Wall1', n: [0, 0, 1]}],
     bounds, floorY: low[1], ceilingY: high[1],
     profile: {key: 3, fill: .65, hemisphere: 1.1, environment: .35}});
@@ -41,6 +47,142 @@ test('day presets use the principal window and refit the sun; balanced restores 
   assert.equal(f.window.castShadow, true); assert.equal(f.scene.environmentIntensity, .35);
   assert.equal(timePreset('bad'), 'noon'); f.rig.dispose();
 });
+test('the main window casts long golden morning and longer amber afternoon shadows on opposite sides', () => {
+  const f = fixture();
+  function sample(time) {
+    f.rig.apply(time);
+    const dir = f.sun.position.clone().sub(f.sun.target.position).normalize();
+    const sky = f.scene.getObjectByName('window-skylight');
+    assert.equal(sky.color.getHex(), f.hemi.color.getHex());
+    return {dir, shadow: Math.hypot(dir.x, dir.z) / dir.y, sun: f.sun.color.clone(), sky: sky.color.clone(),
+      window: sky.intensity, exposure: f.renderer.toneMappingExposure, background: f.scene.background.clone()};
+  }
+  const noon = sample('noon'), morning = sample('morning'), afternoon = sample('afternoon');
+  assert.ok(morning.dir.x > .4 && afternoon.dir.x < -.4 && morning.dir.z < 0 && afternoon.dir.z < 0);
+  assert.ok(morning.shadow > 3 * noon.shadow && afternoon.shadow > 1.3 * morning.shadow);
+  assert.ok(morning.sky.b > morning.sky.r * 1.5 && afternoon.sky.r > afternoon.sky.b * 1.5);
+  assert.ok(morning.sun.r > morning.sun.b && afternoon.sun.b < .6 * morning.sun.b);
+  assert.ok(morning.background.b > morning.background.r && afternoon.background.r > afternoon.background.b);
+  assert.ok(noon.window > morning.window && morning.window > afternoon.window);
+  assert.ok(noon.exposure > morning.exposure && morning.exposure > afternoon.exposure);
+  for (const time of ['physical', 'night', 'balanced', 'noon']) {
+    f.rig.apply('morning'); f.rig.apply(time); assert.equal(f.renderer.toneMappingExposure, 1.1);
+  }
+  assert.deepEqual(sample('noon'), noon);
+  f.rig.dispose();
+});
+
+test('night replaces photo slots only; cutaways, sharing and returning to daylight preserve the authored maps', () => {
+  const map = new THREE.Texture();
+  const lit = new THREE.MeshStandardMaterial({map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 2, side: THREE.DoubleSide});
+  const unlit = new THREE.MeshBasicMaterial({map});
+  const diffuse = new THREE.MeshStandardMaterial({map});
+  const frame = new THREE.MeshStandardMaterial({color: 0x444444});
+  const slots = [lit, unlit, diffuse, frame];
+  const f = fixture({backdropMaterials: slots}), photo = f.room.getObjectByName('DaylightBackdrop');
+  for (const time of ['morning', 'afternoon', 'morning']) {
+    f.rig.apply(time);
+    for (const material of photo.material.slice(0, 3)) {
+      assert.equal(material.map, map);
+      assert.ok(time === 'morning' ? material.color.b > material.color.r : material.color.r > material.color.b);
+    }
+    assert.equal(photo.material[0].emissiveMap, map);
+    assert.ok(time === 'morning' ? photo.material[0].emissiveIntensity > 2 : photo.material[0].emissiveIntensity < 2);
+    assert.equal(photo.castShadow, false);
+    assert.equal(photo.material[3].color.getHex(), frame.color.getHex());
+    const snapshot = captureRoom(THREE, {room: f.room, entities: new Map(), layout: {}});
+    assert.equal(snapshot.root.getObjectByName('DaylightBackdrop').material[0].emissiveIntensity, 2);
+    snapshot.dispose();
+  }
+  setSeeThrough(f.window, true, .08); f.rig.apply('night');
+  assert.equal(photo.material[0].opacity, .08);
+  setSeeThrough(f.window, false); f.rig.syncOccluders();
+  for (const material of photo.material.slice(0, 3)) {
+    assert.ok(material.isMeshBasicMaterial); assert.equal(material.map, null);
+    assert.equal(material.color.getHex(), 0x152339);
+    assert.ok(material.polygonOffset && material.polygonOffsetUnits < 0, 'night sky wins a depth tie with the backing');
+  }
+  assert.equal(photo.material[0].side, THREE.DoubleSide);
+  assert.equal(photo.material[3].color.getHex(), frame.color.getHex());
+  assert.ok(f.window.material.isMeshBasicMaterial && f.window.material.transparent);
+  assert.equal(f.room.getObjectByName('SharedElsewhere').material, lit);
+  assert.equal(lit.emissiveIntensity, 2); assert.equal(lit.emissiveMap, map);
+  for (const [time, scale] of [['noon', .95], ['physical', 1], ['balanced', 1]]) {
+    f.rig.apply('night'); f.rig.apply(time);
+    assert.equal(photo.material[0].map, map); assert.equal(photo.material[0].emissiveMap, map);
+    assert.equal(photo.material[0].emissiveIntensity, 2 * scale); assert.equal(photo.castShadow, true);
+    assert.equal(photo.material[0].polygonOffset, false);
+    assert.equal(photo.material[1].color.r, scale);
+    assert.equal(f.window.material.emissiveIntensity, scale);
+  }
+  f.rig.apply('night'); f.rig.dispose(); assert.equal(photo.material, slots);
+});
+test('clear non-emitting glass skips night refraction across cutaways and preserves every daylight slot', () => {
+  const pane = new THREE.MeshPhysicalMaterial({transmission: 1, roughness: .025, ior: 1.45, side: THREE.DoubleSide});
+  const frame = new THREE.MeshStandardMaterial({color: 0x333333});
+  const slots = [pane, frame, pane], f = fixture({glazing: slots});
+  const other = new THREE.Mesh(f.window.geometry, pane); f.room.add(other);
+  const daylight = new Map();
+  for (const time of ['morning', 'noon', 'afternoon', 'physical', 'balanced']) {
+    f.rig.apply(time); daylight.set(time, f.window.material);
+  }
+  setSeeThrough(f.window, true);
+  f.rig.apply('night');
+  for (const faint of [false, true, false]) {
+    setSeeThrough(f.window, faint); f.rig.syncOccluders();
+    for (const i of [0, 2]) {
+      const m = f.window.material[i];
+      assert.ok(m.isMeshBasicMaterial && m.transparent && m.forceSinglePass);
+      assert.ok(!(m.transmission > 0) && !m.envMap && !m.map && !m.depthWrite);
+      assert.ok(m.opacity > 0 && m.opacity < .08);
+    }
+    assert.ok(f.window.material[1].isMeshStandardMaterial);
+    assert.equal(f.window.material[1].color.getHex(), frame.color.getHex());
+    const displayed = f.window.material, versions = displayed.map(m => m.version);
+    f.renderer.shadowMap.needsUpdate = false; f.rig.syncOccluders();
+    assert.equal(f.window.material, displayed);
+    assert.deepEqual(displayed.map(m => m.version), versions);
+    assert.equal(f.renderer.shadowMap.needsUpdate, false);
+  }
+  for (const [time, material] of daylight) {
+    f.rig.apply('night'); f.rig.apply(time);
+    assert.equal(f.window.material, material);
+    assert.equal(f.window.material[0].transmission, 1);
+    assert.equal(f.window.material[0].roughness, .025);
+  }
+  f.rig.apply('night'); assert.equal(other.material, pane); assert.equal(pane.transmission, 1);
+  f.rig.dispose(); assert.equal(f.window.material, slots);
+});
+test('night window captures visible interior once and reuses it across camera-only draws', () => {
+  const f = fixture(), view = new THREE.PerspectiveCamera(), original = new THREE.WebGLRenderTarget();
+  const helper = new THREE.Group(); f.scene.add(helper);
+  let target = original, draws = 0;
+  Object.assign(f.renderer, {
+    extensions: {has: () => false}, xr: {enabled: false},
+    getRenderTarget: () => target, setRenderTarget: next => {target = next;},
+    getActiveCubeFace: () => 0, getActiveMipmapLevel: () => 0,
+    render(_scene, camera) {
+      draws++;
+      assert.ok(camera !== view && target !== original);
+      assert.equal(helper.visible, false); assert.equal(f.window.visible, false);
+      assert.equal(f.renderer.shadowMap.needsUpdate, false);
+    },
+  });
+  f.rig.apply('night');
+  const draw = () => f.window.material.onBeforeRender(f.renderer, f.scene, view, f.window.geometry, f.window);
+  assert.equal(draws, 0); draw(); view.position.x = 2; draw();
+  assert.equal(draws, 1); assert.deepEqual(f.rig.snapshot().windowReflection.size, [512, 256]);
+  assert.equal(target, original); assert.ok(f.window.visible && helper.visible && f.renderer.shadowMap.needsUpdate);
+  f.scene.environment = new THREE.Texture(); draw(); assert.equal(draws, 2);
+  f.rig.invalidateWindowReflection(); draw(); draw(); assert.equal(draws, 3);
+  f.rig.setIndoor({power: false, angle: 100}); draw(); assert.equal(draws, 3);
+  f.rig.setIndoor({power: true, angle: 100}); draw(); assert.equal(draws, 4);
+  const clear = f.window.material.opacity; setSeeThrough(f.window, true, .08);
+  assert.equal(f.window.material.opacity, clear * .08);
+  draw(); assert.equal(draws, 4);
+  f.rig.dispose(); original.dispose();
+});
+
 test('without luminaires, night uses one attenuated central ceiling light and one shadow map; mode changes never duplicate it', () => {
   const f = fixture();
   for (let i = 0; i < 3; i++) {f.rig.apply('night'); f.rig.apply('noon');}
@@ -51,13 +193,13 @@ test('without luminaires, night uses one attenuated central ceiling light and on
   assert.ok(Math.abs(spots[0].angle * 2 * 180 / Math.PI - 160) < 1e-6);
   assert.equal(f.sun.visible, false); assert.equal(f.fill.visible, false);
   assert.equal(f.sun.intensity, 0); assert.equal(f.fill.intensity, 0);
-  assert.ok(f.scene.environmentIntensity < .03); assert.ok(f.hemi.intensity < .1);
+  assert.equal(f.scene.environmentIntensity, .08); assert.equal(f.hemi.intensity, 1.05);
   assert.equal(f.scene.children.filter(light => light.isLight && light.visible && light.castShadow).length, 1);
   assert.equal(f.rig.snapshot().lamp.source, 'room-bounds-center');
   assert.deepEqual(f.rig.snapshot().luminaires, []); assert.equal(f.rig.fixtures, 0);
   assert.deepEqual(f.rig.snapshot().lights.map(light => [light.source, light.share, light.castShadow]), [['fallback', 1, true]]);
   assert.equal(f.scene.children.filter(object => object.isMesh && object.geometry.type === 'SphereGeometry').length, 1, 'the invented lamp keeps its marker');
-  assert.equal(f.window.material.emissiveIntensity, .025);
+  assert.ok(f.window.material.isMeshBasicMaterial && !(f.window.material.transmission > 0));
   f.rig.setIndoor({power: false});
   f.rig.apply('balanced'); assert.equal(spots[0].visible, false);
   assert.equal(f.window.material.emissiveIntensity, 1);
@@ -105,7 +247,8 @@ test('cone angle and power stay independent of time without changing outdoor lig
     const state = f.rig.snapshot();
     assert.deepEqual(state.indoor, {power: false, angle: 120});
     assert.equal(state.lamp.visible, false); assert.equal(state.lamp.intensity, 0);
-    assert.deepEqual({sun: f.sun.intensity, fill: f.fill.intensity, hemisphere: f.hemi.intensity, environment: f.scene.environmentIntensity}, daylight);
+    assert.deepEqual({sun: f.sun.intensity, fill: f.fill.intensity, hemisphere: f.hemi.intensity, environment: f.scene.environmentIntensity},
+      time === 'night' ? {...daylight, hemisphere: 0, environment: 0} : daylight);
     f.rig.apply(time);
     assert.equal(f.rig.snapshot().lamp.visible, false, 'time changes must not turn power back on');
   }

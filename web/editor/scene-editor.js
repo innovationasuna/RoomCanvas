@@ -62,6 +62,7 @@ mountMobileShare({button: $('#mobile-share'), capture: () => {
   return captureRoom(THREE, {room, entities, layout, ceilingObjects, parts: hinged?.parts || [],
     walls, wallOwner: name => fixedOwner(name) || mountedOwners.get(name),
     lighting: {profile: lightProfile.name, preset: lightingTime, indoor, grading, warm, labels,
+      ...(['morning', 'afternoon', 'night'].includes(lightingTime) ? {luminaires: config.luminaires} : {}),
       environment: enhancedLighting && query.get('env') !== 'off', ao: enhancedLighting && query.get('ao') !== 'off'},
     name: $('#project-menu h1').textContent || '我的房间', floorY,
     bounds: {min: roomBounds.min.toArray(), max: roomBounds.max.toArray()}});
@@ -276,7 +277,8 @@ function requestRender() {
         if (setSeeThrough(entity.group, faint.has(id), hideNear ? 0 : SEE_THROUGH)) renderer.shadowMap.needsUpdate = true;
       }
     }
-    lightingRig?.syncOccluders();
+    // Camera-only redraws reuse the shadow maps and their caster state.
+    if (renderer.shadowMap.needsUpdate) lightingRig?.syncOccluders();
     updateSelectionVisuals();
     if (camera === orbitCamera) {
       const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
@@ -414,6 +416,7 @@ function applyLayout() {
   for (const [id, entity] of entities) applyEntityPose(entity, layout[id]);
   room.updateMatrixWorld(true);
   layoutStamp++;
+  if (!analogActive) lightingRig?.invalidateWindowReflection();
   if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
   if (pending) refreshSession();
   updateDropProjection();
@@ -669,7 +672,7 @@ function select(id, announce = true) {
   if (id !== null && !entities.has(id)) return;
   restoreMaterials();
   // The piece being arranged is shown solid, also against a see-through near wall.
-  if (id) setSeeThrough(entities.get(id).group, false);
+  if (id && setSeeThrough(entities.get(id).group, false)) renderer.shadowMap.needsUpdate = true;
   selected = id;
   motionNotice = null;
   hovered = null;
@@ -2200,7 +2203,7 @@ async function load() {
       .map(({node: name}) => named.get(name));
     const riders = ridersOf(THREE, node, pieces).map((piece) => {piece.updateMatrix(); return {node: piece, rest: piece.matrix.clone()};});
     return {joint, node, rest: node.matrix.clone(), riders};
-  }), {render: requestRender, settled: () => {renderer.shadowMap.needsUpdate = true; requestRender();}});
+  }), {render: requestRender, settled: () => {lightingRig?.invalidateWindowReflection(); renderer.shadowMap.needsUpdate = true; requestRender();}});
   audit.openParts = hinged.parts.length;
   // The floor's own box keeps the walk indoors where a door or a window has no wall to stop it.
   const floorBox = new THREE.Box3().setFromObject(room.getObjectByName('Floor0'));

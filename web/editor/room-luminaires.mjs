@@ -7,6 +7,8 @@ export const LUMINAIRE_LIGHTS = Object.freeze({
   // One spot per `spacing` metres of a luminaire's length, 1 to `perLuminaire` of them;
   // at most `max` in the room, and shadows from at most `shadows` (those with the largest share).
   spacing: 3.5, perLuminaire: 3, max: 6, shadows: 3,
+  // At night the representative fixture splits its on-axis intensity between area light and shadowed spot.
+  shadowFraction: .40,
   // Below the luminaire's underside, so its own housing never enters the downward shadow cone.
   drop: .02,
   // Several shadowed spots: three 1024² maps hold fewer texels than the central lamp's one 2048².
@@ -181,8 +183,11 @@ export function planLuminaireLights(luminaires, options = {}) {
   const away = ({position}) => Math.hypot(position[0] - mid[0], position[2] - mid[1]);
   const rank = (a, b) => (Math.abs(lights[b].share - lights[a].share) > 1e-9 ? lights[b].share - lights[a].share : 0)
     || (Math.abs(away(lights[a]) - away(lights[b])) > 1e-3 ? away(lights[a]) - away(lights[b]) : 0) || a - b;
-  const shadowed = new Set(lights.map((_, i) => i).sort(rank).slice(0, shadows));
-  return lights.map((light, i) => ({...light, castShadow: shadowed.has(i)}));
+  const ranked = lights.map((_, i) => i).sort(rank);
+  return lights.map((light, i) => {
+    const shadowRank = ranked.indexOf(i);
+    return {...light, shadowRank, castShadow: shadowRank < shadows};
+  });
 }
 
 // The floor enclosed by the walls' inner faces: a shoelace sum over their segments, each taken with the

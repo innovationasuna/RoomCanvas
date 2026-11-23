@@ -121,11 +121,11 @@ try {
       assert.equal(light.lights.filter(light => light.visible && light.castShadow).length,
         ['morning', 'noon', 'afternoon'].includes(time) && light.time.window ? 2 : time === 'night' ? nightShadows : 1);
       if (time === 'night') {
-        assert.ok(light.environment.intensity < .03);
+        assert.equal(light.environment.intensity, .08);
         assert.equal(light.time.lamp.decay, 2);
         assert.ok(light.lights.filter(light => light.type === 'DirectionalLight').every(light => light.intensity === 0 && !light.visible));
       } else if (time !== 'balanced') {
-        assert.ok(light.time.lamp.visible && light.time.lamp.level > 0 && light.time.lamp.level < .1);
+        assert.equal(light.time.lamp.level, .25);
         assert.ok(light.time.windowLight.visible && light.time.windowLight.intensity > 0);
       }
       const image = await page.evaluate(() => roomEditor.captureFrame()); await save(`${room}-${time}.png`, image);
@@ -157,8 +157,9 @@ try {
       assert.deepEqual(state.indoor, {power: false, angle: 160});
       assert.ok(!state.lamp.visible);
       assert.equal(await page.locator('#lamp-power').textContent(), '开灯');
-      assert.deepEqual(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => !light.role?.startsWith('indoor'))), outside.lights, '室内开关改变了室外光照');
-      assert.equal(state.environmentIntensity, outside.time.environmentIntensity);
+      const fixedLights = lights => lights.filter(l => time !== 'night' || l.type !== 'HemisphereLight');
+      assert.deepEqual(fixedLights(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => !light.role?.startsWith('indoor')))), fixedLights(outside.lights), '室内开关改变了室外光照');
+      assert.equal(state.environmentIntensity, time === 'night' ? 0 : outside.time.environmentIntensity);
       const off = await page.evaluate(() => roomEditor.captureFrame());
       assert.notEqual(off, wide, '关灯没有改变实际画面');
       if (time === 'night') await save(`${room}-night-lamps-off.png`, off);
@@ -208,7 +209,8 @@ try {
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'indoor').length),
       await page.evaluate(() => roomEditor.snapshot().lighting.time.lights.length));
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'outdoor-window').length), 1);
-    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.type === 'RectAreaLight').length), 0);
+    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.type === 'RectAreaLight').length),
+      Math.min(6, await page.evaluate(() => roomEditor.snapshot().lighting.time.luminaires.length)));
     await page.locator('#light-menu').evaluate(element => {element.open = false;});
     await page.locator('#lighting-menu').evaluate(element => {element.open = false;});
     await page.evaluate(() => roomLightingLab.resetMetrics());

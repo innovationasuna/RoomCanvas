@@ -21,7 +21,7 @@ function render() {
     const visibility = roomVisibility?.update(camera.position.clone().sub(orbit.target).toArray(), {walking: !!walk?.active});
     $('viewport').dataset.hiddenWalls = visibility?.hidden.join(',') || '';
     if (visibility?.changed) renderer.shadowMap.needsUpdate = true;
-    lighting?.syncOccluders();
+    if (renderer.shadowMap.needsUpdate) lighting?.syncOccluders();
     const view = walk?.active ? walk.camera : camera;
     staticLighting?.setCamera(view);
     if (staticLighting) staticLighting.render(); else renderer.render(scene, view);
