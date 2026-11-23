@@ -160,7 +160,7 @@ class SnapshotStore:
 STATIC_FILES = {
     '/web/mobile/index.html', '/web/mobile/mobile.css', '/web/mobile/viewer.mjs', '/web/mobile/texture-loader.mjs',
     '/web/mobile/room-visibility.mjs', '/web/editor/placement.mjs',
-    '/web/editor/wall-visibility.mjs', '/web/editor/material-layers.mjs',
+    '/web/editor/wall-visibility.mjs', '/web/editor/material-layers.mjs', '/web/editor/decals.mjs',
     '/web/mobile/lighting.mjs', '/web/editor/time-lighting.mjs', '/web/editor/physical-lighting.mjs',
     '/web/editor/lighting-profiles.mjs', '/web/editor/lighting-settings.mjs', '/web/editor/indoor-lighting.mjs',
     '/web/editor/environment-lighting.mjs', '/web/editor/static-lighting.mjs', '/web/editor/settled-render.mjs',

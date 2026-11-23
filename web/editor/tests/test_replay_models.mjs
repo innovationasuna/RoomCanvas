@@ -667,3 +667,29 @@ test('returning to a cached final keeps the book added by the fading round visib
   assert.deepEqual(visible(v), ['final']);
   assert.equal(finalBook.material.opacity, 1);
 });
+
+test('a picture stays in front of its board while the model fades in, and in its depth mask', () => {
+  const v = view();
+  const textured = () => new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+  const photo = Object.assign(new THREE.Mesh(new THREE.BoxGeometry(.6, .8, .0003), textured()), {name: 'poster'});
+  const board = Object.assign(new THREE.Mesh(new THREE.BoxGeometry(.62, .82, .012), textured()), {name: 'board'});
+  const root = loaded(v, 'room', photo, board);
+  const offsets = (m) => [m.polygonOffset, m.polygonOffsetFactor, m.polygonOffsetUnits];
+  const maskOf = (o) => root.userData.mask.find((m) => m.parent === o).material;
+  v.setFade(root, 0.5);
+  assert.deepEqual(offsets(photo.material), [true, -2, -8]);
+  assert.deepEqual(offsets(board.material), [true, -1, -4]);
+  assert.deepEqual([offsets(maskOf(photo)), offsets(maskOf(board))], [[true, -2, -8], [true, -1, -4]]);
+  v.setFade(root, 1);
+  assert.deepEqual([offsets(photo.material), offsets(board.material)], [[true, -1, -4], [false, 0, 0]]);
+});
+
+test('a picture with a plain slot gets a depth mask per slot', () => {
+  const v = view();
+  const geometry = new THREE.BoxGeometry(.6, .8, .0003); geometry.addGroup(0, 6, 0); geometry.addGroup(6, 30, 1);
+  const sheet = Object.assign(new THREE.Mesh(geometry, [new THREE.MeshStandardMaterial({map: new THREE.Texture()}),
+    new THREE.MeshStandardMaterial()]), {name: 'sheet'});
+  const root = loaded(v, 'room', sheet);
+  const masks = root.userData.mask.find((m) => m.parent === sheet).material;
+  assert.deepEqual(masks.map((m) => [m.polygonOffsetFactor, m.polygonOffsetUnits]), [[-2, -8], [-1, -4]]);
+});

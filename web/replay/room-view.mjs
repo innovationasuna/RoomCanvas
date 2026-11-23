@@ -9,6 +9,7 @@ import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {surfaceBox} from '../editor/physical-lighting.mjs';
 import {namedLuminaires} from '../editor/room-luminaires.mjs';
 import {lightingProfile} from '../editor/lighting-profiles.mjs';
+import {DECAL_OFFSET, offsetDecals} from '../editor/decals.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
@@ -351,7 +352,7 @@ export class RoomView {
         disposeModel(gltf.scene);
         return null;
       }
-      const root = this.prepare(gltf.scene);
+      const root = this.prepare(gltf.scene, gltf.parser?.associations);
       root.visible = false;
       this.scene.add(root);
       entry.root = root;
@@ -363,8 +364,9 @@ export class RoomView {
     return entry.promise;
   }
 
-  prepare(root) {
+  prepare(root, associations) {
     root.userData.replayRoot = true;
+    offsetDecals(THREE, root, associations);
     const sources = new Set();
     root.traverse(o => {if (o.isMesh) [o.material].flat().forEach(m => sources.add(m));});
     root.userData.sourceMaterials = [...sources];
@@ -424,13 +426,17 @@ export class RoomView {
     root.userData.fade = 1;
     // Depth mask for fading in: only the outermost surfaces of the incoming model get colour.
     const mask = new THREE.MeshBasicMaterial({colorWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4});
-    root.userData.sourceMaterials.push(mask);
+    // A picture's mask carries the picture's offset too (see setFade).
+    const decalMask = mask.clone();
+    decalMask.polygonOffsetFactor += DECAL_OFFSET.factor; decalMask.polygonOffsetUnits += DECAL_OFFSET.units;
+    root.userData.sourceMaterials.push(mask, decalMask);
     root.userData.mask = [];
     const meshes = [];
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
     for (const o of meshes) {
       if ([o.material].flat().some((m) => wallMats.has(m) || m.transparent || m.opacity < 1 || m.transmission > 0)) continue;
-      const m = new THREE.Mesh(o.geometry, mask);
+      const maskOf = (x) => x.polygonOffset && x.polygonOffsetUnits < 0 ? decalMask : mask;
+      const m = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? o.material.map(maskOf) : maskOf(o.material));
       m.userData.mask = 'depth';
       m.userData.forming = 0;
       m.renderOrder = 1;
@@ -493,9 +499,10 @@ export class RoomView {
       if (x.m.transparent !== transparent) {x.m.transparent = transparent; x.m.needsUpdate = true;}
       x.m.opacity = x.opacity * f;
       x.m.depthWrite = f < 1 ? false : x.depthWrite;
+      // Fading adds its own offset on top of a picture's, so the picture still wins over its backing.
       x.m.polygonOffset = f < 1 || x.polygonOffset;
-      x.m.polygonOffsetFactor = f < 1 ? -1 : x.factor;
-      x.m.polygonOffsetUnits = f < 1 ? -4 : x.units;
+      x.m.polygonOffsetFactor = f < 1 ? -1 + (x.polygonOffset ? Math.min(x.factor, 0) : 0) : x.factor;
+      x.m.polygonOffsetUnits = f < 1 ? -4 + (x.polygonOffset ? Math.min(x.units, 0) : 0) : x.units;
     }
     const masking = f > 0 && f < 1;
     for (const m of root.userData.mask) {

@@ -8,6 +8,7 @@ import {createRoomVisibility} from './room-visibility.mjs';
 import {createMobileLighting} from './lighting.mjs';
 import {createEnvironmentLighting} from '../editor/environment-lighting.mjs';
 import {createStaticLighting} from '../editor/static-lighting.mjs';
+import {offsetDecals} from '../editor/decals.mjs';
 
 const $ = id => document.getElementById(id), identifier = location.pathname.match(/^\/s\/([a-f0-9]{32})\/?$/)?.[1];
 let manifest, abort, renderer, scene, camera, orbit, walk, room, cleanupTouch, environment, textureResources, roomVisibility, lighting, staticLighting, frame = 0;
@@ -109,6 +110,7 @@ async function loadRoom() {
     const gltf = await loader.parseAsync(data.buffer, '');
     room = gltf.scene;
     textureResources.check();
+    offsetDecals(THREE, room, gltf.parser.associations);
     if (signal.aborted) throw new DOMException('已取消', 'AbortError');
     renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'low-power'});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
