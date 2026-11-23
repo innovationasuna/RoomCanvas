@@ -284,7 +284,9 @@ export class RoomView {
     const lights = [];
     root.traverse((o) => {if (o.isLight) lights.push(o);});
     lights.forEach((l) => l.removeFromParent());
-    // Walls and large wall-mounted parts fade when they sit between the camera and the room.
+    // Walls and large wall-mounted parts fade when they sit between the camera and the room. Unfaded they
+    // draw as they were made: an opaque wall before what blends on it (a photo collage cut out of its photo),
+    // which keeps from writing depth, or its clear texels would hide the wall wherever that is drawn after it.
     const wallMats = new Set();
     for (const part of root.children.filter((o) => WALLISH.test(o.name))) {
       const mats = [];
@@ -292,7 +294,7 @@ export class RoomView {
         if (!o.isMesh) return;
         const copies = [o.material].flat().map(material => {
           const copy = material.clone();
-          copy.userData.base = copy.opacity; copy.transparent = true;
+          Object.assign(copy.userData, {base: copy.opacity, transparent: copy.transparent, depthWrite: copy.depthWrite});
           mats.push(copy); wallMats.add(copy);
           return copy;
         });
@@ -448,7 +450,8 @@ export class RoomView {
         if (!o.isMesh || o.userData.mask) return;
         for (const m of [o.material].flat()) {
           m.userData.base ??= m.opacity;
-          m.transparent = true;
+          m.userData.transparent ??= m.transparent;
+          m.userData.depthWrite ??= m.depthWrite;
           w.mats.push(m);
         }
       });
@@ -762,7 +765,13 @@ export class RoomView {
       const goal = 1 - 0.88 * THREE.MathUtils.smoothstep(d.dot(view), 0.05, 0.6);
       w.a += (goal - w.a) * (1 - Math.exp(-dt * 5));
       const f = w.root.userData.fade ?? 1;
-      w.mats.forEach((m) => {m.opacity = m.userData.base * w.a * f; m.depthWrite = w.a > 0.97 && f === 1 && m.userData.base > 0.9;});
+      const shown = w.a > 0.97 && f === 1;
+      w.mats.forEach((m) => {
+        const transparent = m.userData.transparent || !shown;
+        if (m.transparent !== transparent) {m.transparent = transparent; m.needsUpdate = true;}
+        m.opacity = m.userData.base * w.a * f;
+        m.depthWrite = shown && m.userData.depthWrite && m.userData.base > 0.9;
+      });
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
