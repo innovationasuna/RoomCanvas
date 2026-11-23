@@ -125,6 +125,9 @@ const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(getComputedStyle(host).getPropertyValue('--rc-canvas').trim());
 const orbitCamera = new THREE.PerspectiveCamera(45, 1, .02, 3000);
+// The orbit camera's near plane follows the viewing distance (a share of it, within these bounds): a fixed 2 cm
+// plane loses depth precision across a room seen from afar, and a notice 1 mm in front of its backing flickers.
+const NEAR_SHARE = .02, NEAR_MIN = .02, NEAR_MAX = .5;
 const planCamera = new THREE.OrthographicCamera(-5, 5, 4, -4, .02, 3000);
 let camera = orbitCamera;
 camera.aspect = 1;
@@ -274,6 +277,10 @@ function requestRender() {
     }
     lightingRig?.syncOccluders();
     updateSelectionVisuals();
+    if (camera === orbitCamera) {
+      const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
+      if (Math.abs(near - camera.near) > 1e-3) {camera.near = near; camera.updateProjectionMatrix();}
+    }
     const view = walking ? walk.camera : camera;
     staticLighting?.setCamera(view);
     renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, view);});
