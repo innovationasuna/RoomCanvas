@@ -185,6 +185,64 @@ class Paths(unittest.TestCase):
             handler.open_backend.assert_called_once()
             self.assertEqual(handler.open_backend.call_args.args[0].full_url, handler.room_backend + path)
 
+    def test_no_download_keeps_the_completed_timeline_after_disconnect(self):
+        base = f'{P}jobs/{RUNNING}/replay'
+        rel = 'articulate/room_preview/Room.glb'
+        model = b'current model'
+        digest = hashlib.sha256(model).hexdigest()
+        running = {'live': True, 'models': {'articulated': rel},
+                   'events': [{'model': 'articulated', 'artifact_digest': digest}]}
+        done = {**running, 'live': False, 'events': [*running['events'], {'id': 'result'}]}
+
+        def response(body, kind):
+            stream = BytesIO(body)
+            stream.status, stream.headers = 200, {'Content-Type': kind}
+            return stream
+
+        with tempfile.TemporaryDirectory() as folder:
+            handler = object.__new__(Handler)
+            handler.cache = Path(folder)
+            handler.open_backend = Mock(side_effect=[
+                response(json.dumps(running).encode(), 'application/json'),
+                response(json.dumps(done).encode(), 'application/json'),
+                response(model, 'model/gltf-binary'), ConnectionRefusedError()])
+            for expected in (running, done):
+                status, body = self.request(handler, base)
+                self.assertEqual((status, json.loads(body)), (200, expected))
+            self.assertEqual(self.request(handler, f'{base}/files/{rel}?sha256={digest}'), (200, model))
+            self.assertFalse(room_cache.local(handler.cache, f'{base}/files/{rel}').exists())
+            status, body = self.request(handler, base)
+            handler.send_header.assert_any_call('X-RoomCanvas-Cache', 'stale')
+            self.assertEqual((status, json.loads(body)), (200, done))
+
+    def test_only_readable_articulated_pairs_are_kept_until_the_replacement_arrives(self):
+        old, new = (hashlib.sha256(data).hexdigest() for data in (b'old', b'new'))
+        def answer(rel, digest):
+            return json.dumps({'models': {'articulated': rel},
+                               'events': [{'model': 'articulated', 'artifact_digest': digest}]}).encode()
+
+        for source in ('missing', 'wrong', 'staged', 'legacy'):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as folder:
+                target = Path(folder) / 'replay' / room_cache.ANSWER
+                before = answer('old.glb', None if source == 'legacy' else old)
+                after = answer('next.glb', new)
+                room_cache.save(target, before)
+                model = target.parent / 'files' / 'old.glb'
+                if source == 'staged':
+                    room_cache.save(room_cache.staged_model(model, old), b'old')
+                elif source != 'missing':
+                    room_cache.save(model, b'wrong' if source == 'wrong' else b'old')
+                with room_cache.answer_writer(target) as earlier, room_cache.answer_writer(target) as latest:
+                    self.assertFalse(latest(after))
+                    self.assertEqual(target.read_bytes(), before if source in ('staged', 'legacy') else after)
+                    if source in ('missing', 'wrong'):
+                        earlier(before)
+                        self.assertEqual(target.read_bytes(), after)
+                    next_model = model.with_name('next.glb')
+                    room_cache.save(room_cache.staged_model(next_model, new), b'new')
+                    self.assertTrue(latest(after))
+                    self.assertEqual((target.read_bytes(), next_model.read_bytes()), (after, b'new'))
+
     def test_resaved_articulated_model_opens_offline_without_a_job_timestamp_change(self):
         base = f'{P}jobs/{DONE}/replay'
         rel = 'articulate/room_preview/Room.glb'

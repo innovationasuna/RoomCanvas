@@ -470,8 +470,9 @@ export class RoomView {
       entry.warming = this.warm(root, entry.controller.signal).catch(() => {});
       entry.prefetching = prefetch(root, {signal: entry.controller.signal}).catch(() => {});
       if (!this.modelsFramed && !this.scaffoldReady) {this.frame(new THREE.Box3().setFromObject(root)); this.modelsFramed = true;}
-      if (key === 'seed' && this.state?.model === 'final' && this.state.added) this.apply(this.state, this.lastOptions);
       return entry;
+    }).finally(() => {
+      if (!this.disposed && key === 'seed' && this.state?.model === 'final' && this.state.added) this.apply(this.state, this.lastOptions);
     });
     return entry.promise;
   }
@@ -847,6 +848,10 @@ export class RoomView {
     const digest = model === 'articulated' && state.modelEvent?.artifact_digest;
     // Reparented seed meshes need their original names before the final room can be masked.
     const waitingForSeed = model === 'final' && state.added && seedUrl && !this.models.seed?.root;
+    if (!waitingForSeed && this.seedRetry != null) {
+      clearTimeout(this.seedRetry);
+      this.seedRetry = null;
+    }
     const key = waitingForSeed ? this.current || this.incoming || null : digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
     if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
@@ -876,7 +881,17 @@ export class RoomView {
     // Load the final model alongside the seed so the switch starts on time.
     if ((key === 'seed' || waitingForSeed) && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
     // Fetch the first room model from the start (it is tens of MB), so the modelling stage never waits on it.
-    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
+    if (seedUrl && !this.models.seed) {
+      const delay = (this.retryAt.seed || 0) - performance.now();
+      if (delay <= 0) this.model('seed', seedUrl).catch(() => {});
+      else if (waitingForSeed && this.seedRetry == null) {
+        // A paused replay won't deliver another frame when the cooldown ends.
+        this.seedRetry = setTimeout(() => {
+          this.seedRetry = null;
+          this.apply(this.state, this.lastOptions);
+        }, Math.ceil(delay));
+      }
+    }
   }
 
   revealModel(key) {
@@ -1235,6 +1250,7 @@ export class RoomView {
   dispose() {
     if (this.disposed) return this.disposal;
     this.disposed = true;
+    clearTimeout(this.seedRetry);
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect(); this.scaffoldController.abort();
     this.restoreWindows();

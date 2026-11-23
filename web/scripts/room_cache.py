@@ -86,25 +86,40 @@ def save(target, data):
         part.replace(target)
 
 
+def would_replace_offline_model(target, replacement):
+    try:
+        rel, digest = articulated_file(json.loads(target.read_bytes()))
+    except (FileNotFoundError, ValueError):
+        return False
+    if not rel or (rel, digest) == replacement or Path(rel).is_absolute() or '..' in Path(rel).parts:
+        return False
+    model = target.parent / 'files' / rel
+    if not digest:
+        return model.is_file()
+    return bool(re.fullmatch('[0-9a-f]{64}', digest)) and (
+        matches_digest(model, digest) or matches_digest(staged_model(model, digest), digest))
+
+
 def save_answer(target, data):
+    """Return whether the answer was published and whether its model is ready."""
     rel, digest = articulated_file(json.loads(data)) if target.parent.name == 'replay' else (None, None)
     staged = None
     if digest:
         if not re.fullmatch('[0-9a-f]{64}', digest) or Path(rel).is_absolute() or '..' in Path(rel).parts:
-            return False
+            return False, False
         model = target.parent / 'files' / rel
         if not matches_digest(model, digest):
             staged = staged_model(model, digest)
             if not matches_digest(staged, digest):
-                # A first partial replay can still show its other stages offline.
-                if not target.exists():
-                    save(target, data)
-                return False
+                if would_replace_offline_model(target, (rel, digest)):
+                    return False, False
+                save(target, data)
+                return True, False
     save(target, data)
     if staged:
         # The new timeline can already serve its staged GLB if publication is interrupted here.
         staged.replace(model)
-    return True
+    return True, True
 
 
 _answer_lock = threading.Lock()
@@ -122,11 +137,12 @@ def answer_writer(target):
 
     def publish(data):
         with state['lock']:
-            if order > state['saved']:
-                if not save_answer(target, data):
-                    return False
+            if order < state['saved']:
+                return True
+            saved, ready = save_answer(target, data)
+            if saved:
                 state['saved'] = order
-            return True
+            return ready
 
     try:
         yield publish

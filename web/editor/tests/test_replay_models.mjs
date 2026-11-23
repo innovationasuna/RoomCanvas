@@ -65,6 +65,44 @@ test('a paused seek emits only the destination and ordinary seeks preserve playb
   assert.deepEqual(frames, [[8, true], [3, false]]);
 });
 
+for (const action of ['wait', 'seek', 'dispose']) test(`a paused assembly retries a disconnected seed only while waiting: ${action}`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout', 'Date']});
+  t.mock.method(performance, 'now', () => Date.now());
+  const first = Promise.withResolvers();
+  const load = t.mock.method(GLTFLoader.prototype, 'loadAsync', () => first.promise);
+  const v = view(), options = {modelUrl: key => key, addedAll: []};
+  loaded(v, 'round5');
+  loaded(v, 'final');
+  apply(v, 'round5', true, {modelEvent: {round: 6}}, options);
+  apply(v, 'final', true, {added: new Set()}, options);
+  first.reject(new Error('offline'));
+  await setImmediate();
+  load.mock.mockImplementation(async () => ({scene: group('seed')}));
+  t.mock.timers.tick(4999);
+  assert.equal(load.mock.callCount(), 1);
+  assert.equal(v.versionLabel(), '检查第 6 轮');
+  if (action === 'seek') apply(v, 'round5', true, {modelEvent: {round: 6}}, options);
+  if (action === 'dispose') {
+    globalThis.cancelAnimationFrame = () => {};
+    t.after(() => {delete globalThis.cancelAnimationFrame;});
+    for (const entry of Object.values(v.models)) entry.controller = new AbortController();
+    Object.assign(v, {resizeObserver: {disconnect() {}}, scaffoldController: new AbortController(),
+      environmentTarget: {dispose() {}}, lights: {}});
+    v.renderer.domElement = v.formTag = {remove() {}};
+    v.renderer.dispose = v.controls.dispose = v.forming.dispose = () => {};
+    await v.dispose();
+  }
+  const reapply = t.mock.method(v, 'apply');
+  t.mock.timers.tick(1);
+  await setImmediate();
+  assert.equal(load.mock.callCount(), action === 'wait' ? 2 : 1);
+  if (action === 'wait') {
+    assert.deepEqual(visible(v), ['final']);
+    assert.equal(v.versionLabel(), '组装中的房间 · 按记录推算');
+  } else assert.equal(reapply.mock.callCount(), 0);
+  if (action === 'seek') assert.equal(v.versionLabel(), '检查第 6 轮');
+});
+
 test('seeking back, seeking into a fade, and starting a third fade settle on the requested root', () => {
   const v = view();
   for (const key of ['seed', 'final', 'round0']) loaded(v, key, mesh('object'));
