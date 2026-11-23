@@ -6,16 +6,20 @@ A candidate is an object the author stage built from primitives that a person co
 move: not the room shell, not a door or window, not a reconstructed asset (it already has a
 `source_glb`), not a fixed installation (sockets, switches, lights, vents), not anything mounted
 on a wall or the ceiling (curtains, pictures, wall shelves), and not furniture that holds other
-things (`placeable_surface`). There is no size threshold; Astra decides per item.
+things (`placeable_surface`). There is no size threshold; Astra decides per item. A box the author
+marked with `RoomScene.mark_small` (`small_marker`) is always one: the author put it there for
+this pass to rebuild, and only its rebuild or its removal is asked about (`marker`).
 
 Objects stacked on each other (a pile of books, a loose score on the top book) are judged and
 rebuilt as one item: an object that rests on another candidate and covers most of it, while
-being at least a third of its area, joins its support's stack.
+being at least a third of its area, joins its support's stack if both have the same marker status
+and neither has a model supplied for that individual object.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 SHELL = {"wall", "floor", "ceiling"}
 OPENINGS = {"door", "window"}
@@ -40,6 +44,8 @@ def overlap(a, b) -> float:
 
 
 def is_candidate(item: dict, objects: dict[str, dict]) -> bool:
+    if item.get("small_marker"):
+        return True
     category = item["category"]
     if item.get("source_glb") or category in STRUCTURE | OPENINGS | FIXED:
         return False
@@ -62,14 +68,17 @@ def label(name: str) -> str:
     return " ".join(word.lower() for word in words) or name.lower()
 
 
-def find_candidates(layout: dict) -> list[dict]:
+def find_candidates(layout: dict, supplied: set[str] | None = None) -> list[dict]:
     """One entry per item to judge: a single object, or a stack named after its bottom object."""
     objects = {item["id"]: item for item in layout["objects"]}
     chosen = {oid: item for oid, item in objects.items() if is_candidate(item, objects)}
     below = {}
     for oid, item in chosen.items():
         support = item.get("rests_on")
-        if support in chosen and stacks_on(item, chosen[support]):
+        if supplied and (oid in supplied or support in supplied):
+            continue
+        if (support in chosen and bool(item.get("small_marker")) == bool(chosen[support].get("small_marker"))
+                and stacks_on(item, chosen[support])):
             below[oid] = support
 
     def bottom(oid):
@@ -85,13 +94,14 @@ def find_candidates(layout: dict) -> list[dict]:
 
     result = []
     for root in sorted(members):
-        ids = sorted(members[root], key=lambda oid: chosen[oid]["bbox_min"][2])
+        ids = sorted(members[root], key=lambda oid: (chosen[oid]["bbox_min"][2], oid))
         items = [chosen[oid] for oid in ids]
         low = [min(item["bbox_min"][k] for item in items) for k in range(3)]
         high = [max(item["bbox_max"][k] for item in items) for k in range(3)]
-        categories = [item["category"] for item in items]
-        category = max(set(categories), key=categories.count)
+        categories = Counter(item["category"] for item in items)
+        category = categories.most_common(1)[0][0]
         base = chosen[root]
+        pose = base.get("marker_pose") if len(ids) == 1 else None
         result.append({
             "id": root,
             "label": label(root) if len(ids) == 1 else f"stack of {label(root).split()[-1]}s",
@@ -99,9 +109,15 @@ def find_candidates(layout: dict) -> list[dict]:
             "members": ids,
             "bbox_min": [round(v, 4) for v in low],
             "bbox_max": [round(v, 4) for v in high],
-            "size": [round(h - lo, 4) for lo, h in zip(low, high)],
+            "size": pose["size"] if pose else [round(h - lo, 4) for lo, h in zip(low, high)],
             "rests_on": base.get("rests_on"),
             "attached_to": base.get("attached_to"),
             "support_part": base.get("support_part"),
+            # Both always present, so an item that stops being a marker or changes its
+            # description is not the same candidate any more (pass_cache.carry).
+            "marker": bool(base.get("small_marker")),
+            "marker_pose": pose,
+            "description": "; ".join(item["description"] for item in items
+                                     if item.get("description")),
         })
     return result

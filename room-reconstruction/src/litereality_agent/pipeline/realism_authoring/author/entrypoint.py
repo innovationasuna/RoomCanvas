@@ -85,7 +85,7 @@ def main() -> None:
                 step_budget=args.step_budget,
                 step_reserve=args.step_reserve,
                 provider=args.provider,
-                brief=ready.prompt(models, Path(args.room)),
+                brief=ready.prompt(models),
                 read_roots=(ready.root(),) if models else (),
             )
         )

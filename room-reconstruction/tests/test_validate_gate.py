@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from litereality_agent.pipeline.room_qc import validate as V
 
 
@@ -95,3 +97,42 @@ def test_the_verdict_blocks_on_support_but_not_on_boxes(tmp_path: Path, monkeypa
 def test_no_build_is_a_clear_error_not_a_pass(tmp_path: Path):
     rep = V.validate(tmp_path / "room", tmp_path / "nowhere")
     assert not rep["ok"] and not rep["pass"] and "compile" in rep["error"]
+
+
+@pytest.mark.parametrize("offset,blocked", [(0, True), (.30, False)])
+def test_closed_window_glass_contact(tmp_path, offset, blocked):
+    import trimesh
+
+    from litereality_agent.agent.tools.check_collisions.source import collision_mesh as cm
+
+    scene = trimesh.Scene()
+    scene.graph.update(frame_from="world", frame_to="Window0")
+    scene.add_geometry(trimesh.creation.box((1, 1, .02)), node_name="glass", parent_node_name="Window0")
+    top = trimesh.creation.box((.4, .05, .3))
+    top.apply_translation((0, 0, offset))
+    scene.add_geometry(top, node_name="Table0")
+    glb = tmp_path / "Room.glb"
+    scene.export(glb)
+    hits = cm.mesh_contacts(cm.build_bodies(glb, {}))["leaf_hits"]
+    assert hits == ({("Table0", "Window0")} if blocked else set())
+
+
+@pytest.mark.scan
+def test_room_3934_fixed_windows_have_no_opening_clashes(tmp_path):
+    from litereality_agent import repo_root
+    from litereality_agent.agent.tools.check_collisions.source import collision_mesh as cm
+
+    sample = Path("samples/room-3934")
+    glb = repo_root().parent / sample / "Room.glb"
+    if not glb.is_file():
+        pytest.skip("room-3934 sample GLB is not installed")
+    rows = json.loads((Path(__file__).resolve().parents[2] / sample / "room_objects.json").read_text())
+    objects = [{**row, "handle": row["node"]} for row in rows["objects"]]
+    shell = {"objects": {o["id"]: o for o in objects}}
+    fixed = {"WindowLeft", "WindowRight"}
+    assert fixed <= shell["objects"].keys()
+    (tmp_path / "room_layout.json").write_text(json.dumps({"objects": objects}))
+    (tmp_path / "Room.glb").symlink_to(glb)
+    bodies = cm.build_bodies(tmp_path / "Room.glb", shell)
+    assert "Door0" in bodies["leaves"] and fixed.isdisjoint(bodies["leaves"])
+    assert all(w["opening"] not in fixed for w in cm.open_clearance(bodies, shell))

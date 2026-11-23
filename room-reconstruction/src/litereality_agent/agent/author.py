@@ -20,6 +20,7 @@ current directory is inside a package. The explicit spelling still works and sti
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import os
@@ -288,6 +289,7 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
 
 4) THE SMALL OBJECTS. This is the job that decides whether the room is believable, and it is the
    one you must NOT run out of budget before reaching — start it while you still have room to work.
+   Marking them (below) is cheap, so there is no reason to leave a surface out.
    An empty desk is the loudest possible statement that a scene is synthetic. Real rooms are full
    of small, specific, slightly untidy things, and the photographs are full of them: mugs, glasses,
    bottles, papers, folders, notebooks, pens and pen pots, books, laptops, monitors, keyboards,
@@ -296,11 +298,18 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
    • Work SURFACE BY SURFACE. For each placeable surface in the room (the desks, tables, counters,
      shelves, cabinet tops) find it in the photos and author WHAT IS ACTUALLY ON IT, in roughly the
      positions the photos show.
-   • Build them as small multi-part procedural geometry — a mug is a cylinder plus a handle, a
-     laptop is a base plus a screen at an angle, a plant is a pot plus foliage. They are small in
-     frame, so simple honest shapes at the right SIZE, COLOUR and POSITION beat detailed shapes at
-     the wrong ones. Metric: a mug is ~8 cm across and ~10 cm tall, an A4 sheet is 210x297 mm, a
-     laptop is ~32 cm wide.
+   • Do NOT model their shapes. MARK each one with one call in `Room.py`:
+         scene.mark_small("Mug0", "mug", bottom=(x, y, z), size=(w, d, h), yaw_deg=a,
+                          rests_on="Table0", description="a white ceramic mug", color=(r, g, b))
+     `bottom` is the centre of its underside on the support's measured top, `size` its measured
+     width, depth and height, `yaw_deg` turns its front (-Y) the way it faces in the photographs,
+     `color` its main sRGB colour, `description` one line: what it is, its colour, its material.
+     It is ONE box; after your session a pass rebuilds every marked object from the photographs
+     with an image-to-3D model, so what matters is the right POSITION, SIZE, YAW and COLOUR.
+     Metric: a mug is ~8 cm across and ~10 cm tall, an A4 sheet is 210x297 mm, a laptop is
+     ~32 cm wide. Name them by kind and index: `Mug0`, `TissueBox1`, `Plant0`.
+   • What is PART OF a fixture — the row of books on a shelf, the contents of a cabinet assembly —
+     stays that fixture's own geometry, not a marker.
    • Do not tidy the room. Things sit at angles, papers overlap, cables trail, a chair is pushed
      out. Alignment to the axes is the giveaway of a generated scene — rotate them.
    • Do not invent a prop you cannot point at in a photograph. A believable room is a SPECIFIC
@@ -308,10 +317,10 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
 
 SIMULATION READINESS — REQUIRED FOR EVERY OBJECT YOU ADD, NOT AN EXTRA.
 The room has to be something a physics engine can accept, and that needs two things from you:
-• GROUP each object as ONE unit with `group_fixture(name, category, parts, rests_on=..., attached_to=...)`
-  (near the collection helpers in `Room.py`). Collect the parts of ONE object into a list and pass
-  them. Name them like the furniture handles — `Mug0`, `Laptop0`, `Plant0`, `Radiator0`, `Lamp0`
-  (increment per instance). A loose pile of boxes is not an object.
+• GROUP each object you build as ONE unit with `group_fixture(name, category, parts, rests_on=..., attached_to=...)`
+  (near the collection helpers in `Room.py`); a `mark_small` box is grouped already. Collect the
+  parts of ONE object into a list and pass them. Name them like the furniture handles — `Radiator0`,
+  `Lamp0`, `Mug0` (increment per instance). A loose pile of boxes is not an object.
 • STATE WHAT HOLDS IT UP. `rests_on="Table0"` for anything standing on a surface, `rests_on="Floor0"`
   for anything on the floor, `attached_to="Wall3"` (or `"Ceiling0"`) for anything fixed to the
   structure. Every single added object gets one or the other — no exceptions, no guesses left
@@ -423,7 +432,12 @@ thing to invent — author what THIS room contains.
   cables. Multi-part, at their measured positions, never flush slabs; you may lift screens,
   boards and pictures out of the photographs with `rectify_region`.
 • The small objects on every placeable surface, in roughly the positions the photographs show,
-  at real sizes, not tidied — axis-alignment is the giveaway of a generated room.
+  at real sizes, not tidied — axis-alignment is the giveaway of a generated room. Do not model
+  them: mark each one with `scene.mark_small(name, category, bottom=(x, y, z), size=(w, d, h),
+  yaw_deg=…, rests_on=…, description="what it is, its colour and material", color=(r, g, b))`,
+  one box at its measured place, size and yaw, named by kind and index (`Mug0`, `TissueBox1`);
+  a pass after your session rebuilds every marked object from the photographs. Marking is cheap,
+  so do every surface. What is part of a fixture (the books on a shelf) stays its own geometry.
 • The pipeline's assets kept: do not delete or flatten an articulated object or replace a
   reconstructed mesh with a box. You MAY correct a furniture box's position, size or yaw when
   your measurements show the scan got it wrong — say so in your summary with the measurement.
@@ -461,6 +475,102 @@ their supports, the gate's verdict, and what you could not do.
 """
 
 PROFILES = {"base": PROMPT, "detail": DETAIL_PROMPT, "simulation": SIMULATION_PROMPT, "open": OPEN_PROMPT}
+
+# Room.py is the assembler copied in when the room was seeded: one seeded before `mark_small` has
+# neither the method nor the lines that carry its mark into room_layout.json.
+TEMPLATE = Path(__file__).resolve().parents[1] / "room_ops" / "compile" / "build_room.py"
+MARK_SMALL_TEMPLATE = (
+    "Complete the RoomScene.mark_small migration in Room.py using {template}. Copy the method, "
+    "the bottom face winding in _unit_cube_mesh, and the small_marker, description and marker_pose "
+    "fields in _register and index, including the live box pose calculation. Preserve the room's other edits.\n")
+
+
+def _has_downward_cube_bottom(module):
+    cube = next((n for n in module.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "_unit_cube_mesh"), None)
+    if cube is None:
+        return False
+    geometry = {n.targets[0].id: n.value for n in cube.body if isinstance(n, ast.Assign)
+                and isinstance(n.targets[0], ast.Name)}
+    try:
+        vertices = ast.literal_eval(geometry["verts"])
+        floor = min(p[2] for p in vertices)
+        faces = ([vertices[i] for i in face] for face in ast.literal_eval(geometry["faces"]))
+        bottoms = [f for f in faces if f and all(p[2] == floor for p in f)]
+        return bool(bottoms) and all(sum(p[0] * q[1] - q[0] * p[1] for p, q in
+                                         zip(f, f[1:] + f[:1])) < 0 for f in bottoms)
+    except (KeyError, ValueError, TypeError, IndexError):
+        return False
+
+
+def _writes_fields(method, target, required):
+    stored = {n.slice.value for n in ast.walk(method) if isinstance(n, ast.Subscript)
+              and isinstance(n.ctx, ast.Store) and isinstance(n.slice, ast.Constant)
+              and ast.unparse(n.value) == target}
+    return required <= stored
+
+
+def _registers_fields(method, fields, *, reindex=False):
+    for call in ast.walk(method):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "_register"):
+            continue
+        values = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+        if fields <= values.keys() and (not reindex or all(
+                values[key] == f"o.get('{key}')" for key in fields)):
+            return True
+    return False
+
+
+def _template_migrations(path, prompt):
+    try:
+        module = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        module = ast.Module(body=[], type_ignores=[])
+    room = next((n for n in module.body if isinstance(n, ast.ClassDef) and n.name == "RoomScene"), None)
+    methods = {n.name: n for n in room.body if isinstance(n, ast.FunctionDef)} if room else {}
+    notes = []
+    place = methods.get("place_model")
+    if place is None:
+        if "scene.place_model(" in prompt:
+            notes.append(f"Copy the missing RoomScene.place_model method from {TEMPLATE} into Room.py.")
+    elif any(isinstance(n, ast.Call) and ast.unparse(n) == "world_bbox(meshes)" for n in ast.walk(place)):
+        notes.append(f"Replace RoomScene.place_model in Room.py with the method from {TEMPLATE}. "
+                     "It fits rotated models using evaluated world-space vertices.")
+    if place or "scene.place_model(" in prompt:
+        if not any(isinstance(n, ast.FunctionDef) and n.name == "model_world_bbox" for n in module.body):
+            notes.append(f"Copy the model_world_bbox helper from {TEMPLATE} into Room.py.")
+        register = methods.get("_register")
+        if not (register and "rebuilt" in {a.arg for a in register.args.args + register.args.kwonlyargs}
+                and _writes_fields(register, "self.objects[rid]", {"rebuilt"})):
+            notes.append(f"In RoomScene._register, copy the rebuilt argument and its assignment "
+                         f"to self.objects[rid] from {TEMPLATE}.")
+        if not (register and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                                 and n.func.id == "model_world_bbox" for n in ast.walk(register))):
+            notes.append(f"In RoomScene._register, copy the model_world_bbox branch for "
+                         f'rebuilt == "model" from {TEMPLATE}.')
+        index = methods.get("index")
+        if not (index and _registers_fields(index, {"rebuilt"}, reindex=True)):
+            notes.append(f'In RoomScene.index, forward rebuilt=o.get("rebuilt") to _register as in {TEMPLATE}.')
+    if "mark_small(" in prompt and not _has_marker_api(module, methods):
+        notes.append(MARK_SMALL_TEMPLATE.format(template=TEMPLATE))
+    return "".join("\n" + note for note in notes)
+
+
+def _has_marker_api(module, methods):
+    fields = {"small_marker", "description", "marker_pose"}
+    if not {"mark_small", "_register", "index"} <= methods.keys():
+        return False
+    register = methods["_register"]
+    args = {arg.arg for arg in register.args.args + register.args.kwonlyargs}
+
+    marker = methods["mark_small"]
+    return (_has_downward_cube_bottom(module)
+            and fields <= args and _writes_fields(register, "self.objects[rid]", fields)
+            and _writes_fields(marker, "handle", fields) and _registers_fields(marker, fields)
+            and _writes_fields(methods["index"], "o", {"marker_pose"})
+            and _registers_fields(methods["index"], fields, reindex=True))
+
 
 # Budgets the open brief needs: the one-shot run that motivated it took 69 tool calls to a finished,
 # self-audited room, and our scripted pass was cut at 56 by a quota. 300 with a 400-turn backstop
@@ -583,6 +693,7 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
             path=evidence / "operator" if evidence else operator)
     if brief:
         prompt += "\n" + brief
+    prompt += _template_migrations(room / "Room.py", prompt)
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "

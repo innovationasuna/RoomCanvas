@@ -13,7 +13,8 @@ The code that runs is this checkout's room-reconstruction/. Runtimes, model weig
 run-config.json. --check prints what would run and exits without creating anything.
 
 Author builds the room in one session, then completes it before checking it: the small-object pass
-(drops, keeps or rebuilds from the photos what the session modelled as small things) and the
+(rebuilds from the photos, or drops, the small things the session marked with mark_small, and
+drops, keeps or rebuilds what it still modelled itself) and the
 openable-parts pass (Astra decides per object whether it has parts that open and where, Blender cuts
 them out and hinges them) run on that build, into the scene's realism_authoring/small_objects/ and
 realism_authoring/articulate/ (see realism_authoring/passes.py). The complete room is checked once
@@ -28,8 +29,8 @@ material; the room is kept and goes through the same passes, check and publish a
 --premake-small-objects makes OUT_DIR/<Kind>.glb from PHOTOS_DIR/<Kind>/*.jpg before the author
 stage, so the GPU is free again while it runs. Given --set LR_SMALL_OBJECTS_MODELS=OUT_DIR, the
 author session finds them copied into the room as Models/<Kind>.glb and places them itself
-(small_objects/ready.py); a small thing it still modelled itself gets its model from the pass by
-name (see small_objects/premake.py).
+(small_objects/ready.py); a small thing it still marked or modelled itself gets its model from the
+pass by name (see small_objects/premake.py).
 
 --small-objects and --articulate run one pass on its own over a finished run's scene directory
 (runs/<run>/pipeline/<scene>), writing to OUT_DIR and leaving the finished run untouched: for rooms

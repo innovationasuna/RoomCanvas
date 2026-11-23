@@ -90,6 +90,9 @@ def footprint(points: np.ndarray) -> dict:
 def placement(target: dict, asset_size, camera_xy=None) -> dict:
     """Yaw and per-axis scale that put an asset of `asset_size` (x, y, z) into `target`."""
     ax, ay, az = (max(float(v), 1e-6) for v in asset_size)
+    if "yaw_deg" in target:
+        return {"yaw": math.radians(target["yaw_deg"]),
+                "scale": [v / axis for v, axis in zip(target["size"], (ax, ay, az))]}
     long, short = max(target["long"], 1e-4), max(target["short"], 1e-4)
     height = max(target["z"][1] - target["z"][0], 1e-4)
     toward = None

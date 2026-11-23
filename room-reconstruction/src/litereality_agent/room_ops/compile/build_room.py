@@ -281,6 +281,26 @@ def world_bbox(meshes):
     return mn, mx
 
 
+def model_world_bbox(meshes, glb_path):
+    # A rotated mesh need not occupy the corners of its local bounding box.
+    import numpy as np
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    bounds = []
+    for obj in meshes:
+        evaluated = obj.evaluated_get(depsgraph)
+        vertices = evaluated.data.vertices
+        if len(vertices):
+            local = np.empty(len(vertices) * 3, dtype=np.float32)
+            vertices.foreach_get("co", local)
+            matrix = np.asarray(evaluated.matrix_world)
+            points = local.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3]
+            bounds.extend((points.min(axis=0), points.max(axis=0)))
+    if not bounds:
+        raise ValueError(f"{glb_path} has no vertices")
+    return Vector(np.min(bounds, axis=0)), Vector(np.max(bounds, axis=0))
+
+
 # ============================================================================
 # Assembly primitives (walls / openings / box-fit) — proven geometry
 # ============================================================================
@@ -383,7 +403,7 @@ def _unit_cube_mesh(name):
         (0.5, 0.5, 0.5),
         (-0.5, 0.5, 0.5),
     ]
-    faces = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    faces = [(3, 2, 1, 0), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
     me = bpy.data.meshes.new(name)
     me.from_pydata(verts, [], faces)
     me.update()
@@ -1025,8 +1045,9 @@ class RoomScene:
 
     # ---------------------------------------------------------------- index
     def _register(self, rid, cat, meshes, source=None, handle=None,
-                  rests_on=None, attached_to=None, support_part=None, rebuilt=None):
-        mn, mx = world_bbox(meshes)
+                  rests_on=None, attached_to=None, support_part=None, rebuilt=None,
+                  small_marker=None, description=None, marker_pose=None):
+        mn, mx = model_world_bbox(meshes, source) if rebuilt == "model" else world_bbox(meshes)
         self.objects[rid] = {
             "id": rid,
             "category": cat,
@@ -1044,25 +1065,48 @@ class RoomScene:
         }
         if rebuilt:  # a ready model put in by place_model: its own group (room_objects.py)
             self.objects[rid]["rebuilt"] = rebuilt
+        if small_marker:  # a box from mark_small: the small-object pass rebuilds it with TRELLIS
+            self.objects[rid]["small_marker"] = True
+            self.objects[rid]["description"] = description or ""
+            if marker_pose:
+                self.objects[rid]["marker_pose"] = marker_pose.to_dict()
 
     def index(self):
         """(Re)build the object registry from the live scene graph."""
+        bpy.context.view_layer.update()
         self.objects = {}
         for o in bpy.data.objects:  # shell meshes
             if o.type == "MESH" and re.match(r"(Wall|Floor|Ceiling)\d+$", o.name):
                 self._register(o.name, category_of(o.name), [o])
         for o in bpy.data.objects:  # asset handles
             if o.type == "EMPTY" and o.get("room_id"):
+                meshes = mesh_descendants(o)
+                if o.get("small_marker") and len(meshes) == 1:
+                    box = meshes[0]
+                    low, high = Vector(box.bound_box[0]), Vector(box.bound_box[6])
+                    bottom = (low + high) / 2
+                    bottom.z = low.z
+                    axes = box.matrix_world.to_3x3().col
+                    x = axes[0]
+                    o["marker_pose"] = {
+                        "bottom": [round(v, 6) for v in box.matrix_world @ bottom],
+                        "size": [round(length * axes[i].length, 6)
+                                 for i, length in enumerate(high - low)],
+                        "yaw_deg": round(math.degrees(math.atan2(x.y, x.x)), 4),
+                    }
                 self._register(
                     o["room_id"],
                     o.get("category", category_of(o.name)),
-                    mesh_descendants(o),
+                    meshes,
                     source=o.get("source_glb"),
                     handle=o.name,
                     rests_on=o.get("rests_on"),
                     attached_to=o.get("attached_to"),
                     support_part=o.get("support_part"),
                     rebuilt=o.get("rebuilt"),
+                    small_marker=o.get("small_marker"),
+                    description=o.get("description"),
+                    marker_pose=o.get("marker_pose"),
                 )
         return self.objects
 
@@ -1207,17 +1251,13 @@ class RoomScene:
             raise ValueError(f"{glb_path} has no mesh")
         roots = [o for o in imported if o.parent not in imported]
         bpy.context.view_layer.update()
-        mn, mx = world_bbox(meshes)
+        mn, mx = model_world_bbox(meshes, glb_path)
         own = [max(v, 1e-6) for v in mx - mn]
         if isinstance(size, (int, float)):
             scale = (size / own[2],) * 3
         else:
             scale = tuple(want / have for want, have in zip(size, own))
         pose = Matrix.Translation(Vector(bottom)) @ Matrix.Rotation(math.radians(yaw_deg), 4, "Z")
-        M = (pose @ Matrix.Diagonal((*scale, 1.0))
-             @ Matrix.Translation((-(mn.x + mx.x) / 2, -(mn.y + mx.y) / 2, -mn.z)))
-        for r in roots:
-            r.matrix_world = M @ r.matrix_world
         # The handle stands where the object does, turned with it, as the small-object pass
         # leaves its rebuilds: an editor moving or turning the object turns it about itself.
         coll = get_or_make_collection(COLL_ADDED)
@@ -1233,9 +1273,14 @@ class RoomScene:
             if value:
                 handle[key] = value
         coll.objects.link(handle)
+        # A rotated asset root cannot carry an unequal world-axis scale without shear.
+        fit = bpy.data.objects.new(f"{name}_fit", None)
+        coll.objects.link(fit)
+        fit.parent = handle
+        fit.matrix_basis = (Matrix.Diagonal((*scale, 1.0))
+                            @ Matrix.Translation((-(mn[0] + mx[0]) / 2, -(mn[1] + mx[1]) / 2, -mn[2])))
         for r in roots:
-            r.parent = handle
-            r.matrix_parent_inverse = pose.inverted()
+            r.parent = fit
         for o in imported:
             move_to_collection(o, coll)
         bpy.context.view_layer.update()  # settle parenting before reading bbox
@@ -1243,6 +1288,42 @@ class RoomScene:
                        handle=name, rests_on=rests_on, attached_to=attached_to,
                        support_part=support_part, rebuilt="model")
         print(f"  placed model '{name}' ({os.path.basename(glb_path)}) at {tuple(round(v, 3) for v in bottom)}")
+        return handle
+
+    def mark_small(
+        self, name, category, bottom, size, yaw_deg=0.0, rests_on=None, attached_to=None,
+        support_part=None, description="", color=(0.5, 0.5, 0.5),
+    ):
+        """Mark a loose small object (a mug, a tissue box, a plant) for the small-object pass, which
+        rebuilds it with TRELLIS from the photographs: ONE box, the centre of its underside at
+        `bottom` (x, y, z), the measured `size` (width, depth, height), turned `yaw_deg` about Z
+        (its front faces -Y before the turn, as in `place_model`). Its shape is not modelled; the
+        box carries what the pass needs: the place, the size, the support, `description` (one
+        line: what it is, its colour and material) and `color`, its main sRGB colour, so a box the
+        pass could not rebuild still reads right. Grouped like `group_fixture`; name it by kind and
+        index (`TissueBox0`), which is how a ready model of that kind finds it. Returns the handle."""
+        w, d, h = size
+        if max(color) > 1.0:  # 0-255 given
+            color = tuple(c / 255.0 for c in color)
+        # The size goes into the vertices, not the object's scale: whatever rests on the box or
+        # replaces it hangs under an unstretched object.
+        mesh = _unit_cube_mesh(f"{name}_box")
+        mesh.transform(Matrix.Diagonal((w, d, h, 1.0)) @ Matrix.Translation((0.0, 0.0, 0.5)))
+        box = bpy.data.objects.new(f"{name}_box", mesh)
+        box.matrix_world = (Matrix.Translation(Vector(bottom))
+                            @ Matrix.Rotation(math.radians(yaw_deg), 4, "Z"))
+        box.data.materials.append(self._solid_mat(f"{name}_marker", tuple(color)))
+        handle = group_fixture(name, category, [box], COLL_ADDED, rests_on=rests_on,
+                               attached_to=attached_to, support_part=support_part)
+        handle["small_marker"] = True
+        handle["marker_pose"] = {"bottom": list(map(float, bottom)), "size": list(map(float, size)),
+                                 "yaw_deg": float(yaw_deg)}
+        handle["description"] = description or ""
+        bpy.context.view_layer.update()  # settle parenting before reading bbox
+        self._register(name, category, mesh_descendants(handle), handle=name, rests_on=rests_on,
+                       attached_to=attached_to, support_part=support_part, small_marker=True,
+                       description=description, marker_pose=handle["marker_pose"])
+        print(f"  marked '{name}' ({category}) at {tuple(round(v, 3) for v in bottom)}")
         return handle
 
     def render_from(self, frame_index, out_path, res_div=1):
@@ -1306,6 +1387,7 @@ class RoomScene:
         An articulated support is deliberately NOT guessed: the author must name its
         supporting part (e.g. the moving desktop). The export validator rejects ambiguity.
         """
+        bpy.context.view_layer.update()
         handles = {o.get("room_id"): o for o in bpy.data.objects if o.get("room_id")}
         for child in handles.values():
             target = child.get("rests_on") or child.get("attached_to")

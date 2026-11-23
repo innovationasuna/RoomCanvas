@@ -64,6 +64,7 @@ def _left(out, key: str) -> list:
 
 def _run(context, options: dict) -> dict:
     from litereality_agent.pipeline.realism_authoring import pass_cache
+    from litereality_agent.pipeline.realism_authoring.small_objects import ready
     from litereality_agent.pipeline.scene_init.seed import saved
 
     build = context.preview_dir
@@ -71,8 +72,12 @@ def _run(context, options: dict) -> dict:
     report = {"warnings": []}
     room = build
     out = context.authoring_root / SMALL
+    args = [context.scene_dir, "--out", out]
+    sources = context.authored_room / ready.FOLDER / ready.SOURCES
+    if sources.is_file():
+        args += ["--ready-sources", sources]
     rc, log = run_module(context, f"litereality_agent.pipeline.realism_authoring.{SMALL}",
-                         [context.scene_dir, "--out", out], log_name=SMALL)
+                         args, log_name=SMALL)
     try:
         # Its whole result, made from this build (not one left from an earlier build).
         made = pass_cache.published_room(out / "room_preview", build) if not rc else None

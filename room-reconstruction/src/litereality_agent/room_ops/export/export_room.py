@@ -209,6 +209,11 @@ color shift).
 yaw_deg=a, rests_on="Table0")`: the centre of its underside at `bottom`, scaled to the measured
 `size` (or one number, the height, keeping its proportions), its front (−Y) turned by `yaw_deg`.
 
+**Mark a loose small object** (a mug, a tissue box, a plant) for the small-object pass, which
+rebuilds it from the photographs — in Room.py, `scene.mark_small("Mug0", "mug", bottom=(x, y, z),
+size=(w, d, h), yaw_deg=a, rests_on="Table0", description="a white ceramic mug", color=(r, g, b))`:
+one box in its main colour at the measured place and size, carrying the description.
+
 ## Object inventory
 | object | category | type | RoomPlan box |
 |--------|----------|------|--------------|

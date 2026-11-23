@@ -130,7 +130,8 @@ Preserve manifest identities, represents_prims, source neural meshes and articul
 Do not delete difficult objects, add invisible supports, change checks or edit reports.
 The checked room had its small objects rebuilt from the photographs and openable parts added
 after Room.py was built (an object the layout marks `rebuilt` replaced the stand-in of that name
-in Room.py): fix such an object through its stand-in, and the passes redo it on your result.
+in Room.py, often a mark_small box): fix such an object through its stand-in, and the passes redo
+it on your result.
 Inspect renders against photographs. Save valid Room.py frequently. Do not launch another
 model. The supervisor will rebuild your result, add the small objects and openable parts again
 and use it as the room. Budget: {steps} tool calls / {seconds} seconds. Return a concise summary

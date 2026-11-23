@@ -41,6 +41,8 @@ def test_parallel_references_checkpoint_each_finished_item_and_retry_failed(smal
         barrier.wait(timeout=5)
         if item["id"] == "Cup":
             raise ValueError("no reference")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "reference.png").write_bytes(b"reference")
         return {"cost_usd": 0.25}
 
     monkeypatch.setattr(evidence, "generator_inputs", lambda *args: [])
@@ -489,8 +491,6 @@ def trace(scene):
 def test_each_item_is_traced_once_per_run_with_a_fresh_time_also_from_the_cache(scene, monkeypatch):
     import time
 
-    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
-
     def full_run(run_id):
         monkeypatch.setenv("LITEREALITY_RUN_ID", run_id)
         run = Pass(scene)
@@ -501,12 +501,7 @@ def test_each_item_is_traced_once_per_run_with_a_fresh_time_also_from_the_cache(
         answer(run, monkeypatch, {"Cup": "drop", "Pillow": "trellis", "Sheet": "procedural"})
         run.run()
 
-    monkeypatch.setattr(evidence, "generator_inputs", lambda *args: [])
-    monkeypatch.setattr(rebuild, "make_reference", lambda *args: {})
-    monkeypatch.setattr(rebuild, "run_trellis", lambda refs, *_: {
-        oid: {"glb": "trellis.glb", "pipeline": "default"} for oid in refs})
-    monkeypatch.setattr(rebuild, "drop_fragments", lambda *args: {})
-    monkeypatch.setattr(rebuild, "correct_material", lambda *args: {})
+    fake_steps(monkeypatch)
     full_run("attempt-01")
     started = time.time()
     full_run("attempt-02")
@@ -575,6 +570,7 @@ def fake_steps(monkeypatch, fail=()):
         target.write_bytes(Path(source).read_bytes() + b", coloured")
         return {"category": category}
 
+    monkeypatch.setattr(rebuild, "usable_mesh", lambda path: path.is_file() and path.stat().st_size > 0)
     for name, fake in (("make_reference", make_reference), ("run_trellis", run_trellis),
                        ("drop_fragments", drop_fragments), ("correct_material", correct_material)):
         monkeypatch.setattr(rebuild, name, fake)
@@ -731,7 +727,7 @@ def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeyp
     assert items["Book0"]["inputs"] == cache.fingerprint(
         {"policy": None, "photos": {}, "model": cache.file_hash(models / "Book.glb")})
     replace = {entry["id"]: entry for entry in applied[-1]["replace"]}
-    assert set(replace) == {"Book0", "Cup"}
+    assert set(replace) == {"Book0", "Book1", "Cup"}
     assert replace["Book0"]["glb"] == str(run.out / "rebuild" / "Book0" / "model.glb")
     # Its loose pieces gone again here, also from a model premade before that went by contact.
     assert Path(replace["Book0"]["glb"]).read_bytes() == b"premade book, cleaned"
@@ -752,7 +748,7 @@ def test_the_pass_adopts_supplied_models_without_astra_or_trellis(scene, monkeyp
         assert done["Book0"]["source"] == str(models.resolve() / "Book.glb")
         assert "source" not in done["Pillow"]
     final = [r for r in trace(scene) if r["kind"] == "small_objects_done"][-1]
-    assert (final["rebuilt"], final["dropped"], final["kept"]) == (2, 1, 1)
+    assert (final["rebuilt"], final["dropped"], final["kept"], final["undone"]) == (3, 1, 1, 1)
 
 
 def test_supplied_and_rebuilt_items_share_one_pass(scene, monkeypatch, tmp_path):
@@ -818,12 +814,10 @@ def test_ready_models_are_copied_into_the_room_and_listed_for_the_author(tmp_pat
     assert rows == [{"kind": "TissueBox", "glb": "Models/TissueBox.glb", "proportions": [2.0, 1.0, 1.0],
                      "description": "a white tissue box",
                      "reference": str(models / "work" / "TissueBox" / "reference.png")}]
-    brief = ready.prompt(rows, room)
+    brief = ready.prompt(rows)
     assert "scene.place_model(" in brief and "Models/TissueBox.glb: a white tissue box" in brief
-    assert str(ready.TEMPLATE) in brief  # this Room.py is older than place_model
-    (room / "Room.py").write_text("class RoomScene:\n    def place_model(self): ...\n")
-    assert str(ready.TEMPLATE) not in ready.prompt(rows, room)
-    assert "def place_model" in ready.TEMPLATE.read_text()
+    assert 'category="luminaire", attached_to="Wall0"' in brief
+    assert "scene.mark_small(" in brief  # what has no model is marked for the pass
     monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(tmp_path / "missing"))
     with pytest.raises(FileNotFoundError, match="LR_SMALL_OBJECTS_MODELS"):
         ready.stage(room)
@@ -882,10 +876,769 @@ def test_trellis_on_a_shared_card_waits_for_room_and_gives_up_without_it(tmp_pat
 def test_items_never_judged_or_not_rebuilt_are_undone_not_kept(tmp_path):
     from litereality_agent.pipeline.realism_authoring.small_objects.run import Pass
 
+    ready = tmp_path / "Rebuilt.glb"
+    ready.write_bytes(b"model")
     done = Pass.__new__(Pass)
     done.items = [{"id": "Kept", "decision": {"decision": "procedural"}},
                   {"id": "Dropped", "decision": {"decision": "drop"}},
-                  {"id": "Rebuilt", "decision": {"decision": "trellis"}, "glb": "Rebuilt.glb"},
+                  {"id": "Rebuilt", "decision": {"decision": "trellis"}, "glb": str(ready), "material": {}},
+                  {"id": "Uncorrected", "decision": {"decision": "trellis"}, "glb": "mesh.glb"},
                   {"id": "Unjudged", "decision_error": "RuntimeError: timed out"},
                   {"id": "NoMesh", "decision": {"decision": "trellis"}, "glb_error": "TRELLIS wrote no mesh"}]
-    assert done.undone() == ["Unjudged", "NoMesh"]
+    assert done.undone() == ["Uncorrected", "Unjudged", "NoMesh"]
+
+
+# ── boxes the author marked for the pass (RoomScene.mark_small) ─────────────────────────
+
+
+def marked_room():
+    """room() plus what an author marks instead of modelling: a tissue box, a desk lamp (a
+    category the pass never takes from built geometry), and two books stacked on the floor."""
+    layout = room()
+    layout["objects"] += [
+        obj("TissueBox0", "tissue_box", [1.1, 1.75, 1.1], [1.34, 1.87, 1.2], rests_on="Shelf",
+            small_marker=True, description="a white tissue box"),
+        obj("DeskLamp0", "light", [-1.8, -1.8, 0], [-1.6, -1.6, 0.4], rests_on="Floor0",
+            small_marker=True, description="a black metal desk lamp"),
+        obj("Book2", "book", [-1.0, 1.2, 0], [-0.7, 1.4, 0.04], rests_on="Floor0",
+            small_marker=True, description="a red hardback"),
+        obj("Book3", "book", [-1.0, 1.2, 0.04], [-0.72, 1.39, 0.07], rests_on="Book2",
+            small_marker=True, description="a blue paperback"),
+    ]
+    return layout
+
+
+def test_rebuilt_marker_lamps_keep_their_mount_in_web_groups(small_objects, tmp_path, monkeypatch):
+    import trimesh
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "web/scripts"))
+    from room_objects import build
+
+    layout = room()
+    lamps = [
+        obj("WallLamp0", "light", [0, 2, 1], [.2, 2.1, 1.2], small_marker=True, attached_to="Wall0"),
+        obj("DeskLamp0", "light", [1, 1.7, 1.1], [1.2, 1.9, 1.3], small_marker=True, rests_on="Shelf"),
+    ]
+    layout["objects"].extend(lamps)
+    model = tmp_path / "lamp.glb"
+    trimesh.creation.box().export(model)
+    items = [dict(i, decision={"decision": "trellis"}, views=[], glb=str(model), material={})
+             for i in candidates.find_candidates(layout) if i["marker"]]
+    _, replacements = small_objects.plan(items)
+    plan = {i["id"]: i for i in replacements}
+    assert "movable" not in plan["WallLamp0"] and plan["DeskLamp0"]["movable"]
+    for lamp in lamps:
+        lamp.update(rebuilt="trellis")
+        if "movable" in plan[lamp["id"]]:
+            lamp["movable"] = plan[lamp["id"]]["movable"]
+    result = build(layout)
+    records = {o["id"]: o for o in result["objects"]}
+    groups = {g["id"]: g["members"] for g in result["groups"]}
+    wall = records["WallLamp0"]
+    assert (wall["role"], wall["mount"], wall["attached_to"]) == ("fixture", "wall", "Wall0")
+    assert "WallLamp0" not in groups
+    assert records["DeskLamp0"]["role"] == "furniture" and groups["DeskLamp0"] == ["DeskLamp0"]
+
+
+def test_marked_boxes_are_candidates_with_their_description():
+    items = {item["id"]: item for item in candidates.find_candidates(marked_room())}
+    assert items["TissueBox0"]["marker"] and items["TissueBox0"]["description"] == "a white tissue box"
+    assert items["DeskLamp0"]["marker"]  # marked: a candidate whatever its category
+    assert items["Book2"]["members"] == ["Book2", "Book3"] and items["Book2"]["marker"]
+    assert items["Book2"]["description"] == "a red hardback; a blue paperback"
+    # What the author built itself is a candidate as before, never a marker.
+    assert all(not items[oid]["marker"] and items[oid]["description"] == ""
+               for oid in ("Sheet", "Pillow", "Book0", "Cup"))
+    assert {oid for oid, item in items.items() if not item["marker"]} == {
+        c["id"] for c in candidates.find_candidates(room())}
+
+
+def test_supplied_book_splits_a_cached_marker_stack(marked_scene, monkeypatch):
+    import trimesh
+
+    run = Pass(marked_scene, only=["Book2", "Book3"])
+    run.find()
+    stack, = run.active()
+    assert stack["members"] == ["Book2", "Book3"]
+    stack["decision"] = {"decision": "drop"}
+    run.save()
+
+    models = marked_scene / "models"
+    models.mkdir()
+    trimesh.creation.box().export(models / "Book.glb")
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+    run = Pass(marked_scene, only=["Book2", "Book3"])
+    run.find()
+    seen(run)
+    run.decide()
+    run.rebuild()
+    drop, replacements = run.plan(run.active())
+    assert not drop
+    assert [item["rests_on"] for item in run.active()] == ["Floor0", "Book2"]
+    assert [item["decision"]["source"] for item in run.active()] == [str(models / "Book.glb")] * 2
+    assert [(item["id"], item["members"]) for item in replacements] == [
+        ("Book2", ["Book2"]), ("Book3", ["Book3"])]
+    assert all(trimesh.load_scene(item["glb"]).geometry for item in replacements)
+
+
+def test_rotated_marker_dimensions_in_both_prompts_and_world_bounds_in_projection(tmp_path, monkeypatch):
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    dims = [.24, .12, .10]
+    half = (dims[0] + dims[1]) / (2 * math.sqrt(2))
+    box = obj("Box0", "box", [-half, -half, 0], [half, half, dims[2]], small_marker=True,
+              marker_pose={"size": dims, "bottom": [0, 0, 0], "yaw_deg": 45})
+    item, = candidates.find_candidates({"objects": [box]})
+    assert "0.24 x 0.12 x 0.10 metres" in judge.decide_prompt(item, True)
+    bounds = []
+
+    def rank(_cameras, low, high):
+        bounds.append((low, high))
+        return []
+
+    monkeypatch.setattr(evidence, "rank_frames", rank)
+    evidence.collect_views(item, [], tmp_path, tmp_path)
+    assert bounds == [([-round(half, 4), -round(half, 4), 0], [round(half, 4), round(half, 4), .1])]
+
+    def generate(sheet, prompt, raw, **kwargs):
+        raw.write_bytes(sheet.read_bytes())
+
+    monkeypatch.setattr(rebuild.image_gen, "generate_reference", generate)
+    rebuild.make_reference(item, [], "", tmp_path)
+    assert "dimensions xyz=0.24,0.12,0.10 meters" in (tmp_path / "prompt.txt").read_text()
+
+
+def test_a_marker_is_asked_only_to_rebuild_or_drop():
+    items = {item["id"]: item for item in candidates.find_candidates(marked_room())}
+    for policy in (None, "trellis-first"):
+        text = judge.decide_prompt(items["TissueBox0"], True, policy=policy)
+        assert "placeholder box" in text and '"a white tissue box"' in text
+        assert '"trellis" | "drop"' in text and "procedural" not in text
+        assert judge.GUIDANCE not in text and judge.TRELLIS_FIRST not in text
+        assert "always, whatever you decide" in text
+    assert "IMAGE 2 the CURRENT MODEL is that placeholder box" in text
+    only_photos = judge.decide_prompt({**items["TissueBox0"], "views": []}, False, photos=1)
+    assert "No capture frame shows the object." in only_photos and "IMAGE 2" not in only_photos
+    # Built geometry keeps today's question.
+    (cup,) = [item for item in candidates.find_candidates(room()) if item["id"] == "Cup"]
+    assert judge.decide_prompt(items["Cup"], True) == judge.decide_prompt(cup, True)
+    assert '"drop" | "procedural" | "trellis"' in judge.decide_prompt(items["Cup"], True)
+
+
+@pytest.fixture
+def marked_scene(scene):
+    layout = {**marked_room(), "cameras": [{"frame_index": 1, "position": [0, 0, 1.5]}]}
+    (scene / "preview" / "room_layout.json").write_text(json.dumps(layout))
+    return scene
+
+
+def test_a_marker_judged_procedural_is_rebuilt_and_built_geometry_is_not(marked_scene, monkeypatch):
+    run = Pass(marked_scene)
+    run.find()
+    seen(run, "TissueBox0", "DeskLamp0", "Cup", "Sheet")
+    asked = {}
+    answer(run, monkeypatch, {"TissueBox0": "procedural", "DeskLamp0": "drop", "Cup": "procedural",
+                              "Sheet": "trellis"}, asked)
+    run.decide()
+    decisions = {i["id"]: i["decision"] for i in run.items}
+    assert decisions["TissueBox0"] == {"decision": "trellis", "reason": "", "description": "a thing",
+                                       "judged": "procedural", "forced": True, "coerced": True}
+    assert decisions["DeskLamp0"] == {"decision": "drop", "reason": "", "description": "a thing"}
+    assert decisions["Cup"] == {"decision": "procedural", "reason": "", "description": "a thing"}
+    assert decisions["Book2"]["decision"] == "drop"  # seen in no frame, as any item
+    assert "a white tissue box" in asked["TissueBox0"][1] and "placeholder" not in asked["Cup"][1]
+    # The coerced decision stands on a later run; nothing is asked again.
+    again = Pass(marked_scene)
+    again.find()
+    answer(again, monkeypatch, {})
+    again.decide()
+    assert {i["id"]: i["decision"] for i in again.items} == decisions
+
+
+def test_forcing_a_marker_procedural_still_rebuilds_it(marked_scene, monkeypatch):
+    monkeypatch.setenv("LR_SMALL_OBJECTS_FORCE", "TissueBox0=procedural,Cup=procedural")
+    run = Pass(marked_scene)
+    run.find()
+    seen(run, "TissueBox0", "Cup")
+    answer(run, monkeypatch, {"TissueBox0": "drop", "Cup": "trellis"})
+    run.decide()
+    decisions = {i["id"]: i["decision"] for i in run.items}
+    assert (decisions["TissueBox0"]["decision"], decisions["TissueBox0"]["coerced"]) == ("trellis", True)
+    assert decisions["Cup"]["decision"] == "procedural" and "coerced" not in decisions["Cup"]
+
+
+def test_the_policy_concerns_only_built_geometry(marked_scene, monkeypatch):
+    monkeypatch.setenv("LR_SMALL_OBJECTS_POLICY", "trellis-first")
+    run = Pass(marked_scene)
+    run.find()
+    items = {i["id"]: i for i in run.items}
+    assert "inputs" not in items["TissueBox0"] and items["Cup"]["inputs"]
+
+
+def test_a_changed_description_judges_only_that_marker_again(marked_scene):
+    run = Pass(marked_scene)
+    run.find()
+    for item in run.items:
+        item["decision"] = {"decision": "trellis", "reason": "", "description": ""}
+    run.save()
+    layout = json.loads((marked_scene / "preview" / "room_layout.json").read_text())
+    for entry in layout["objects"]:
+        if entry["id"] == "TissueBox0":
+            entry["description"] = "a pink tissue box"
+        if entry["id"] == "Cup":  # rebuilt as a marker at the same place
+            entry.update(small_marker=True, description="a green mug")
+    (marked_scene / "preview" / "room_layout.json").write_text(json.dumps(layout))
+    (marked_scene / "preview" / "Room.blend").write_bytes(b"the repaired room")
+    again = Pass(marked_scene)
+    again.find()
+    items = {i["id"]: i for i in again.items}
+    assert {oid for oid, item in items.items() if "decision" not in item} == {"TissueBox0", "Cup"}
+    assert items["Cup"]["marker"] and items["TissueBox0"]["description"] == "a pink tissue box"
+
+
+def test_a_marker_rebuild_that_failed_keeps_the_box_and_says_why(marked_scene, monkeypatch):
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    run = Pass(marked_scene)
+    run.find()
+    seen(run, "TissueBox0", "Pillow")
+    for item in run.items:
+        wanted = item["id"] in ("TissueBox0", "Pillow")
+        item["decision"] = {"decision": "trellis" if wanted else "drop", "description": ""}
+    descriptions = {}
+    monkeypatch.setattr(evidence, "generator_inputs", lambda *args: [])
+    monkeypatch.setattr(rebuild, "make_reference", lambda item, tiles, description, folder:
+                        descriptions.update({item["id"]: description}))
+    monkeypatch.setattr(rebuild, "run_trellis", lambda *args: {})  # e.g. the GPU wait gave up
+    run.rebuild()
+    # Astra gave no description: the author's stands in for the marker.
+    assert descriptions == {"TissueBox0": "a white tissue box", "Pillow": ""}
+    rows = {r["name"]: r for r in trace(marked_scene) if r["kind"] == "small_object_done"}
+    box = rows["TissueBox0"]
+    assert (box["method"], box["status"], box["marker"]) == ("kept", "failed", True)
+    assert box["reason"] == "TRELLIS wrote no mesh"
+    assert rows["Pillow"]["method"] == "kept" and "marker" not in rows["Pillow"]
+    items = {i["id"]: i for i in run.items}
+    assert run.outcome(items["TissueBox0"]).startswith("marker box kept, rebuild failed")
+    assert run.outcome(items["Pillow"]).startswith("unchanged, rebuild failed")
+    assert "TissueBox0" in run.undone()
+
+
+@pytest.mark.parametrize("yaw", [0, 30, 180])
+def test_marker_placement_preserves_directed_front_and_all_three_dimensions(yaw):
+    target = {"bottom": [1, 2, .8], "size": [.24, .12, .1], "yaw_deg": yaw}
+    asset = np.array([.24, .24, .1])
+    pose = fit.placement(target, asset, camera_xy=[1, 5])
+    assert asset * pose["scale"] == pytest.approx(target["size"])
+    assert pose["yaw"] == pytest.approx(math.radians(yaw))
+
+
+def test_marker_overhang_has_strict_underside_support(monkeypatch):
+    import runpy
+    import sys
+    from unittest.mock import MagicMock
+
+    import trimesh
+
+    from litereality_agent.agent.author import TEMPLATE
+    from litereality_agent.pipeline.room_qc.support_audit import vertical_contacts
+
+    bpy = MagicMock()
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setitem(sys.modules, "mathutils", MagicMock())
+    mesh = runpy.run_path(str(TEMPLATE))["_unit_cube_mesh"]("box")
+    verts, _, faces = mesh.from_pydata.call_args.args
+    box = trimesh.Trimesh(np.asarray(verts) * [.24, .12, .1] + [0, 0, .05], faces)
+    top = trimesh.creation.box([.2, .1, .02])
+    top.apply_translation([0, 0, -.01])
+    contact = vertical_contacts(box, top, tolerance=.005, sink_tolerance=.005)
+    assert contact["contact_samples"] > 0 and contact["center_over_contact_hull"]
+
+
+def test_the_room_template_has_the_marker():
+    from litereality_agent.agent.author import TEMPLATE
+
+    source = TEMPLATE.read_text()
+    assert "def mark_small" in source and 'handle["small_marker"] = True' in source
+
+
+@pytest.mark.blender
+def test_mark_small_makes_one_coloured_box_on_its_support(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    from types import SimpleNamespace
+
+    import trimesh
+
+    from litereality_agent.pipeline.realism_authoring import passes
+    from litereality_agent.room_ops.paths import find_blender
+
+    source = Path(__file__).resolve().parents[1] / "src"
+    preview = tmp_path / "preview"
+    preview.mkdir()
+    script = tmp_path / "scene.py"
+    script.write_text(
+        """
+import sys, json
+sys.path.insert(0, SOURCE)
+import bpy
+from litereality_agent.room_ops.compile.build_room import RoomScene
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+bpy.ops.mesh.primitive_cube_add(size=1, location=(0,0,-.05))
+floor=bpy.context.object; floor.name='Floor0'; floor.dimensions=(4,4,.1)
+table=bpy.data.objects.new('Table0',None)
+table['room_id']='Table0'; table['category']='table'
+bpy.context.scene.collection.objects.link(table)
+bpy.ops.mesh.primitive_cube_add(size=1, location=(0,0,.75))
+top=bpy.context.object; top.name='Desktop'; top.dimensions=(1,1,.1); top.parent=table
+scene=object.__new__(RoomScene)
+scene.objects={}; scene.cameras=[]; scene.scan_dir=str(OUT); scene.out_glb=OUT
+handle=scene.mark_small('TissueBox0','tissue_box',bottom=(0.1,0,0.8),size=(0.24,0.12,0.1),
+                        yaw_deg=30,rests_on='Table0',description='a white tissue box',
+                        color=(255,255,255))
+lamp=scene.mark_small('DeskLamp0','light',bottom=(-.2,0,.8),size=(.24,.12,.1),rests_on='Table0')
+scene.mark_small('Mug0','mug',bottom=(0,.3,.8),size=(.1,.1,.1),rests_on='Table0')
+parts=[o for o in handle.children_recursive]
+assert len(parts)==1 and parts[0].type=='MESH' and len(parts[0].data.vertices)==8
+assert tuple(round(v,6) for v in parts[0].scale)==(1,1,1)
+colour=parts[0].data.materials[0].node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value
+assert min(colour[:3])>0.99
+scene.bind_supports()
+lamp.location.x += .05
+lamp.children[0].rotation_euler.z = 3.14159265
+table.location.x += .02
+scene.export_glb()
+assert handle.parent==table
+scene.export_layout(LAYOUT)
+bpy.ops.wm.save_as_mainfile(filepath=BLEND)
+""".replace("LAYOUT", repr(str(preview / "room_layout.json")))
+        .replace("BLEND", repr(str(preview / "Room.blend")))
+        .replace("SOURCE", repr(str(source)))
+        .replace("OUT", repr(str(preview / "Room.glb")))
+    )
+    result = subprocess.run(
+        [find_blender(), "-b", "--python-exit-code", "1", "--python", str(script)],
+        capture_output=True, text=True, env=dict(os.environ), timeout=90)
+    assert result.returncode == 0, result.stdout + result.stderr
+    layout = json.loads((preview / "room_layout.json").read_text())
+    entry = {o["id"]: o for o in layout["objects"]}["TissueBox0"]
+    assert (entry["small_marker"], entry["description"]) == (True, "a white tissue box")
+    assert (entry["category"], entry["rests_on"]) == ("tissue_box", "Table0")
+    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+    assert entry["size"] == pytest.approx([0.24 * c + 0.12 * s, 0.24 * s + 0.12 * c, 0.1], abs=1e-3)
+    assert entry["bbox_min"][2] == pytest.approx(0.8, abs=1e-4)
+    (item,) = [i for i in candidates.find_candidates(layout) if i["id"] == "TissueBox0"]
+    assert item["marker"] and item["description"] == "a white tissue box"
+
+    assert item["marker_pose"]["yaw_deg"] == 30
+    assert item["marker_pose"]["bottom"] == pytest.approx([.12, 0, .8])
+    assert item["marker_pose"]["size"] == pytest.approx([.24, .12, .1])
+
+    layout["cameras"] = [{"frame_index": 1, "position": [0, 5, 1.5]}]
+    (preview / "room_layout.json").write_text(json.dumps(layout))
+    (preview / "manifest.json").write_text('{"assets": []}')
+    paths = {"capture": "capture", "authoring_preview": "preview", "authoring": "authoring"}
+    (tmp_path / "scene.json").write_text(json.dumps({"paths": paths}))
+    models = models_dir(tmp_path, TissueBox0=b"invalid GLB")
+    trimesh.creation.box([.24, .1, .24]).export(models / "DeskLamp0.glb")
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+
+    def run_pass(*args, **kwargs):
+        run = Pass(tmp_path)
+        monkeypatch.setattr(run, "gather_evidence", lambda: seen(run, "DeskLamp0"))
+        monkeypatch.setattr(run, "render_pairs", lambda *args: None)
+        run.run()
+        return 0, None
+
+    monkeypatch.setattr(passes, "run_module", run_pass)
+    ctx = SimpleNamespace(scene_dir=tmp_path, authoring_root=tmp_path / "authoring",
+                          authored_room=tmp_path / "authoring" / "room",
+                          preview_dir=preview, object_root=tmp_path / "scene_init/obj_stage")
+    report = passes.run(ctx, {"articulate": False})
+    assert report["small_objects"] == "partial" and report["left"] == {"small_objects": ["TissueBox0"]}
+    final = tmp_path / report["room"]
+    layout = json.loads((final / "room_layout.json").read_text())
+    entries = {o["id"]: o for o in layout["objects"]}
+    assert entries["TissueBox0"]["small_marker"] and "Mug0" not in entries
+    assert entries["DeskLamp0"]["movable"] and not entries["DeskLamp0"].get("small_marker")
+    assert entries["DeskLamp0"]["size"] == pytest.approx([.24, .12, .1], abs=.0001)
+    assert entries["DeskLamp0"]["center"] == pytest.approx([-.13, 0, .85], abs=.0001)
+    glb = trimesh.load_scene(final / "Room.glb")
+    matrix, _ = glb.graph[entries["DeskLamp0"]["handle"]]
+    # The author turned the marker's front (glTF +Z) through half a turn after creation.
+    assert matrix[:3, 2] == pytest.approx([0, 0, -1], abs=1e-5)
+    monkeypatch.syspath_prepend(str(source.parents[1] / "web/scripts"))
+    from room_objects import build
+
+    groups = {g["id"]: g["members"] for g in build(layout, set(glb.graph.nodes))["groups"]}
+    assert groups["DeskLamp0"] == ["DeskLamp0"]
+
+
+def migrate_445ec9f_model_template(path, template):
+    import inspect
+
+    from litereality_agent.agent import author
+
+    legacy = (Path(__file__).parent / "fixtures" / "room_scene_445ec9f.py.txt").read_text()
+    prompt = "scene.place_model("
+    path.write_text(legacy)
+    assert not author._template_migrations(path, "")
+    notes = author._template_migrations(path, prompt)
+    assert "Copy the missing RoomScene.place_model" in notes and "Copy the model_world_bbox helper" in notes
+    assert "copy the rebuilt argument and its assignment" in notes
+    assert "copy the model_world_bbox branch" in notes
+    assert 'forward rebuilt=o.get("rebuilt")' in notes
+
+    # Apply only the indicated edits to the historical room, keeping its register and index.
+    room = legacy.replace("class RoomScene:", inspect.getsource(template["model_world_bbox"])
+                          + "\nclass RoomScene:\n" + inspect.getsource(template["RoomScene"].place_model))
+    room = room.replace("support_part=None):\n        mn, mx = world_bbox(meshes)",
+                        'support_part=None, rebuilt=None):\n'
+                        '        mn, mx = model_world_bbox(meshes, source) if rebuilt == "model" else world_bbox(meshes)')
+    room = room.replace("    def index(self):", '        if rebuilt:\n'
+                        '            self.objects[rid]["rebuilt"] = rebuilt\n\n    def index(self):')
+    path.write_text(room)
+    assert "copy the rebuilt argument" not in author._template_migrations(path, prompt)
+    assert "forward rebuilt" in author._template_migrations(path, prompt)
+    path.write_text(room.replace('support_part=o.get("support_part"),',
+                                 'support_part=o.get("support_part"), rebuilt=o.get("rebuilt"),'))
+    assert not author._template_migrations(path, prompt)
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["current", "445ec9f"])
+def test_place_model_measures_rotated_cylinder_vertices(tmp_path, monkeypatch, legacy):
+    import runpy
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import trimesh
+
+    from litereality_agent.agent.author import TEMPLATE
+
+    class Vector(np.ndarray):
+        def __new__(cls, xyz):
+            return np.asarray(xyz, dtype=float).view(cls)
+
+        @property
+        def z(self):
+            return self[2]
+
+    class Empty(dict):
+        type = "EMPTY"
+
+        def __init__(self, name):
+            self.name = name
+
+    cylinder = trimesh.creation.cylinder(radius=.05, height=.1, sections=64)
+    transform = trimesh.transformations.rotation_matrix(math.pi / 4, [0, 0, 1])
+    transform[:3, 3] = [.3, -.2, .1]
+    mesh = MagicMock(type="MESH")
+    mesh.parent = None
+    mesh.name = "Cylinder"
+    mesh.bound_box = trimesh.bounds.corners(cylinder.bounds)
+    evaluated = MagicMock()
+    vertices = evaluated.data.vertices
+    vertices.__len__.return_value = len(cylinder.vertices)
+    vertices.foreach_get.side_effect = lambda prop, out: np.copyto(out, cylinder.vertices.ravel())
+
+    def evaluate(_depsgraph):
+        fit = mesh.parent
+        evaluated.matrix_world = fit.parent.matrix_world @ fit.matrix_basis @ transform if fit is not None else transform
+        return evaluated
+
+    mesh.evaluated_get.side_effect = evaluate
+    mesh.matrix_world.__matmul__.side_effect = lambda p: (evaluate(None).matrix_world @ [*p, 1])[:3]
+    bpy = MagicMock()
+    bpy.data.objects.new.side_effect = lambda name, data: Empty(name)
+    matrices = SimpleNamespace(Translation=trimesh.transformations.translation_matrix,
+                               Diagonal=np.diag, Rotation=lambda angle, dims, axis:
+                               trimesh.transformations.rotation_matrix(angle, [0, 0, 1]))
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setitem(sys.modules, "mathutils", SimpleNamespace(Matrix=matrices, Vector=Vector))
+    template = runpy.run_path(str(TEMPLATE))
+    if legacy:
+        path = tmp_path / "Room.py"
+        migrate_445ec9f_model_template(path, template)
+        # Only the globals already available to these methods in 445ec9f.
+        legacy_globals = {name: template[name] for name in (
+            "bpy", "json", "math", "os", "re", "Matrix", "Vector", "HERE", "COLL_ADDED", "PLACEABLE_CATS",
+            "category_of", "get_or_make_collection", "import_glb", "mesh_descendants", "move_to_collection", "world_bbox",
+        )}
+        template = runpy.run_path(str(path), init_globals=legacy_globals)
+    scene = object.__new__(template["RoomScene"])
+    scene.objects, scene.cameras, scene.scan_dir = {}, [], str(tmp_path)
+    monkeypatch.setitem(scene.place_model.__globals__, "import_glb", lambda _: [mesh])
+    monkeypatch.setitem(scene.place_model.__globals__, "mesh_descendants", lambda _: [mesh])
+    size = [.24, .12, .1]
+    handle = scene.place_model("Direct", "asset.glb", bottom=(1, 0, .8), size=size, attached_to="Wall0")
+    world = handle.matrix_world @ mesh.parent.matrix_basis @ transform
+    points = trimesh.transform_points(cylinder.vertices, world)
+    assert np.ptp(points, axis=0) == pytest.approx(size, abs=1e-6)
+    assert (points.max(0) + points.min(0)) / 2 == pytest.approx([1, 0, .85], abs=1e-6)
+    assert scene.objects["Direct"]["rebuilt"] == "model"
+    assert scene.objects["Direct"]["size"] == pytest.approx(size)
+    top = scene.top_surface("Direct")
+    assert top["size"] == pytest.approx(size[:2]) and top["z"] == pytest.approx(.9)
+
+    bpy.data.objects.__iter__.side_effect = lambda: iter([handle, mesh])
+    handle.matrix_world[0, 3] += .5
+    scene.index()
+    layout = tmp_path / "room_layout.json"
+    scene.export_layout(layout)
+    entry, = json.loads(layout.read_text())["objects"]
+    assert (entry["category"], entry["attached_to"]) == ("small_object", "Wall0")
+    assert entry["rebuilt"] == "model" and entry["size"] == pytest.approx(size)
+    assert entry["bbox_min"] == pytest.approx([1.38, -.06, .8])
+    assert entry["bbox_max"] == pytest.approx([1.62, .06, .9])
+
+
+@pytest.mark.blender
+def test_rotated_asset_root_fits_each_marker_axis_in_exported_glb(tmp_path):
+    import subprocess
+
+    import trimesh
+
+    from litereality_agent.room_ops.paths import find_blender
+
+    source = Path(__file__).resolve().parents[1] / "src"
+    script = tmp_path / "fit_rotated.py"
+    script.write_text("""
+import math, sys
+from pathlib import Path
+source, folder = sys.argv[sys.argv.index('--') + 1:]
+# As in production: Room.py carries build_room's source and blender_ops runs as a script, so neither
+# imports the litereality_agent package (whose settings need pydantic, absent from Blender's Python).
+sys.path.insert(0, source + '/litereality_agent/room_ops/compile')
+sys.path.insert(0, source + '/litereality_agent/pipeline/realism_authoring/small_objects')
+import bpy
+from build_room import RoomScene
+import blender_ops
+
+folder = Path(folder)
+asset = str(folder / 'asset.glb')
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=.05, depth=.1, location=(0.3, -0.2, 0.1))
+cylinder = bpy.context.object
+cylinder.rotation_euler.z = math.pi / 4
+bpy.ops.export_scene.gltf(filepath=asset, use_selection=True)
+bpy.data.objects.remove(cylinder, do_unlink=True)
+
+scene = object.__new__(RoomScene)
+scene.objects = {}
+scene.out_glb = str(folder / 'Room.glb')
+size = (.24, .12, .1)
+scene.place_model('Direct', asset, bottom=(1, 0, .8), size=size)
+assert scene.objects['Direct']['size'] == list(size)
+assert scene.top_surface('Direct')['size'] == list(size[:2])
+scene.mark_small('Swap', 'mug', bottom=(-1, 0, .8), size=size)
+scene.index()
+item = dict(id='Swap', members=['Swap'], category='mug', glb=asset,
+            marker_pose=scene.objects['Swap']['marker_pose'])
+blender_ops.place(item, blender_ops.handles(), folder, dict(removed=[], placed=[], moved=[]))
+scene.export_glb()
+scene.cameras, scene.scan_dir = [], str(folder)
+scene.export_layout()
+""")
+    result = subprocess.run(
+        [find_blender(), "-b", "--python-exit-code", "1", "--python", str(script),
+         "--", str(source), str(tmp_path)], capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stdout + result.stderr
+    glb = trimesh.load_scene(tmp_path / "Room.glb")
+    layout = json.loads((tmp_path / "room_layout.json").read_text())
+    direct = next(o for o in layout["objects"] if o["id"] == "Direct")
+    assert direct["size"] == pytest.approx([.24, .12, .1])
+    for name, x in (("Direct", 1), ("Swap", -1)):
+        nodes = glb.graph.transforms.successors(name) & set(glb.graph.nodes_geometry)
+        (node,) = nodes
+        matrix, geometry = glb.graph[node]
+        points = trimesh.transform_points(glb.geometry[geometry].vertices, matrix)
+        assert np.ptp(points, axis=0) == pytest.approx([.24, .1, .12], abs=1e-5)  # glTF Y-up
+        assert (points.max(0) + points.min(0)) / 2 == pytest.approx([x, .85, 0], abs=1e-5)
+
+
+@pytest.mark.parametrize("built", ["Book2", "Book3"])
+def test_built_and_marked_books_keep_separate_decisions_and_support(built):
+    layout = marked_room()
+    next(o for o in layout["objects"] if o["id"] == built).pop("small_marker")
+    items = {i["id"]: i for i in candidates.find_candidates(layout)}
+    for name in ("Book2", "Book3"):
+        assert items[name]["marker"] is (name != built)
+        assert items[name]["members"] == [name]
+    assert items["Book3"]["rests_on"] == "Book2"
+
+
+def test_mixed_category_marker_stack_reuses_its_decision():
+    import os
+    import subprocess
+    import sys
+
+    from litereality_agent.pipeline.realism_authoring.pass_cache import carry
+
+    layout = marked_room()
+    next(o for o in layout["objects"] if o["id"] == "Book3")["category"] = "paper"
+    old = candidates.find_candidates(layout)
+    stack = next(i for i in old if i["id"] == "Book2")
+    assert stack["category"] == "book"
+    stack["decision"] = {"decision": "trellis"}
+    layout["objects"].reverse()
+    script = ("import json, sys; from litereality_agent.pipeline.realism_authoring.small_objects "
+              "import candidates; print(json.dumps(candidates.find_candidates(json.load(sys.stdin))))")
+    for seed in ("1", "3"):
+        rerun = subprocess.run([sys.executable, "-c", script], input=json.dumps(layout),
+                               capture_output=True, text=True, check=True,
+                               env={**os.environ, "PYTHONHASHSEED": seed})
+        reused, changed = carry(old, json.loads(rerun.stdout))
+        assert not changed and next(i for i in reused if i["id"] == "Book2") is stack
+
+
+@pytest.mark.parametrize("force", ["procedural", "trellis"])
+def test_marker_force_without_images_drops_before_rebuilding(marked_scene, monkeypatch, force):
+    monkeypatch.setenv("LR_SMALL_OBJECTS_FORCE", f"TissueBox0={force}")
+    calls = fake_steps(monkeypatch)
+    run = Pass(marked_scene)
+    run.find()
+    seen(run)
+    answer(run, monkeypatch, {})
+    run.decide()
+    run.rebuild()
+    assert next(i for i in run.items if i["id"] == "TissueBox0")["decision"]["decision"] == "drop"
+    assert calls == {"trellis": [], "reference": []}
+
+
+def test_articulation_skips_marker_until_it_is_replaced():
+    from litereality_agent.pipeline.realism_authoring.articulate import candidates as parts
+
+    layout = marked_room()
+    assert "TissueBox0" not in {i["id"] for i in parts.find_candidates(layout)}
+    box = next(o for o in layout["objects"] if o["id"] == "TissueBox0")
+    box.pop("small_marker")
+    box.update(rebuilt="trellis", source_glb="TissueBox0.glb")
+    assert "TissueBox0" in {i["id"] for i in parts.find_candidates(layout)}
+
+
+def test_marker_override_provenance_changes_without_rebuilding(marked_scene, monkeypatch):
+    calls = fake_steps(monkeypatch)
+    for force in (None, "procedural", "trellis", None):
+        monkeypatch.setenv("LR_SMALL_OBJECTS_FORCE", f"TissueBox0={force}" if force else "")
+        run = Pass(marked_scene)
+        run.find()
+        seen(run, "TissueBox0")
+        answer(run, monkeypatch, {"TissueBox0": "trellis"} if not calls["trellis"] else {})
+        run.decide()
+        run.rebuild()
+        box = next(i for i in json.loads(run.state_path.read_text()) if i["id"] == "TissueBox0")
+        assert box["decision"]["decision"] == "trellis"
+        assert box["decision"].get("override") == force
+        assert bool(box["decision"].get("coerced")) is (force == "procedural")
+    assert calls["trellis"] == [["TissueBox0"]]
+
+
+def test_retry_reports_the_current_mesh_failure_in_trace_and_summary(marked_scene, monkeypatch):
+    from litereality_agent.agent.providers import vision
+
+    fake_steps(monkeypatch, fail={"TissueBox0"})
+    async def timeout(*args, **kwargs):
+        raise TimeoutError("judge timed out")
+
+    monkeypatch.setattr(vision, "ask_images", timeout)
+    run = Pass(marked_scene)
+    run.find()
+    seen(run, "TissueBox0")
+    run.decide()
+    box = next(i for i in run.items if i["id"] == "TissueBox0")
+    assert box["decision_error"] == "TimeoutError: judge timed out"
+
+    async def success(*args, **kwargs):
+        return '{"decision": "trellis"}'
+
+    monkeypatch.setattr(vision, "ask_images", success)
+    run = Pass(marked_scene)
+    run.decide()
+    run.rebuild()
+    run.summarize()
+    row = next(r for r in trace(marked_scene) if r["kind"] == "small_object_done"
+               and r["run"] == run.run_id and r["name"] == "TissueBox0")
+    assert row["reason"] == "TRELLIS wrote no mesh"
+    assert row["reason"] in (run.out / "summary.md").read_text()
+    box = next(i for i in run.items if i["id"] == "TissueBox0")
+    assert "decision_error" not in box
+
+
+def test_half_turn_with_identical_bounds_invalidates_marker_placement(marked_scene):
+    path = marked_scene / "preview" / "room_layout.json"
+    layout = json.loads(path.read_text())
+    box = next(o for o in layout["objects"] if o["id"] == "TissueBox0")
+    box["marker_pose"] = {"bottom": [1.22, 1.81, 1.1], "size": [.24, .12, .1], "yaw_deg": 0}
+    path.write_text(json.dumps(layout))
+    run = Pass(marked_scene)
+    run.find()
+    for item in run.items:
+        item["decision"] = {"decision": "drop"}
+    run.save()
+    box["marker_pose"]["yaw_deg"] = 180
+    path.write_text(json.dumps(layout))
+    again = Pass(marked_scene)
+    again.find()
+    assert [i["id"] for i in again.items if "decision" not in i] == ["TissueBox0"]
+
+
+@pytest.mark.parametrize("stage", ["run_trellis", "drop_fragments", "correct_material"])
+def test_generated_mesh_failure_is_isolated_and_retried(marked_scene, monkeypatch, stage):
+    from litereality_agent.pipeline.realism_authoring.small_objects import rebuild
+
+    fake_steps(monkeypatch)
+    run = Pass(marked_scene)
+    run.find()
+    seen(run, "DeskLamp0", "TissueBox0")
+    answer(run, monkeypatch, {"DeskLamp0": "trellis", "TissueBox0": "trellis"})
+    run.decide()
+    original = getattr(rebuild, stage)
+
+    def fail(*args):
+        if stage == "run_trellis":
+            original({"DeskLamp0": args[0]["DeskLamp0"]}, *args[1:])
+            raise OSError("launcher failed")
+        if "TissueBox0" in str(args[0]):
+            raise ValueError("bad mesh")
+        return original(*args)
+
+    monkeypatch.setattr(rebuild, stage, fail)
+    run.rebuild()
+    assert run.undone() == ["TissueBox0"]
+    assert [i["id"] for i in run.plan(run.items)[1]] == ["DeskLamp0"]
+    box = next(i for i in run.items if i["id"] == "TissueBox0")
+    assert box["glb_error"] == ("OSError: launcher failed" if stage == "run_trellis" else "ValueError: bad mesh")
+    monkeypatch.setattr(rebuild, stage, original)
+    again = Pass(marked_scene)
+    again.rebuild()
+    assert not again.undone()
+    assert "glb_error" not in next(i for i in again.items if i["id"] == "TissueBox0")
+
+
+def test_corrupt_premade_leaves_only_its_marker_and_recovers_after_replacement(marked_scene, monkeypatch):
+    import trimesh
+
+    models = models_dir(marked_scene, TissueBox0=b"invalid GLB")
+    trimesh.creation.box().export(models / "DeskLamp0.glb")
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+    run = Pass(marked_scene)
+    run.find()
+    seen(run)
+    run.decide()
+    run.rebuild()
+    drop, replace = run.plan(run.items)
+    assert run.undone() == ["TissueBox0"]
+    assert "TissueBox0" not in {i["id"] for i in drop}
+    assert [i["id"] for i in replace] == ["DeskLamp0"]
+    assert replace[0]["movable"] and trimesh.load_scene(replace[0]["glb"]).geometry
+    run.summarize()
+    assert "marker box kept, rebuild failed" in (run.out / "summary.md").read_text()
+    (models / "TissueBox0.glb").write_bytes((models / "DeskLamp0.glb").read_bytes())
+    again = Pass(marked_scene)
+    again.find()
+    again.decide()
+    again.rebuild()
+    assert not again.undone()
+    assert [i["id"] for i in again.plan(again.items)[1]] == ["DeskLamp0", "TissueBox0"]
