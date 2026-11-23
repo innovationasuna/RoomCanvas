@@ -56,6 +56,7 @@ import fetch_samples  # noqa: E402
 from mobile_share import SnapshotStore, lan_addresses, LazyShareServer, SnapshotJanitor, MAX_MODEL  # noqa: E402
 import service_auth  # noqa: E402
 import room_cache  # noqa: E402
+from replay_history import file_digest  # noqa: E402
 from cache_manage import CacheBusy, CacheManager  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -354,7 +355,12 @@ class Handler(SimpleHTTPRequestHandler):
         """A finished job's file from the local copy when there is one; JSON answers live, else the kept one."""
         kept = room_cache.local(self.cache, path)
         if kept and room_cache.is_file(path) and kept.is_file():
-            return self.send_kept(kept)
+            version = path.endswith('.glb') and re.fullmatch(r'sha256=([0-9a-f]{64})', urlsplit(self.path).query)
+            try:
+                if not version or file_digest(kept, kept.stat()) == version[1]:
+                    return self.send_kept(kept)
+            except FileNotFoundError:
+                pass
         if kept is None or room_cache.is_file(path):
             if kept and self.send_legacy_picture(path):
                 return

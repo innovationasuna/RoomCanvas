@@ -37,22 +37,66 @@ const MAX_GROUP = 40;     // more objects appearing at once than this is the who
 const NEAR_SHARE = 0.02, NEAR_MIN = 0.05, NEAR_MAX = 0.5;  // camera near plane, as a share of the distance to the target
 const CASCADE_STEP = 0.25, CASCADE_SECONDS = 4;  // objects appearing together start this far apart, all within
 
-// Pipeline object ids -> nodes of the assembled room: Bed0 stays Bed0; the k-th door / window becomes Door<k> /
-// Window<k>; a chair cluster stands for every Chair node.
+// Older replay caches have no placement manifest. In the seed, instances of the same chair asset
+// share their triangle indices and colour image. The pipeline numbers groups by their lowest chair number.
+function cachedChairClusters(root, ids = [], scanChairs) {
+  const clusters = [...ids].filter(id => /^ChairCluster\d+$/.test(id));
+  const chairs = root.children.filter(o => /^Chair\d+$/.test(o.name))
+    .sort((a, b) => Number(a.name.slice(5)) - Number(b.name.slice(5)));
+  const placed = {};
+  for (const chair of chairs) {
+    const cluster = chair.userData.source_glb?.match(/(?:^|\/)(ChairCluster\d+)\.glb$/)?.[1];
+    if (cluster) (placed[cluster] ??= []).push(chair.name);
+  }
+  if (Object.keys(placed).length || !scanChairs || chairs.length !== scanChairs.size ||
+      !chairs.every(chair => scanChairs.has(chair.name))) return placed;
+  const groups = new Map();
+  for (const chair of chairs) {
+    const meshes = [];
+    chair.traverse(o => {if (o.isMesh && !o.userData.mask) meshes.push(o);});
+    if (meshes.length !== 1) return {};
+    const mesh = meshes[0], index = mesh.geometry.index, source = mesh.material.map?.source;
+    if (!index || !source) return {};
+    const key = `${index.id}/${source.uuid}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(chair.name);
+  }
+  const members = Object.fromEntries([...groups.values()].map((names, i) => [`ChairCluster${i}`, names]));
+  return groups.size === clusters.length && clusters.every(id => members[id]) ? members : {};
+}
+
+function sceneNames(id, chairClusters) {
+  if (/^ChairCluster\d+$/.test(id)) return chairClusters?.[id] || [];
+  const opening = id.match(/^Wall\d+_(Door|Window|Opening)_(\d+)$/);
+  return opening ? [opening[1] + opening[2]] : [];
+}
+
+const originalName = node => node.userData.name || node.name;
+const nameIndexes = new WeakMap();
+function namedNodes(root) {
+  if (!nameIndexes.has(root)) {
+    const names = new Map();
+    root.traverse(node => {
+      const name = originalName(node);
+      if (name && !names.has(name)) names.set(name, node);
+    });
+    nameIndexes.set(root, names);
+  }
+  return nameIndexes.get(root);
+}
+
 function nodesFor(root, id) {
   const top = root.children;
-  const direct = top.filter((o) => o.name === id);
+  const direct = top.filter((o) => originalName(o) === id);
   if (direct.length) return direct;
-  if (/^ChairCluster/.test(id)) return top.filter((o) => /^Chair\d+$/.test(o.name));
-  const opening = id.match(/_(Door|Window)_\d+$/);
-  if (opening) return top.filter((o) => o.name === opening[1] + Math.max(root.userData.openings?.[opening[1]]?.indexOf(id) ?? 0, 0));
-  return [];
+  const names = sceneNames(id, root.userData.chairClusters);
+  return top.filter(o => names.includes(originalName(o)));
 }
 
 // A model node by its name, or the room objects a pipeline id stands for (a chair cluster's chairs, a door).
 function partsOf(root, key) {
   if (!root) return [];
-  const node = root.getObjectByName(key);
+  const node = namedNodes(root).get(key);
   return node ? [node] : nodesFor(root, key);
 }
 
@@ -128,6 +172,67 @@ function blendedPane(mesh, material, windowRoots) {
   return false;
 }
 
+// A new mount can surround an object already present in the seed. Only the mount's new branches
+// follow its reveal time; the transform chain to the old object must stay visible throughout.
+function revealParts(root, names, seedNames) {
+  const retained = new Set(), ancestors = new Set();
+  root.traverse(o => {
+    if (!seedNames.has(originalName(o)) || HIDDEN.test(o.name)) return;
+    retained.add(o);
+    for (let p = o.parent; p && p !== root; p = p.parent) ancestors.add(p);
+  });
+  function parts(node) {
+    if (retained.has(node)) {node.visible = true; return [];}
+    if (!ancestors.has(node) || HIDDEN.test(node.name)) return [node];
+    node.visible = true;
+    const children = node.children.filter(o => !o.userData.mask);
+    if (!node.isMesh) return children.flatMap(parts);
+    // Keep the mesh's local frame for its children. Only its geometry (and depth mask) forms.
+    const frame = new THREE.Group();
+    frame.name = node.name;
+    frame.userData.name = originalName(node);
+    namedNodes(root).set(frame.userData.name, frame);
+    delete node.userData.name;
+    if (node.matrixAutoUpdate) node.updateMatrix();
+    frame.applyMatrix4(node.matrix);
+    frame.matrixAutoUpdate = node.matrixAutoUpdate;
+    node.parent.add(frame);
+    frame.add(node, ...children);
+    node.name = '';
+    node.position.set(0, 0, 0); node.quaternion.identity(); node.scale.setScalar(1); node.updateMatrix();
+    return [node, ...children.flatMap(parts)];
+  }
+  return names.map(name => {
+    const node = namedNodes(root).get(name);
+    // The schedule controls the named part itself, even if a previous version reused its name.
+    // Seed descendants inside a newly added support keep their visible transform chain.
+    return [name, node ? (retained.has(node) ? [node] : parts(node)) : []];
+  });
+}
+
+async function loadModel(url, digest, signal) {
+  const loader = new GLTFLoader();
+  if (!digest) return loader.loadAsync(url);
+  // The file may have changed again between the timeline poll and this GET.
+  const hash = btoa(String.fromCharCode(...digest.match(/../g).map(byte => parseInt(byte, 16))));
+  const response = await fetch(`${url}?sha256=${digest}`, {integrity: `sha256-${hash}`, signal});
+  if (!response.ok) throw new Error(`model HTTP ${response.status}`);
+  return loader.parseAsync(await response.arrayBuffer(), THREE.LoaderUtils.extractUrlBase(url));
+}
+
+function versionName(key, {interpolated: partial, modelEvent}) {
+  if (!key) return '';
+  if (key === 'seed') return partial ? '第一版房间 · 按记录推算' : '第一版房间';
+  if (key === 'final') return partial ? '组装中的房间 · 按记录推算' : '最终房间';
+  if (/^round\d+$/.test(key)) return modelEvent?.round ? `检查第 ${modelEvent.round} 轮` : '检查时的房间';
+  if (key === 'small_objects') return '小物品重建后';
+  if (key === 'articulated' || key.startsWith('articulated:')) {
+    if (modelEvent?.joints > 0) return modelEvent.published ? '发布版（可开合）' : '已装配可开合部件';
+    return modelEvent?.published ? '发布版' : '开合处理后';
+  }
+  return '搭建中的房间';
+}
+
 export class RoomView {
   // files(rel) -> URL of an allowlisted run file; scaffold = {points, layout} URLs or null.
   constructor(container, {files, scaffold, background = getComputedStyle(container).getPropertyValue('--rc-canvas').trim(),
@@ -195,11 +300,13 @@ export class RoomView {
     this.incoming = null;   // model key fading in
     this.mix = 1;
     this.state = null;
+    this.objectIds = new Set();
     this.boxes = {};
     this.forming = new Materializer(scene);
     this.calm = matchMedia('(prefers-reduced-motion: reduce)');
     this.formTag = Object.assign(document.createElement('div'), {className: 'forming', hidden: true});
     container.appendChild(this.formTag);
+    this.versionTag = container.querySelector('.room-version');
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.scaffoldController = new AbortController();
@@ -297,6 +404,10 @@ export class RoomView {
       this.scene.add(group);
     }
     this.scaffoldReady = true;
+    const chairs = Object.keys(this.boxes).filter(id => /^Chair\d+$/.test(id));
+    // Older scaffolds omit dropped boxes. A gap could have held the first member of a cluster.
+    const complete = chairs.every(id => Number(id.slice(5)) < chairs.length);
+    this.scanChairs = new Set(plan.scan_chairs ?? (complete ? chairs : []));
     if (this.state) this.apply(this.state, this.lastOptions);
   }
 
@@ -327,7 +438,7 @@ export class RoomView {
   }
 
   // ---------- room models ----------
-  async model(key, url) {
+  async model(key, url, digest) {
     if (this.disposed) return null;
     if (this.models[key]) return this.models[key].promise;
     // A live job can list a model while it is still being written: after a failed load, try again later.
@@ -341,7 +452,7 @@ export class RoomView {
       }
     }
     const entry = this.models[key] = {controller: new AbortController()};
-    entry.promise = new GLTFLoader().loadAsync(url).catch((error) => {
+    entry.promise = loadModel(url, digest, entry.controller.signal).catch((error) => {
       if (this.models[key] === entry) {
         delete this.models[key];
         this.retryAt[key] = performance.now() + 5000;
@@ -528,7 +639,7 @@ export class RoomView {
   }
 
   // Bring a model in: it fades in over the one shown now (quiet: switch at once, e.g. while scrubbing).
-  async show(key, url, quiet) {
+  async show(key, url, quiet, digest) {
     const previous = this.wanted, changed = key !== previous;
     this.wanted = key;
     this.quiet = quiet;
@@ -552,7 +663,7 @@ export class RoomView {
     const loading = !entry?.root;
     if (loading) {
       if (this.disposed || !url || performance.now() < (this.retryAt[key] || 0)) return;
-      entry = await this.model(key, url).catch(() => null);
+      entry = await this.model(key, url, digest).catch(() => null);
       if (!entry || this.disposed || this.wanted !== key || this.models[key] !== entry) return;
       if (this.current === key || this.incoming === key) return;
     }
@@ -691,7 +802,10 @@ export class RoomView {
     this.incoming = null;
     this.mix = 1;
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
-    for (const k of Object.keys(this.models)) if (k.startsWith('draft') && k !== key && k !== this.wanted) this.drop(k);
+    for (const k of Object.keys(this.models)) {
+      const replaced = key?.startsWith('articulated:') && k.startsWith('articulated:');
+      if (k !== key && k !== this.wanted && (k.startsWith('draft') || replaced)) this.drop(k);
+    }
   }
 
   drop(key) {
@@ -728,9 +842,11 @@ export class RoomView {
     this.state = state;
     this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
-    const key = state.model || (state.shell && seedUrl ? 'seed' : null);
+    const model = state.model || (state.shell && seedUrl ? 'seed' : null);
+    const digest = model === 'articulated' && state.modelEvent?.artifact_digest;
+    const key = digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
-    if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(key), quiet);
+    if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
     const inRoom = !!key && (this.current === key || this.incoming === key);
     const hasRoom = !!(this.current || this.incoming);
     if (this.points) {
@@ -743,6 +859,7 @@ export class RoomView {
       this.wallLines.visible = state.walls > 0 && !hasRoom;
       this.wallLines.children.forEach((l) => (l.material.opacity = 0.6 * state.walls));
     }
+    if (inRoom) this.models[key].root.userData.modelEvent = state.modelEvent;
     if (quiet && inRoom) this.forming.finishModel(this.models[key].root);
     const {shown: placed, appeared} = inRoom ? this.revealModel(key) : {};
     if (inRoom && !quiet) this.materialize(appeared);
@@ -752,15 +869,18 @@ export class RoomView {
       group.visible = state.boxes && !state.model && !(partial && inRoom && placed.has(id));
       group.userData.edges.material.color.copy(done ? new THREE.Color(this.palette.built) : group.userData.base);
     }
+    this.updateChairBoxes();
     // Fetch the first room model from the start (it is tens of MB), so the modelling stage never waits on it.
-    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
+    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).then(entry => {
+      if (entry && this.state?.model === 'final') this.apply(this.state, this.lastOptions);
+    }).catch(() => {});
     // While the assembled room shows, fetch the final model in the background so the switch starts on time.
     if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
   }
 
   revealModel(key) {
     if (this.state && key === 'seed') {
-      const result = this.revealed(!this.state.model, this.state.built, this.lastOptions.openings);
+      const result = this.revealed(!this.state.model, this.state.built);
       if (result.appeared.length > MAX_GROUP) result.appeared = [];
       return result;
     }
@@ -770,15 +890,31 @@ export class RoomView {
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
   // while playing fades in; after a seek it is simply there.
   reveal(added) {
-    const root = this.models.final?.root, all = this.lastOptions?.addedAll, appeared = [];
+    const root = this.models.final?.root, appeared = [];
+    const all = this.lastOptions?.addedAll ?? (this.revealPlan?.root === root ? this.revealPlan?.all : null);
     if (!root || !all) return appeared;
+    root.userData.interpolated = !!added;
+    const seed = this.models.seed?.root;
+    if (this.revealPlan?.root !== root || this.revealPlan.seed !== seed || this.revealPlan.all !== all) {
+      if (this.revealPlan?.root === root) {
+        if (this.forming.active.size) this.forming.finishModel(root);
+        // A newly loaded seed can identify a whole retained branch that was previously split.
+        for (const [, parts] of this.revealPlan.parts) for (const node of parts) node.visible = !HIDDEN.test(node.name);
+      }
+      const known = new Set();
+      if (seed) seed.traverse(o => {if (o !== seed && originalName(o)) known.add(originalName(o));});
+      else for (const id of this.objectIds || []) {
+        known.add(id);
+        for (const name of sceneNames(id, this.chairClusters)) known.add(name);
+      }
+      this.revealPlan = {root, seed, all, parts: revealParts(root, all, known)};
+    }
+    const inView = this.current === 'final' || this.incoming === 'final';
     // The parts already there when the final model comes in take shape too, rather than fade in with it.
-    const fresh = added && this.partsShown !== root;
-    this.partsShown = added ? root : null;
-    for (const name of all) {
-      const node = root.getObjectByName(name);
-      if (!node) continue;
-      const show = !HIDDEN.test(name) && (!added || added.has(name));  // the ceiling stays hidden
+    const fresh = added && inView && this.partsShown !== root;
+    if (inView) this.partsShown = added ? root : null;
+    for (const [name, parts] of this.revealPlan.parts) for (const node of parts) {
+      const show = !HIDDEN.test(node.name) && (!added || added.has(name));
       const appears = show && (!node.visible || fresh);
       node.visible = show;
       if (appears) appeared.push(node);
@@ -799,19 +935,46 @@ export class RoomView {
 
   // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown and the
   // objects that just became visible.
-  revealed(partial, built, openings) {
+  revealed(partial, built) {
     const root = this.models.seed?.root, shown = new Set();
     const appeared = [];
     if (!root) return {shown, appeared};
-    if (openings) root.userData.openings = openings;
+    root.userData.interpolated = partial;
+    if (this.chairClusters) root.userData.chairClusters = this.chairClusters;
+    else if (partial && (root.userData.clusterIds !== this.objectIds || root.userData.scanChairs !== this.scanChairs)) {
+      root.userData.clusterIds = this.objectIds;
+      root.userData.scanChairs = this.scanChairs;
+      root.userData.chairClusters = cachedChairClusters(root, this.objectIds, this.scanChairs);
+    }
     const keep = new Set();
-    if (partial) for (const id of built) for (const node of nodesFor(root, id)) {keep.add(node); shown.add(id);}
+    if (partial) for (const id of built) for (const node of nodesFor(root, id)) {
+      keep.add(node); shown.add(id); shown.add(node.name);
+      if (/^ChairCluster\d+$/.test(node.name)) {
+        if (!node.userData.chairBoxes) {
+          node.userData.chairBoxes = [];
+          node.traverse(o => {if (/^Chair\d+$/.test(o.name)) node.userData.chairBoxes.push(o.name);});
+        }
+        node.userData.chairBoxes.forEach(id => shown.add(id));
+      }
+    }
     for (const o of root.children) {
       const show = !HIDDEN.test(o.name) && (!partial || SHELL.test(o.name) || keep.has(o));
       if (show && !o.visible && !SHELL.test(o.name)) appeared.push(o);
       o.visible = show;
     }
     return {shown, appeared};
+  }
+
+  // During the staggered reveal, a chair waiting for its turn still needs its scan box.
+  updateChairBoxes() {
+    const seed = this.models.seed?.root;
+    if (!this.state?.boxes || this.state.model || !this.state.shell || !seed?.visible) return;
+    for (const [node, effect] of this.forming.active) {
+      if (node.parent !== seed || !/^Chair(?:Cluster)?\d+$/.test(node.name) || !node.visible) continue;
+      for (const id of node.userData.chairBoxes || [node.name]) {
+        if (this.boxes[id]) this.boxes[id].visible = effect.held || effect.t <= 0;
+      }
+    }
   }
 
   boundsOf(key) {
@@ -1047,6 +1210,11 @@ export class RoomView {
       this.fadeWall(w);
     }
     this.forming.update(fdt, frozenRoot, this.windowHandoff?.hidden);
+    this.updateChairBoxes();
+    if (this.versionTag) {
+      const label = this.versionLabel();
+      if (this.versionTag.textContent !== label) this.versionTag.textContent = label;
+    }
     const tris = this.forming.triangles();
     this.formTag.hidden = tris == null;
     if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
@@ -1056,6 +1224,11 @@ export class RoomView {
     const near = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
     if (Math.abs(near - this.camera.near) > 1e-3) {this.camera.near = near; this.camera.updateProjectionMatrix();}
     this.renderer.render(this.scene, this.camera);
+  }
+
+  versionLabel() {
+    return [this.current, this.incoming].filter(key => key && this.models[key]?.root?.visible)
+      .map(key => versionName(key, this.models[key].root.userData)).join(' → ');
   }
 
   dispose() {
@@ -1069,7 +1242,7 @@ export class RoomView {
     if (this.points) disposeModel(this.points);
     if (this.wallLines) disposeModel(this.wallLines);
     Object.values(this.boxes).forEach(disposeModel);
-    this.boxes = {}; this.wallFades = []; this.retryAt = {};
+    this.boxes = {}; this.wallFades = []; this.retryAt = {}; this.revealPlan = null;
     this.controls.dispose();
     this.renderer.domElement.remove(); this.formTag.remove();
     this.disposal = Promise.allSettled([...this.retiring]).then(() => {

@@ -31,14 +31,15 @@ def artifact_evidence(path, row=None, *, legacy=False):
             # A file rewritten after its record (or recorded without a digest) is still shown at the
             # recorded time; its time is only marked unknown, never dropped.
             expected, source = row.get('artifact_digest'), 'event'
-            if expected:
-                actual = file_digest(path, stat)
-                if actual != expected:
-                    source = 'external_change'
-            elif row.get('schema_version', 1) >= 2:
+            articulated = row.get('model') == 'articulated'
+            actual = file_digest(path, stat) if expected or articulated else None
+            if expected and actual != expected:
+                source = 'external_change'
+            elif not expected and row.get('schema_version', 1) >= 2:
                 source = 'missing_digest'
             return {'time': row['t'], 'source': source, 'confidence': 'recorded' if source == 'event' else 'unknown',
-                    'event_id': row.get('event_id'), 'attempt_id': row.get('attempt_id')}
+                    'event_id': row.get('event_id'), 'attempt_id': row.get('attempt_id'),
+                    **({'artifact_digest': actual} if articulated else {})}
         if legacy:
             return {'time': stat.st_mtime, 'source': 'file_mtime', 'confidence': 'inferred'}
     except OSError:

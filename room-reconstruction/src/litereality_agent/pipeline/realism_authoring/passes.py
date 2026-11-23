@@ -109,7 +109,8 @@ def _run(context, options: dict) -> dict:
                          exit=rc, **({"failed": len(left)} if left else {}))
         if ok:
             room = parts
-            saved(context, "articulated", parts / "Room.glb", stage="author")
+            saved(context, "articulated", parts / "Room.glb", stage="author",
+                  **telemetry.saved_joints(out, os.environ.get("LITEREALITY_RUN_ID")))
             report[PARTS] = "partial" if left else "ok"
             if left:
                 report.setdefault("left", {})[PARTS] = left

@@ -172,6 +172,21 @@ class Paths(unittest.TestCase):
         self.assertIsNone(room_cache.local(cache, f'{P}health'))
         self.assertIsNone(room_cache.local(cache, f'{P}jobs/{DONE}/replay/files/../../x'))
 
+    def test_versioned_model_uses_the_local_file_only_for_matching_bytes(self):
+        path = f'{P}jobs/{DONE}/replay/files/articulate/room_preview/Room.glb'
+        with tempfile.TemporaryDirectory() as folder:
+            handler = object.__new__(Handler)
+            handler.cache, handler.room_backend = Path(folder), 'http://localhost'
+            handler.relay, handler.send_kept = Mock(), Mock()
+            kept = room_cache.local(handler.cache, path)
+            room_cache.save(kept, b'old')
+            for content in (b'old', b'new'):
+                handler.path = path + '?sha256=' + hashlib.sha256(content).hexdigest()
+                handler.do_GET()
+            handler.send_kept.assert_called_once_with(kept)
+            handler.relay.assert_called_once()
+            self.assertEqual(handler.relay.call_args.args[0].full_url, handler.room_backend + path)
+
     def test_slow_earlier_request_cannot_replace_a_newer_successful_answer(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'answer.json'

@@ -110,6 +110,8 @@
   .notice {position: absolute; left: 50%; top: 14px; transform: translateX(-50%); font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--rc-bg); color: var(--rc-warn); border: 1px solid var(--rc-line);}
   .forming {position: absolute; left: 16px; bottom: 16px; font-size: 12px; padding: 4px 10px; border-radius: 99px; background: #f4f1e8d9; color: #2f6f8c; border: 1px solid #9fc6d6; font-variant-numeric: tabular-nums; pointer-events: none;}
   .forming[hidden] {display: none;}
+  .room-version {position: absolute; top: 12px; left: 12px; padding: 3px 8px; border-radius: 4px; background: #f4f1e8e6; color: #444d40; font-size: 12px; pointer-events: none;}
+  .room-version:empty {display: none;}
   #latest {position: absolute; right: 16px; bottom: 16px; background: var(--rc-bg); color: var(--rc-green); border-color: #75674b;}
   .lightbox {position: fixed; inset: 0; background: #1b1c19ee; display: none; place-items: center; padding: 28px; cursor: zoom-out; z-index: 5;}
   .lightbox.on {display: grid;}
@@ -166,7 +168,7 @@
     <div class="plan"><div class="top"><span id="planN"></span><span class="dots" id="dots"></span></div><div class="name" id="planName"></div><div class="desc" id="planDesc"></div></div>
   </aside>
   <section class="stagewrap">
-    <div class="view" id="view"><div class="loading" id="loading">正在读取重建过程…</div></div>
+    <div class="view" id="view"><div class="loading" id="loading">正在读取重建过程…</div><span class="room-version"></span></div>
     <div class="notice" id="liveError" hidden>暂时连不上房间重建服务，稍后自动重试</div>
     <button type="button" id="latest" hidden>回到最新</button>
   </section>

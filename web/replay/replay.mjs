@@ -1,5 +1,5 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
-import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DURATION} from './timeline.mjs';
+import {buildTimeline, clock, sceneAt, outcome, withoutScores, readReplay, DURATION} from './timeline.mjs';
 
 // Playback length: set by the timeline (longer when many objects take shape).
 const span = () => tl?.duration ?? DURATION;
@@ -52,8 +52,8 @@ async function choose() {
 async function fetchData() {
   const response = await fetch(api, {cache: 'no-store'});
   if (!response.ok) throw new Error(response.status === 404 ? '没有找到这个重建任务' : '房间重建服务未连接');
-  const data = await response.json();
-  data.events = withoutErrors(data.events || []).map((e) => pictureUrls(e, files));
+  const data = readReplay(await response.json());
+  data.events = data.events.map(e => pictureUrls(e, files));
   return data;
 }
 
@@ -82,7 +82,8 @@ async function poll() {
   try {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
-    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
+    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)
+        || JSON.stringify(next.chair_clusters) !== JSON.stringify(data.chair_clusters)) {
       // New records only pull a reader down while the replay follows the live end, not while one looks back.
       const wasEnd = player.t >= span() - 0.01, follow = following || wasEnd;
       const restore = keepReading($('log'), tl.events, follow && appendedEvents(data.events, next.events));
@@ -98,24 +99,16 @@ async function poll() {
 }
 
 // ---------- rebuild everything that depends on the event list ----------
-// Door / window ids in build order, so Wall0_Door_0 maps to the assembled room's Door0 and so on.
-let openings = {};
+let addedAll;
 function rebuild(followLatest) {
-  // Older services named the checks 验收 and scored them: show them as checks, without scores.
-  data.stages = data.stages.map((s) => ({...s, name: withoutScores(s.name),
-    desc: s.id === 'revise' && s.desc === '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'
-      ? '对照修改意见逐项调整房间，并检查修改效果。' : withoutScores(s.desc)}));
   tl = buildTimeline(data);
+  addedAll = tl.build?.reveal.map((r) => r.node);
+  view.objectIds = new Set(tl.events.flatMap(e => e.show || []));
+  view.chairClusters = data.chair_clusters;
   player.duration = tl.duration;
   deck = cards(tl.events);
   objectNames(tl.events, names);
   cardOf = deck.flatMap((card, c) => card.members.map(() => c));
-  openings = {Door: [], Window: []};
-  for (const e of tl.events) for (const id of e.show || []) {
-    const m = id.match(/_(Door|Window)_\d+$/);
-    if (m && !openings[m[1]].includes(id)) openings[m[1]].push(id);
-  }
-  Object.values(openings).forEach((list) => list.sort());
   lastIdx = -2; lastKey = '';
   $('log').querySelectorAll('[data-key]').forEach((el) => cardImages.collect(el));
   cardImages.prune(deck, tl.events);
@@ -373,8 +366,7 @@ function render(t, p, animate = p.playing) {
     $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.repaired ? '已修复' : result.passed ? '检查通过' : '没通过检查 · 没有发布'}</span>` : '';
   }
   const scene = sceneAt(tl, t);
-  const addedAll = tl.build?.reveal.map((r) => r.node);
-  view.apply(scene, {quiet: !animate, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
+  view.apply(scene, {quiet: !animate, modelUrl: (k) => data.models[k] && files(data.models[k]), addedAll});
   // Turn to the parts the agent just added (while playing forward).
   const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
   lastAdded = scene.added;

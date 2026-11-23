@@ -275,7 +275,9 @@ def articulated(scene: Path, command, out: Path, log_name: str, phase: str, leas
     room = out / "room_preview/Room.glb"
     trace(scene, "articulate_done", status="ok" if not art and room.is_file() else "failed", exit=art)
     if not art and room.is_file():
-        trace(scene, "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime)
+        from litereality_agent.telemetry import saved_joints
+        trace(scene, "model_saved", model="articulated", path=str(room.resolve()), at=room.stat().st_mtime,
+              **saved_joints(out, attempt.name))
     return art
 
 
