@@ -138,6 +138,39 @@ test('moved seed objects stay visible while only the new supports form and rewin
   }
 });
 
+for (const first of ['final', 'seed']) test(`paused interpolation waits for casement identities when ${first} is requested first`, async t => {
+  const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
+  const pending = new Map();
+  t.mock.method(GLTFLoader.prototype, 'loadAsync', key => {
+    const request = Promise.withResolvers();
+    pending.set(key, request);
+    return request.promise;
+  });
+  const view = Object.assign(viewOf({}), {current: null, wanted: null, scene: group('scene'), scaffoldReady: true,
+    prepare: root => root, warm: async () => {}, setFade() {}});
+  const panes = [1, 2, 3, 4].flatMap(i => ['L', 'R'].map(side => `Casement_${i}_${side}`));
+  const frames = panes.map((_, i) => 'Window' + (i + 1));
+  const final = group('final', ...frames.map((name, i) => group(name, group(panes[i]), group('Trim' + i))));
+  const seed = group('seed', group('Window0', ...panes.map(name => group(name))));
+  view.objectIds.add('Window0');
+  const options = {modelUrl: key => key, addedAll: frames, quiet: true};
+  if (first === 'seed') view.apply({model: 'seed', built: new Set()}, options);
+  view.apply({model: 'final', added: new Set(), built: new Set()}, options);
+  assert.deepEqual([...pending.keys()], first === 'seed' ? ['seed', 'final'] : ['final', 'seed']);
+  pending.get('final').resolve({scene: final});
+  await view.models.final.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(final.visible, false);
+  pending.get('seed').resolve({scene: seed});
+  await view.models.seed.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(view.current, 'final');
+  const visible = [];
+  final.traverseVisible(node => visible.push(node.name));
+  assert.deepEqual(visible.filter(name => name.startsWith('Casement')), panes);
+  assert.ok(!visible.some(name => name.startsWith('Trim')));
+});
+
 test('the version label follows visible models through loads, fades and interpolated frames', () => {
   const view = viewOf(Object.fromEntries(['seed', 'final', 'round2', 'draft42', 'small_objects', 'articulated']
     .map(key => [key, {root: group(key)}])));
@@ -334,4 +367,14 @@ test('offline articulated milestones and stage text use the evidence in the save
     assert.deepEqual(readReplay({stages: [], events}).events.map(e => e.say),
       ['装好可开合部件', '完成开合处理，已发布这版房间', '这次处理了抽屉']);
   }
+});
+
+test('offline integrated parts milestones use their own joint count even without a model', () => {
+  const stage = {id: 'parts', name: '装上可开合部件', desc: '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，装好后检查房间。'};
+  const event = {kind: 'milestone', stage: 'parts', id: 'parts12', say: '装好可开合部件'};
+  const events = [event, {...event, stage: 'review2', id: 'parts35', model: 'articulated', joints: 0},
+    {...event, joints: 2}, {...event, say: '已检查抽屉'}, {...event, id: 'other'}];
+  const data = readReplay({stages: [stage], events});
+  assert.deepEqual(data.stages[0], {...stage, name: '处理可开合部件', desc: '检查柜门和抽屉，按需添加转轴或滑轨，再检查房间。'});
+  assert.deepEqual(data.events.map(e => e.say), ['完成开合处理', '完成开合处理', '装好可开合部件', '已检查抽屉', '装好可开合部件']);
 });

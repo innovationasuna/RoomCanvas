@@ -24,6 +24,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode
+from replay_history import file_digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 import download_parts
@@ -167,14 +168,34 @@ class Sync:
         jobs = self.answer(f'{PREFIX}jobs')['jobs']
         rooms = {room['dir'].rstrip('/').rsplit('/', 1)[-1] for room in self.answer(f'{PREFIX}catalog')['rooms']}
         first, models, pictures, assets = [], [], [], []
+        digests = {}
         for job in jobs:
             if self.stale(job):
                 continue
-            files = job_files(job['id'], self.answer(f'{PREFIX}jobs/{job["id"]}/replay'))
+            base = f'{PREFIX}jobs/{job["id"]}/replay'
+            replay = self.answer(base)
+            files = job_files(job['id'], replay)
+            articulated = (replay.get('models') or {}).get('articulated')
+            if articulated:
+                for event in replay.get('events', []):
+                    if event.get('model') == 'articulated':
+                        digests[f'{base}/files/{articulated}'] = event.get('artifact_digest')
             first += files[0]; models += files[1]; pictures += files[2]
             if job['id'] in rooms:
                 assets += [f'{PREFIX}assets/{job["id"]}/{name}' for name in ('Room.glb', 'room_objects.json', 'thumbnail.jpg')]
-        return [p for p in first + models + assets + pictures if p not in self.absent and not local(self.cache, p).exists()]
+        missing = {}
+        for path in first + models + assets + pictures:
+            target, digest = local(self.cache, path), digests.get(path)
+            if digest:
+                try:
+                    if file_digest(target, target.stat()) == digest:
+                        continue
+                except FileNotFoundError:
+                    pass
+            elif path in self.absent or target.exists():
+                continue
+            missing[path] = digest
+        return missing
 
     def once(self):
         with self.downloading() as allowed:
@@ -185,7 +206,7 @@ class Sync:
             return
         self.log(f'房间缓存：本地缺 {len(missing)} 个文件，后台下载到 {self.cache}')
         done = linked = 0
-        for path in missing:
+        for path, expected in missing.items():
             if self.stopped.is_set():
                 return
             with self.downloading() as allowed:
@@ -193,6 +214,9 @@ class Sync:
                     return
                 try:
                     known = self.identity(path)
+                    if expected and known and known[1] != expected:
+                        self.log(f'房间缓存：{path[len(PREFIX):]} 服务器给的 sha256 与时间线不符，稍后重试')
+                        continue
                     same = known and same_file([self.cache, *self.also], *known)
                     if same:
                         place(same, local(self.cache, path))
@@ -204,8 +228,9 @@ class Sync:
                     if error.code == 404:  # e.g. a room without a thumbnail, or a job without a scaffold
                         self.absent.add(path)
                     continue
-                if known and (len(data), hashlib.sha256(data).hexdigest()) != known:
-                    self.log(f'房间缓存：{path[len(PREFIX):]} 下载的内容与服务器给的 sha256 不符，未保存，稍后重试')
+                digest = expected or (known and known[1])
+                if digest and ((known and len(data) != known[0]) or hashlib.sha256(data).hexdigest() != digest):
+                    self.log(f'房间缓存：{path[len(PREFIX):]} 下载的内容与 sha256 不符，未保存，稍后重试')
                     continue
                 save(local(self.cache, path), data)
             done += 1

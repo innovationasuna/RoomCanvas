@@ -470,6 +470,7 @@ export class RoomView {
       entry.warming = this.warm(root, entry.controller.signal).catch(() => {});
       entry.prefetching = prefetch(root, {signal: entry.controller.signal}).catch(() => {});
       if (!this.modelsFramed && !this.scaffoldReady) {this.frame(new THREE.Box3().setFromObject(root)); this.modelsFramed = true;}
+      if (key === 'seed' && this.state?.model === 'final' && this.state.added) this.apply(this.state, this.lastOptions);
       return entry;
     });
     return entry.promise;
@@ -844,7 +845,9 @@ export class RoomView {
     const seedUrl = modelUrl?.('seed');
     const model = state.model || (state.shell && seedUrl ? 'seed' : null);
     const digest = model === 'articulated' && state.modelEvent?.artifact_digest;
-    const key = digest ? `${model}:${digest}` : model;
+    // Reparented seed meshes need their original names before the final room can be masked.
+    const waitingForSeed = model === 'final' && state.added && seedUrl && !this.models.seed?.root;
+    const key = waitingForSeed ? null : digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
     if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
     const inRoom = !!key && (this.current === key || this.incoming === key);
@@ -870,12 +873,10 @@ export class RoomView {
       group.userData.edges.material.color.copy(done ? new THREE.Color(this.palette.built) : group.userData.base);
     }
     this.updateChairBoxes();
+    // Load the final model alongside the seed so the switch starts on time.
+    if ((key === 'seed' || waitingForSeed) && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
     // Fetch the first room model from the start (it is tens of MB), so the modelling stage never waits on it.
-    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).then(entry => {
-      if (entry && this.state?.model === 'final') this.apply(this.state, this.lastOptions);
-    }).catch(() => {});
-    // While the assembled room shows, fetch the final model in the background so the switch starts on time.
-    if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
+    if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
   }
 
   revealModel(key) {

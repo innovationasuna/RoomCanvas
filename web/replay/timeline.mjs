@@ -15,17 +15,22 @@ const TAIL_SECONDS = 3;           // after the last event
 // Old offline answers used fixed success text before saves recorded joints and publication.
 export function readReplay(data) {
   const stages = data.stages.map(s => {
-    const old = s.id === 'articulate';
+    const old = s.id === 'articulate' || s.id === 'parts';
     const name = old && s.name === '装上可开合部件' ? '处理可开合部件' : withoutScores(s.name);
-    let desc = old && s.desc === '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'
+    let desc = s.id === 'articulate' && s.desc === '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'
       ? '检查柜门和抽屉，按需添加转轴或滑轨。' : withoutScores(s.desc);
+    if (s.id === 'parts' && s.desc === '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，装好后检查房间。') {
+      desc = '检查柜门和抽屉，按需添加转轴或滑轨，再检查房间。';
+    }
     if (s.id === 'revise' && s.desc === '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。') {
       desc = '对照修改意见逐项调整房间，并检查修改效果。';
     }
     return {...s, name, desc};
   });
   const events = withoutErrors(data.events || []).map(e => {
-    if (e.model !== 'articulated' || e.say !== '装好可开合部件，这就是发布的房间') return e;
+    const standalone = e.model === 'articulated' && e.say === '装好可开合部件，这就是发布的房间';
+    const integrated = e.kind === 'milestone' && /^parts\d+$/.test(e.id) && e.say === '装好可开合部件';
+    if (!standalone && !integrated) return e;
     const say = (e.joints > 0 ? '装好可开合部件' : '完成开合处理') + (e.published ? '，已发布这版房间' : '');
     return {...e, say};
   });

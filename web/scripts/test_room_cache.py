@@ -187,6 +187,50 @@ class Paths(unittest.TestCase):
             handler.relay.assert_called_once()
             self.assertEqual(handler.relay.call_args.args[0].full_url, handler.room_backend + path)
 
+    def test_resaved_articulated_model_opens_offline_without_a_job_timestamp_change(self):
+        base = f'{P}jobs/{DONE}/replay'
+        rel = 'articulate/room_preview/Room.glb'
+        path = f'{base}/files/{rel}'
+        old, new = b'first model', b'later model'
+        digest = hashlib.sha256(new).hexdigest()
+        event = {'model': 'articulated', 'artifact_digest': hashlib.sha256(old).hexdigest()}
+        answers = {P + 'jobs': {'jobs': [{'id': DONE, 'status': 'completed', 'updated': 1}]},
+                   P + 'catalog': {'rooms': []},
+                   base: {'models': {'articulated': rel}, 'events': [event]}}
+        with tempfile.TemporaryDirectory() as folder:
+            handler = object.__new__(Handler)
+            handler.cache = Path(folder)
+            sync = room_cache.Sync('http://unused', handler.cache, log=lambda _: None)
+            files = {path: old}
+            sync.identity = lambda p: None
+            sync.get = lambda p, timeout=60: json.dumps(answers[p]).encode() if p in answers else files.get(p, b'scaffold')
+            sync.once()
+            kept = room_cache.local(handler.cache, path)
+            self.assertEqual(kept.read_bytes(), old)
+
+            answers[base]['events'].append({'model': 'articulated', 'artifact_digest': digest})
+            self.assertIn(path, sync.missing())
+            sync.once()  # GET still returns old bytes, and the older service gives no HEAD digest.
+            self.assertEqual(kept.read_bytes(), old)
+            files[path] = b'third model'
+            sync.identity = lambda p: (len(files[p]), hashlib.sha256(files[p]).hexdigest())
+            sync.once()  # Even matching HEAD and GET bytes must agree with the timeline.
+            self.assertEqual(kept.read_bytes(), old)
+            files[path] = new
+            with kept.open('rb') as earlier:
+                sync.once()
+                self.assertEqual(earlier.read(), old)
+            self.assertNotIn(path, sync.missing())
+
+            handler.open_backend = Mock(side_effect=ConnectionRefusedError)
+            status, body = self.request(handler, base)
+            self.assertEqual(status, 200)
+            saved = json.loads(body)['events'][-1]['artifact_digest']
+            self.assertEqual(saved, digest)
+            handler.open_backend.reset_mock()
+            self.assertEqual(self.request(handler, path + '?sha256=' + saved), (200, new))
+            handler.open_backend.assert_not_called()
+
     def test_slow_earlier_request_cannot_replace_a_newer_successful_answer(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'answer.json'
