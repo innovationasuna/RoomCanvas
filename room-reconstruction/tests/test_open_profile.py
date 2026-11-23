@@ -227,4 +227,17 @@ def test_a_room_older_than_mark_small_is_told_where_to_copy_it(tmp_path, monkeyp
     assert note not in spec.prompt
     (room / "Room.py").write_text("class RoomScene:\n    def mark_small(self): ...\n")
     _, _, spec, _ = _author(tmp_path, monkeypatch)
+    assert note in spec.prompt
+    current = author.TEMPLATE.read_text()
+    for incomplete in (
+        current.replace("small_marker=None, description=None, marker_pose=None", "description=None, marker_pose=None"),
+        current.replace('small_marker=o.get("small_marker"),', ''),
+        current.replace('self.objects[rid]["small_marker"] = True', 'pass'),
+        current.replace('handle["small_marker"] = True', 'pass'),
+    ):
+        (room / "Room.py").write_text(incomplete)
+        _, _, spec, _ = _author(tmp_path, monkeypatch)
+        assert note in spec.prompt
+    (room / "Room.py").write_text(current)
+    _, _, spec, _ = _author(tmp_path, monkeypatch)
     assert note not in spec.prompt and "scene.mark_small(" in spec.prompt

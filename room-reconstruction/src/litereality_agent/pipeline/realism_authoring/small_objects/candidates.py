@@ -12,12 +12,13 @@ this pass to rebuild, and only its rebuild or its removal is asked about (`marke
 
 Objects stacked on each other (a pile of books, a loose score on the top book) are judged and
 rebuilt as one item: an object that rests on another candidate and covers most of it, while
-being at least a third of its area, joins its support's stack.
+being at least a third of its area, joins its support's stack if both have the same marker status.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 SHELL = {"wall", "floor", "ceiling"}
 OPENINGS = {"door", "window"}
@@ -73,7 +74,8 @@ def find_candidates(layout: dict) -> list[dict]:
     below = {}
     for oid, item in chosen.items():
         support = item.get("rests_on")
-        if support in chosen and stacks_on(item, chosen[support]):
+        if (support in chosen and bool(item.get("small_marker")) == bool(chosen[support].get("small_marker"))
+                and stacks_on(item, chosen[support])):
             below[oid] = support
 
     def bottom(oid):
@@ -89,12 +91,12 @@ def find_candidates(layout: dict) -> list[dict]:
 
     result = []
     for root in sorted(members):
-        ids = sorted(members[root], key=lambda oid: chosen[oid]["bbox_min"][2])
+        ids = sorted(members[root], key=lambda oid: (chosen[oid]["bbox_min"][2], oid))
         items = [chosen[oid] for oid in ids]
         low = [min(item["bbox_min"][k] for item in items) for k in range(3)]
         high = [max(item["bbox_max"][k] for item in items) for k in range(3)]
-        categories = [item["category"] for item in items]
-        category = max(set(categories), key=categories.count)
+        categories = Counter(item["category"] for item in items)
+        category = categories.most_common(1)[0][0]
         base = chosen[root]
         result.append({
             "id": root,
@@ -109,7 +111,8 @@ def find_candidates(layout: dict) -> list[dict]:
             "support_part": base.get("support_part"),
             # Both always present, so an item that stops being a marker or changes its
             # description is not the same candidate any more (pass_cache.carry).
-            "marker": all(item.get("small_marker") for item in items),
+            "marker": bool(base.get("small_marker")),
+            "marker_pose": base.get("marker_pose") if len(ids) == 1 else None,
             "description": "; ".join(item["description"] for item in items
                                      if item.get("description")),
         })

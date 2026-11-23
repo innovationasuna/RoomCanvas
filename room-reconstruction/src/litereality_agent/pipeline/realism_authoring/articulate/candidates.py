@@ -26,7 +26,7 @@ MIN_SIZE = 0.2  # metres along the longest side
 
 def is_candidate(item: dict, objects: dict[str, dict]) -> bool:
     category = item["category"]
-    if category in STRUCTURE | OPENINGS | FIXED | ACCESSORIES:
+    if item.get("small_marker") or category in STRUCTURE | OPENINGS | FIXED | ACCESSORIES:
         return False
     if max(h - lo for lo, h in zip(item["bbox_min"], item["bbox_max"])) < MIN_SIZE:
         return False

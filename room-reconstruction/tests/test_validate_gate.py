@@ -95,3 +95,31 @@ def test_the_verdict_blocks_on_support_but_not_on_boxes(tmp_path: Path, monkeypa
 def test_no_build_is_a_clear_error_not_a_pass(tmp_path: Path):
     rep = V.validate(tmp_path / "room", tmp_path / "nowhere")
     assert not rep["ok"] and not rep["pass"] and "compile" in rep["error"]
+
+
+def test_two_markers_on_one_table_block_only_when_their_meshes_intersect(tmp_path):
+    import numpy as np
+    import trimesh
+
+    (tmp_path / "Room.py").write_text("SHELL = {}\n")
+    (tmp_path / "manifest.json").write_text('{"assets": []}')
+    for x, clash in [(0.25, True), (0.4, False)]:
+        mugs = [_obj(f"Mug{i}", "mug", (left, .2, .75), (left + .1, .3, .85),
+                     rests_on="Table0", small_marker=True) for i, left in enumerate([.2, x])]
+        objects = [FLOOR, dict(TABLE, rests_on="Floor0"), *mugs]
+        scene = trimesh.Scene()
+        for obj in objects:
+            name = obj["id"]
+            scene.graph.update(frame_from=obj.get("rests_on", "world"), frame_to=name)
+            lo, hi = np.array(obj["bbox_min"]), np.array(obj["bbox_max"])
+            mesh = trimesh.creation.box(extents=hi-lo)
+            mesh.apply_translation((lo+hi)/2)
+            mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [1, 0, 0]))
+            scene.add_geometry(mesh, node_name=name + "_box", parent_node_name=name)
+        scene.export(tmp_path / "Room.glb")
+        (tmp_path / "room_layout.json").write_text(json.dumps(_layout(objects)))
+        report = V.validate(tmp_path, tmp_path)
+        assert report["finite_support"]["pass"]
+        assert report["pass"] is (not clash)
+        assert [(f["kind"], f["id"], f["with"]) for f in report["failing"]] == (
+            [("object_clash", "Mug1", "Mug0")] if clash else [])

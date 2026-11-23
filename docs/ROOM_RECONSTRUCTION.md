@@ -190,7 +190,7 @@ PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
 
 会话上限用 `--set LR_CODEX_SESSION_SECONDS=<秒>`（默认 3600）和 `--set AUTHOR_STEPS=<工具调用次数>`（open 默认 300）。到达任一上限时 Codex 会话被结束，已保存的 `Room.py` 和断点保留，author 阶段报 `needs_repair` 而失败；用同样的参数重新执行即接着上次的房间开新会话。
 
-有预先做好的小物件模型时（见 [预先做好小物件模型](#预先做好小物件模型)），agent 自己把它们放进房间，不用在 `README.md` 里交代。建模 agent 本来就会把桌面、柜面上能在照片里指认的散放小物件用 `mark_small` 标出来（见 [小物件](#小物件)），交给小物件那一步重建。要让小物件那一步重建其余的某样东西，`README.md` 应要求 agent 同样用 `mark_small` 标出它，或把它做成单独一组（`group_fixture`），用描述性的驼峰名（如 `TissueBox0`、`Plant1`；小物件那一步按名字在扫描照片里找它），并声明 `rests_on`（桌面或地面），不要用 `attached_to` 挂在墙或天花板上，也不要标成可放东西的家具。agent 自己搭的物品中，挂墙的、类别为 `panel`、`socket`、`light` 等固定设施的，以及已有重建网格的物品都不会成为候选（`mark_small` 标出的总是候选）；叠放在另一个候选上并盖住它大半的物件会和它合成一组。
+有预先做好的小物件模型时（见 [预先做好小物件模型](#预先做好小物件模型)），agent 自己把它们放进房间，不用在 `README.md` 里交代。建模 agent 本来就会把桌面、柜面上能在照片里指认的散放小物件用 `mark_small` 标出来（见 [小物件](#小物件)），交给小物件那一步重建。要让小物件那一步重建其余的某样东西，`README.md` 应要求 agent 同样用 `mark_small` 标出它，或把它做成单独一组（`group_fixture`），用描述性的驼峰名（如 `TissueBox0`、`Plant1`；小物件那一步按名字在扫描照片里找它），并声明 `rests_on`（桌面或地面），不要用 `attached_to` 挂在墙或天花板上，也不要标成可放东西的家具。agent 自己搭的物品中，挂墙的、类别为 `panel`、`socket`、`light` 等固定设施的，以及已有重建网格的物品都不会成为候选（`mark_small` 标出的总是候选）；同为标记或同为已有几何的候选，叠放且覆盖达标时会合成一组。标记与已有几何分开判断，仍保留上下支撑关系。
 
 ## 接入网页
 
@@ -242,9 +242,13 @@ python3 web/scripts/serve.py
 
 对房间中的书、拖鞋、枕头等物品，挑选照片、判断是否需要重建，再用 TRELLIS 生成模型并放回原处。
 
-建模 agent（simulation、open 两种任务说明）不再给散放的小物件（杯子、纸巾盒、盆栽、瓶子等）搭形状，只用 `Room.py` 里的 `scene.mark_small("TissueBox0", "tissue_box", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0", description="a white tissue box", color=(r, g, b))` 标出每一件：一个方块，底面中心、尺寸、朝向与 `place_model` 的约定相同，涂成它的主色，按种类加序号命名，`description` 一行写它是什么、颜色和材质。方块在 `room_layout.json` 里带 `small_marker: true` 和 `description`。书架上的一排书、柜子里的东西等属于家具本身的部分仍是家具自己的几何体，不标。比 `mark_small` 早的 `Room.py` 没有这个方法，任务说明会让 agent 从 `room_ops/compile/build_room.py` 抄进去（连同 `_register`、`index` 里带出标记的几行）。
+建模 agent（simulation、open 两种任务说明）不再给散放的小物件（杯子、纸巾盒、盆栽、瓶子等）搭形状，只用 `Room.py` 里的 `scene.mark_small("TissueBox0", "tissue_box", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0", description="a white tissue box", color=(r, g, b))` 标出每一件：一个方块，底面中心、尺寸、朝向与 `place_model` 的约定相同，涂成它的主色，按种类加序号命名，`description` 一行写它是什么、颜色和材质。方块在 `room_layout.json` 里带 `small_marker: true`、`description` 和 `marker_pose`。其中 `bottom` 是世界坐标下的底面中心，`size` 是转动前的宽、深、高，`yaw_deg` 是相对正面（−Y）的有向角。书架上的一排书等属于家具本身的部分仍由家具建模。旧房间恢复建模时，若 `mark_small`、`_register` 或 `index` 的标记传递不完整，任务说明会提示按当前模板补齐。
 
-小物件那一步对标出的方块只在重建和去掉之间选：仍逐件问一次判断模型（问题说明当前模型只是占位方块，附上 agent 写的描述，并要它写出重建用的描述），只有任何图里都看不出这件东西时才去掉；判断或 `LR_SMALL_OBJECTS_FORCE` 给出 `procedural` 时改成 `trellis`，`decision` 记 `coerced: true`。`LR_SMALL_OBJECTS_POLICY` 只影响 agent 自己搭的物品，那些物品的判断和以前一样。重建成功后方块被换成 TRELLIS 模型；生成参考图或 TRELLIS 没做成时（例如等不到共享 GPU 的显存），方块按原样留在房间里，这一步不失败：`summary.md` 写 `marker box kept, rebuild failed (原因)`，`small_object_done` 的 `method` 为 `kept`，带 `marker: true` 和 `reason`，author 阶段把这一步记为 `partial` 并列出这些物件。agent 改了某件的描述或把它改成/改回标记时，只重新判断、重建这一件。
+标记只在重建和删除之间选。匹配到预制模型时直接替换；没有预制模型、扫描视图和近照时直接删除，即使强制 `trellis` 或 `procedural` 也一样。有照片且没有预制模型时，每个候选问一次判断模型，问题附上作者的描述。对标记给出的 `procedural` 会改成 `trellis`，记录 `coerced: true`；生效的强制值记在 `decision.override`。只改强制来源且仍需重建时，复用已完成的模型。`LR_SMALL_OBJECTS_POLICY` 只影响手工建模的候选。
+
+单件标记按 `marker_pose` 放回，三轴分别缩放到实测尺寸，转动 180° 也会使原放置缓存失效。成摞重建的候选和缺少位姿记录的旧布局沿用整体足迹拟合。栈内类别按数量选择，平票按自下而上的稳定顺序决定。碰撞检查逐件检测标记网格，支撑面接触交给严格支撑检查；同桌物件互穿会阻止通过。
+
+判断、参考图、TRELLIS 或单件网格处理失败时，保留该件的原方块，已完成的替换与删除仍然应用。`summary.md` 与 `small_object_done.reason` 给出本次失败原因，author 阶段以 `partial` 和 `left.small_objects` 记录未完成项，重跑可重试。可动部件步骤跳过仍带 `small_marker` 的方块。成功替换的散放物件带 `movable: true`，包括类别为 `light` 的台灯，网页将它列为独立可移动组；固定灯具仍归入设施。
 
 完整重建里由 author 阶段在检查之前自动做（结果在场景的 `realism_authoring/small_objects/`），下面的变量照样用 `--set` 传给完整重建。对以前发布的房间（发布后才单独做小物件的旧流程），也可以单独运行，不重跑房间建模，结果不经过检查：
 
@@ -262,7 +266,7 @@ python3 web/scripts/serve.py
 | 变量 | 作用 |
 | --- | --- |
 | `LR_SMALL_OBJECTS_POLICY=trellis-first` | 尽量用 TRELLIS 重建：只有任何图里都看不出来才删，只有规整到 TRELLIS 帮不上忙的才保留原模型；不设时判断标准不变。`mark_small` 标出的方块本来就这样判断，不受它影响 |
-| `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（仍会问一次，用于取得重建所需的描述）；id 不在候选里时报错；对标出的方块，`procedural` 按 `trellis` 处理 |
+| `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（需要判断时会同时取得重建描述）；id 不在候选里时报错；对标出的方块，`procedural` 按 `trellis` 处理 |
 | `LR_SMALL_OBJECTS_PHOTOS=<目录>` | `<目录>/<id>/*.jpg` 是该物件的近照，交给判断模型，并作为参考图的前几格；扫描里看不到但有近照的物件也会被判断 |
 | `LR_SMALL_OBJECTS_MODELS=<目录>` | 预先做好的模型（见下）：id 为 `<种类>` 或 `<种类>` 加数字的物件（`TissueBox0`、`TissueBox12`）直接用 `<目录>/<种类>.glb`，`<目录>/<id>.glb` 优先；不问判断模型、不生成参考图、不启动 TRELLIS（按它替换的物件尺寸再去一次碎块，以前做好的模型也一样），扫描里看不到也照样替换，之后和自己重建的一样贴合原位置、朝向并放回房间。记录里 `decision` 带 `forced` 和 `source`，`small_object_done` 带 `source`；换了某个模型只重做用它的物件；目录里没有对应物件的模型只在日志里列一次；目录不存在时报错 |
 

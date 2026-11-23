@@ -159,7 +159,7 @@ def build(layout, node_names=None, names=None, joints=None):
         base = objects.get(parent(owner)) if parent(owner) else None
         mount = {'wall': 'wall', 'ceiling': 'ceiling', 'bulkhead': 'ceiling'}.get(base and base['category'], 'floor')
         # The editor has no ceiling mounts; a ceiling item is part of the room.
-        if category in FIXED or mount == 'ceiling':
+        if (category in FIXED and not owner.get('movable')) or mount == 'ceiling':
             return 'fixture', mount
         return 'furniture', mount
 

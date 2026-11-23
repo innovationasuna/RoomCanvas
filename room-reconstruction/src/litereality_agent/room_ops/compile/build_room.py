@@ -383,7 +383,7 @@ def _unit_cube_mesh(name):
         (0.5, 0.5, 0.5),
         (-0.5, 0.5, 0.5),
     ]
-    faces = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    faces = [(3, 2, 1, 0), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
     me = bpy.data.meshes.new(name)
     me.from_pydata(verts, [], faces)
     me.update()
@@ -1026,7 +1026,7 @@ class RoomScene:
     # ---------------------------------------------------------------- index
     def _register(self, rid, cat, meshes, source=None, handle=None,
                   rests_on=None, attached_to=None, support_part=None, rebuilt=None,
-                  small_marker=None, description=None):
+                  small_marker=None, description=None, marker_pose=None):
         mn, mx = world_bbox(meshes)
         self.objects[rid] = {
             "id": rid,
@@ -1048,6 +1048,8 @@ class RoomScene:
         if small_marker:  # a box from mark_small: the small-object pass rebuilds it with TRELLIS
             self.objects[rid]["small_marker"] = True
             self.objects[rid]["description"] = description or ""
+            if marker_pose:
+                self.objects[rid]["marker_pose"] = marker_pose.to_dict()
 
     def index(self):
         """(Re)build the object registry from the live scene graph."""
@@ -1069,6 +1071,7 @@ class RoomScene:
                     rebuilt=o.get("rebuilt"),
                     small_marker=o.get("small_marker"),
                     description=o.get("description"),
+                    marker_pose=o.get("marker_pose"),
                 )
         return self.objects
 
@@ -1277,11 +1280,13 @@ class RoomScene:
         handle = group_fixture(name, category, [box], COLL_ADDED, rests_on=rests_on,
                                attached_to=attached_to, support_part=support_part)
         handle["small_marker"] = True
+        handle["marker_pose"] = {"bottom": list(map(float, bottom)), "size": list(map(float, size)),
+                                 "yaw_deg": float(yaw_deg)}
         handle["description"] = description or ""
         bpy.context.view_layer.update()  # settle parenting before reading bbox
         self._register(name, category, mesh_descendants(handle), handle=name, rests_on=rests_on,
                        attached_to=attached_to, support_part=support_part, small_marker=True,
-                       description=description)
+                       description=description, marker_pose=handle["marker_pose"])
         print(f"  marked '{name}' ({category}) at {tuple(round(v, 3) for v in bottom)}")
         return handle
 

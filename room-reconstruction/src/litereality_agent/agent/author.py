@@ -20,6 +20,7 @@ current directory is inside a package. The explicit spelling still works and sti
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import os
@@ -479,9 +480,46 @@ PROFILES = {"base": PROMPT, "detail": DETAIL_PROMPT, "simulation": SIMULATION_PR
 # neither the method nor the lines that carry its mark into room_layout.json.
 TEMPLATE = Path(__file__).resolve().parents[1] / "room_ops" / "compile" / "build_room.py"
 MARK_SMALL_TEMPLATE = (
-    "This Room.py predates `RoomScene.mark_small`: copy that method into it from {template}, with "
-    "the `small_marker`/`description` lines of `_register` and `index` that carry the mark into "
-    "room_layout.json.\n")
+    "Complete the RoomScene.mark_small migration in Room.py using {template}. Copy the method, "
+    "the bottom face winding in _unit_cube_mesh, and the small_marker, description and marker_pose "
+    "arguments and fields in _register and index. Preserve the room's other edits.\n")
+
+
+def _has_marker_api(path):
+    try:
+        module = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return False
+    room = next((n for n in module.body if isinstance(n, ast.ClassDef) and n.name == "RoomScene"), None)
+    methods = {n.name: n for n in room.body if isinstance(n, ast.FunctionDef)} if room else {}
+    fields = {"small_marker", "description", "marker_pose"}
+    if not {"mark_small", "_register", "index"} <= methods.keys():
+        return False
+    register = methods["_register"]
+    args = {arg.arg for arg in register.args.args + register.args.kwonlyargs}
+
+    def writes_fields(method, target):
+        stored = {n.slice.value for n in ast.walk(method) if isinstance(n, ast.Subscript)
+                  and isinstance(n.ctx, ast.Store) and isinstance(n.slice, ast.Constant)
+                  and ast.unparse(n.value) == target}
+        return fields <= stored
+
+    def registers(method, *, reindex=False):
+        for call in ast.walk(method):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "_register"):
+                continue
+            values = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+            if fields <= values.keys() and (not reindex or all(
+                    values[key] == f"o.get('{key}')" for key in fields)):
+                return True
+        return False
+
+    marker = methods["mark_small"]
+    return (fields <= args and writes_fields(register, "self.objects[rid]")
+            and writes_fields(marker, "handle") and registers(marker)
+            and registers(methods["index"], reindex=True))
+
 
 # Budgets the open brief needs: the one-shot run that motivated it took 69 tool calls to a finished,
 # self-audited room, and our scripted pass was cut at 56 by a quota. 300 with a 400-turn backstop
@@ -604,13 +642,8 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
             path=evidence / "operator" if evidence else operator)
     if brief:
         prompt += "\n" + brief
-    if "mark_small(" in prompt:
-        try:
-            current = "def mark_small" in (room / "Room.py").read_text(encoding="utf-8")
-        except OSError:
-            current = True
-        if not current:
-            prompt += MARK_SMALL_TEMPLATE.format(template=TEMPLATE)
+    if "mark_small(" in prompt and not _has_marker_api(room / "Room.py"):
+        prompt += MARK_SMALL_TEMPLATE.format(template=TEMPLATE)
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "

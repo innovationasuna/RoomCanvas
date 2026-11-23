@@ -239,6 +239,8 @@ def drop_fragments(source: Path, target: Path, size: float | None = None) -> dic
         total += float(surface.sum())
         mesh.update_faces(np.isin(face_label, list(keep_label)))
         mesh.remove_unreferenced_vertices()
+    if not counts["pieces_after"] or not geometry_nodes:
+        raise ValueError(f"{source} has no mesh faces")
     counts["dropped_share"] = round(counts["dropped_share"] / total, 4) if total else 0.0
     target.parent.mkdir(parents=True, exist_ok=True)
     scene.export(target)

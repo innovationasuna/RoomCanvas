@@ -168,8 +168,10 @@ def import_glb(path, name):
 
 
 def place(item, live, out_dir, report):
-    old = [o for m in item["members"] if m in live for o in own_objects(live[m])]
-    target = fit.footprint(world_vertices(old))
+    target = item.get("marker_pose")
+    if not target:
+        old = [o for m in item["members"] if m in live for o in own_objects(live[m])]
+        target = fit.footprint(world_vertices(old))
     props, dependents = remove_item(item, live, report["removed"])
     imported = import_glb(item["glb"], item["id"])
     for image in {node.image for obj in imported if obj.type == "MESH"
@@ -185,11 +187,11 @@ def place(item, live, out_dir, report):
     bpy.context.view_layer.update()
     points = world_vertices(meshes)
     low, high = points.min(0), points.max(0)
+    origin = Vector(target["bottom"] if item.get("marker_pose") else (*target["centre"], target["z"][0]))
     camera = item.get("camera")
     pose = fit.placement(target, high - low, camera[:2] if camera else None)
     sx, sy, sz = pose["scale"]
     anchor = Vector(((low[0] + high[0]) / 2, (low[1] + high[1]) / 2, low[2]))
-    origin = Vector((*target["centre"], target["z"][0]))
     turn = Matrix.Rotation(pose["yaw"], 4, "Z")
     matrix = (Matrix.Translation(origin) @ turn @ Matrix.Diagonal((sx, sy, sz, 1))
               @ Matrix.Translation(-anchor))
@@ -206,6 +208,8 @@ def place(item, live, out_dir, report):
     handle["category"] = item["category"]
     handle["source_glb"] = f"{item['id']}.glb"
     handle["rebuilt"] = "trellis"
+    if item.get("movable"):
+        handle["movable"] = True
     bpy.context.view_layer.update()
     for key in ("rests_on", "attached_to", "support_part"):
         if key in props:
@@ -264,7 +268,7 @@ def apply(request):
             entries[oid] = {"id": oid, "handle": handle.name, "placeable_surface": False}
         entry = entries[oid]
         for key in ("category", "rests_on", "attached_to", "support_part", "source_glb",
-                    "rebuilt"):
+                    "rebuilt", "movable"):
             if key in handle or key in ("rests_on", "attached_to", "support_part"):
                 entry[key] = handle.get(key)
         if handle.get("rebuilt"):

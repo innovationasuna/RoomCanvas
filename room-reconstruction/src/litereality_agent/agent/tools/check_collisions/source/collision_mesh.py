@@ -28,6 +28,7 @@ Requires `python-fcl` (via trimesh.collision) and a compiled `Room.glb`.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import defaultdict
@@ -87,7 +88,23 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
             opening_h.add(n)
         elif furn_cat.get(n) in _FURNITURE_CATS or _FURN_RE.match(n):
             furn_h.add(n)
+    layout_path = Path(glb_path).with_name("room_layout.json")
+    objects = json.loads(layout_path.read_text())["objects"] if layout_path.is_file() else []
+    if isinstance(objects, dict):
+        objects = objects.values()
+    by_id = {o["id"]: o.get("handle") or o["id"] for o in objects}
+    markers = {by_id[o["id"]] for o in objects if o.get("small_marker") or o.get("movable")}
+    furn_h.update(markers & G.nodes)
     handles = structure_h | floor_h | furn_h | opening_h
+
+    allowed = set()
+    for obj in objects:
+        child = by_id[obj["id"]]
+        support = by_id.get(obj.get("rests_on") or obj.get("attached_to"))
+        if support and (child in markers or support in markers):
+            parent_body = _handle_of(support, preds, handles)
+            if parent_body:
+                allowed.add(frozenset((child, parent_body)))
 
     parts: dict[str, list] = defaultdict(list)  # handle → [(part_node_name, world mesh)]
     for node in scene.graph.nodes_geometry:
@@ -116,6 +133,7 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
     furniture = {h: _concat([m for _, m in parts.get(h, [])]) for h in furn_h if parts.get(h)}
     furniture = {k: v for k, v in furniture.items() if v is not None}
     return {
+        "support_pairs": allowed,
         "structure": _concat(structure_meshes),
         "walls": {h: _concat([m for _, m in parts.get(h, [])])
                   for h in structure_h if h.startswith("Wall") and parts.get(h)},
@@ -159,6 +177,8 @@ def mesh_contacts(bodies: dict) -> dict:
     object_pairs, leaf_hits = set(), set()
     if hit:
         for a, b in names:
+            if frozenset((a.split("::", 1)[1], b.split("::", 1)[1])) in bodies.get("support_pairs", ()):
+                continue
             ao, bo = a.startswith("obj::"), b.startswith("obj::")
             if ao and bo:
                 object_pairs.add(frozenset((a[5:], b[5:])))
