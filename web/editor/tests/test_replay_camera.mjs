@@ -140,10 +140,11 @@ test('a model requested in playback arrives fully visible on the first finished 
 });
 
 // Run the page's player, poll and scrub handlers with an in-memory job and a renderer-free view.
-async function page(t, live) {
+async function page(t, live, data = {}) {
   const view = room(), nodes = new Map(), job = {
     live, stages: [{id: 'assemble', name: 'assemble'}], models: {seed: 'seed', final: 'final'},
     events: [{stage: 'assemble', minute: 0, kind: 'milestone', model: 'seed'}],
+    ...data,
   };
   view.physical = () => {};
   view.ensureScaffold = () => {};
@@ -177,6 +178,15 @@ async function page(t, live) {
     poll: () => poll(), scrub: x => node('track').dispatchEvent(Object.assign(new Event('pointerdown'), {clientX: x}))};
 }
 
+function checkOverviewSpin(view) {
+  frames(view, 400);
+  assert.ok(view.controls.target.distanceTo(view.center) < 0.005);
+  assert.ok(Math.abs(view.controls.getDistance() - view.defaultDist) < 0.02);
+  const az = view.controls.getAzimuthalAngle();
+  frames(view, 5);
+  assert.ok(Math.abs(view.controls.getAzimuthalAngle() - az) > 0.001);
+}
+
 test('natural completion releases the close-up, returns to overview distance and keeps turning', async t => {
   const {view, player, finish} = await page(t, false);
   view.controls.target.set(2, 0, 1);
@@ -187,12 +197,49 @@ test('natural completion releases the close-up, returns to overview distance and
   finish();
   assert.equal(player.playing, false);
   assert.equal(view.aimTo, null);
-  frames(view, 400);
-  assert.ok(view.controls.target.distanceTo(view.center) < 0.005);
-  assert.ok(Math.abs(view.camera.position.distanceTo(view.controls.target) - view.defaultDist) < 0.02);
-  const az = view.controls.getAzimuthalAngle();
-  frames(view, 5);
-  assert.ok(Math.abs(view.controls.getAzimuthalAngle() - az) > 0.001);
+  checkOverviewSpin(view);
+});
+
+test('finishing after a paused and resumed last object close-up spins around the whole room', async t => {
+  const {view, player, finish} = await page(t, false, {
+    stages: [{id: 'plan', name: 'plan'}],
+    events: [{stage: 'plan', minute: 0, model: 'seed'},
+      {stage: 'plan', minute: 1, model: 'final', show: ['Chair0']}],
+  });
+  const chair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4));
+  chair.name = 'Chair0';
+  chair.position.set(1.5, 0, 1);
+  view.models.final.root.add(chair);
+  player.seek(player.duration - 1);
+  await loaded();
+  assert.ok(view.aimTo?.close);
+  frames(view, 120);
+  assert.ok(view.controls.target.distanceTo(chair.position) < 0.005);
+  assert.ok(view.controls.getDistance() < view.defaultDist / 2);
+  player.pause();
+  const position = view.camera.position.clone();
+  frames(view, 20);
+  assert.ok(view.camera.position.distanceTo(position) < 1e-10);
+  player.play();
+  finish();
+  assert.equal(player.playing, false);
+  assert.equal(view.current, 'final');
+  checkOverviewSpin(view);
+});
+
+test('a stationary canvas press suspends a camera move then lets it finish and spin', async t => {
+  const {view, finish} = await page(t, false);
+  view.pose(-1, 0.8);
+  const {controls, camera} = view, position = camera.position.clone();
+  controls.dispatchEvent({type: 'start'});
+  frames(view, 10);
+  assert.ok(camera.position.distanceTo(position) < 1e-10);
+  controls.dispatchEvent({type: 'end'});
+  frames(view, 10);
+  assert.ok(camera.position.distanceTo(position) > 0.01);
+  assert.equal(view.aimTo?.az, -1);
+  finish();
+  checkOverviewSpin(view);
 });
 
 function drag(view) {
@@ -207,6 +254,8 @@ test('scrubbing from a pause to the end preserves the manual framing', async t =
   scrub(40);
   drag(view);
   const pos = view.camera.position.clone();
+  view.controls.dispatchEvent({type: 'start'});
+  view.controls.dispatchEvent({type: 'end'});
   scrub(100);
   frames(view, 8);
   assert.equal(view.userHeld, true);
@@ -248,6 +297,33 @@ test('a live poll fades in a new draft while scrubbing to the same draft shows i
   assert.equal(draft.root.userData.fade, 1);
 });
 
+function loadLayout(view) {
+  const walls = [{a: [10, 20], b: [16, 28], h: 4, t: 0.1}];
+  Object.assign(view, {scaffoldController: new AbortController(), palette: {pointsLo: 0, pointsHi: 0, wall: 0}});
+  return view.loadScaffold({points: 'data:application/octet-stream;base64,', layout:
+    'data:application/json,' + encodeURIComponent(JSON.stringify({floor: 0, walls, boxes: []}))});
+}
+
+test('a late layout keeps the paused partial seed visible with only the built objects', async () => {
+  const view = room(), seed = view.models.seed.root;
+  const chair = new THREE.Group(), bed = new THREE.Group();
+  chair.name = 'Chair0'; bed.name = 'Bed0';
+  seed.add(chair, bed);
+  applyModel(view, 'seed', false);
+  await loaded();
+  frames(view, 60);
+  view.forming.start = node => view.forming.active.add(node);
+  const layout = loadLayout(view);
+  view.setPlaying(false);
+  view.apply({model: null, shell: true, built: new Set(['Chair0']), walls: 1, pointsFade: 1}, {...options, quiet: true});
+  assert.ok(seed.visible && chair.visible && !bed.visible);
+  await layout;
+  frames(view, 60);
+  assert.ok(seed.visible && chair.visible && !bed.visible);
+  assert.ok(!view.wallLines.visible && !view.points.visible);
+  assert.equal(view.quiet, true);
+});
+
 for (const framing of ['placeholder', 'model', 'click', 'drag']) {
   test(`layout updates the room bounds after ${framing} framing`, async () => {
     const view = room();
@@ -260,10 +336,7 @@ for (const framing of ['placeholder', 'model', 'click', 'drag']) {
     }
     if (view.modelsFramed) {view.pose(null, view.defaultPolar); view.clearAim();}
     const position = view.camera.position.clone(), target = view.controls.target.clone();
-    const walls = [{a: [10, 20], b: [16, 28], h: 4, t: 0.1}];
-    Object.assign(view, {scaffoldController: new AbortController(), palette: {pointsLo: 0, pointsHi: 0, wall: 0}});
-    await view.loadScaffold({points: 'data:application/octet-stream;base64,', layout:
-      'data:application/json,' + encodeURIComponent(JSON.stringify({floor: 0, walls, boxes: []}))});
+    await loadLayout(view);
     assert.deepEqual(view.center.toArray(), [13, 2, 24]);
     assert.equal(view.radius, 8);
     assert.ok(Math.abs(view.defaultDist - 8 * 2.15) < 1e-10);

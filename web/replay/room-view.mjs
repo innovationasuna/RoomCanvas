@@ -235,7 +235,7 @@ export class RoomView {
       this.scene.add(group);
     }
     this.scaffoldReady = true;
-    if (this.state) this.apply(this.state);
+    if (this.state) this.apply(this.state, this.lastOptions);
   }
 
   // The scan unfolds from the middle of the room outwards: each point, in turn by its distance from the
@@ -440,7 +440,7 @@ export class RoomView {
       this.setFade(entry.root, 0);
     }
     // The playhead may have moved while the model was loading.
-    if (this.state) this.apply(this.state, {...this.lastOptions, quiet: this.quiet});
+    if (this.state) this.apply(this.state, this.lastOptions);
   }
 
   // The finished room, lit like the editor's 物理光照: the editor's own rig (../editor/time-lighting.mjs), so
@@ -567,7 +567,7 @@ export class RoomView {
   // full: show the reached model as it is.
   apply(state, {quiet = false, modelUrl, openings, addedAll} = {}) {
     this.state = state;
-    this.lastOptions = {modelUrl, openings, addedAll};
+    this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
     const key = state.model || (state.shell && seedUrl ? 'seed' : null);
     const partial = !state.model && key === 'seed';
@@ -664,14 +664,15 @@ export class RoomView {
   watchOrbit() {
     const c = this.controls;
     c.addEventListener('start', () => {
-      this.userHeld = true;
-      this.stopCamera();
       this.orbitStart = {position: this.camera.position.clone(), target: c.target.clone()};
     });
     c.addEventListener('change', () => {
       const start = this.orbitStart;
-      if (start && this.userHeld && (start.position.distanceToSquared(this.camera.position) > 1e-12 ||
-        start.target.distanceToSquared(c.target) > 1e-12)) this.userMoved = true;
+      if (start && !this.userHeld && (start.position.distanceToSquared(this.camera.position) > 1e-12 ||
+        start.target.distanceToSquared(c.target) > 1e-12)) {
+        this.userHeld = this.userMoved = true;
+        this.stopCamera();
+      }
     });
     c.addEventListener('end', () => {this.orbitStart = null;});
   }
@@ -682,8 +683,9 @@ export class RoomView {
   }
   setPlaying(playing, end = false) {
     if (playing && !this.playing) this.userHeld = false;
+    // A pause may already have cleared the last close-up while the camera was still near the object.
+    if (this.playing && !playing && end && !this.userHeld) this.clearAim();
     this.playing = playing;
-    if (end && !playing) this.clearAim();
     this.wantSpin = playing || end;
     const paused = !this.wantSpin;
     if (this.paused === paused) return;
@@ -799,7 +801,6 @@ export class RoomView {
     return this.incoming || this.forming.active.size ? 'form' : null;
   }
   clearAim() {
-    if (!this.aimTo) return;
     this.aimTo = null;
     this.focusTo = this.center;
   }
@@ -832,7 +833,7 @@ export class RoomView {
     this.formTag.hidden = tris == null;
     if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.autoRotate = false;
-    if (!this.userHeld && dt > 0) {
+    if (!this.orbitStart && !this.userHeld && dt > 0) {
       const tgt = this.controls.target, v = this.vel, a = this.aimTo;
       const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(tgt));
       if (a) {
