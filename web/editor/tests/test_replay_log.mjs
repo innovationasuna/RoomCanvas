@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, isStrip, CardImages, keepReading, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, isStrip, CardImages, keepReading, appendedEvents, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
 
 const made = (id, name, minute, img) => ({stage: 'plan', minute, kind: 'tool', say: `做好${name}的模型`, object_id: id, object_name: name, work: 'model', img});
 const agent = (minute, say, extra = {}) => ({stage: 'assemble', minute, kind: 'tool', say, session: 'a0', ...extra});
@@ -112,6 +112,36 @@ test('a new revision of the same reference gets its own URL, node and strip deci
   assert.equal(fresh.src, second.img);
 });
 
+test('new evidence replaces the object thumbnail and its zoomed comparison', () => {
+  const cache = new CardImages(), photo = 'evidence/key/view0.jpg', pair = 'evidence/key/pair_after.jpg';
+  const evidence = (version) => pictureUrls({...made('key', '杯子', 1, photo), id: 'step',
+    media: [{src: photo, role: 'photo', version}, {src: pair, role: 'comparison', version}]}, (src) => src);
+  const first = evidence('a'), second = evidence('b');
+  cache.collect(card('step', [img(first.img)]));
+  cache.prune(cards([second]), [second]);
+  const thumbnail = objects([second], [0])[0].img;
+  assert.equal(thumbnail, photo + '?v=b');
+  assert.equal(cache.take('step', thumbnail), undefined);
+  assert.equal(cache.byCard.size, 0);
+  assert.equal(second.media.find((m) => m.role === 'comparison').src, pair + '?v=b');
+});
+
+test('a normal picture in a new session can replace a strip at the same path', () => {
+  const cache = new CardImages(), src = 'traces/img/step.jpg';
+  const event = (id, version) => pictureUrls({...agent(2, '查看画面'), id, session: id, img: src,
+    media: [{src, version}]}, (rel) => rel);
+  const first = event('a0', 'old'), second = event('a1', 'new');
+  const shots = (e) => pictures([e], [0], 2, (url) => !cache.strips.has(url));
+  const decoded = (e, width, height) => {if (isStrip(width, height)) cache.strips.add(e.img);};
+  decoded(first, 20, 200);
+  assert.deepEqual(shots(first), []);
+  cache.prune(cards([second]), [second]);
+  assert.deepEqual(shots(second), [{src: src + '?v=new', k: 0}]);
+  decoded(second, 200, 150);
+  assert.deepEqual(shots(second), [{src: src + '?v=new', k: 0}]);
+  assert.equal(pictureUrls({img: src, img_version: 'new'}, (rel) => rel).img, second.img);
+});
+
 test('redrawing keeps a pending image and retries one that failed while detached', () => {
   const cache = new CardImages(), first = img('a.jpg');
   cache.attach('work', first, () => {});
@@ -208,6 +238,42 @@ test('rebuilding anchors a normal row or its card even when the heading starts b
   log.scrollTop = 800;
   restoreCard(events);
   assert.equal(log.scrollTop, 300);
+});
+
+test('rewrapping a row hidden by the sticky heading keeps the visible row in place', (t) => {
+  globalThis.CSS = {escape: String};
+  globalThis.getComputedStyle = (el) => el.style;
+  t.after(() => {delete globalThis.CSS; delete globalThis.getComputedStyle;});
+  const log = {scrollTop: 300, scrollHeight: 1000, clientHeight: 200, getBoundingClientRect: () => ({top: 0, bottom: 200})};
+  let extra = 0;
+  const row = (i, position, rect) => ({dataset: {i}, tagName: 'P', style: {position},
+    classList: {contains: () => false}, getBoundingClientRect: rect});
+  const heading = row(0, 'sticky', () => ({top: 0, bottom: 42}));
+  const hidden = row(1, 'static', () => ({top: 280 - log.scrollTop, bottom: 319 + extra - log.scrollTop}));
+  const visible = row(2, 'static', () => ({top: 367 + extra - log.scrollTop, bottom: 407 + extra - log.scrollTop}));
+  const holder = {dataset: {key: 'work'}, getBoundingClientRect: () => ({top: -110, bottom: 300}),
+    querySelectorAll: () => [heading, hidden, visible]};
+  log.querySelectorAll = () => [holder];
+  log.querySelector = (sel) => sel.includes('data-key') ? holder : sel.includes('data-i="2"') ? visible : hidden;
+  const events = [0, 1, 2].map((id) => ({id}));
+  const restore = keepReading(log, events);
+  extra = 78;
+  restore(events);
+  assert.equal(visible.getBoundingClientRect().top, 67);
+});
+
+test('following the live tail depends on what came after it when history is rewritten', () => {
+  const old = [{id: 'a0', t: 10}, {id: 'a3', t: 20}, {id: 'tail', t: 30}];
+  const log = {scrollTop: 761, scrollHeight: 1000, clientHeight: 200,
+    getBoundingClientRect: () => ({top: 0, bottom: 200}), querySelectorAll: () => []};
+  const split = [old[0], {id: 'a1', t: 15}, ...old.slice(1)];
+  keepReading(log, old, appendedEvents(old, split))();
+  assert.equal(log.scrollTop, 761);
+  const mergedAndAppended = [old[1], old[2], {id: 'new', t: 30}];
+  keepReading(log, old, appendedEvents(old, mergedAndAppended))();
+  assert.equal(log.scrollTop, log.scrollHeight);
+  assert.ok(appendedEvents(old, [{id: 'summary', t: 30}, {id: 'new', t: 31}]));
+  assert.equal(appendedEvents(old, [{id: 'summary', t: 30}]), false);
 });
 
 test('a reflow keeps the 39px below the reader, while an append or a pinned reader follows the end', () => {

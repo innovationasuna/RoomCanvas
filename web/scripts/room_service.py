@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import shutil
@@ -24,7 +25,7 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_replay  # noqa: E402
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -153,23 +154,41 @@ class Handler(HTTPAuth, BaseHTTPRequestHandler):
                 asset = room_replay.scene_file(scene, unquote(rel)) if scene else None
             if not asset:
                 return self.respond(404, {'error': '没有找到该任务或资源'})
-            return self.send_file(asset, cache=status == 'completed')
+            version = None
+            if rel and rel.endswith(('.jpg', '.png')):
+                version = parse_qs(urlsplit(self.path).query, keep_blank_values=True).get('v', [None])[0]
+            return self.send_file(asset, cache=status == 'completed', version=version)
         if not asset.is_file():
             return self.respond(404, {'error': '该资源尚未生成'})
         self.send_file(asset)
 
-    def send_file(self, asset, cache=False):
-        digest = sha256(asset) if self.command == 'HEAD' else None
+    def send_file(self, asset, cache=False, version=None):
+        picture = None
+        if version is not None:
+            try:
+                with asset.open('rb') as source:
+                    stat = os.fstat(source.fileno())
+                    picture = source.read()
+            except FileNotFoundError:
+                return self.respond(404, {'error': '该资源尚未生成'})
+            digest = hashlib.sha256(picture).hexdigest()
+            legacy = f'{stat.st_dev:x}-{stat.st_ino:x}-{stat.st_mtime_ns:x}'
+            if version not in (digest, legacy):
+                return self.respond(409, {'error': '图片版本已更新'})
+        else:
+            digest = sha256(asset) if self.command == 'HEAD' else None
         self.send_response(200)
         self.send_header('Content-Type', mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
-        self.send_header('Content-Length', str(asset.stat().st_size))
+        self.send_header('Content-Length', str(len(picture) if picture is not None else asset.stat().st_size))
         if cache:  # finished runs do not change; live ones may rewrite a model
             self.send_header('Cache-Control', 'max-age=3600')
-        if digest:
+        if self.command == 'HEAD':
             self.send_header(DIGEST, digest)
         self.end_headers()
-        if digest:
+        if self.command == 'HEAD':
             return
+        if picture is not None:
+            return self.wfile.write(picture)
         with asset.open('rb') as source:
             shutil.copyfileobj(source, self.wfile)
 

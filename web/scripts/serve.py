@@ -47,7 +47,7 @@ import urllib.request
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
@@ -74,10 +74,15 @@ MAX_SCAN = 2 * 1024**3
 
 
 def room_forwarded(path, method='GET'):
-    path = urlsplit(path).path
-    if '..' in path:
+    parts = urlsplit(path)
+    path = parts.path
+    if '..' in path or not (ROOM_READS if method == 'GET' else ROOM_WRITES).fullmatch(path):
         return None
-    return path if (ROOM_READS if method == 'GET' else ROOM_WRITES).fullmatch(path) else None
+    if '/replay/files/' in path and path.endswith(('.jpg', '.png')):
+        versions = parse_qs(parts.query, keep_blank_values=True).get('v')
+        if versions:
+            return path + '?' + urlencode({'v': versions[0]})
+    return path
 
 
 def forwarded(path, method='GET'):

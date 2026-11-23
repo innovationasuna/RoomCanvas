@@ -5,7 +5,7 @@ import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DU
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
-import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, cropOf, isStrip, CardImages, keepReading, nearEnd, cardScroll, WORK} from './log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, cropOf, isStrip, CardImages, keepReading, appendedEvents, nearEnd, cardScroll, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
@@ -83,7 +83,7 @@ async function poll() {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
     if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
-      const wasEnd = player.t >= span() - 0.01, restore = keepReading($('log'), tl.events, next.events.length > data.events.length);
+      const wasEnd = player.t >= span() - 0.01, restore = keepReading($('log'), tl.events, appendedEvents(data.events, next.events));
       data = next;
       rebuild(following || wasEnd);
       restore(tl.events);

@@ -23,6 +23,7 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 import download_parts
@@ -43,10 +44,14 @@ def is_file(path):
 
 def local(cache, path):
     """Where a forwarded room-service path is kept; None for what is never kept (the health check)."""
-    rest = path[len(PREFIX):]
+    rest, _, query = path[len(PREFIX):].partition('?')
     if not path.startswith(PREFIX) or '..' in rest or rest == 'health':
         return None
-    return cache / rest if is_file(path) else cache / rest / ANSWER
+    target = cache / rest
+    if query:
+        # A retry can publish new bytes before the old job cache is cleared.
+        return target.parent / ('.v-' + hashlib.sha256(query.encode()).hexdigest()) / target.name
+    return target if is_file(path) else target / ANSWER
 
 
 def save(target, data):
@@ -88,9 +93,14 @@ def job_files(job, replay):
     """The paths the replay page reads for one job: scaffold first, then room models, then pictures."""
     base = f'{PREFIX}jobs/{job}/replay'
     models = sorted((replay.get('models') or {}).items(), key=lambda kv: (kv[0] != 'seed', kv[0] != 'final', kv[0]))
-    pictures = dict.fromkeys(src for e in replay.get('events', [])
-                             for src in [e.get('img'), *(m.get('src') for m in e.get('media') or [] if isinstance(m, dict))]
-                             if isinstance(src, str))
+    pictures = {}
+    for event in replay.get('events', []):
+        img = event.get('img')
+        sources = {img: event.get('img_version')} if isinstance(img, str) else {}
+        sources.update((m['src'], m.get('version')) for m in event.get('media') or []
+                       if isinstance(m, dict) and isinstance(m.get('src'), str))
+        for src, version in sources.items():
+            pictures[src + ('?' + urlencode({'v': version}) if version is not None else '')] = None
     return ([f'{base}/scaffold/points.bin', f'{base}/scaffold/layout.json', f'{base}/scaffold/colors.bin'],
             [f'{base}/files/{rel}' for _, rel in models],
             [f'{base}/files/{rel}' for rel in pictures])

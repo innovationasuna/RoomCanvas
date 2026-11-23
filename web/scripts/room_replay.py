@@ -24,6 +24,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from replay_history import file_digest
 
 STAGES = [
     {'id': 'scan', 'name': '读取手机扫描', 'desc': '读入手机拍下的照片和测到的房间结构。'},
@@ -153,6 +154,13 @@ def _mtime(path):
     return stat and stat.st_mtime
 
 
+def picture_version(path, stat=None):
+    try:
+        return file_digest(path, stat or path.stat())
+    except OSError:
+        return None  # the picture may disappear during a live poll
+
+
 def _first(paths):
     paths = sorted(paths)
     return paths[0] if paths else None
@@ -248,13 +256,15 @@ def small_media(scene, key, until=None, closeup=None, rows=None, done=None):
     premade model was made from (when it was there by the time the item was `done`), its photo crop (with the part
     showing the item, `closeup`, when known), and the photo beside the rebuilt model (rendered when the room is
     applied, so shown only from then)."""
+    if not SMALL_REFERENCE.fullmatch(f'small-objects/reference/{key}.png') or key == '..':
+        return []
     folder = small_folder(scene) / 'evidence' / key
     reference = small_reference(scene, key, rows)
     media = []
     stat = reference and _stat(reference)
     if stat and (not done or stat.st_mtime <= done):
         media.append({'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': stat.st_mtime,
-                      'version': f'{stat.st_dev:x}-{stat.st_ino:x}-{stat.st_mtime_ns:x}'})
+                      'version': picture_version(reference, stat)})
     for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
         t = _mtime(folder / name)
         if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work
@@ -1147,10 +1157,21 @@ def timeline(job_dir, status='completed', until=None):
         order = max(order, STAGE_IDS.index(event['stage']))
         event['stage'] = STAGE_IDS[order]
     start = events[0]['t'] if events else None
+
+    def version(src):
+        path = scene_file(scene, src)
+        return path and picture_version(path)
+
     for event in events:
         event['minute'] = round((event['t'] - start) / 60, 3)
         event.pop('issues', None)
-        for media in event.get('media') or []:  # when each picture was there to show
+        pictures = event.get('media') or []
+        img = event.get('img')
+        if img and all(m['src'] != img for m in pictures) and (v := version(img)):
+            event['img_version'] = v
+        for media in pictures:
+            if 'version' not in media and (v := version(media['src'])):
+                media['version'] = v
             if 't' in media:
                 media['minute'] = round((media.pop('t') - start) / 60, 3)
     build = build_schedule(scene, until) if start else None

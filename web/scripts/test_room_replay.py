@@ -1,6 +1,7 @@
 """Reconstruction replay: run directory -> timeline, condensation cache, file allowlist, service routes.
 Synthetic runs only; no GPU, model or codex calls."""
 import json
+from io import BytesIO
 import os
 from pathlib import Path
 import re
@@ -669,6 +670,52 @@ class PhasedRun(unittest.TestCase):
         write(models / 'work/Second/reference.png', b'redrawn', T0 + 3001)
         self.assertNotEqual(media()['version'], second['version'])
 
+    def test_replacing_evidence_versions_both_the_thumbnail_and_comparison(self):
+        folder = self.run / 'small-objects/evidence/TissueBox0'
+        def pictures(data):
+            for name in ('view0.jpg', 'pair_after.jpg'):
+                write(folder / name, data, T0 + 2505)
+            events = replay.timeline(self.root, 'running', T0 + 3000)['events']
+            item = next(e for e in events if e.get('object_id') == 'TissueBox0')
+            self.assertEqual(item['img'], item['media'][0]['src'])
+            return {m['src']: m['version'] for m in item['media']}
+
+        before = pictures(b'first')
+        folder.rename(folder.with_name('previous'))
+        after = pictures(b'other')
+        self.assertEqual(len(after), 2)
+        self.assertEqual(before.keys(), after.keys())
+        self.assertTrue(all(before[src] != after[src] for src in after))
+
+    def test_file_route_only_serves_the_requested_picture_version(self):
+        from unittest.mock import Mock
+        identifier = replay.register(self.data, self.run, 'phased')
+        handler = object.__new__(service.Handler)
+        handler.jobs = service.Jobs(self.data, Path.cwd(), runner='cli')
+        self.addCleanup(os.close, handler.jobs.owner)
+        handler.send_response, handler.send_header, handler.end_headers = Mock(), Mock(), Mock()
+        src = 'small-objects/evidence/TissueBox0/view0.jpg'
+        photo = write(self.run / src, b'original', T0 + 2050)
+
+        def request(version, method):
+            handler.command = method
+            handler.path = f'/room-reconstruction/jobs/{identifier}/replay/files/{src}?v={version}'
+            handler.wfile = BytesIO()
+            handler.do_GET()
+            return handler.send_response.call_args.args[0], handler.wfile.getvalue()
+
+        stat = photo.stat()
+        first = replay.picture_version(photo, stat)
+        self.assertEqual(request(first, 'GET'), (200, b'original'))
+        self.assertEqual(request(f'{stat.st_dev:x}-{stat.st_ino:x}-{stat.st_mtime_ns:x}', 'GET'), (200, b'original'))
+        write(photo, b'redrawn', T0 + 2051)
+        self.assertEqual(request(first, 'GET')[0], 409)
+        self.assertEqual(request(first, 'HEAD'), (409, b''))
+        current = replay.picture_version(photo, photo.stat())
+        self.assertEqual(request(current, 'HEAD'), (200, b''))
+        handler.send_header.assert_any_call(service.DIGEST, current)
+        self.assertEqual(request(current, 'GET'), (200, b'redrawn'))
+
     def test_an_item_framed_with_its_whole_shelf_shows_its_own_part(self):
         camera = {'frame_index': 7, 'position': [0, 0, 0], 'forward': [0, 1, 0], 'up': [0, 0, 1],
                   'intrinsics': {'fx': 1000, 'fy': 1000, 'cx': 960, 'cy': 720}, 'resolution': [1920, 1440]}
@@ -1031,10 +1078,19 @@ class Sessions(unittest.TestCase):
 
     def test_a_picture_belongs_to_the_session_that_made_it(self):
         picture = f'{replay.TRACES}/img/author_0004_a.jpg'
+        def versions():
+            return [(e['session'], m['version']) for e in replay.timeline(self.job)['events']
+                    for m in e.get('media', []) if m['src'] == picture]
+
+        [(session, first)] = versions()
+        self.assertEqual(session, 'a0')
         next_session(self.scene, T0 + 2000, rows=[{'seq': 4, 't': T0 + 2010, 'kind': 'images', 'saved': ['img/author_0004_a.jpg']}])
         self.assertEqual([r['img'] for r in replay.agent_records(self.scene) if r['kind'] == 'images'], [picture, picture])
-        os.utime(self.scene / picture, (T0 + 2010, T0 + 2010))  # the second session wrote its own over it
+        write(self.scene / picture, b'new frame', T0 + 2010)
         self.assertEqual([r['img'] for r in replay.agent_records(self.scene) if r['kind'] == 'images'], [None, picture])
+        [(session, second)] = versions()
+        self.assertEqual(session, 'a1')
+        self.assertNotEqual(first, second)
 
     def test_finer_stages_the_records_name_show_as_one(self):
         # an older cache names the agent's own adjusting and self-checking; they read as building the room

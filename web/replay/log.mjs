@@ -62,9 +62,10 @@ export function objects(events, members, names = objectNames(events)) {
 
 // Resolve a picture once so thumbnails, zoom and the strip filter all use the same revision.
 export function pictureUrls(event, files) {
-  const media = event.media?.map((m) => ({...m, src: files(m.src) + (m.version == null ? '' : `?v=${encodeURIComponent(m.version)}`)}));
+  const url = (src, version) => files(src) + (version == null ? '' : `?v=${encodeURIComponent(version)}`);
+  const media = event.media?.map((m) => ({...m, src: url(m.src, m.version)}));
   const i = event.media?.findIndex((m) => m.src === event.img) ?? -1;
-  return {...event, img: i >= 0 ? media[i].src : event.img && files(event.img), media};
+  return {...event, img: i >= 0 ? media[i].src : event.img && url(event.img, event.img_version), media};
 }
 
 // The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
@@ -156,15 +157,28 @@ export class CardImages {
 
 export const nearEnd = (log, distance = 48) => log.scrollHeight - log.scrollTop - log.clientHeight < distance;
 
+export function appendedEvents(previous, next) {
+  if (!previous.length) return next.length > 0;
+  const last = previous.at(-1), tail = next.at(-1);
+  if (!tail || tail.id === last.id) return false;
+  // A summary may also replace the old tail. Its timestamp still bounds the old records.
+  if (tail.t !== last.t) return tail.t > last.t;
+  return next.some((e) => e.id === last.id);
+}
+
 export function keepReading(log, events, appended = false) {
   const scroll = log.scrollTop, {top, bottom} = log.getBoundingClientRect();
   if (nearEnd(log, appended ? 48 : 1)) return () => {log.scrollTop = log.scrollHeight;};
   const card = [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top);
   const cardTop = card?.getBoundingClientRect().top;
   // In an expanded card the sticky heading stays put while the lines underneath it scroll.
-  const row = cardTop < top && [...card.querySelectorAll('[data-i]')].find((el) => {
+  const rows = cardTop < top ? [...card.querySelectorAll('[data-i]')] : [];
+  const first = rows[0];
+  const heading = first && getComputedStyle(first).position === 'sticky' && first.getBoundingClientRect();
+  const row = rows.find((el) => {
     const r = el.getBoundingClientRect();
-    return r.bottom > top && r.top < bottom && getComputedStyle(el).position !== 'sticky';
+    const start = Math.max(r.top, top), end = Math.min(r.bottom, bottom);
+    return end > start && (!heading || (el !== first && (start < heading.top || end > heading.bottom)));
   });
   const id = row && events[row.dataset.i].id;
   const rowTop = row && row.getBoundingClientRect().top;
