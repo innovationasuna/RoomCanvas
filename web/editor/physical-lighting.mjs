@@ -79,7 +79,8 @@ export function planLocalLights(room, parts, max = PHYSICAL.maxLocalLights) {
   });
   const groups = new Map();
   for (const part of parts) if (part.kind === 'window') {
-    const key = windowKey(part.name), entry = groups.get(key);
+    // A window root already covers its frame and sashes.
+    const key = part.windowRoot ? part.name : windowKey(part.name), entry = groups.get(key);
     groups.set(key, entry ? {names: [...entry.names, part.name], box: union(entry.box, part.box)} : {names: [part.name], box: part.box});
   }
   const windows = [...groups.values()].map(({names, box}) => {
@@ -134,7 +135,7 @@ export function roomLightParts(THREE, {room, config}) {
     if (kind === 'other' || (kind === 'window' && (windowRoot === false || /drape|sheer|curtain|blind/i.test(name)))) return;
     // A ceiling's own surface, not the curtains or fixtures the replay's model nests under it.
     const box = kind === 'ceiling' ? surfaceBox(THREE, object) : new THREE.Box3().setFromObject(object);
-    if (!box.isEmpty()) parts.push({name, kind, box: {min: box.min.toArray(), max: box.max.toArray()}});
+    if (!box.isEmpty()) parts.push({name, kind, windowRoot, box: {min: box.min.toArray(), max: box.max.toArray()}});
   });
   const shell = parts.filter(part => part.kind !== 'window').map(part => part.box).reduce((a, b) => a ? union(a, b) : b, null);
   return {parts: parts.filter(part => part.kind !== 'shell'), shell};

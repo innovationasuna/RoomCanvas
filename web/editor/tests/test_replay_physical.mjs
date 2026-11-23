@@ -12,7 +12,7 @@ const imports = registerHooks({resolve(name, context, next) {
 const {RoomView} = await import('../../replay/room-view.mjs');
 imports.deregister();
 
-function fixture(nested = true) {
+function fixture(nested = true, windowNames = ['Window0']) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color();
   const lights = {hemisphere: new THREE.HemisphereLight(), sun: new THREE.DirectionalLight(), fill: new THREE.DirectionalLight()};
   const root = new THREE.Group();
@@ -22,27 +22,29 @@ function fixture(nested = true) {
     mesh.name = name; parent.add(mesh); return mesh;
   }
   const wall = add(root, 'Wall2'); wall.position.z = 2;
-  const window = add(nested ? wall : root, 'Window0');
+  const window = add(nested ? wall : root, windowNames[0]);
   const sash = add(window, 'Window1');
+  for (const name of windowNames.slice(1)) add(window.parent, name).scale.y = 2;
   const glass = add(sash, 'Pane', new THREE.MeshPhysicalMaterial({transmission: 1}));
-  const photo = add(window, 'Window0_photo', new THREE.MeshStandardMaterial({transparent: true}));
+  const blendedGlass = add(sash, 'ClearPane', new THREE.MeshStandardMaterial({transparent: true, opacity: .15, depthWrite: false}));
+  const photo = add(wall, 'PhotoCollage', new THREE.MeshStandardMaterial({map: new THREE.Texture(), transparent: true, depthWrite: false}));
   add(root, 'Window0_Curtain'); add(root, 'WindowDaylightBackdrop0');
   const floor = add(root, 'Floor0');
   const view = Object.assign(Object.create(RoomView.prototype), {
     scene, lights, camera: new THREE.PerspectiveCamera(), controls: {target: new THREE.Vector3(), update() {}},
     renderer: {capabilities: {getMaxAnisotropy: () => 1}, shadowMap: {needsUpdate: false}, render() {}},
     forming: {finishAll() {}, waiting: () => false, update() {}, triangles: () => null}, formTag: {},
-    current: 'final', wanted: 'final', models: {final: {root}}, rig: null, wallFades: [],
+    current: 'final', wanted: 'final', models: {final: {root}}, rig: null, wallFades: [], boxes: {},
     wallFaces: [{name: 'Wall2', n: [0, 0, -1], d: -2, tangent: [1, 0, 0], bounds: [[-2, 0], [2, 3]]}],
     userHeld: true, speed: 1, time: 1,
   });
   view.camera.position.z = 5;
   view.prepare(root);
-  return {view, root, wall, sash, glass, photo, floor};
+  return {view, root, wall, sash, glass, blendedGlass, photo, floor};
 }
 
 test('physical wall shadows agree from either entry angle and all per-mesh flags return on exit', () => {
-  const {view, wall, sash, glass, photo, floor, root} = fixture();
+  const {view, wall, sash, glass, blendedGlass, photo, floor, root} = fixture();
   const mask = root.userData.mask[0];
   glass.castShadow = photo.receiveShadow = mask.castShadow = true;
   sash.castShadow = floor.receiveShadow = true;
@@ -64,7 +66,7 @@ test('physical wall shadows agree from either entry angle and all per-mesh flags
         assert.equal(mesh.castShadow, true);
         assert.equal(mesh.receiveShadow, !angle);
       }
-      for (const mesh of [glass, mask]) assert.deepEqual([mesh.castShadow, mesh.receiveShadow], [false, false]);
+      for (const mesh of [glass, blendedGlass, mask]) assert.deepEqual([mesh.castShadow, mesh.receiveShadow], [false, false], mesh.name);
       // The photo on the wall casts nothing but takes the wall's shadows while the wall shows.
       assert.deepEqual([photo.castShadow, photo.receiveShadow], [false, !angle]);
       assert.deepEqual([floor.castShadow, floor.receiveShadow], [false, true]);
@@ -98,6 +100,66 @@ test('an unlabelled room with only a window backdrop has no physical window ligh
   view.wallFaces = [];
   view.physical(true); view.tick();
   assert.deepEqual(view.rig.snapshot().physical.lights.filter(p => p.kind === 'window'), []);
+  view.physical(false);
+});
+
+test('named window openings each supply a light and exclude their sashes and nearby scenery', () => {
+  const {view} = fixture(true, ['WindowLeft', 'WindowRight']);
+  view.physical(true); view.tick();
+  const {window, physical} = view.rig.snapshot();
+  assert.equal(window, 'WindowRight');
+  for (const list of [physical.parts, physical.lights]) {
+    assert.deepEqual(list.filter(p => p.kind === 'window').map(p => p.name), ['WindowLeft', 'WindowRight']);
+  }
+  view.physical(false);
+});
+
+test('a window explicitly listed by the replay can have a nonstandard name', () => {
+  const {view} = fixture(true, ['BayOpening']);
+  view.apply({model: 'final', built: new Set()}, {openings: {Door: ['Door0'], Window: ['BayOpening']}});
+  view.physical(true); view.tick();
+  const {window, physical} = view.rig.snapshot();
+  assert.equal(window, 'BayOpening');
+  assert.deepEqual(physical.lights.filter(p => p.kind === 'window').map(p => p.name), ['BayOpening']);
+  view.physical(false);
+});
+
+test('leaving physical lighting restores the replay ground color and the sun target in world space', () => {
+  const {view, root} = fixture();
+  root.position.set(8, 0, -4);
+  const {hemisphere, sun} = view.lights;
+  hemisphere.groundColor.set(0x8a8170);
+  sun.target.position.set(1, 2, 3);
+  sun.target.updateWorldMatrix(true, false);
+  const ground = hemisphere.groundColor.clone(), target = sun.target.position.clone(), world = sun.target.matrixWorld.clone();
+  view.physical(true); view.tick();
+  assert.ok(!hemisphere.groundColor.equals(ground));
+  assert.ok(!sun.target.matrixWorld.equals(world));
+  view.physical(false);
+  assert.deepEqual(hemisphere.groundColor, ground);
+  assert.deepEqual(sun.target.position, target);
+  assert.deepEqual(sun.target.matrixWorld, world);
+});
+
+test('seeking back to the current model cancels the other fade and lights the visible room', async () => {
+  const {view, root, wall} = fixture();
+  const round = view.prepare(new THREE.Group().add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())));
+  const entry = view.models.round1 = {root: round};
+  entry.promise = Promise.resolve(entry);
+  round.visible = false;
+  view.scene.add(round);
+  await view.show('round1', 'round1.glb', false);
+  view.lastTick = performance.now() - 50; view.tick();
+  assert.equal(view.incoming, 'round1');
+  assert.ok(view.mix > 0 && view.mix < 1);
+  view.physical(true);
+  await view.show('final', 'final.glb', true);
+  for (let i = 0; i < 9; i++) {view.lastTick = performance.now() - 250; view.tick();}
+  assert.equal(view.current, 'final');
+  assert.equal(view.incoming, null);
+  assert.ok(root.visible && !round.visible);
+  assert.ok(view.rig.snapshot().physical.active);
+  assert.equal(wall.castShadow, true);
   view.physical(false);
 });
 

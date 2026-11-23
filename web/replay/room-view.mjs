@@ -390,6 +390,7 @@ export class RoomView {
   async show(key, url, quiet) {
     this.wanted = key;
     if (!key) {this.swap(null); return;}
+    if (key === this.current && this.incoming && this.incoming !== key) this.swap(key);
     if (key === this.current || key === this.incoming) return;
     const pending = this.model(key, url), requested = this.models[key];
     const entry = await pending.catch(() => null);
@@ -419,9 +420,12 @@ export class RoomView {
     this.rig = null;
     for (const {mesh, castShadow, receiveShadow} of this.saved.shadows) Object.assign(mesh, {castShadow, receiveShadow});
     Object.assign(hemisphere, {visible: true, intensity: this.saved.hemisphere});
+    hemisphere.groundColor.copy(this.saved.groundColor);
     Object.assign(sun, {visible: true, castShadow: false, intensity: this.saved.sun});
     sun.color.copy(this.saved.sunColor);
     sun.position.copy(this.saved.sunAt);
+    sun.target.position.copy(this.saved.sunTarget);
+    sun.target.updateWorldMatrix(true, false);
     fill.visible = false;
     this.scene.environmentIntensity = this.saved.environment;
     this.scene.background.copy(this.saved.background);
@@ -432,7 +436,8 @@ export class RoomView {
   enablePhysical(root) {
     const {hemisphere, sun} = this.lights;
     this.forming.finishAll();
-    this.saved = {hemisphere: hemisphere.intensity, sun: sun.intensity, sunColor: sun.color.clone(), sunAt: sun.position.clone(),
+    this.saved = {hemisphere: hemisphere.intensity, groundColor: hemisphere.groundColor.clone(),
+      sun: sun.intensity, sunColor: sun.color.clone(), sunAt: sun.position.clone(), sunTarget: sun.target.position.clone(),
       environment: this.scene.environmentIntensity, background: this.scene.background.clone(), shadows: []};
     root.updateWorldMatrix(true, true);
     // The floor's and the wall's own meshes: the model nests furniture under Floor0 (and things under walls).
@@ -440,16 +445,23 @@ export class RoomView {
     const bounds = new THREE.Box3().setFromObject(root);
     const floorY = box('Floor0')?.max.y ?? bounds.min.y, ceilingY = box('Wall0')?.max.y ?? bounds.max.y;
     // fadeMats records transparency before either wall or model fading changes the material.
-    const opaqueMaterials = new Set(root.userData.fadeMats.filter(({m, transparent}) => !transparent && !(m.transmission > 0)).map(({m}) => m));
+    const opaqueMaterials = new Set(), receivers = new Set();
+    for (const {m, transparent, opacity} of root.userData.fadeMats) {
+      if (m.transmission > 0) continue;
+      if (!transparent) opaqueMaterials.add(m);
+      // A wall photo gets its cutout from texture alpha at full base opacity.
+      if (!transparent || opacity === 1) receivers.add(m);
+    }
     root.traverse(mesh => {
       if (!mesh.isMesh) return;
-      const opaque = !mesh.userData.mask && [mesh.material].flat().every(m => opaqueMaterials.has(m));
-      // A photo blended onto a wall takes the wall's shadows (left unshadowed it glared white); glass takes none.
-      const receives = !mesh.userData.mask && [mesh.material].flat().every(m => !(m.transmission > 0));
+      const materials = [mesh.material].flat();
+      const opaque = !mesh.userData.mask && materials.every(m => opaqueMaterials.has(m));
+      const receives = !mesh.userData.mask && materials.every(m => receivers.has(m));
       this.saved.shadows.push({mesh, opaque, receives, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow});
     });
     sun.shadow.mapSize.set(2048, 2048);
-    this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config: roomConfig(root, this.wallFaces, ceilingY),
+    const config = roomConfig(root, this.wallFaces, ceilingY, this.lastOptions?.openings?.Window);
+    this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config,
       walls: this.wallFaces, bounds, floorY, ceilingY, profile: lightingProfile()});
     this.rig.apply('physical');
     for (const {mesh, opaque, receives} of this.saved.shadows) {
@@ -857,8 +869,10 @@ function wallFaces(plan) {
 
 // What the editor reads from a room's object list, by the names a reconstructed room uses: ceilings, windows
 // (on their parent wall or the nearest wall), walls and floor, and the ceiling luminaires the room is lit from.
-function roomConfig(root, walls, ceilingY) {
-  const kind = (name) => (/^Ceiling/i.test(name) ? '天花板' : /(?:^Window|_Window_)\d+$/i.test(name) ? '窗户'
+function roomConfig(root, walls, ceilingY, windowIds) {
+  const windows = new Set(windowIds);
+  const isWindow = name => windows.has(name) || /^Window(?:\d+|Left|Right)$|_Window_\d+$/i.test(name);
+  const kind = (name) => (isWindow(name) ? '窗户' : /^Ceiling/i.test(name) ? '天花板'
     : /^Wall\d+$/.test(name) ? '墙面' : /^Floor\d+$/.test(name) ? '地面' : null);
   const openings = Object.fromEntries(walls.map((w) => [w.name, []]));
   const windowRoots = new Set();
