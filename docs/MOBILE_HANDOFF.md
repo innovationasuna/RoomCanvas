@@ -133,6 +133,6 @@ Android 编译使用 JDK 21（现有 SceneView 依赖为 Java 21 字节码）、
 | 断网重启 | 通过，关闭 Wi-Fi 与移动数据、确认无网络路由后，强制停止并重新打开 App，仍能加载房间并进入漫游；测试后已恢复网络 |
 | 运行异常 | 本次测试日志未发现崩溃或 ANR |
 
-截图和版本记录位于 [模拟器测试结果](../output/android/emulator-test/)。本次验证的是原生 APK 的实际运行，未修改 App 渲染代码或模型贴图分辨率。华为 AR Engine 的真实走动定位、真实手机性能和 iPhone Safari 表现仍需对应真机验证。
+截图和版本记录位于验证机器的 `output/android/emulator-test/`，仓库内可查阅[模拟器验收记录](history/MOBILE_HANDOFF_PLAN.md#11-android-模拟器验证2026-11-23)。本次验证的是原生 APK 的实际运行，未修改 App 渲染代码或模型贴图分辨率。华为 AR Engine 的真实走动定位、真实手机性能和 iPhone Safari 表现仍需对应真机验证。
 
-真机验收待完成：当前未连接 Android 手机；浏览器设备模拟和 Android 模拟器都不能替代 Android/iPhone 真机。仍需在实际 Wi-Fi 中确认扫码连通，并复核导入、离线重开与渲染表现。结果与勾选状态见 [计划表](MOBILE_HANDOFF_PLAN.md)。
+真机验收待完成：当前未连接 Android 手机；浏览器设备模拟和 Android 模拟器都不能替代 Android/iPhone 真机。仍需在实际 Wi-Fi 中确认扫码连通，并复核导入、离线重开与渲染表现。结果与勾选状态见 [计划表](history/MOBILE_HANDOFF_PLAN.md)。

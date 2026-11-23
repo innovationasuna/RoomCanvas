@@ -7,7 +7,7 @@
 - 默认 `mesh_export.mode=baked_pbr`、纹理 2048、roughness 1、metallic 0。颜色来自原生 Gaussian 观察烘焙，不预测分区属性，也不自动去光照。
 - 保留多图、Gaussian、COVER 补拍和实测尺寸标定。UV 缓存校验源几何；烘焙失败会报错，不静默回退。
 - 资产接口依据成功的 `materials.json` 标记 PBR。尺寸预览与场景导入保留纹理并响应灯光；旧版顶点色仍可切换受光。
-- `requirements.inference.txt` 固定 nvdiffrast commit `253ac4fcea7de5f396371124af597e6cc957bfae`（0.4.0），安装入口也检查已有环境。补装与 CUDA 检查见 [运行说明](object-reconstruction/docs/VIEWFORGE_RUNTIME.md#颜色烘焙)。
+- `requirements.inference.txt` 固定 nvdiffrast commit `253ac4fcea7de5f396371124af597e6cc957bfae`（0.4.0），安装入口也检查已有环境。补装与 CUDA 检查见 [运行说明](../../object-reconstruction/docs/VIEWFORGE_RUNTIME.md#颜色烘焙)。
 
 ## 服务器与验证
 
