@@ -586,10 +586,11 @@ class Pass:
                 # Seen only in the operator's photos: no capture camera to face.
                 camera = (self.cameras[item["views"][0]["frame"]]["position"] if item["views"]
                           else None)
+                loose_marker = item.get("marker") and item.get("rests_on") and not item.get("attached_to")
                 replace.append({"id": item["id"], "members": item["members"],
                                 "category": item["category"], "glb": item["glb"],
                                 "camera": camera, "material": item["material"],
-                                **({"movable": True} if item.get("marker") else {}),
+                                **({"movable": True} if loose_marker else {}),
                                 **({"marker_pose": item["marker_pose"]} if item.get("marker_pose") else {})})
         return drop, replace
 

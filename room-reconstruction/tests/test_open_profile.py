@@ -261,7 +261,7 @@ def test_reused_room_gets_a_targeted_place_model_migration(tmp_path, monkeypatch
         mn, mx = world_bbox(meshes)
         own = [max(v, 1e-6) for v in mx - mn]
 """)
-    note = f"Replace only RoomScene.place_model in Room.py with the method from {author.TEMPLATE}"
+    note = f"Replace RoomScene.place_model in Room.py with the method from {author.TEMPLATE}"
     for models in (brief, ""):
         _, _, spec, _ = _author(tmp_path, monkeypatch, brief=models)
         assert note in spec.prompt

@@ -281,6 +281,26 @@ def world_bbox(meshes):
     return mn, mx
 
 
+def model_world_bbox(meshes, glb_path):
+    # A rotated mesh need not occupy the corners of its local bounding box.
+    import numpy as np
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    bounds = []
+    for obj in meshes:
+        evaluated = obj.evaluated_get(depsgraph)
+        vertices = evaluated.data.vertices
+        if len(vertices):
+            local = np.empty(len(vertices) * 3, dtype=np.float32)
+            vertices.foreach_get("co", local)
+            matrix = np.asarray(evaluated.matrix_world)
+            points = local.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3]
+            bounds.extend((points.min(axis=0), points.max(axis=0)))
+    if not bounds:
+        raise ValueError(f"{glb_path} has no vertices")
+    return Vector(np.min(bounds, axis=0)), Vector(np.max(bounds, axis=0))
+
+
 # ============================================================================
 # Assembly primitives (walls / openings / box-fit) — proven geometry
 # ============================================================================
@@ -1027,7 +1047,7 @@ class RoomScene:
     def _register(self, rid, cat, meshes, source=None, handle=None,
                   rests_on=None, attached_to=None, support_part=None, rebuilt=None,
                   small_marker=None, description=None, marker_pose=None):
-        mn, mx = world_bbox(meshes)
+        mn, mx = model_world_bbox(meshes, source) if rebuilt == "model" else world_bbox(meshes)
         self.objects[rid] = {
             "id": rid,
             "category": cat,
@@ -1231,23 +1251,7 @@ class RoomScene:
             raise ValueError(f"{glb_path} has no mesh")
         roots = [o for o in imported if o.parent not in imported]
         bpy.context.view_layer.update()
-        # A rotated mesh need not occupy the corners of its local bounding box.
-        import numpy as np
-
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        bounds = []
-        for obj in meshes:
-            evaluated = obj.evaluated_get(depsgraph)
-            vertices = evaluated.data.vertices
-            if len(vertices):
-                local = np.empty(len(vertices) * 3, dtype=np.float32)
-                vertices.foreach_get("co", local)
-                matrix = np.asarray(evaluated.matrix_world)
-                points = local.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3]
-                bounds.extend((points.min(axis=0), points.max(axis=0)))
-        if not bounds:
-            raise ValueError(f"{glb_path} has no vertices")
-        mn, mx = np.min(bounds, axis=0), np.max(bounds, axis=0)
+        mn, mx = model_world_bbox(meshes, glb_path)
         own = [max(v, 1e-6) for v in mx - mn]
         if isinstance(size, (int, float)):
             scale = (size / own[2],) * 3

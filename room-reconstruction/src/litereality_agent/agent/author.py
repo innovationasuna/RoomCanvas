@@ -503,6 +503,25 @@ def _has_downward_cube_bottom(module):
         return False
 
 
+def _writes_fields(method, target, required):
+    stored = {n.slice.value for n in ast.walk(method) if isinstance(n, ast.Subscript)
+              and isinstance(n.ctx, ast.Store) and isinstance(n.slice, ast.Constant)
+              and ast.unparse(n.value) == target}
+    return required <= stored
+
+
+def _registers_fields(method, fields, *, reindex=False):
+    for call in ast.walk(method):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "_register"):
+            continue
+        values = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+        if fields <= values.keys() and (not reindex or all(
+                values[key] == f"o.get('{key}')" for key in fields)):
+            return True
+    return False
+
+
 def _template_migrations(path, prompt):
     try:
         module = ast.parse(path.read_text(encoding="utf-8"))
@@ -516,8 +535,23 @@ def _template_migrations(path, prompt):
         if "scene.place_model(" in prompt:
             notes.append(f"Copy the missing RoomScene.place_model method from {TEMPLATE} into Room.py.")
     elif any(isinstance(n, ast.Call) and ast.unparse(n) == "world_bbox(meshes)" for n in ast.walk(place)):
-        notes.append(f"Replace only RoomScene.place_model in Room.py with the method from {TEMPLATE}. "
+        notes.append(f"Replace RoomScene.place_model in Room.py with the method from {TEMPLATE}. "
                      "It fits rotated models using evaluated world-space vertices.")
+    if place or "scene.place_model(" in prompt:
+        if not any(isinstance(n, ast.FunctionDef) and n.name == "model_world_bbox" for n in module.body):
+            notes.append(f"Copy the model_world_bbox helper from {TEMPLATE} into Room.py.")
+        register = methods.get("_register")
+        if not (register and "rebuilt" in {a.arg for a in register.args.args + register.args.kwonlyargs}
+                and _writes_fields(register, "self.objects[rid]", {"rebuilt"})):
+            notes.append(f"In RoomScene._register, copy the rebuilt argument and its assignment "
+                         f"to self.objects[rid] from {TEMPLATE}.")
+        if not (register and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                                 and n.func.id == "model_world_bbox" for n in ast.walk(register))):
+            notes.append(f"In RoomScene._register, copy the model_world_bbox branch for "
+                         f'rebuilt == "model" from {TEMPLATE}.')
+        index = methods.get("index")
+        if not (index and _registers_fields(index, {"rebuilt"}, reindex=True)):
+            notes.append(f'In RoomScene.index, forward rebuilt=o.get("rebuilt") to _register as in {TEMPLATE}.')
     if "mark_small(" in prompt and not _has_marker_api(module, methods):
         notes.append(MARK_SMALL_TEMPLATE.format(template=TEMPLATE))
     return "".join("\n" + note for note in notes)
@@ -530,29 +564,12 @@ def _has_marker_api(module, methods):
     register = methods["_register"]
     args = {arg.arg for arg in register.args.args + register.args.kwonlyargs}
 
-    def writes_fields(method, target, required=fields):
-        stored = {n.slice.value for n in ast.walk(method) if isinstance(n, ast.Subscript)
-                  and isinstance(n.ctx, ast.Store) and isinstance(n.slice, ast.Constant)
-                  and ast.unparse(n.value) == target}
-        return required <= stored
-
-    def registers(method, *, reindex=False):
-        for call in ast.walk(method):
-            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "_register"):
-                continue
-            values = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
-            if fields <= values.keys() and (not reindex or all(
-                    values[key] == f"o.get('{key}')" for key in fields)):
-                return True
-        return False
-
     marker = methods["mark_small"]
     return (_has_downward_cube_bottom(module)
-            and fields <= args and writes_fields(register, "self.objects[rid]")
-            and writes_fields(marker, "handle") and registers(marker)
-            and writes_fields(methods["index"], "o", {"marker_pose"})
-            and registers(methods["index"], reindex=True))
+            and fields <= args and _writes_fields(register, "self.objects[rid]", fields)
+            and _writes_fields(marker, "handle", fields) and _registers_fields(marker, fields)
+            and _writes_fields(methods["index"], "o", {"marker_pose"})
+            and _registers_fields(methods["index"], fields, reindex=True))
 
 
 # Budgets the open brief needs: the one-shot run that motivated it took 69 tool calls to a finished,

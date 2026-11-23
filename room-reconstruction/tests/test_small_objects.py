@@ -907,6 +907,38 @@ def marked_room():
     return layout
 
 
+def test_rebuilt_marker_lamps_keep_their_mount_in_web_groups(small_objects, tmp_path, monkeypatch):
+    import trimesh
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "web/scripts"))
+    from room_objects import build
+
+    layout = room()
+    lamps = [
+        obj("WallLamp0", "light", [0, 2, 1], [.2, 2.1, 1.2], small_marker=True, attached_to="Wall0"),
+        obj("DeskLamp0", "light", [1, 1.7, 1.1], [1.2, 1.9, 1.3], small_marker=True, rests_on="Shelf"),
+    ]
+    layout["objects"].extend(lamps)
+    model = tmp_path / "lamp.glb"
+    trimesh.creation.box().export(model)
+    items = [dict(i, decision={"decision": "trellis"}, views=[], glb=str(model), material={})
+             for i in candidates.find_candidates(layout) if i["marker"]]
+    _, replacements = small_objects.plan(items)
+    plan = {i["id"]: i for i in replacements}
+    assert "movable" not in plan["WallLamp0"] and plan["DeskLamp0"]["movable"]
+    for lamp in lamps:
+        lamp.update(rebuilt="trellis")
+        if "movable" in plan[lamp["id"]]:
+            lamp["movable"] = plan[lamp["id"]]["movable"]
+    result = build(layout)
+    records = {o["id"]: o for o in result["objects"]}
+    groups = {g["id"]: g["members"] for g in result["groups"]}
+    wall = records["WallLamp0"]
+    assert (wall["role"], wall["mount"], wall["attached_to"]) == ("fixture", "wall", "Wall0")
+    assert "WallLamp0" not in groups
+    assert records["DeskLamp0"]["role"] == "furniture" and groups["DeskLamp0"] == ["DeskLamp0"]
+
+
 def test_marked_boxes_are_candidates_with_their_description():
     items = {item["id"]: item for item in candidates.find_candidates(marked_room())}
     assert items["TissueBox0"]["marker"] and items["TissueBox0"]["description"] == "a white tissue box"
@@ -1242,7 +1274,42 @@ bpy.ops.wm.save_as_mainfile(filepath=BLEND)
     assert groups["DeskLamp0"] == ["DeskLamp0"]
 
 
-def test_place_model_measures_rotated_cylinder_vertices(monkeypatch):
+def migrate_445ec9f_model_template(path, template):
+    import inspect
+    import subprocess
+
+    from litereality_agent.agent import author
+
+    legacy = subprocess.check_output(
+        ["git", "show", "445ec9f:room-reconstruction/src/litereality_agent/room_ops/compile/build_room.py"],
+        cwd=author.TEMPLATE.parent, text=True)
+    prompt = "scene.place_model("
+    path.write_text(legacy)
+    assert not author._template_migrations(path, "")
+    notes = author._template_migrations(path, prompt)
+    assert "Copy the missing RoomScene.place_model" in notes and "Copy the model_world_bbox helper" in notes
+    assert "copy the rebuilt argument and its assignment" in notes
+    assert "copy the model_world_bbox branch" in notes
+    assert 'forward rebuilt=o.get("rebuilt")' in notes
+
+    # Apply only the indicated edits to the historical room, keeping its register and index.
+    room = legacy.replace("class RoomScene:", inspect.getsource(template["model_world_bbox"])
+                          + "\nclass RoomScene:\n" + inspect.getsource(template["RoomScene"].place_model))
+    room = room.replace("support_part=None):\n        mn, mx = world_bbox(meshes)",
+                        'support_part=None, rebuilt=None):\n'
+                        '        mn, mx = model_world_bbox(meshes, source) if rebuilt == "model" else world_bbox(meshes)')
+    room = room.replace("    def index(self):", '        if rebuilt:\n'
+                        '            self.objects[rid]["rebuilt"] = rebuilt\n\n    def index(self):')
+    path.write_text(room)
+    assert "copy the rebuilt argument" not in author._template_migrations(path, prompt)
+    assert "forward rebuilt" in author._template_migrations(path, prompt)
+    path.write_text(room.replace('support_part=o.get("support_part"),',
+                                 'support_part=o.get("support_part"), rebuilt=o.get("rebuilt"),'))
+    assert not author._template_migrations(path, prompt)
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["current", "445ec9f"])
+def test_place_model_measures_rotated_cylinder_vertices(tmp_path, monkeypatch, legacy):
     import runpy
     import sys
     from types import SimpleNamespace
@@ -1252,30 +1319,75 @@ def test_place_model_measures_rotated_cylinder_vertices(monkeypatch):
 
     from litereality_agent.agent.author import TEMPLATE
 
+    class Vector(np.ndarray):
+        def __new__(cls, xyz):
+            return np.asarray(xyz, dtype=float).view(cls)
+
+        @property
+        def z(self):
+            return self[2]
+
+    class Empty(dict):
+        type = "EMPTY"
+
+        def __init__(self, name):
+            self.name = name
+
     cylinder = trimesh.creation.cylinder(radius=.05, height=.1, sections=64)
     transform = trimesh.transformations.rotation_matrix(math.pi / 4, [0, 0, 1])
     transform[:3, 3] = [.3, -.2, .1]
-    mesh = MagicMock(type="MESH", parent=None)
-    evaluated = mesh.evaluated_get.return_value
-    evaluated.matrix_world = transform
+    mesh = MagicMock(type="MESH")
+    mesh.parent = None
+    mesh.name = "Cylinder"
+    mesh.bound_box = trimesh.bounds.corners(cylinder.bounds)
+    evaluated = MagicMock()
     vertices = evaluated.data.vertices
     vertices.__len__.return_value = len(cylinder.vertices)
     vertices.foreach_get.side_effect = lambda prop, out: np.copyto(out, cylinder.vertices.ravel())
 
+    def evaluate(_depsgraph):
+        fit = mesh.parent
+        evaluated.matrix_world = fit.parent.matrix_world @ fit.matrix_basis @ transform if fit is not None else transform
+        return evaluated
+
+    mesh.evaluated_get.side_effect = evaluate
+    mesh.matrix_world.__matmul__.side_effect = lambda p: (evaluate(None).matrix_world @ [*p, 1])[:3]
     bpy = MagicMock()
-    bpy.data.objects.new.side_effect = lambda *args: MagicMock()
+    bpy.data.objects.new.side_effect = lambda name, data: Empty(name)
     matrices = SimpleNamespace(Translation=trimesh.transformations.translation_matrix,
                                Diagonal=np.diag, Rotation=lambda angle, dims, axis:
                                trimesh.transformations.rotation_matrix(angle, [0, 0, 1]))
     monkeypatch.setitem(sys.modules, "bpy", bpy)
-    monkeypatch.setitem(sys.modules, "mathutils", SimpleNamespace(Matrix=matrices, Vector=np.array))
-    place = runpy.run_path(str(TEMPLATE))["RoomScene"].place_model
-    monkeypatch.setitem(place.__globals__, "import_glb", lambda _: [mesh])
-    handle = place(MagicMock(), "Direct", "asset.glb", bottom=(1, 0, .8), size=(.24, .12, .1))
+    monkeypatch.setitem(sys.modules, "mathutils", SimpleNamespace(Matrix=matrices, Vector=Vector))
+    template = runpy.run_path(str(TEMPLATE))
+    if legacy:
+        path = tmp_path / "Room.py"
+        migrate_445ec9f_model_template(path, template)
+        template = runpy.run_path(str(path))
+    scene = object.__new__(template["RoomScene"])
+    scene.objects, scene.cameras, scene.scan_dir = {}, [], str(tmp_path)
+    monkeypatch.setitem(scene.place_model.__globals__, "import_glb", lambda _: [mesh])
+    monkeypatch.setitem(scene.place_model.__globals__, "mesh_descendants", lambda _: [mesh])
+    size = [.24, .12, .1]
+    handle = scene.place_model("Direct", "asset.glb", bottom=(1, 0, .8), size=size)
     world = handle.matrix_world @ mesh.parent.matrix_basis @ transform
     points = trimesh.transform_points(cylinder.vertices, world)
-    assert np.ptp(points, axis=0) == pytest.approx([.24, .12, .1], abs=1e-6)
+    assert np.ptp(points, axis=0) == pytest.approx(size, abs=1e-6)
     assert (points.max(0) + points.min(0)) / 2 == pytest.approx([1, 0, .85], abs=1e-6)
+    assert scene.objects["Direct"]["rebuilt"] == "model"
+    assert scene.objects["Direct"]["size"] == pytest.approx(size)
+    top = scene.top_surface("Direct")
+    assert top["size"] == pytest.approx(size[:2]) and top["z"] == pytest.approx(.9)
+
+    bpy.data.objects.__iter__.side_effect = lambda: iter([handle, mesh])
+    handle.matrix_world[0, 3] += .5
+    scene.index()
+    layout = tmp_path / "room_layout.json"
+    scene.export_layout(layout)
+    entry, = json.loads(layout.read_text())["objects"]
+    assert entry["rebuilt"] == "model" and entry["size"] == pytest.approx(size)
+    assert entry["bbox_min"] == pytest.approx([1.38, -.06, .8])
+    assert entry["bbox_max"] == pytest.approx([1.62, .06, .9])
 
 
 @pytest.mark.blender
@@ -1314,18 +1426,25 @@ scene.objects = {}
 scene.out_glb = str(folder / 'Room.glb')
 size = (.24, .12, .1)
 scene.place_model('Direct', asset, bottom=(1, 0, .8), size=size)
+assert scene.objects['Direct']['size'] == list(size)
+assert scene.top_surface('Direct')['size'] == list(size[:2])
 scene.mark_small('Swap', 'mug', bottom=(-1, 0, .8), size=size)
 scene.index()
 item = dict(id='Swap', members=['Swap'], category='mug', glb=asset,
             marker_pose=scene.objects['Swap']['marker_pose'])
 blender_ops.place(item, blender_ops.handles(), folder, dict(removed=[], placed=[], moved=[]))
 scene.export_glb()
+scene.cameras, scene.scan_dir = [], str(folder)
+scene.export_layout()
 """)
     result = subprocess.run(
         [find_blender(), "-b", "--python-exit-code", "1", "--python", str(script),
          "--", str(source), str(tmp_path)], capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
     glb = trimesh.load_scene(tmp_path / "Room.glb")
+    layout = json.loads((tmp_path / "room_layout.json").read_text())
+    direct = next(o for o in layout["objects"] if o["id"] == "Direct")
+    assert direct["size"] == pytest.approx([.24, .12, .1])
     for name, x in (("Direct", 1), ("Swap", -1)):
         nodes = glb.graph.transforms.successors(name) & set(glb.graph.nodes_geometry)
         (node,) = nodes
