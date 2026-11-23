@@ -11,7 +11,9 @@ import urllib.error
 import urllib.request
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_cache  # noqa: E402
@@ -93,6 +95,39 @@ class FakeService:
 
 
 class Paths(unittest.TestCase):
+    def request(self, handler, path, method='GET'):
+        handler.path, handler.command, handler.wfile = path, method, BytesIO()
+        handler.send_response, handler.send_header, handler.end_headers = Mock(), Mock(), Mock()
+        getattr(handler, 'do_' + method)()
+        return handler.send_response.call_args.args[0], handler.wfile.getvalue()
+
+    def test_refreshing_only_the_timeline_reuses_matching_legacy_pictures_offline(self):
+        base = f'{P}jobs/{DONE}/replay'
+        version = hashlib.sha256(b'current').hexdigest()
+        timeline = {'events': [{'img': src, 'img_version': version} for src in ('preview.jpg', 'second.png')]}
+        with tempfile.TemporaryDirectory() as folder:
+            handler = object.__new__(Handler)
+            handler.cache = Path(folder)
+            for src, data in [('preview.jpg', b'current'), ('second.png', b'expired')]:
+                room_cache.save(room_cache.local(handler.cache, f'{base}/files/{src}'), data)
+            response = BytesIO(json.dumps(timeline).encode())
+            response.status, response.headers = 200, {'Content-Type': 'application/json'}
+            handler.open_backend = Mock(return_value=response)
+            self.assertEqual(self.request(handler, base)[0], 200)
+
+            handler.open_backend = Mock(side_effect=ConnectionRefusedError)
+            status, body = self.request(handler, base)
+            self.assertEqual((status, json.loads(body)), (200, timeline))
+            match, mismatch = room_cache.job_files(DONE, json.loads(body))[2]
+            handler.open_backend.reset_mock()
+            self.assertEqual(self.request(handler, f'{base}/files/preview.jpg'), (200, b'current'))
+            self.assertEqual(self.request(handler, match), (200, b'current'))
+            self.assertEqual(self.request(handler, match, 'HEAD'), (200, b''))
+            handler.send_header.assert_any_call('Content-Length', '7')
+            handler.open_backend.assert_not_called()
+            self.assertEqual(self.request(handler, mismatch)[0], 503)
+            self.assertEqual(handler.open_backend.call_args.args[0].full_url, handler.room_backend + mismatch)
+
     def test_a_new_picture_version_bypasses_older_files_and_synced_versions_open_offline(self):
         rel = 'small-objects/reference/TissueBox0.png'
         base = f'{P}jobs/{DONE}/replay'

@@ -945,6 +945,8 @@ class Condensing(unittest.TestCase):
 
     def test_condensed_lines_replace_the_rule_wording_and_are_cached(self):
         last = self.records[-1]['seq']
+        rules = replay.rule_agent_events(self.records, window=1000)
+        self.assertEqual([e['end_seq'] for e in rules], [last])
         answer = json.dumps([{'from': 0, 'to': 2, 'stage': 'adjust', 'kind': 'think', 'say': '先看照片，再搭初稿', 'image_seq': 3},
                              {'from': 3, 'to': last, 'stage': 'assemble', 'kind': 'result', 'say': '自评 6.5 分', 'image_seq': None}])
         summary = replay.Summary(self.job)
@@ -956,8 +958,8 @@ class Condensing(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)  # cached, not asked again
         timeline = replay.timeline(self.job, 'completed', T0 + 1300)
         lines = {e['id']: e for e in timeline['events'] if e.get('session')}
-        self.assertEqual([(k, e['img'], e['session']) for k, e in lines.items()],
-                         [('a0', None, 'a0'), ('a3', 'scene_init/obj_stage/traces/img/author_0004_a.jpg', 'a0')])
+        self.assertEqual([(k, e['end_seq'], e['img'], e['session']) for k, e in lines.items()],
+                         [('a0', 2, None, 'a0'), ('a3', last, 'scene_init/obj_stage/traces/img/author_0004_a.jpg', 'a0')])
         says = [e['say'] for e in timeline['events']]
         self.assertIn('自评 6.5 分', says)
         self.assertFalse([e for e in timeline['events'] if e.get('rule')])

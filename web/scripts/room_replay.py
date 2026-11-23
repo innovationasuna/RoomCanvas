@@ -907,7 +907,7 @@ def rule_agent_events(records, window=180, prefix='a', name=None):
         if not group:
             return
         pictures = seen(group)
-        events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool',
+        events.append({'id': f'{prefix}{group[0]["seq"]}', 'end_seq': group[-1]['seq'], 't': group[-1]['t'], 'kind': 'tool',
                        'say': rule_say(group, prefix == 'm', name),
                        'img': pictures[-1] if pictures else None, 'media': [{'src': img} for img in pictures[-MEDIA:]],
                        'session': f'{prefix}{group[0]["session"]}', 'rule': True})
@@ -1112,8 +1112,9 @@ def timeline(job_dir, status='completed', until=None):
                 # the first of them (a cache may name one outside, or none).
                 pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
                 img = item.get('img') if item.get('img') in pictures else pictures[0] if pictures else None
-                events.append({'id': f'{prefix}{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
-                               'say': item['say'], 'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
+                events.append({'id': f'{prefix}{item["from"]}', 'end_seq': item['to'], 't': item['t'],
+                               'stage': item['stage'], 'kind': item['kind'], 'say': item['say'],
+                               'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
                                **({'session': f'{prefix}{by_seq[item["from"]]["session"]}'} if item['from'] in by_seq else {})})
             covered = batch['to']
         return covered

@@ -276,6 +276,25 @@ test('following the live tail depends on what came after it when history is rewr
   assert.equal(appendedEvents(old, [{id: 'summary', t: 30}]), false);
 });
 
+test('splitting the live tail preserves the reader until another raw record arrives', () => {
+  const old = [{id: 'a0', session: 'a0', t: 114, end_seq: 14}];
+  let scroll;
+  const log = {scrollHeight: 1000, clientHeight: 200,
+    get scrollTop() {return scroll;}, set scrollTop(y) {scroll = Math.min(y, this.scrollHeight - this.clientHeight);},
+    getBoundingClientRect: () => ({top: 0, bottom: 200}), querySelectorAll: () => []};
+  for (const t of [106, 114]) {
+    log.scrollTop = 761;
+    const split = [{...old[0], t, end_seq: 6}, {...old[0], id: 'a7'}];
+    keepReading(log, old, appendedEvents(old, split))();
+    assert.equal(log.scrollTop, 761);
+    const appended = [...split, {...old[0], id: 'a15', end_seq: 15}];
+    keepReading(log, old, appendedEvents(old, appended))();
+    assert.equal(log.scrollTop, 800);
+    assert.ok(appendedEvents(old, [...split, {id: 'final', t: 114}]));
+  }
+  assert.equal(appendedEvents([{id: 'a0', t: 114}], [{id: 'a0', t: 106}, {id: 'a7', t: 114}]), false);
+});
+
 test('a reflow keeps the 39px below the reader, while an append or a pinned reader follows the end', () => {
   let scroll = 761;
   const log = {scrollHeight: 1000, clientHeight: 200,

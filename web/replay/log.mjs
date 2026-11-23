@@ -160,10 +160,13 @@ export const nearEnd = (log, distance = 48) => log.scrollHeight - log.scrollTop 
 export function appendedEvents(previous, next) {
   if (!previous.length) return next.length > 0;
   const last = previous.at(-1), tail = next.at(-1);
-  if (!tail || tail.id === last.id) return false;
-  // A summary may also replace the old tail. Its timestamp still bounds the old records.
+  if (!tail) return false;
+  // Splitting a summary changes its row IDs, but preserves the last raw record it covers.
+  const sameSession = (e) => last.end_seq != null && e.end_seq != null && e.session === last.session;
+  if (sameSession(tail)) return tail.end_seq > last.end_seq;
+  if (tail.id === last.id) return false;
   if (tail.t !== last.t) return tail.t > last.t;
-  return next.some((e) => e.id === last.id);
+  return next.some((e) => e.t === last.t && (sameSession(e) ? e.end_seq === last.end_seq : e.id === last.id));
 }
 
 export function keepReading(log, events, appended = false) {
