@@ -25,6 +25,9 @@ READY MODELS for small things in this room are in `{folder}/`, made up front fro
 close-ups. Put each one where the photographs show it, in Room.py:
     scene.place_model("<Kind>0", "{folder}/<Kind>.glb", bottom=(x, y, z), size=..., yaw_deg=...,
                       rests_on="<support>")
+For a fixed wall light, give its category and the wall it hangs on:
+    scene.place_model("WallLamp0", "{folder}/WallLamp.glb", bottom=(x, y, z), size=(w, d, h),
+                      yaw_deg=yaw, category="luminaire", attached_to="Wall0")
 `bottom` is the centre of its underside on the measured surface; `size` its measured (width,
 depth, height), or only its height to keep the model's proportions; `yaw_deg` turns its front
 (-Y) the way it faces in the photographs. Name the copies <Kind>, <Kind>0, <Kind>1 ... Use these

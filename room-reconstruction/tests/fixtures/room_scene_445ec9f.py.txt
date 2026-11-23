@@ -1,0 +1,82 @@
+# RoomScene methods from build_room.py at 445ec9f, before place_model.
+class RoomScene:
+    def _register(self, rid, cat, meshes, source=None, handle=None,
+                  rests_on=None, attached_to=None, support_part=None):
+        mn, mx = world_bbox(meshes)
+        self.objects[rid] = {
+            "id": rid,
+            "category": cat,
+            "handle": handle or rid,
+            "center": [round((mn[i] + mx[i]) / 2, 4) for i in range(3)],
+            "bbox_min": [round(mn[i], 4) for i in range(3)],
+            "bbox_max": [round(mx[i], 4) for i in range(3)],
+            "size": [round(mx[i] - mn[i], 4) for i in range(3)],
+            "top_z": round(mx.z, 4),
+            "placeable_surface": cat in PLACEABLE_CATS,
+            "rests_on": rests_on,
+            "attached_to": attached_to,
+            "support_part": support_part,
+            "source_glb": source,
+        }
+
+    def index(self):
+        """(Re)build the object registry from the live scene graph."""
+        self.objects = {}
+        for o in bpy.data.objects:  # shell meshes
+            if o.type == "MESH" and re.match(r"(Wall|Floor|Ceiling)\d+$", o.name):
+                self._register(o.name, category_of(o.name), [o])
+        for o in bpy.data.objects:  # asset handles
+            if o.type == "EMPTY" and o.get("room_id"):
+                self._register(
+                    o["room_id"],
+                    o.get("category", category_of(o.name)),
+                    mesh_descendants(o),
+                    source=o.get("source_glb"),
+                    handle=o.name,
+                    rests_on=o.get("rests_on"),
+                    attached_to=o.get("attached_to"),
+                    support_part=o.get("support_part"),
+                )
+        return self.objects
+
+    def top_surface(self, rid):
+        """Top surface of an object, for placing things on it."""
+        r = self.objects[rid]
+        cx, cy, _ = r["center"]
+        return {
+            "z": r["top_z"],
+            "center": [cx, cy, r["top_z"]],
+            "size": [r["size"][0], r["size"][1]],
+        }
+
+    def export_layout(self, path=None):
+        path = path or os.path.join(os.path.dirname(self.out_glb), "room_layout.json")
+        mn, mx = world_bbox([o for o in bpy.data.objects if o.type == "MESH"])
+        doc = {
+            "scene": os.path.basename(self.scan_dir),
+            "coordinate_frame": {
+                "up": "Z",
+                "units": "meters",
+                "note": "Blender Z-up; ARKit Y-up mapped by C=Rx(+90).",
+            },
+            "bounds": {
+                "min": [round(v, 4) for v in mn],
+                "max": [round(v, 4) for v in mx],
+                "size": [round(mx[i] - mn[i], 4) for i in range(3)],
+            },
+            "collections": {
+                "Room_Shell": "walls + floor (blank neutral grey)",
+                "Furniture": "tables, chairs, ...",
+                "Openings": "doors, windows",
+                "ARKit_Cameras": "capture cameras",
+                "Added": "objects placed after build (e.g. items on tables)",
+            },
+            "note": "Blank-sheet assembly: geometry placed on a neutral shell. "
+            "Materials, ceiling and wall fixtures are added by the harness.",
+            "objects": [self.objects[k] for k in sorted(self.objects)],
+            "cameras": self.cameras,
+        }
+        with open(path, "w") as fh:
+            json.dump(doc, fh, indent=2)
+        print(f"  LAYOUT   -> {path} ({len(self.objects)} objects, {len(self.cameras)} cameras)")
+        return path

@@ -816,6 +816,7 @@ def test_ready_models_are_copied_into_the_room_and_listed_for_the_author(tmp_pat
                      "reference": str(models / "work" / "TissueBox" / "reference.png")}]
     brief = ready.prompt(rows)
     assert "scene.place_model(" in brief and "Models/TissueBox.glb: a white tissue box" in brief
+    assert 'category="luminaire", attached_to="Wall0"' in brief
     assert "scene.mark_small(" in brief  # what has no model is marked for the pass
     monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(tmp_path / "missing"))
     with pytest.raises(FileNotFoundError, match="LR_SMALL_OBJECTS_MODELS"):
@@ -1276,13 +1277,10 @@ bpy.ops.wm.save_as_mainfile(filepath=BLEND)
 
 def migrate_445ec9f_model_template(path, template):
     import inspect
-    import subprocess
 
     from litereality_agent.agent import author
 
-    legacy = subprocess.check_output(
-        ["git", "show", "445ec9f:room-reconstruction/src/litereality_agent/room_ops/compile/build_room.py"],
-        cwd=author.TEMPLATE.parent, text=True)
+    legacy = (Path(__file__).parent / "fixtures" / "room_scene_445ec9f.py.txt").read_text()
     prompt = "scene.place_model("
     path.write_text(legacy)
     assert not author._template_migrations(path, "")
@@ -1363,13 +1361,18 @@ def test_place_model_measures_rotated_cylinder_vertices(tmp_path, monkeypatch, l
     if legacy:
         path = tmp_path / "Room.py"
         migrate_445ec9f_model_template(path, template)
-        template = runpy.run_path(str(path))
+        # Only the globals already available to these methods in 445ec9f.
+        legacy_globals = {name: template[name] for name in (
+            "bpy", "json", "math", "os", "re", "Matrix", "Vector", "HERE", "COLL_ADDED", "PLACEABLE_CATS",
+            "category_of", "get_or_make_collection", "import_glb", "mesh_descendants", "move_to_collection", "world_bbox",
+        )}
+        template = runpy.run_path(str(path), init_globals=legacy_globals)
     scene = object.__new__(template["RoomScene"])
     scene.objects, scene.cameras, scene.scan_dir = {}, [], str(tmp_path)
     monkeypatch.setitem(scene.place_model.__globals__, "import_glb", lambda _: [mesh])
     monkeypatch.setitem(scene.place_model.__globals__, "mesh_descendants", lambda _: [mesh])
     size = [.24, .12, .1]
-    handle = scene.place_model("Direct", "asset.glb", bottom=(1, 0, .8), size=size)
+    handle = scene.place_model("Direct", "asset.glb", bottom=(1, 0, .8), size=size, attached_to="Wall0")
     world = handle.matrix_world @ mesh.parent.matrix_basis @ transform
     points = trimesh.transform_points(cylinder.vertices, world)
     assert np.ptp(points, axis=0) == pytest.approx(size, abs=1e-6)
@@ -1385,6 +1388,7 @@ def test_place_model_measures_rotated_cylinder_vertices(tmp_path, monkeypatch, l
     layout = tmp_path / "room_layout.json"
     scene.export_layout(layout)
     entry, = json.loads(layout.read_text())["objects"]
+    assert (entry["category"], entry["attached_to"]) == ("small_object", "Wall0")
     assert entry["rebuilt"] == "model" and entry["size"] == pytest.approx(size)
     assert entry["bbox_min"] == pytest.approx([1.38, -.06, .8])
     assert entry["bbox_max"] == pytest.approx([1.62, .06, .9])

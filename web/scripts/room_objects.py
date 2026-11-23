@@ -29,7 +29,7 @@ VERSION = 1
 STRUCTURE = {'wall', 'floor', 'ceiling', 'bulkhead', 'boxed_services', 'column', 'beam'}
 OPENINGS = {'door', 'window'}
 # Built into the room: they stay when furniture moves or the room is emptied.
-FIXED = {'socket', 'switch', 'vent', 'light', 'light_fixture', 'detector', 'ceiling_grid', 'cable', 'conduit',
+FIXED = {'socket', 'switch', 'vent', 'light', 'light_fixture', 'luminaire', 'detector', 'ceiling_grid', 'cable', 'conduit',
          'curtain', 'radiator', 'air_conditioner', 'trim', 'skirting', 'trunking', 'electrical_trunking', 'environment'}
 
 
@@ -159,8 +159,11 @@ def build(layout, node_names=None, names=None, joints=None):
         base = objects.get(parent(owner)) if parent(owner) else None
         mount = {'wall': 'wall', 'ceiling': 'ceiling', 'bulkhead': 'ceiling'}.get(base and base['category'], 'floor')
         # The editor has no ceiling mounts; a ceiling item is part of the room.
-        loose_model = owner.get('rebuilt') == 'model' and owner.get('rests_on') and not owner.get('attached_to')
-        if (category in FIXED and not owner.get('movable', loose_model)) or mount == 'ceiling':
+        model = owner.get('rebuilt') == 'model'
+        loose_model = model and owner.get('rests_on') and not owner.get('attached_to')
+        # place_model defaults to small_object when the author omits the category.
+        wall_fixture = model and category == 'small_object' and owner.get('attached_to') and mount == 'wall'
+        if ((category in FIXED or wall_fixture) and not owner.get('movable', loose_model)) or mount == 'ceiling':
             return 'fixture', mount
         return 'furniture', mount
 

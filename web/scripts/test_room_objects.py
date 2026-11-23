@@ -80,14 +80,16 @@ class BuildTest(unittest.TestCase):
 
     def test_rebuilt_loose_lamp_has_its_own_movable_group(self):
         loose = dict(item('DeskLamp0', 'light', rests_on='Shelf', rebuilt='trellis'), movable=True)
-        ready = item('DeskLamp1', 'light', rests_on='Shelf', rebuilt='model')
-        result = build(room(loose, ready, item('WallLamp0', 'light', attached_to='Wall0', rebuilt='model')))
-        roles = {o['id']: o['role'] for o in result['objects']}
+        ready = item('DeskLamp1', 'luminaire', rests_on='Shelf', rebuilt='model')
+        result = build(room(loose, ready, item('WallLamp0', 'light', attached_to='Wall0', rebuilt='model'),
+                            item('WallLamp1', 'luminaire', attached_to='Wall0', rebuilt='trellis'),
+                            item('WallLamp2', 'small_object', attached_to='Wall0', rebuilt='model')))
+        objects = {o['id']: o for o in result['objects']}
         groups = {g['id']: g['members'] for g in result['groups']}
         for name in ('DeskLamp0', 'DeskLamp1'):
-            self.assertEqual((roles[name], groups[name]), ('furniture', [name]))
-        for fixed in ('WallLamp0', 'Lamp'):
-            self.assertEqual(roles[fixed], 'fixture')
+            self.assertEqual((objects[name]['role'], groups[name]), ('furniture', [name]))
+        for fixed in ('WallLamp0', 'WallLamp1', 'WallLamp2'):
+            self.assertEqual((objects[fixed]['role'], objects[fixed]['wall']), ('fixture', 'Wall0'))
             self.assertNotIn(fixed, groups)
 
     def test_bad_relations_are_rejected(self):
