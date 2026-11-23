@@ -34,20 +34,46 @@ export function cards(events) {
 // The members of a card that had happened by event index idx.
 export const upTo = (card, idx) => card.members.filter((k) => k <= idx);
 
+// Assign numbers once per job, including objects seen before a live timeline was revised.
+export function objectNames(events, names = new Map()) {
+  for (const e of events) {
+    if (!e.object_id || !e.work) continue;
+    const name = e.object_name || '';
+    if (!names.has(name)) names.set(name, new Map());
+    const ids = names.get(name);
+    if (!ids.has(e.object_id)) ids.set(e.object_id, ids.size + 1);
+  }
+  return names;
+}
+
 // One entry per object, in the order they first came: its latest event (k) and picture (with the part of it
 // showing the object, crop, when the picture shows much more).
-export function objects(events, members) {
+export function objects(events, members, names = objectNames(events)) {
   const by = new Map();
   for (const k of members) {
     const e = events[k], prev = by.get(e.object_id);
-    by.set(e.object_id, {id: e.object_id, name: e.object_name || '', k, img: e.img || prev?.img || null,
+    const name = e.object_name || '', ids = names.get(name);
+    const label = ids?.size > 1 ? `${name} ${ids.get(e.object_id)}` : name;
+    by.set(e.object_id, {id: e.object_id, name, label, k, img: e.img || prev?.img || null,
       crop: e.img ? cropOf(e) : prev?.crop || null});
   }
   return [...by.values()];
 }
 
+// Resolve a picture once so thumbnails, zoom and the strip filter all use the same revision.
+export function pictureUrls(event, files) {
+  const url = (src, version) => files(src) + (version == null ? '' : `?v=${encodeURIComponent(version)}`);
+  const media = event.media?.map((m) => ({...m, src: url(m.src, m.version)}));
+  const i = event.media?.findIndex((m) => m.src === event.img) ?? -1;
+  return {...event, img: i >= 0 ? media[i].src : event.img && url(event.img, event.img_version), media};
+}
+
 // The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
 export const cropOf = (e) => (e.media || []).find((m) => m.src === e.img && m.crop)?.crop || null;
+
+export function isStrip(width, height) {
+  return width > 0 && height > 0 && (width < 0.4 * height || width > 4 * height);
+}
 
 // Lines in order, the same sentence said again in a row once: {k: its latest event, n: how many times}.
 export function lines(events, members) {
@@ -66,11 +92,116 @@ export function lines(events, members) {
 
 // The pictures of a stretch of work, latest first, each once: those its lines name (each line's own first,
 // then the others it looked at), none made up.
-export function pictures(events, members, max = 2) {
+export function pictures(events, members, max = 2, allowed = () => true) {
   const latest = [...members].reverse();
   const out = [];
   for (const [k, src] of [...latest.map((k) => [k, events[k].img]), ...latest.flatMap((k) => (events[k].media || []).map((m) => [k, m.src]))]) {
-    if (src && out.length < max && !out.some((p) => p.src === src)) out.push({k, src});
+    if (src && out.length < max && allowed(src) && !out.some((p) => p.src === src)) out.push({k, src});
   }
   return out;
+}
+
+// Keep detached pictures, including ones hidden by folding or seeking back, without retaining their cards.
+export class CardImages {
+  byCard = new Map();
+  strips = new Set();
+
+  collect(card) {
+    const key = card.dataset.key;
+    for (const img of [...card.querySelectorAll('img')].reverse()) {
+      const src = img.dataset.file;
+      if (this.strips.has(src) && !img.closest('.cell')) continue;
+      if (!this.byCard.has(key)) this.byCard.set(key, new Map());
+      const bySrc = this.byCard.get(key);
+      if (!bySrc.has(src)) bySrc.set(src, []);
+      bySrc.get(src).push(img);
+      img.remove();
+    }
+  }
+
+  take(key, src) {
+    const bySrc = this.byCard.get(key), matches = bySrc?.get(src);
+    if (!matches) return;
+    let kept;
+    while (matches.length && !kept) {
+      const img = matches.pop();
+      if (!img.complete || img.naturalWidth) kept = img;
+    }
+    if (!matches.length) bySrc.delete(src);
+    if (!bySrc.size) this.byCard.delete(key);
+    return kept;
+  }
+
+  attach(key, img, onLoad) {
+    const kept = this.take(key, img.dataset.file);
+    if (kept) {
+      kept.style.cssText = img.style.cssText;
+      img.replaceWith(kept);
+    } else {
+      img.addEventListener('load', onLoad, {once: true});
+      img.src = img.dataset.file;
+    }
+  }
+
+  prune(deck, events) {
+    const cards = new Map(deck.map((card) => [card.key, card]));
+    for (const [key, bySrc] of this.byCard) {
+      const card = cards.get(key), members = card?.members || [];
+      const sources = new Set(members.flatMap((k) => [events[k].img, ...(events[k].media || []).map((m) => m.src)]));
+      const grid = card?.type === 'objects' && members.length > 1;
+      for (const src of bySrc.keys()) if (!sources.has(src) || (!grid && this.strips.has(src))) bySrc.delete(src);
+      if (!bySrc.size) this.byCard.delete(key);
+    }
+  }
+}
+
+export const nearEnd = (log, distance = 48) => log.scrollHeight - log.scrollTop - log.clientHeight < distance;
+
+export function appendedEvents(previous, next) {
+  if (!previous.length) return next.length > 0;
+  const last = previous.at(-1), tail = next.at(-1);
+  if (!tail) return false;
+  // Splitting a summary changes its row IDs, but preserves the last raw record it covers.
+  const sameSession = (e) => last.end_seq != null && e.end_seq != null && e.session === last.session;
+  if (sameSession(tail)) return tail.end_seq > last.end_seq;
+  if (tail.id === last.id) return false;
+  if (tail.t !== last.t) return tail.t > last.t;
+  return next.some((e) => e.t === last.t && (sameSession(e) ? e.end_seq === last.end_seq : e.id === last.id));
+}
+
+export function keepReading(log, events, appended = false) {
+  const scroll = log.scrollTop, {top, bottom} = log.getBoundingClientRect();
+  if (nearEnd(log, appended ? 48 : 1)) return () => {log.scrollTop = log.scrollHeight;};
+  const card = [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top);
+  const cardTop = card?.getBoundingClientRect().top;
+  // In an expanded card the sticky heading stays put while the lines underneath it scroll.
+  const rows = cardTop < top ? [...card.querySelectorAll('[data-i]')] : [];
+  const first = rows[0];
+  const heading = first && getComputedStyle(first).position === 'sticky' && first.getBoundingClientRect();
+  const row = rows.find((el) => {
+    const r = el.getBoundingClientRect();
+    const start = Math.max(r.top, top), end = Math.min(r.bottom, bottom);
+    return end > start && (!heading || (el !== first && (start < heading.top || end > heading.bottom)));
+  });
+  const id = row && events[row.dataset.i].id;
+  const rowTop = row && row.getBoundingClientRect().top;
+  return (updated = events) => {
+    const next = card && log.querySelector(`[data-key="${CSS.escape(card.dataset.key)}"]`);
+    const k = row && (id != null ? updated.findIndex((e) => e.id === id) : row.dataset.i);
+    const line = row && log.querySelector(`${row.tagName}${row.classList.contains('lead') ? '.lead' : ':not(.lead)'}[data-i="${k}"]`);
+    if (line && getComputedStyle(line).position !== 'sticky') log.scrollTop += line.getBoundingClientRect().top - rowTop;
+    else if (next) log.scrollTop += next.getBoundingClientRect().top - cardTop;
+    else log.scrollTop = scroll;
+  };
+}
+
+// Scroll by the smallest amount for a whole card. For a tall one, show its start if the current line fits too.
+export function cardScroll(top, bottom, current, height, heading = 0) {
+  const gap = 12;
+  if (bottom - top > height - 2 * gap) {
+    if (current.bottom - top <= height - 2 * gap) return top - gap;
+    return Math.min(current.top - heading - gap, current.bottom - height + gap);
+  }
+  if (top < gap) return top - gap;
+  return Math.max(0, bottom - height + gap);
 }

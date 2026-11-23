@@ -24,6 +24,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from replay_history import file_digest
 
 STAGES = [
     {'id': 'scan', 'name': '读取手机扫描', 'desc': '读入手机拍下的照片和测到的房间结构。'},
@@ -36,7 +37,7 @@ STAGES = [
     {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，再做好小物品和可开合部件，修改后的房间就是结果。'},
     # Only listed for a run whose room was revised after it was published, or (older runs) that went through
     # the small-object pass or the openable parts after publishing (see stages_of).
-    {'id': 'revise', 'name': '按意见修改', 'desc': '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'},
+    {'id': 'revise', 'name': '按意见修改', 'desc': '对照修改意见逐项调整房间，并检查修改效果。'},
     {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]
@@ -141,11 +142,23 @@ def scene_file(scene, rel):
     return path if root in path.parents and path.is_file() else None
 
 
-def _mtime(path):
+def _stat(path):
     try:
-        return path.stat().st_mtime
+        return path.stat()
     except OSError:
         return None
+
+
+def _mtime(path):
+    stat = _stat(path)
+    return stat and stat.st_mtime
+
+
+def picture_version(path, stat=None):
+    try:
+        return file_digest(path, stat or path.stat())
+    except OSError:
+        return None  # the picture may disappear during a live poll
 
 
 def _first(paths):
@@ -243,10 +256,15 @@ def small_media(scene, key, until=None, closeup=None, rows=None, done=None):
     premade model was made from (when it was there by the time the item was `done`), its photo crop (with the part
     showing the item, `closeup`, when known), and the photo beside the rebuilt model (rendered when the room is
     applied, so shown only from then)."""
+    if not SMALL_REFERENCE.fullmatch(f'small-objects/reference/{key}.png') or key == '..':
+        return []
     folder = small_folder(scene) / 'evidence' / key
     reference = small_reference(scene, key, rows)
-    t = reference and _mtime(reference)
-    media = [{'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': t}] if t and (not done or t <= done) else []
+    media = []
+    stat = reference and _stat(reference)
+    if stat and (not done or stat.st_mtime <= done):
+        media.append({'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': stat.st_mtime,
+                      'version': picture_version(reference, stat)})
     for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
         t = _mtime(folder / name)
         if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work
@@ -889,7 +907,7 @@ def rule_agent_events(records, window=180, prefix='a', name=None):
         if not group:
             return
         pictures = seen(group)
-        events.append({'id': f'{prefix}{group[0]["seq"]}', 't': group[-1]['t'], 'kind': 'tool',
+        events.append({'id': f'{prefix}{group[0]["seq"]}', 'end_seq': group[-1]['seq'], 't': group[-1]['t'], 'kind': 'tool',
                        'say': rule_say(group, prefix == 'm', name),
                        'img': pictures[-1] if pictures else None, 'media': [{'src': img} for img in pictures[-MEDIA:]],
                        'session': f'{prefix}{group[0]["session"]}', 'rule': True})
@@ -1094,8 +1112,9 @@ def timeline(job_dir, status='completed', until=None):
                 # the first of them (a cache may name one outside, or none).
                 pictures = seen(by_seq[seq] for seq in range(item['from'], item['to'] + 1) if seq in by_seq)
                 img = item.get('img') if item.get('img') in pictures else pictures[0] if pictures else None
-                events.append({'id': f'{prefix}{item["from"]}', 'stage': item['stage'], 'kind': item['kind'], 't': item['t'],
-                               'say': item['say'], 'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
+                events.append({'id': f'{prefix}{item["from"]}', 'end_seq': item['to'], 't': item['t'],
+                               'stage': item['stage'], 'kind': item['kind'], 'say': item['say'],
+                               'img': img, 'media': [{'src': src} for src in pictures[:MEDIA]],
                                **({'session': f'{prefix}{by_seq[item["from"]]["session"]}'} if item['from'] in by_seq else {})})
             covered = batch['to']
         return covered
@@ -1139,10 +1158,21 @@ def timeline(job_dir, status='completed', until=None):
         order = max(order, STAGE_IDS.index(event['stage']))
         event['stage'] = STAGE_IDS[order]
     start = events[0]['t'] if events else None
+
+    def version(src):
+        path = scene_file(scene, src)
+        return path and picture_version(path)
+
     for event in events:
         event['minute'] = round((event['t'] - start) / 60, 3)
         event.pop('issues', None)
-        for media in event.get('media') or []:  # when each picture was there to show
+        pictures = event.get('media') or []
+        img = event.get('img')
+        if img and all(m['src'] != img for m in pictures) and (v := version(img)):
+            event['img_version'] = v
+        for media in pictures:
+            if 'version' not in media and (v := version(media['src'])):
+                media['version'] = v
             if 't' in media:
                 media['minute'] = round((media.pop('t') - start) / 60, 3)
     build = build_schedule(scene, until) if start else None

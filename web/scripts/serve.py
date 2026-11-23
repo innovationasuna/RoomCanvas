@@ -30,8 +30,10 @@ phone server starts on the first QR publication, on --share-host/--share-port (d
 """
 import argparse
 from contextlib import nullcontext
+import hashlib
 import http.client
 import json
+import os
 import re
 import shlex
 import shutil
@@ -47,7 +49,7 @@ import urllib.request
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
@@ -74,10 +76,15 @@ MAX_SCAN = 2 * 1024**3
 
 
 def room_forwarded(path, method='GET'):
-    path = urlsplit(path).path
-    if '..' in path:
+    parts = urlsplit(path)
+    path = parts.path
+    if '..' in path or not (ROOM_READS if method == 'GET' else ROOM_WRITES).fullmatch(path):
         return None
-    return path if (ROOM_READS if method == 'GET' else ROOM_WRITES).fullmatch(path) else None
+    if '/replay/files/' in path and path.endswith(('.jpg', '.png')):
+        versions = parse_qs(parts.query, keep_blank_values=True).get('v')
+        if versions:
+            return path + '?' + urlencode({'v': versions[0]})
+    return path
 
 
 def forwarded(path, method='GET'):
@@ -332,7 +339,16 @@ class Handler(SimpleHTTPRequestHandler):
         kept = target and room_cache.is_file(target) and room_cache.local(self.cache, target)
         if kept and kept.is_file():
             return self.send_kept(kept, head=True)
+        if kept and self.send_legacy_picture(target, head=True):
+            return
         return super().do_HEAD()
+
+    def send_legacy_picture(self, path, head=False):
+        # Before picture versions, a finished replay kept the same image at its plain path.
+        plain, _, digest = path.partition('?v=')
+        if re.fullmatch('[0-9a-f]{64}', digest):
+            return self.send_kept(room_cache.local(self.cache, plain), head=head, digest=digest)
+        return False
 
     def room_get(self, path):
         """A finished job's file from the local copy when there is one; JSON answers live, else the kept one."""
@@ -340,6 +356,8 @@ class Handler(SimpleHTTPRequestHandler):
         if kept and room_cache.is_file(path) and kept.is_file():
             return self.send_kept(kept)
         if kept is None or room_cache.is_file(path):
+            if kept and self.send_legacy_picture(path):
+                return
             # 60 s like ViewForge reads: room models are tens of MB and the tunnel can be slow.
             return self.relay(urllib.request.Request(self.room_backend + path), 60, room=True)
         status, body, kind, stale = self.room_answer(path, 8 if kept.is_file() else 60)
@@ -378,20 +396,30 @@ class Handler(SimpleHTTPRequestHandler):
                     pass
             return failure
 
-    def send_kept(self, path, head=False):
+    def send_kept(self, path, head=False, digest=None):
         with self.cache_control().download():
             try:
                 source = path.open('rb')
             except FileNotFoundError:
+                if digest is not None:
+                    return False
                 return self.room_json(404, {'error': '本地缓存已清理，请刷新后重新加载。'})
             with source:
+                picture = source.read() if digest is not None else None
+                if picture is not None and hashlib.sha256(picture).hexdigest() != digest:
+                    return False
+                stat = os.fstat(source.fileno())
                 self.send_response(200)
                 self.send_header('Content-Type', room_cache.content_type(path))
-                self.send_header('Content-Length', str(path.stat().st_size))
-                self.send_header('Last-Modified', self.date_time_string(path.stat().st_mtime))
+                self.send_header('Content-Length', str(len(picture) if picture is not None else stat.st_size))
+                self.send_header('Last-Modified', self.date_time_string(stat.st_mtime))
                 self.end_headers()
                 if not head:
-                    shutil.copyfileobj(source, self.wfile)
+                    if picture is None:
+                        shutil.copyfileobj(source, self.wfile)
+                    else:
+                        self.wfile.write(picture)
+                return True
 
     def do_POST(self):
         if urlsplit(self.path).path == '/web/cache/clear':

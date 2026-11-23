@@ -11,13 +11,17 @@ def inferred_time(path):
         return None
 
 
-@lru_cache(maxsize=64)
-def _digest(path, size, mtime_ns, ctime_ns, inode):
+@lru_cache(maxsize=4096)
+def _digest(path, identity):
     digest = hashlib.sha256()
     with open(path, 'rb') as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def file_digest(path, stat):
+    return _digest(str(path), (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
 
 
 def artifact_evidence(path, row=None, *, legacy=False):
@@ -28,7 +32,7 @@ def artifact_evidence(path, row=None, *, legacy=False):
             # recorded time; its time is only marked unknown, never dropped.
             expected, source = row.get('artifact_digest'), 'event'
             if expected:
-                actual = _digest(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino)
+                actual = file_digest(path, stat)
                 if actual != expected:
                     source = 'external_change'
             elif row.get('schema_version', 1) >= 2:

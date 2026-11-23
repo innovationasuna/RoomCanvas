@@ -37,7 +37,7 @@
   .tag.ok {background: var(--rc-active); color: var(--rc-green);}
   main {display: grid; grid-template-columns: clamp(250px, 22vw, 330px) minmax(0, 1fr); min-height: 0;}
   .side {display: grid; grid-template-rows: minmax(0, 1fr) auto; background: var(--rc-panel); border-right: 1px solid var(--rc-line); min-height: 0; min-width: 0; overflow: hidden;}
-  .log {overflow-y: auto; overflow-x: hidden; padding: 16px 18px 24px; min-width: 0; container-type: inline-size;}
+  .log {overflow-y: auto; overflow-x: hidden; padding: 16px 18px 24px; min-width: 0; container-type: inline-size; overflow-anchor: none;}
   .user {margin-left: 48px; background: var(--rc-raised); border-radius: 8px 8px 3px 8px; padding: 10px 14px; margin-bottom: 18px;}
   .who {display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px;}
   .who i {width: 22px; height: 22px; border-radius: 5px; background: var(--rc-green); color: var(--rc-bg); display: grid; place-items: center; font-style: normal; font-size: 12px;}
@@ -55,6 +55,7 @@
   .card .line {margin: 0;}
   .card .line + .line, .card .fold + .line {margin-top: 4px;}
   .card .lead {font-weight: 600; font-size: 14px;}
+  .objects .lead, .work .text > .line:first-child:not(:last-child) {position: sticky; top: 0; z-index: 1; background: var(--rc-field);}
   .log button.fold {display: block; border: 0; background: none; padding: 2px 0; font-size: 12px; color: var(--rc-muted);}
   .log button.fold:is(:hover, :focus-visible) {color: var(--rc-green); background: none;}
   .card .detail {margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rc-line);}
@@ -120,7 +121,8 @@
   .btns svg {pointer-events: none;}
   .btns #play {background: var(--rc-green); border-color: var(--rc-green); color: var(--rc-bg);}
   .track {--track-center: 13px; position: relative; height: 40px; cursor: pointer; touch-action: none; user-select: none;}
-  .track .seg {position: absolute; top: calc(var(--track-center) - 4px); height: 8px; border-radius: 3px; background: var(--rc-line);}
+  .track .seg {position: absolute; top: 0; height: 22px;}
+  .track .bar {position: absolute; top: calc(var(--track-center) - 4px); left: 0; right: min(3px, 25%); height: 8px; border-radius: 3px; background: var(--rc-line);}
   .track .seg .fill {position: absolute; inset: 0; right: auto; border-radius: 3px; background: var(--rc-fill);}
   .track .lab {position: absolute; top: 22px; font-size: 11.5px; color: var(--rc-muted); white-space: nowrap;}
   .track .lab.now {color: var(--rc-green); font-weight: 600; z-index: 1; background: var(--rc-bg); padding-right: 6px;}
@@ -171,7 +173,7 @@
   <div class="lightbox" id="lb"></div>
 </main>
 <footer>
-  <div class="btns"><button id="prev" title="上一步（←）"><svg><use href="#i-prev"/></svg></button><button id="play" title="播放 / 暂停（空格）"><svg><use href="#i-play"/></svg></button><button id="next" title="下一步（→）"><svg><use href="#i-next"/></svg></button></div>
+  <div class="btns"><button id="prev" title="上一条记录（←）"><svg><use href="#i-prev"/></svg></button><button id="play" title="播放 / 暂停（空格）"><svg><use href="#i-play"/></svg></button><button id="next" title="下一条记录（→）"><svg><use href="#i-next"/></svg></button></div>
   <div class="track" id="track"></div>
   <div class="clock"><b id="clock">0:00:00</b> <span id="total">/ 0:00:00</span></div>
   <select id="speed" title="播放速度" aria-label="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>

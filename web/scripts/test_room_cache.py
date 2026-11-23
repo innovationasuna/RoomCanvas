@@ -11,11 +11,13 @@ import urllib.error
 import urllib.request
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_cache  # noqa: E402
-from serve import ROOT, Handler, RoomDeletions, Server, tunnel_command  # noqa: E402
+from serve import ROOT, Handler, RoomDeletions, Server, room_forwarded, tunnel_command  # noqa: E402
 
 DONE, RUNNING = 'a' * 32, 'b' * 32
 P = '/room-reconstruction/'
@@ -93,6 +95,74 @@ class FakeService:
 
 
 class Paths(unittest.TestCase):
+    def request(self, handler, path, method='GET'):
+        handler.path, handler.command, handler.wfile = path, method, BytesIO()
+        handler.send_response, handler.send_header, handler.end_headers = Mock(), Mock(), Mock()
+        getattr(handler, 'do_' + method)()
+        return handler.send_response.call_args.args[0], handler.wfile.getvalue()
+
+    def test_refreshing_only_the_timeline_reuses_matching_legacy_pictures_offline(self):
+        base = f'{P}jobs/{DONE}/replay'
+        version = hashlib.sha256(b'current').hexdigest()
+        timeline = {'events': [{'img': src, 'img_version': version} for src in ('preview.jpg', 'second.png')]}
+        with tempfile.TemporaryDirectory() as folder:
+            handler = object.__new__(Handler)
+            handler.cache = Path(folder)
+            for src, data in [('preview.jpg', b'current'), ('second.png', b'expired')]:
+                room_cache.save(room_cache.local(handler.cache, f'{base}/files/{src}'), data)
+            response = BytesIO(json.dumps(timeline).encode())
+            response.status, response.headers = 200, {'Content-Type': 'application/json'}
+            handler.open_backend = Mock(return_value=response)
+            self.assertEqual(self.request(handler, base)[0], 200)
+
+            handler.open_backend = Mock(side_effect=ConnectionRefusedError)
+            status, body = self.request(handler, base)
+            self.assertEqual((status, json.loads(body)), (200, timeline))
+            match, mismatch = room_cache.job_files(DONE, json.loads(body))[2]
+            handler.open_backend.reset_mock()
+            self.assertEqual(self.request(handler, f'{base}/files/preview.jpg'), (200, b'current'))
+            self.assertEqual(self.request(handler, match), (200, b'current'))
+            self.assertEqual(self.request(handler, match, 'HEAD'), (200, b''))
+            handler.send_header.assert_any_call('Content-Length', '7')
+            handler.open_backend.assert_not_called()
+            self.assertEqual(self.request(handler, mismatch)[0], 503)
+            self.assertEqual(handler.open_backend.call_args.args[0].full_url, handler.room_backend + mismatch)
+
+    def test_a_new_picture_version_bypasses_older_files_and_synced_versions_open_offline(self):
+        rel = 'small-objects/reference/TissueBox0.png'
+        base = f'{P}jobs/{DONE}/replay'
+        path = f'{base}/files/{rel}'
+        files = {path + '?v=A': b'first', path + '?v=B': b'redrawn'}
+        answers = {P + 'jobs': {'jobs': [{'id': DONE, 'status': 'failed', 'updated': 1}]},
+                   P + 'catalog': {'rooms': []}}
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder)
+            sync = room_cache.Sync('http://unused', cache, log=lambda _: None)
+            sync.identity = lambda p: None
+            sync.get = lambda p, timeout=60: json.dumps(answers[p]).encode() if p in answers else files.get(p, b'scaffold')
+            handler = object.__new__(Handler)
+            handler.cache = cache
+            handler.send_kept = Path.read_bytes
+            requests = []
+
+            def relay(request, timeout, room):
+                requests.append(request.full_url)
+                return files[request.full_url.removeprefix(handler.room_backend)]
+
+            handler.relay = relay
+            room_cache.save(room_cache.local(cache, path), b'legacy')
+            for version in ('A', 'B'):
+                url = path + '?v=' + version
+                self.assertEqual(handler.room_get(room_forwarded(url)), files[url])
+                self.assertEqual(requests.pop(), handler.room_backend + url)
+                answers[base] = {'events': [{'img': rel, 'media': [{'src': rel, 'version': version}]}]}
+                sync.once()
+                self.assertEqual(handler.room_get(room_forwarded(url)), files[url])
+                self.assertFalse(requests)
+            self.assertEqual(handler.room_get(room_forwarded(path + '?v=A')), b'first')
+            self.assertEqual(handler.room_get(room_forwarded(path)), b'legacy')
+            self.assertFalse(requests)
+
     def test_files_keep_their_path_and_answers_sit_beside_them(self):
         cache = Path('/c')
         self.assertEqual(room_cache.local(cache, f'{P}assets/{DONE}/Room.glb'), cache / f'assets/{DONE}/Room.glb')
@@ -128,6 +198,9 @@ class Paths(unittest.TestCase):
         self.assertEqual(first, [f'{base}/scaffold/points.bin', f'{base}/scaffold/layout.json', f'{base}/scaffold/colors.bin'])
         self.assertEqual(models, [f'{base}/files/s.glb', f'{base}/files/f.glb', f'{base}/files/r0.glb'])
         self.assertEqual(pictures, [f'{base}/files/a.jpg', f'{base}/files/b.jpg', f'{base}/files/c.jpg'])
+        chosen = {'img': 'chosen.jpg', 'img_version': 'a', 'media': [{'src': 'other.jpg', 'version': 'b'}]}
+        self.assertEqual(room_cache.job_files(DONE, {'events': [chosen]})[2],
+                         [f'{base}/files/chosen.jpg?v=a', f'{base}/files/other.jpg?v=b'])
 
 
 class Download(unittest.TestCase):
