@@ -55,7 +55,7 @@ function createWorkspace() {
     ['reset-layout', 'reset', '恢复原始布置'],
   ]) $('#'+id).innerHTML = `${icon(symbol)}<span>${label}</span>`;
   $('#save-state').hidden = true;
-  $('.rc-top').append(element('div', 'rc-header-actions', '<button type="button" class="rc-tool" id="open-help" aria-label="操作帮助">帮助 <span aria-hidden="true">?</span></button>'));
+  $('.rc-top').append(element('div', 'rc-header-actions', '<button type="button" class="rc-tool" id="mobile-share" disabled>在手机中打开</button><button type="button" class="rc-tool" id="open-help" aria-label="操作帮助">帮助 <span aria-hidden="true">?</span></button>'));
   $('[data-mode="preview"]').textContent = '体验';
   const walkButton = $('[data-mode="walk"]'); walkButton.textContent = '走进房间'; walkButton.className = 'rc-tool';
   const sceneHeading = element('div', 'rc-scene-heading', '<span class="rc-view-caption"><span class="rc-live-dot"></span><span id="view-caption">空间总览</span><span class="rc-view-units">真实尺寸 · 米</span></span><div class="rc-experience-actions"></div>');
@@ -243,8 +243,8 @@ function createWorkspace() {
           <div><dt>Shift＋左键拖动</dt><dd>旋转镜头</dd></div>
           <div><dt>右键拖动</dt><dd>平移视角</dd></div>
           <div><dt>滚轮</dt><dd>放大 / 缩小</dd></div>
-        </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局。</p></section>
-        <section><h3>调整物品</h3><p>单击选中物品后拖动，或使用右侧控件。</p><dl class="rc-help-controls">
+        </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局；双击家具聚焦。</p></section>
+        <section><h3>调整物品</h3><p>单击选中物品后直接拖动；旋转和升降使用右侧控件，松手后预览。</p><dl class="rc-help-controls">
           <div><dt>左上摇杆</dt><dd>移动</dd></div>
           <div><dt>左下转盘</dt><dd>旋转</dd></div>
           <div><dt>右侧拉杆</dt><dd>升降</dd></div>
@@ -403,7 +403,7 @@ function createWorkspace() {
     $('#guide-title').textContent = ['从一件物品开始', '试着换个位置', '满意了，就放在这里'][step];
     $('#guide-copy').textContent = ['点选房间里的物品，或从物品库选择。', '拖动已选物品，或使用右侧连续拖动工具调整。选中本身不会改变位置。', '点击“确认放置”保存这次调整；不满意可取消，回到原位置。'][step];
     guide.querySelectorAll('.rc-guide-progress i').forEach((part, index) => part.classList.toggle('active', index <= step));
-    for (const id of ['list-toggle','clear-room','reset-layout','export-layout','import-layout']) $('#'+id).disabled = !state.ready;
+    for (const id of ['list-toggle','clear-room','reset-layout','export-layout','import-layout','mobile-share']) $('#'+id).disabled = !state.ready;
     filterLibrary();
     if (previous.selected && state.selected && previous.selected !== state.selected) contentMotion.refresh([summary, dimensions, transform]);
     if (!guide.hidden && (previous.pending !== state.pending || previous.selected !== state.selected)) contentMotion.refresh([$('#guide-title'), $('#guide-copy')]);

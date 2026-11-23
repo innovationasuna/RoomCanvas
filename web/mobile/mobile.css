@@ -1,0 +1,37 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: #252623; color: #eeeee8; font-family: Manrope, system-ui, sans-serif; }
+body { overscroll-behavior: none; }
+header { height: 72px; padding: 0 max(24px, env(safe-area-inset-left)); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #45473e; gap: 16px; }
+.brand { display: flex; gap: 10px; align-items: center; font-weight: 600; color: inherit; text-decoration: none; }
+header > span, .note, #version { color: #b9bcb1; font-size: 14px; }
+#entry { max-width: 640px; padding: 48px 24px 24px; margin: auto; }
+.eyebrow { color: #d4b67a; font-size: 14px; }
+h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.25; overflow-wrap: anywhere; }
+p { line-height: 1.7; }
+a { color: #e1c58d; }
+button, .button { font: inherit; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; min-height: 48px; border: 1px solid #626458; border-radius: 6px; background: #34362f; color: #eeeee8; padding: 12px 16px; cursor: pointer; transition: background .15s, transform .15s; }
+button:hover, .button:hover { background: #44473c; }
+button:active, .button:active { transform: translateY(1px); }
+button:disabled { opacity: .5; cursor: default; }
+.button[aria-disabled="true"] { opacity: .5; cursor: default; }
+.primary { background: #d4b67a; border-color: #d4b67a; color: #252623; font-weight: 600; }
+.primary:hover { background: #e0c590; }
+:focus-visible { outline: 2px solid #d4b67a; outline-offset: 3px; }
+.entry-actions { display: grid; gap: 12px; margin: 32px 0 24px; }
+[hidden] { display: none !important; }
+#download-model { display: inline-block; min-height: 44px; padding: 12px 0; }
+#feedback { max-width: 640px; margin: auto; padding: 0 24px 24px; }
+#feedback button { margin-right: 8px; }
+progress { width: 100%; accent-color: #d4b67a; margin-bottom: 16px; }
+#experience { position: fixed; inset: 0; background: #ebe7da; }
+#viewport, #viewport canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.view-actions { position: absolute; inset: max(16px, env(safe-area-inset-top)) 16px auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.view-actions button { background: #252623ee; padding: 10px 14px; }
+#view-hint { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; max-width: 45%; margin: 0; padding: 8px 12px; border-radius: 6px; background: #252623e8; color: #eee; font-size: 13px; pointer-events: none; }
+#touch-pad { position: absolute; bottom: max(24px, env(safe-area-inset-bottom)); left: max(16px, env(safe-area-inset-left)); display: grid; grid-template-columns: repeat(3, 48px); gap: 8px; touch-action: none; user-select: none; -webkit-user-select: none; }
+#touch-pad button { height: 48px; padding: 0; background: #252623e8; font-size: 22px; touch-action: none; }
+#touch-pad button:first-child { grid-column: 2; }
+#touch-pad button:nth-child(2) { grid-column: 1; }
+body.loading-view #feedback { position: fixed; z-index: 2; top: 50%; left: 16px; right: 16px; padding: 16px 24px; background: #252623f5; border-radius: 8px; }
+@media(max-width: 390px) { header { padding: 0 16px; } #entry { padding: 32px 16px 16px; } #feedback { padding: 0 16px 16px; } .view-actions { inset-inline: 12px; } .view-actions button { padding-inline: 10px; } }
+@media(prefers-reduced-motion: reduce) { button, .button { transition: none; } }

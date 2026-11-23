@@ -8,6 +8,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serve import Handler, RoomDeletions, Tunnel as SSHTunnel, forwarded, open_tunnel, room_forwarded, tunnel_command  # noqa: E402
 
 
+class ScriptLoading(unittest.TestCase):
+    def test_run_path_without_preconfigured_script_directory(self):
+        import subprocess
+        import tempfile
+        script = Path(__file__).resolve().with_name('serve.py')
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, '-I', '-c',
+                 'import runpy, sys; runpy.run_path(sys.argv[1])', str(script)],
+                cwd=directory, capture_output=True, text=True, timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class RoomDeletion(unittest.TestCase):
     def test_removal_persists_and_is_idempotent(self):
         import tempfile
