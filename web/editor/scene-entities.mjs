@@ -37,6 +37,8 @@ export function groupRoomEntities(THREE, {room, config, floorY, originalMatrices
   return {entities, audit: {groupingError, groupedRoots: assigned.size, meshes: originalMatrices.size}};
 }
 
+const shelfContacts = new WeakMap();
+
 // Placement tests the highest face of each named support. For a multi-level carcass
 // the manifest also identifies riders on its inner shelves. Check contact in the
 // current layout so a moved pot never follows a shelf it has left.
@@ -46,5 +48,15 @@ export function cutawaySupport(THREE, entity, state, entities, layout) {
   const owner = support && entities.get(support.group);
   if (!owner || owner === entity || layout[owner.id]?.visible === false) return;
   const part = entityGeometry(THREE, owner).nodes.get(support.part);
-  if (part && ridersOf(THREE, part, [entity.group], CONTACT).length) return owner.id;
+  if (!part) return;
+  const piece = entity.group;
+  part.updateWorldMatrix(true, false);
+  piece.updateWorldMatrix(true, false);
+  const relative = part.matrixWorld.clone().invert().multiply(piece.matrixWorld);
+  let contact = shelfContacts.get(piece);
+  if (contact?.part !== part || !contact.relative.equals(relative)) {
+    contact = {part, relative, resting: ridersOf(THREE, part, [piece], CONTACT).length > 0};
+    shelfContacts.set(piece, contact);
+  }
+  if (contact.resting) return owner.id;
 }

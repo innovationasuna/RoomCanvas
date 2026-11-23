@@ -10,7 +10,7 @@ const walls = [
   {name: 'Wall2', n: [0,0,1]}, {name: 'Wall3', n: [0,0,-1]},
 ];
 
-test('a pot on an inner shelf follows the editable cabinet only while it rests there', () => {
+function cabinetFixture() {
   const manifest = new URL('../../../samples/activity-classroom/room_objects.json', import.meta.url);
   const {catalog} = roomConfig(JSON.parse(readFileSync(manifest, 'utf8')));
   const entity = (id) => ({...catalog.find(item => item.id === id), origin: new THREE.Vector3(), group: new THREE.Group()});
@@ -28,6 +28,11 @@ test('a pot on an inner shelf follows the editable cabinet only while it rests t
   potMesh.position.y = .15;
   pot.group.add(potMesh);
   const support = (state = {state: 'draft'}) => cutawaySupport(THREE, pot, state, entities, layout);
+  return {cabinet, pot, carcass, entities, layout, support};
+}
+
+test('a pot on an inner shelf follows the editable cabinet only while it rests there', () => {
+  const {pot, layout, support} = cabinetFixture();
   assert.equal(support(), 'CabinetMount', 'Storage0 is part of the wall-mounted cabinet');
   assert.equal(support({support: 'Table0'}), 'Table0', 'current placement takes precedence');
   assert.equal(support({support: null}), null, 'floor contact also takes precedence');
@@ -40,6 +45,40 @@ test('a pot on an inner shelf follows the editable cabinet only while it rests t
   assert.equal(support(), undefined, 'the pot moved past the end of its authored shelf');
   pot.group.position.set(0, .2, 0);
   assert.equal(support(), undefined, 'the pot lifted clear of the shelf');
+});
+
+test('rebuilding cutaway support only casts a ray for a new relative shelf pose', (t) => {
+  const {cabinet, pot, carcass, entities, layout, support} = cabinetFixture();
+  const chair = {id: 'Chair0', group: new THREE.Group()};
+  entities.set(chair.id, chair);
+  layout[chair.id] = {};
+  const ray = t.mock.method(THREE.Raycaster.prototype, 'intersectObject');
+  assert.equal(support({support: 'Table0'}), 'Table0');
+  assert.equal(support({support: null}), null);
+  assert.equal(ray.mock.callCount(), 0);
+  assert.equal(support(), cabinet.id);
+  assert.equal(ray.mock.callCount(), 1);
+  for (const x of [1, 2, 3]) {
+    chair.group.position.x = x;
+    assert.equal(cutawaySupport(THREE, chair, {state: 'draft'}, entities, layout), undefined);
+    assert.equal(support(), cabinet.id);
+  }
+  assert.equal(ray.mock.callCount(), 1, 'dragging the chair reuses the contact');
+  layout[cabinet.id].visible = false;
+  assert.equal(support(), undefined);
+  assert.equal(ray.mock.callCount(), 1, 'storing the cabinet skips the cached contact and the ray');
+  layout[cabinet.id].visible = true;
+  cabinet.group.position.y = -.05;
+  assert.equal(support(), undefined);
+  assert.equal(ray.mock.callCount(), 2, 'moving the cabinet rechecks the shelf');
+  assert.equal(support(), undefined);
+  assert.equal(ray.mock.callCount(), 2, 'a miss is cached too');
+  carcass.position.y = .05;
+  assert.equal(support(), cabinet.id);
+  assert.equal(ray.mock.callCount(), 3, 'the shelf can move within its cabinet');
+  cabinet.group.position.x = pot.group.position.x = 1;
+  assert.equal(support(), cabinet.id);
+  assert.equal(ray.mock.callCount(), 3, 'moving both together preserves contact');
 });
 test('view direction hides facing and edge-on walls and restores the opposite side', () => {
   assert.deepEqual([...hiddenWalls(walls, [4,3,0])], ['Wall1', 'Wall2', 'Wall3']);
