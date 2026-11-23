@@ -6,7 +6,7 @@
 
 | 在哪里 | 操作 |
 | --- | --- |
-| Linux x86_64 服务器 | 准备 NVIDIA 驱动、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17；Debian/Ubuntu 缺少系统包时需 sudo 或 root。无 sudo 时可把 Conda 安装的 ffmpeg、git-lfs 加入 PATH，缺少的系统库请管理员安装。 |
+| Debian/Ubuntu x86_64 服务器 | 需要 NVIDIA GPU 和可用驱动、`dpkg-query`、`apt-get`、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17。仅在需要安装缺少的系统包时使用 sudo 或 root。无 sudo 时可把 Conda 安装的 ffmpeg、git-lfs 加入 PATH，缺少的系统库请管理员安装。 |
 | 获取源码 | 使用官方仓库地址。诊断传输时可用 `GIT_TRACE=1 GIT_TRANSFER_TRACE=1 git clone https://github.com/innovationasuna/RoomCanvas.git`，完成后进入 `RoomCanvas/`。 |
 | 安装前检查 | 在仓库根目录执行 `sh scripts/setup_server.sh --dry-run` 预览，再执行 `sh scripts/setup_server.sh`。完整步骤会跳过，未完成的安装按脚本标记恢复。 |
 | 模型权重 | SAM 3D、TRELLIS.2、DA3 等可用镜像的权重默认从 ModelScope 同名仓库获取，无需 Hugging Face 令牌。GitHub、PyTorch 及仅在 Hugging Face 上分发的模型仍需外网，必要时设置 `https_proxy`。 |
@@ -30,7 +30,7 @@
 
 | 附加参数 | 适用场景 |
 | --- | --- |
-| `--server-dir <服务器仓库目录>` | 在转发连接中运行 `scripts/start_server.sh`，另开 SSH 连接读取凭证。使用密码登录时可能需要输入两次。[服务凭证](../../web/README.md#共享服务器的服务凭证) |
+| `--server-dir <服务器仓库目录>` | 填写自己的远端仓库目录（历史 AutoDL 示例为 `/root/autodl-tmp/RoomCanvas`）。在转发连接中运行 `scripts/start_server.sh`，另开 SSH 连接读取凭证。使用密码登录时可能需要输入两次。[服务凭证](../../web/README.md#共享服务器的服务凭证) |
 | `--remote <物品地址>:7862`、`--room-remote <房间地址>:7866` | 直接转发两项服务，绕过网关；房间地址可省略。若继续使用网关，只需更换物品服务绑定地址，在服务器启动命令中加 `--object-host <地址>`，网关会跟着更新。 |
 | `--cpa` | 将服务器的 `127.0.0.1:8317` 转回本机 CLIProxyAPI，供服务器上的 Codex 使用本机订阅。关闭连接后，依赖此代理的精修和回放概括无法调用模型。 |
 

@@ -6,7 +6,7 @@
 | --- | --- |
 | 在电脑上打开一个示例房间 | [快速开始](../README.md#快速开始) · [示例模型获取](../web/README.md#示例房间的模型) |
 | 摆放物品、比较光照、在房间里走动 | [鼠标键盘速查](../README.md#怎么用) · [网页编辑器指南](../web/README.md) |
-| 用手势选取、摆放或取消 | [手势操作与摄像头设置](../gesture/docs/roomcanvas-integration.md) |
+| 用手势选取、摆放或取消 | [手势操作与摄像头设置](../gesture/docs/roomcanvas-integration.md) · [确认与取消摆放](../README.md#手势) |
 | 扫码查看布局、导入后离线漫游 | [手机分享与导入](MOBILE_HANDOFF.md) · [Android 安装、构建和操作](../android-app/README.md) |
 | 重建自己的房间或拍照添加物品 | [上传完整扫描包](ROOM_RECONSTRUCTION.md#从网页重建房间) · [查看重建回放](ROOM_RECONSTRUCTION.md#查看重建过程) · [拍照与补拍](OBJECT_RECONSTRUCTION.md#在编辑器中使用) |
 

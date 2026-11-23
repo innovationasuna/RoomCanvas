@@ -80,7 +80,7 @@
 
 ### A. 在本机试玩四个示例房间
 
-准备 Git、Python 3 和可读取本仓库的 GitHub 账号。首次使用 GitHub CLI 时先登录，再克隆仓库并启动本机服务。
+在 macOS 或 Linux 上准备 Git、Python 3.8 或更高版本和可读取本仓库的 GitHub 账号。Windows 用户可在 WSL 的 Linux 环境中运行。以下命令使用 GitHub CLI（`gh`）登录，请先安装它。
 
 ```bash
 gh auth login
@@ -104,11 +104,11 @@ python3 web/scripts/serve.py --ssh gpu-host
 默认会在后台下载缺少的示例模型，并缓存已完成的房间和回放。加 `--no-download` 可关闭这两类预下载；打开示例时，仍可从本机缓存或已连接的房间服务按需获取模型。
 
 - **重建自己的房间。** 在房间选择页点“重建房间”，上传 LiteReality Scanner 的完整扫描包（ZIP、TAR、TAR.GZ 或 TGZ）。完成后新房间出现在列表里。[网页重建步骤](docs/ROOM_RECONSTRUCTION.md#从网页重建房间)
-- **添加新物品。** 在物品库点“添加物品”，选照片、确认范围、生成模型，最后填一条实测边长。关闭对话框或刷新后，服务器仍会继续重建。需要再次导入时，点“从已生成的模型添加”。[物品重建与补拍](docs/OBJECT_RECONSTRUCTION.md#在编辑器中使用)
+- **添加新物品。** 在物品库点“添加物品”，填写物品名称，选择照片并上传，确认抠图后生成模型，最后填一条实测边长。关闭对话框或刷新后，服务器仍会继续重建。[物品重建与补拍](docs/OBJECT_RECONSTRUCTION.md#在编辑器中使用)
 
 ### C. 自行部署或构建模块
 
-**部署重建服务。** 在 Linux x86_64、带 NVIDIA GPU 的服务器上克隆仓库。先准备依赖，再从仓库根目录安装和启动。[房间安装说明](docs/ROOM_RECONSTRUCTION.md#安装) · [物品部署说明](docs/OBJECT_RECONSTRUCTION.md#部署)
+**部署重建服务。** 在配有 NVIDIA GPU 和可用驱动的 Debian/Ubuntu x86_64 服务器上克隆仓库。安装脚本需要 `dpkg-query` 和 `apt-get`，仅在需要安装缺少的系统包时使用 sudo 或 root。准备好依赖后，从仓库根目录安装和启动。[房间安装说明](docs/ROOM_RECONSTRUCTION.md#安装) · [物品部署说明](docs/OBJECT_RECONSTRUCTION.md#部署)
 
 ```bash
 sh scripts/setup_server.sh
@@ -124,7 +124,7 @@ bash scripts/start_server.sh
 
 ## 怎么用
 
-进入房间时先看到原始布置。确认后的布局保存在当前浏览器；点击房间名，选“继续上次布置”恢复，也可从同一菜单导入或导出布局 JSON。
+进入房间时先看到原始布置。点击房间名，选“继续上次布置”可恢复当前浏览器保存的布局，也可从同一菜单导入或导出布局 JSON。两种存档都只保存房间原有物品已确认的布置。刷新后，要放回用照片重建的物品，请在物品库点“从已生成的模型添加”，重新摆放。
 
 ### 鼠标和键盘
 
@@ -189,7 +189,7 @@ flowchart LR
 | [房间重建](room-reconstruction/) | GPT-6 Astra 审图、建模与摆放，按件选择舍弃、程序化建模或 TRELLIS.2 重建；为门、抽屉、盖子等装配滑轨或合页 |
 | [物品重建](object-reconstruction/) | 通过 Starlette API 将照片抠图、多视角重建后的模型按实测尺寸标定 |
 | [网页](web/) | 房间选择、布置、回放、本机代理与房间重建 API |
-| [手势](gesture/) · [Android](android-app/) | 手势运行时打包进编辑器；Android 用 SceneView / Filament 渲染，支持设备可用华为 AR Engine 跟踪运动 |
+| [手势](gesture/) · [Android](android-app/) | 手势运行时打包进编辑器。Android 用 SceneView / Filament 渲染，按方向键移动、滑屏转向。兼容设备可用华为 AR Engine 采集位姿，当前版本的漫游视角不随手机移动或转动 |
 | [示例数据](samples/) | 同格式的房间目录都可打开：`Room.glb` 保存模型，`room_objects.json` 标记结构、可移动组和开合部件。[模型清单](samples/models.json) |
 
 ## 开发与测试
@@ -227,7 +227,9 @@ CI 扫描提交历史中的密钥，并检查房间重建、网页、物品 API 
 
 卧室（`room3`）、Room_3934 和 Activity Classroom 的模型及缩略图来自实拍，仅供项目成员使用，请勿转发。后两个示例来自同一房间的两次扫描。
 
-原始扫描、照片和含相机轨迹的 `room_layout.json` 保留在仓库外。摄像头画面只在本机浏览器处理。
+原始扫描、照片和含相机轨迹的 `room_layout.json` 不提交到 Git。默认部署会将上传的扫描解包到仓库根目录下的 `runs/web-room-jobs/<任务 ID>/capture/`。设置 `ROOMCANVAS_HOME` 可更改运行目录。`/runs/` 已列入 `.gitignore`。
+
+编辑器内置手势只在本机浏览器处理摄像头画面。独立手势演示默认也在本机识别。选择远程模式并点击“开启摄像头并发送画面”后，才会将 JPEG 帧发送到指定的局域网后端。
 
 ## 致谢
 
