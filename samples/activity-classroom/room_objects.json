@@ -355,16 +355,6 @@
    "support_parts": []
   },
   {
-   "id": "DaylightBackdrop",
-   "category": "panel",
-   "mount": "wall",
-   "wall": "Wall2",
-   "members": [
-    "DaylightBackdrop"
-   ],
-   "support_parts": []
-  },
-  {
    "id": "DisplayTrolley",
    "category": "stand",
    "mount": "floor",
@@ -1759,8 +1749,8 @@
   {
    "id": "DaylightBackdrop",
    "node": "DaylightBackdrop",
-   "category": "panel",
-   "role": "furniture",
+   "category": "environment",
+   "role": "fixture",
    "group": "DaylightBackdrop",
    "mount": "wall",
    "wall": "Wall2",
