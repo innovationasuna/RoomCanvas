@@ -9,6 +9,7 @@ import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {surfaceBox} from '../editor/physical-lighting.mjs';
 import {namedLuminaires} from '../editor/room-luminaires.mjs';
 import {lightingProfile} from '../editor/lighting-profiles.mjs';
+import {offsetDecals} from '../editor/decals.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
@@ -365,6 +366,7 @@ export class RoomView {
 
   prepare(root) {
     root.userData.replayRoot = true;
+    offsetDecals(THREE, root);
     const sources = new Set();
     root.traverse(o => {if (o.isMesh) [o.material].flat().forEach(m => sources.add(m));});
     root.userData.sourceMaterials = [...sources];
