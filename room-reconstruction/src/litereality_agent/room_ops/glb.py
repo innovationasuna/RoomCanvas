@@ -18,6 +18,18 @@ from pathlib import Path
 ROOT = "world"  # trimesh's base frame
 
 
+def document(path: Path) -> dict:
+    """Read the glTF JSON chunk without loading the meshes or textures."""
+    with path.open("rb") as stream:
+        header = stream.read(12)
+        if len(header) != 12 or struct.unpack("<4sII", header) != (b"glTF", 2, path.stat().st_size):
+            raise ValueError("invalid GLB header")
+        length, kind = struct.unpack("<II", stream.read(8))
+        if kind != 0x4E4F534A:
+            raise ValueError("GLB has no JSON chunk")
+        return json.loads(stream.read(length))
+
+
 def renamed(data: bytes) -> bytes | None:
     """The GLB with its nodes named `world` renamed, or None if it has none (or is not a GLB)."""
     if data[:4] != b"glTF" or len(data) < 20:

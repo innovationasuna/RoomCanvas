@@ -1231,7 +1231,23 @@ class RoomScene:
             raise ValueError(f"{glb_path} has no mesh")
         roots = [o for o in imported if o.parent not in imported]
         bpy.context.view_layer.update()
-        mn, mx = world_bbox(meshes)
+        # A rotated mesh need not occupy the corners of its local bounding box.
+        import numpy as np
+
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        bounds = []
+        for obj in meshes:
+            evaluated = obj.evaluated_get(depsgraph)
+            vertices = evaluated.data.vertices
+            if len(vertices):
+                local = np.empty(len(vertices) * 3, dtype=np.float32)
+                vertices.foreach_get("co", local)
+                matrix = np.asarray(evaluated.matrix_world)
+                points = local.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3]
+                bounds.extend((points.min(axis=0), points.max(axis=0)))
+        if not bounds:
+            raise ValueError(f"{glb_path} has no vertices")
+        mn, mx = np.min(bounds, axis=0), np.max(bounds, axis=0)
         own = [max(v, 1e-6) for v in mx - mn]
         if isinstance(size, (int, float)):
             scale = (size / own[2],) * 3
@@ -1258,7 +1274,7 @@ class RoomScene:
         coll.objects.link(fit)
         fit.parent = handle
         fit.matrix_basis = (Matrix.Diagonal((*scale, 1.0))
-                            @ Matrix.Translation((-(mn.x + mx.x) / 2, -(mn.y + mx.y) / 2, -mn.z)))
+                            @ Matrix.Translation((-(mn[0] + mx[0]) / 2, -(mn[1] + mx[1]) / 2, -mn[2])))
         for r in roots:
             r.parent = fit
         for o in imported:

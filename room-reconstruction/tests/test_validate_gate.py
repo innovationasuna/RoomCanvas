@@ -139,14 +139,78 @@ def test_registered_blind_stays_in_the_opening_sweep_and_beams_in_structure(tmp_
                {"id": "Shade0", "category": "blind", "attached_to": "Window0"},
                {"id": "Beam0", "category": "beam"}]
     scene = trimesh.Scene()
-    scene.add_geometry(trimesh.creation.box(), node_name="window_sash", parent_node_name="WindowHandle")
+    scene.add_geometry(trimesh.creation.box(), node_name="window_sash", parent_node_name="WindowHandle",
+                       metadata={"articulation_type": "revolute"})
     scene.graph.update(frame_from="world", frame_to="WindowHandle")
     scene.graph.update(frame_from="window_sash", frame_to="Shade0")
     scene.add_geometry(trimesh.creation.box(), node_name="shade_mesh", parent_node_name="Shade0")
     scene.add_geometry(trimesh.creation.box(), node_name="Beam0")
+    for name in ("WindowLeft", "Window1"):
+        objects.append({"id": name, "category": "window"})
+        scene.add_geometry(trimesh.creation.box(), node_name=name)
+    scene.add_geometry(trimesh.creation.box(), node_name="SlidingPane", parent_node_name="WindowHandle",
+                       metadata={"articulation_type": "prismatic"})
+    chair = trimesh.creation.box((.1, .1, .1))
+    chair.apply_translation((.5, 0, -.8))  # outside the closed sash, inside its swing
+    scene.add_geometry(chair, node_name="Chair0")
     scene.export(tmp_path / "Room.glb")
     (tmp_path / "room_layout.json").write_text(json.dumps(_layout(objects)))
     bodies = cm.build_bodies(tmp_path / "Room.glb", {})
-    assert not bodies["furniture"] and len(bodies["structure"].faces) == 12
-    assert len(bodies["leaves"]["Window0"].faces) == 24
-    assert not cm.open_clearance(bodies, {})
+    assert set(bodies["furniture"]) == {"Chair0"} and len(bodies["structure"].faces) == 36
+    assert set(bodies["leaves"]) == {"Window0"} and len(bodies["leaves"]["Window0"].faces) == 36
+    [(opening, swing)] = bodies["swing_leaves"]
+    assert opening == "Window0" and len(swing.faces) == 24  # hinged sash and its attached shade
+    assert [(w["opening"], w["id"]) for w in cm.open_clearance(bodies, {})] == [("Window0", "Chair0")]
+
+
+@pytest.mark.parametrize("right,clash", [(0.35, False), (0.40, True)])
+def test_book_can_rest_on_shelf_but_cannot_cross_its_side(tmp_path, right, clash):
+    import numpy as np
+    import trimesh
+
+    shelf = _obj("Shelf0", "shelf", (0, 0, 0), (.4, .4, .4), rests_on="Floor0")
+    book = _obj("Book0", "book", (right-.12, .1, .04), (right, .2, .12), rests_on="Shelf0")
+    scene = trimesh.Scene()
+    for obj in (FLOOR, shelf, book):
+        scene.graph.update(frame_from=obj.get("rests_on", "world"), frame_to=obj["id"])
+    for owner, name, low, high in (
+        ("Floor0", "floor", FLOOR["bbox_min"], FLOOR["bbox_max"]),
+        ("Shelf0", "board", (0, 0, 0), (.4, .4, .04)),
+        ("Shelf0", "side", (.38, 0, .04), (.4, .4, .4)),
+        ("Book0", "book", book["bbox_min"], book["bbox_max"]),
+    ):
+        low, high = np.array(low), np.array(high)
+        mesh = trimesh.creation.box(extents=high-low)
+        mesh.apply_translation((low+high)/2)
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi/2, [1, 0, 0]))
+        scene.add_geometry(mesh, node_name=name, parent_node_name=owner)
+    scene.export(tmp_path / "Room.glb")
+    (tmp_path / "Room.py").write_text("SHELL = {}")
+    (tmp_path / "manifest.json").write_text('{"assets": []}')
+    (tmp_path / "room_layout.json").write_text(json.dumps(_layout([FLOOR, shelf, book])))
+    report = V.validate(tmp_path, tmp_path)
+    assert report["finite_support"]["pass"]
+    assert report["pass"] is not clash
+    assert [(f["kind"], f["id"], f["with"]) for f in report["failing"]] == (
+        [("object_clash", "Shelf0", "Book0")] if clash else [])
+
+
+@pytest.mark.scan
+def test_room_3934_fixed_windows_have_no_opening_clashes(tmp_path):
+    from litereality_agent import repo_root
+    from litereality_agent.agent.tools.check_collisions.source import collision_mesh as cm
+
+    sample = Path("samples/room-3934")
+    glb = repo_root().parent / sample / "Room.glb"
+    if not glb.is_file():
+        pytest.skip("room-3934 sample GLB is not installed")
+    rows = json.loads((Path(__file__).resolve().parents[2] / sample / "room_objects.json").read_text())
+    objects = [{**row, "handle": row["node"]} for row in rows["objects"]]
+    shell = {"objects": {o["id"]: o for o in objects}}
+    fixed = {"WindowLeft", "WindowRight"}
+    assert fixed <= shell["objects"].keys()
+    (tmp_path / "room_layout.json").write_text(json.dumps({"objects": objects}))
+    (tmp_path / "Room.glb").symlink_to(glb)
+    bodies = cm.build_bodies(tmp_path / "Room.glb", shell)
+    assert "Door0" in bodies["leaves"] and fixed.isdisjoint(bodies["leaves"])
+    assert all(w["opening"] not in fixed for w in cm.open_clearance(bodies, shell))

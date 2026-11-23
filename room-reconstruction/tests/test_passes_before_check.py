@@ -127,6 +127,9 @@ def run_passes(c, monkeypatch, fail=(), options=None, left=None):
             key = "undone" if short == "small_objects" else "failed_objects"
             (out.parent / "summary.json").write_text(json.dumps({key: left[short]}))
         if short == "small_objects":
+            receipt = c.authored_room / "Models" / ".sources.json"
+            if receipt.exists():
+                assert args[args.index("--ready-sources") + 1] == receipt
             pass_cache.record_bundle(out, "key", pass_cache.ROOM_FILES)
             (out.parent / "dependencies.json").write_text(json.dumps({"dependencies": {"preview": {
                 name: pass_cache.cache.file_hash(c.preview_dir / name) for name in pass_cache.ROOM_FILES}}}))
@@ -140,6 +143,8 @@ def run_passes(c, monkeypatch, fail=(), options=None, left=None):
 def test_the_openable_parts_take_the_small_objects_room_and_both_are_recorded(tmp_path, monkeypatch):
     c = context(tmp_path)
     built(c)
+    (c.authored_room / "Models").mkdir()
+    (c.authored_room / "Models" / ".sources.json").write_text("{}")
     report, calls = run_passes(c, monkeypatch)
     assert calls == [("small_objects", "/an/operator/setting"), ("articulate", str(c.scene_dir / SMALL))]
     assert report == {"room": PARTS, "small_objects": "ok", "articulate": "ok", "warnings": []}

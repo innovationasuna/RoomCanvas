@@ -1224,6 +1224,7 @@ bpy.ops.wm.save_as_mainfile(filepath=BLEND)
 
     monkeypatch.setattr(passes, "run_module", run_pass)
     ctx = SimpleNamespace(scene_dir=tmp_path, authoring_root=tmp_path / "authoring",
+                          authored_room=tmp_path / "authoring" / "room",
                           preview_dir=preview, object_root=tmp_path / "scene_init/obj_stage")
     report = passes.run(ctx, {"articulate": False})
     assert report["small_objects"] == "partial" and report["left"] == {"small_objects": ["TissueBox0"]}
@@ -1243,6 +1244,42 @@ bpy.ops.wm.save_as_mainfile(filepath=BLEND)
 
     groups = {g["id"]: g["members"] for g in build(layout, set(glb.graph.nodes))["groups"]}
     assert groups["DeskLamp0"] == ["DeskLamp0"]
+
+
+def test_place_model_measures_rotated_cylinder_vertices(monkeypatch):
+    import runpy
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import trimesh
+
+    from litereality_agent.pipeline.realism_authoring.small_objects.ready import TEMPLATE
+
+    cylinder = trimesh.creation.cylinder(radius=.05, height=.1, sections=64)
+    transform = trimesh.transformations.rotation_matrix(math.pi / 4, [0, 0, 1])
+    transform[:3, 3] = [.3, -.2, .1]
+    mesh = MagicMock(type="MESH", parent=None)
+    evaluated = mesh.evaluated_get.return_value
+    evaluated.matrix_world = transform
+    vertices = evaluated.data.vertices
+    vertices.__len__.return_value = len(cylinder.vertices)
+    vertices.foreach_get.side_effect = lambda prop, out: np.copyto(out, cylinder.vertices.ravel())
+
+    bpy = MagicMock()
+    bpy.data.objects.new.side_effect = lambda *args: MagicMock()
+    matrices = SimpleNamespace(Translation=trimesh.transformations.translation_matrix,
+                               Diagonal=np.diag, Rotation=lambda angle, dims, axis:
+                               trimesh.transformations.rotation_matrix(angle, [0, 0, 1]))
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setitem(sys.modules, "mathutils", SimpleNamespace(Matrix=matrices, Vector=np.array))
+    place = runpy.run_path(str(TEMPLATE))["RoomScene"].place_model
+    monkeypatch.setitem(place.__globals__, "import_glb", lambda _: [mesh])
+    handle = place(MagicMock(), "Direct", "asset.glb", bottom=(1, 0, .8), size=(.24, .12, .1))
+    world = handle.matrix_world @ mesh.parent.matrix_basis @ transform
+    points = trimesh.transform_points(cylinder.vertices, world)
+    assert np.ptp(points, axis=0) == pytest.approx([.24, .12, .1], abs=1e-6)
+    assert (points.max(0) + points.min(0)) / 2 == pytest.approx([1, 0, .85], abs=1e-6)
 
 
 @pytest.mark.blender
@@ -1270,11 +1307,11 @@ import blender_ops
 folder = Path(folder)
 asset = str(folder / 'asset.glb')
 bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.mesh.primitive_cube_add(size=1, location=(0.3, -0.2, 0.1))
-cube = bpy.context.object
-cube.rotation_euler.z = math.pi / 4
+bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=.05, depth=.1, location=(0.3, -0.2, 0.1))
+cylinder = bpy.context.object
+cylinder.rotation_euler.z = math.pi / 4
 bpy.ops.export_scene.gltf(filepath=asset, use_selection=True)
-bpy.data.objects.remove(cube, do_unlink=True)
+bpy.data.objects.remove(cylinder, do_unlink=True)
 
 scene = object.__new__(RoomScene)
 scene.objects = {}

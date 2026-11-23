@@ -19,6 +19,7 @@ import litereality_agent
 from litereality_agent import artifact_cache as cache
 
 FOLDER = "Models"  # in the room: Room.py names the models it places by this relative path
+SOURCES = ".sources.json"
 TEMPLATE = Path(litereality_agent.__file__).parent / "room_ops" / "compile" / "build_room.py"
 
 PROMPT = """\
@@ -75,16 +76,20 @@ def stage(room: Path) -> list[dict]:
     if folder is None:
         return []
     rows = []
-    sources = room / FOLDER / ".sources.json"  # which source each copy was made from
+    available = {}
+    sources = room / FOLDER / SOURCES  # which source each copy was made from
     made = cache.read_json(sources) if sources.is_file() else {}
     made = made if isinstance(made, dict) else {}
     for glb in sorted(p for p in folder.glob("*.glb") if not p.name.startswith(".")):
         target = room / FOLDER / glb.name
         try:
             key = cache.file_hash(glb)
+            if key is None:
+                raise FileNotFoundError(glb)
             if target.is_file() and made.get(glb.name) == key:
                 try:
                     rows.append(describe(target, folder))
+                    available[glb.name] = key
                     continue
                 except Exception:
                     pass  # rebuild an unreadable room copy from its source
@@ -100,9 +105,9 @@ def stage(room: Path) -> list[dict]:
             print(f"[ready-models] skipping {glb.name}: {type(exc).__name__}: {exc}",
                   file=sys.stderr, flush=True)
             continue
-        made[glb.name] = key
-        cache.atomic_json(sources, made)
+        available[glb.name] = key
         rows.append(row)
+    cache.atomic_json(sources, available)
     return rows
 
 

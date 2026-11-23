@@ -10,16 +10,16 @@ The scene is decomposed the way a robot cell is:
   * STRUCTURE  — one static body: walls + ceiling + every opening FRAME (the fixed wall structure).
   * FLOOR      — the ground plane (furniture rests ON it, so contact with it is expected, not a clash).
   * FURNITURE  — one body per object (Table0, Chair1, …), the things that must not interpenetrate.
-  * LEAVES     — each door leaf / window sash / blind is its own articulated link (revolute door &
-                 window, prismatic blind). Checked CLOSED (nothing may sit inside a closed leaf) and
-                 by OPEN swing-clearance (furniture must not block it from opening).
+  * LEAVES     — door/window parts with motion declared by a joint or animation, plus their
+                 attached geometry. Moving parts are checked closed; rotating parts are also
+                 checked for approximate swing clearance.
 
 Checks (what the caller asked for — no object↔object, no object↔wall):
   object_clash    two furniture bodies' meshes interpenetrate
   wall_clash      a furniture body penetrates the structure (wall / ceiling / opening frame)
   opening_blocked a furniture body sits in a closed leaf, or in a door/window's open swing arc
 
-An Allowed-Collision-Matrix ignores expected contact: furniture↔floor (resting), leaf↔its own
+Expected contacts are allowed: furniture↔floor (resting), leaf↔its own
 frame, parts of one object. Everything is computed in the `Room.glb` frame; fix vectors are mapped
 back to the `SHELL` frame the model edits via  SHELL(x, y) = glb(x, -z).
 
@@ -41,9 +41,6 @@ _OPENING_RE = re.compile(r"^(Door|Window)\d+$")
 _FURN_RE = re.compile(r"^(%s)\d+$" % "|".join(FURNITURE_PREFIXES))
 _STRUCTURE_CATS = {"wall", "ceiling", "shell", "room_shell", "bulkhead", "boxed_services",
                    "column", "beam", "skirting", "trim", "trunking"}
-# a moving leaf part vs the fixed frame, by GLB part-node name
-_FRAME_MARK = ("frame",)
-_MOVING_MARK = ("leaf", "sash", "blind", "curtain", "glass", "pane")
 
 WALL_PEN = 0.03   # metres of mesh interpenetration below which a touch is not worth reporting
 OBJ_PEN = 0.03
@@ -64,6 +61,23 @@ def _handle_of(node, preds, handles):
         cur = p[0] if p else None
         seen += 1
     return None
+
+
+def _opening_motion(doc):
+    motion = {}
+    for animation in doc.get("animations", []):
+        for channel in animation["channels"]:
+            target = channel["target"]
+            if "node" in target and target["path"] in ("rotation", "translation"):
+                name = doc["nodes"][target["node"]].get("name")
+                if motion.get(name) != "translation":
+                    motion[name] = target["path"]
+    for node in doc["nodes"]:
+        extras = node.get("extras")
+        joint = extras.get("articulation_type") if isinstance(extras, dict) else None
+        if joint in ("revolute", "prismatic"):
+            motion[node.get("name")] = "rotation" if joint == "revolute" else "translation"
+    return motion
 
 
 def build_bodies(glb_path: str | Path, shell: dict) -> dict:
@@ -103,8 +117,8 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
                                         and _handle_of(h, preds, opening_h))}
     handles = structure_h | floor_h | furn_h | opening_h
     ids = {h: by_handle[h]["id"] if h in by_handle else h for h in handles}
-    allowed = {frozenset((obj["id"], support)) for obj in objects
-               if (support := obj.get("rests_on") or obj.get("attached_to"))}
+    rests_on = {obj["id"]: obj["rests_on"] for obj in objects if obj.get("rests_on")}
+    mounted = {frozenset((obj["id"], obj["attached_to"])) for obj in objects if obj.get("attached_to")}
 
     parts: dict[str, list] = defaultdict(list)  # handle → [(part_node_name, world mesh)]
     for node in scene.graph.nodes_geometry:
@@ -122,18 +136,31 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
 
     structure_meshes = [m for h in structure_h for _, m in parts.get(h, [])]
     leaves: dict[str, "object"] = {}
+    swing_leaves = []
+    motion = _opening_motion(glb.document(Path(glb_path))) if opening_h else {}
     for op in opening_h:
-        frame = [m for nn, m in parts.get(op, []) if any(k in nn.lower() for k in _FRAME_MARK)]
-        moving = [m for nn, m in parts.get(op, []) if not any(k in nn.lower() for k in _FRAME_MARK)]
-        structure_meshes += frame  # the frame is fixed wall structure
-        lm = _concat(moving)
-        if lm is not None:
-            leaves[ids[op]] = lm
+        targets = motion.keys() & (nx.descendants(G, op) | {op})
+        moving = defaultdict(list)
+        for node, mesh in parts[op]:
+            target = _handle_of(node, preds, targets)
+            if target is None:
+                structure_meshes.append(mesh)
+            else:
+                moving[target].append(mesh)
+        links = []
+        for target, meshes in moving.items():
+            link = _concat(meshes)
+            links.append(link)
+            if motion[target] == "rotation":
+                swing_leaves.append((ids[op], link))
+        if links:
+            leaves[ids[op]] = _concat(links) if len(links) > 1 else links[0]
 
     furniture = {ids[h]: _concat([m for _, m in parts[h]]) for h in furn_h if parts.get(h)}
     furniture = {k: v for k, v in furniture.items() if v is not None}
     return {
-        "support_pairs": allowed,
+        "rests_on": rests_on,
+        "mounted_pairs": mounted,
         "structure": _concat(structure_meshes),
         "walls": {ids[h]: _concat([m for _, m in parts[h]]) for h in structure_h
                   if parts.get(h) and (ids[h] in (shell.get("walls") or {})
@@ -141,6 +168,7 @@ def build_bodies(glb_path: str | Path, shell: dict) -> dict:
         "floor": _concat([m for h in floor_h for _, m in parts.get(h, [])]),
         "furniture": furniture,
         "leaves": leaves,
+        "swing_leaves": swing_leaves,
     }
 
 
@@ -154,6 +182,22 @@ _FLOOR_STANDING = {
     "table", "chair", "sofa", "storage", "desk", "cabinet", "bed",
     "refrigerator", "stove", "sink", "toilet", "bathtub",
 }
+
+
+def _hits_above_base(child, support):
+    from trimesh import Trimesh
+    from trimesh.collision import CollisionManager
+    from trimesh.intersections import slice_faces_plane
+
+    base = child.bounds[0, 1] + 0.005  # strict support tolerates 5 mm of seating
+    if support.bounds[1, 1] <= base:
+        return False
+    vertices, faces, _ = slice_faces_plane(child.vertices, child.faces, (0, 1, 0), (0, base, 0))
+    if not len(faces):
+        return False
+    cm = CollisionManager()
+    cm.add_object("support", support)
+    return cm.in_collision_single(Trimesh(vertices, faces, process=False))
 
 
 def mesh_contacts(bodies: dict) -> dict:
@@ -174,11 +218,18 @@ def mesh_contacts(bodies: dict) -> dict:
     for op, m in (bodies.get("leaves") or {}).items():
         cm.add_object(f"leaf::{op}", m)
 
+    rests_on = bodies.get("rests_on", {})
+    meshes = bodies["furniture"] | (bodies.get("leaves") or {})
     hit, names = cm.in_collision_internal(return_names=True, return_data=False)
     object_pairs, leaf_hits = set(), set()
     if hit:
         for a, b in names:
-            if frozenset((a.split("::", 1)[1], b.split("::", 1)[1])) in bodies.get("support_pairs", ()):
+            x, y = a.split("::", 1)[1], b.split("::", 1)[1]
+            if frozenset((x, y)) in bodies.get("mounted_pairs", ()):
+                continue
+            if rests_on.get(x) == y and not _hits_above_base(meshes[x], meshes[y]):
+                continue
+            if rests_on.get(y) == x and not _hits_above_base(meshes[y], meshes[x]):
                 continue
             ao, bo = a.startswith("obj::"), b.startswith("obj::")
             if ao and bo:
@@ -346,22 +397,18 @@ def wall_penetrations(bodies: dict, shell: dict, *, tol: float = 0.04) -> list[d
 
 def open_clearance(bodies: dict, shell: dict, *, swing_steps: int = 6) -> list[dict]:
     """Best-effort OPEN-swing clearance: sweep each leaf from closed toward open about a vertical
-    hinge at its outermost vertical edge and flag any furniture the swept volume hits. Approximate
-    (hinge/side inferred from geometry), so reported as a soft warning, not a hard clash."""
+    hinge at its outermost vertical edge and flag any furniture the swept volume hits.
+    The hinge and opening angle are approximations."""
     import trimesh
     from trimesh.collision import CollisionManager
 
     warns = []
-    for op, leaf in (bodies.get("leaves") or {}).items():
-        # hinge: the vertical edge of the leaf AABB. Sweep 0→90° about BOTH vertical edges and keep
-        # whichever swing stays inside the room (toward the furniture centroid cloud).
+    for op, leaf in bodies.get("swing_leaves", (bodies.get("leaves") or {}).items()):
+        # Keep the existing 0→90° estimate for a rotating leaf.
         b = leaf.bounds
         cy = (b[0][1] + b[1][1]) / 2  # glb up-axis is Y
-        # candidate hinge lines (vertical) at the two x/z-extreme corners of the footprint
-        corners = [(b[0][0], b[0][2]), (b[1][0], b[1][2]), (b[0][0], b[1][2]), (b[1][0], b[0][2])]
-        # pick the hinge nearest the structure by using the leaf's short axis as swing radius
         width = max(b[1][0] - b[0][0], b[1][2] - b[0][2])
-        hinge = corners[0]
+        hinge = b[0][0], b[0][2]
         swept = [leaf]
         for k in range(1, swing_steps + 1):
             ang = math.radians(90.0 * k / swing_steps)

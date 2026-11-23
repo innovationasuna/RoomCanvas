@@ -58,7 +58,12 @@ from PIL import Image, ImageDraw
 from litereality_agent import artifact_cache as cache
 from litereality_agent import telemetry
 from litereality_agent.pipeline.realism_authoring import pass_cache
-from litereality_agent.pipeline.realism_authoring.small_objects import candidates, evidence, judge
+from litereality_agent.pipeline.realism_authoring.small_objects import (
+    candidates,
+    evidence,
+    judge,
+    ready,
+)
 from litereality_agent.room_ops.paths import find_blender
 
 BLENDER_OPS = Path(__file__).with_name("blender_ops.py")
@@ -101,7 +106,7 @@ def needed_supports(objects, items):
 
 class Pass:
     def __init__(self, scene_dir: Path, out: Path | None = None, only: list[str] | None = None,
-                 concurrency: int = 4):
+                 concurrency: int = 4, ready_sources: Path | None = None):
         self.scene_dir = scene_dir.resolve()
         scene = json.loads((self.scene_dir / "scene.json").read_text())
         self.frames = self.scene_dir / scene["paths"]["capture"]
@@ -126,10 +131,9 @@ class Pass:
         self.photo_root = Path(photos).expanduser().resolve() if photos else None
         if self.photo_root and not self.photo_root.is_dir():
             raise FileNotFoundError(f"LR_SMALL_OBJECTS_PHOTOS={photos} is not a directory")
-        models = os.environ.get("LR_SMALL_OBJECTS_MODELS", "").strip()
-        self.model_root = Path(models).expanduser().resolve() if models else None
-        if self.model_root and not self.model_root.is_dir():
-            raise FileNotFoundError(f"LR_SMALL_OBJECTS_MODELS={models} is not a directory")
+        self.model_root = ready.root()
+        self.available = json.loads(ready_sources.read_text()) if ready_sources is not None else None
+        self.model_hashes: dict[Path, str | None] = {}
         self.run_id = os.environ.get("LITEREALITY_RUN_ID") or uuid.uuid4().hex
         self.reported: set[str] = set()  # items whose small_object_done this run has written
 
@@ -194,8 +198,18 @@ class Pass:
         if self.model_root is None:
             return None
         for name in (item["id"], item["id"].rstrip("0123456789")):
-            if name and (self.model_root / f"{name}.glb").is_file():
-                return self.model_root / f"{name}.glb"
+            path = self.model_root / f"{name}.glb"
+            if not name or (self.available is not None and path.name not in self.available):
+                continue
+            if path not in self.model_hashes:
+                try:
+                    self.model_hashes[path] = cache.file_hash(path)
+                except OSError as exc:
+                    self.log(f"skipping {path.name}: {exc}")
+                    self.model_hashes[path] = None
+            digest = self.model_hashes[path]
+            if digest and (self.available is None or self.available[path.name] == digest):
+                return path
         return None
 
     def inputs(self, item) -> str | None:
@@ -207,7 +221,7 @@ class Pass:
             return None
         key = {"policy": policy, "photos": {p.name: cache.file_hash(p) for p in photos}}
         if model:  # only then, so the key of an item without one stays what it was
-            key["model"] = cache.file_hash(model)
+            key["model"] = self.model_hashes[model]
         return cache.fingerprint(key)
 
     def refresh(self):
@@ -232,7 +246,8 @@ class Pass:
         changed = False
         for item in self.items:
             key = self.inputs(item)
-            if item.get("inputs") == key:
+            source = item.get("decision", {}).get("source")
+            if item.get("inputs") == key and (not source or self.model(item) == Path(source)):
                 continue
             changed = True
             if any(name in item for name in DERIVED):
@@ -714,12 +729,13 @@ def main(argv=None):
     parser.add_argument("scene_dir", type=Path)
     parser.add_argument("--out", type=Path, help="default: realism_authoring/small_objects")
     parser.add_argument("--only", nargs="*", help="judge and rebuild only these items")
+    parser.add_argument("--ready-sources", type=Path, help="source hashes accepted for this author session")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--list", action="store_true", help="print the candidates and exit")
     parser.add_argument("--through", choices=("evidence", "decide", "rebuild"),
                         help="stop after this step (the room is not changed)")
     args = parser.parse_args(argv)
-    small = Pass(args.scene_dir, args.out, args.only, args.concurrency)
+    small = Pass(args.scene_dir, args.out, args.only, args.concurrency, args.ready_sources)
     if args.list:
         small.find()
         small.listing()

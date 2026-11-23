@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import struct
 from pathlib import Path
+
+from litereality_agent.room_ops import glb
 
 
 class GlbDocument(dict):
@@ -16,14 +17,7 @@ class GlbDocument(dict):
 
 
 def glb_document(path: Path) -> dict:
-    with path.open("rb") as stream:
-        header = stream.read(12)
-        if len(header) != 12 or struct.unpack("<4sII", header) != (b"glTF", 2, path.stat().st_size):
-            raise ValueError("invalid GLB header")
-        length, kind = struct.unpack("<II", stream.read(8))
-        if kind != 0x4E4F534A:
-            raise ValueError("GLB has no JSON chunk")
-        return GlbDocument(json.loads(stream.read(length)), path)
+    return GlbDocument(glb.document(path), path)
 
 
 def check(doc: dict, objects: list[dict], manifest: dict) -> list[dict]:

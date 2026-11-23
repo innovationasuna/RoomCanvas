@@ -152,3 +152,61 @@ def test_author_starts_with_usable_premades_and_keeps_old_room_copy(tmp_path, mo
     assert "scene.mark_small" in briefs[0] and "skipping Bad.glb:" in capsys.readouterr().err
     assert (room / "Models" / "Bad.glb").read_bytes() == old
     assert rebuild.usable_mesh(room / "Models" / "Good.glb")
+
+
+@pytest.mark.parametrize("staged", [True, False], ids=["author", "standalone"])
+def test_skipped_source_uses_photo_judgement_and_good_item_reaches_apply(two_cups, monkeypatch, staged):
+    from litereality_agent import artifact_cache as cache
+
+    models = two_cups / "models"
+    bad, good = box(models / "Cup0.glb"), box(models / "Cup1.glb")
+    room = two_cups / "room"
+    room.mkdir()
+    monkeypatch.setenv("LR_SMALL_OBJECTS_MODELS", str(models))
+    sources = None
+    if staged:
+        ready.stage(room)
+        old = (room / ready.FOLDER / bad.name).read_bytes()
+        bad.write_bytes(b"broken GLB")
+        assert [row["kind"] for row in ready.stage(room)] == ["Cup1"]
+        assert (room / ready.FOLDER / bad.name).read_bytes() == old
+        sources = room / ready.FOLDER / ready.SOURCES
+
+    file_hash = cache.file_hash
+    reads = []
+
+    def read(path):
+        if path in (bad, good):
+            reads.append(path)
+            if path == bad:
+                assert not staged, "a source excluded by the author was opened again"
+                raise PermissionError("read denied")
+        return file_hash(path)
+
+    monkeypatch.setattr(cache, "file_hash", read)
+    run = Pass(two_cups, ready_sources=sources)
+    run.find()
+    for item in run.items:
+        item["views"] = [{"frame": 1, "detected": True}]
+    run.save()
+
+    async def ask(images, _prompt, *, cwd, **kwargs):
+        assert cwd.name == "Cup0" and images
+        return '{"decision":"drop","reason":"blurred","description":"cup"}'
+
+    def apply(_blend, request, _label):
+        assert [i["id"] for i in request["drop"]] == ["Cup0"]
+        [replacement] = request["replace"]
+        assert replacement["id"] == "Cup1" and rebuild.usable_mesh(Path(replacement["glb"]))
+        folder = Path(request["out_dir"])
+        folder.mkdir(parents=True)
+        for name in ("Room.blend", "Room.glb", "room_layout.json"):
+            (folder / name).write_bytes(b"room")
+
+    monkeypatch.setattr("litereality_agent.agent.providers.vision.ask_images", ask)
+    monkeypatch.setattr(run, "render_pairs", lambda *_: None)
+    monkeypatch.setattr(run, "blender", apply)
+    run.run()
+    assert run.items[0]["decision"]["reason"] == "blurred"
+    assert json.loads((run.out / "summary.json").read_text())["undone"] == []
+    assert reads.count(good) == 1 and reads.count(bad) == (0 if staged else 1)
