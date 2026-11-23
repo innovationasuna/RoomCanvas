@@ -115,6 +115,7 @@ export class RoomView {
     this.watchOrbit();
     this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};
     this.playing = false;
+    this.atEnd = false;
     this.wantSpin = false;
     this.paused = false;
     this.speed = 1;         // playback speed the viewer chose
@@ -674,7 +675,14 @@ export class RoomView {
         this.stopCamera();
       }
     });
-    c.addEventListener('end', () => {this.orbitStart = null;});
+    c.addEventListener('end', () => {
+      this.orbitStart = null;
+      if (this.atEnd) this.resumeOverview();
+    });
+  }
+  resumeOverview() {
+    this.userHeld = false;
+    this.clearAim();
   }
   stopCamera() {
     this.aimTo = this.focusTo = null;
@@ -683,8 +691,9 @@ export class RoomView {
   }
   setPlaying(playing, end = false) {
     if (playing && !this.playing) this.userHeld = false;
-    // A pause may already have cleared the last close-up while the camera was still near the object.
-    if (this.playing && !playing && end && !this.userHeld) this.clearAim();
+    const atEnd = end && !playing;
+    if (atEnd && !this.atEnd && !this.orbitStart) this.resumeOverview();
+    this.atEnd = atEnd;
     this.playing = playing;
     this.wantSpin = playing || end;
     const paused = !this.wantSpin;

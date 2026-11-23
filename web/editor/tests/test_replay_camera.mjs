@@ -184,7 +184,9 @@ function checkOverviewSpin(view) {
   assert.ok(Math.abs(view.controls.getDistance() - view.defaultDist) < 0.02);
   const az = view.controls.getAzimuthalAngle();
   frames(view, 5);
-  assert.ok(Math.abs(view.controls.getAzimuthalAngle() - az) > 0.001);
+  const turn = view.controls.getAzimuthalAngle() - az;
+  const delta = Math.atan2(Math.sin(turn), Math.cos(turn));
+  assert.ok(delta > 0.01 && delta < 0.02);  // Five 50 ms frames at the overview's 0.058 rad/s.
 }
 
 test('natural completion releases the close-up, returns to overview distance and keeps turning', async t => {
@@ -200,12 +202,13 @@ test('natural completion releases the close-up, returns to overview distance and
   checkOverviewSpin(view);
 });
 
-test('finishing after a paused and resumed last object close-up spins around the whole room', async t => {
-  const {view, player, finish} = await page(t, false, {
+async function lastCloseUp(t) {
+  const replay = await page(t, false, {
     stages: [{id: 'plan', name: 'plan'}],
     events: [{stage: 'plan', minute: 0, model: 'seed'},
       {stage: 'plan', minute: 1, model: 'final', show: ['Chair0']}],
   });
+  const {view, player} = replay;
   const chair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4));
   chair.name = 'Chair0';
   chair.position.set(1.5, 0, 1);
@@ -216,6 +219,11 @@ test('finishing after a paused and resumed last object close-up spins around the
   frames(view, 120);
   assert.ok(view.controls.target.distanceTo(chair.position) < 0.005);
   assert.ok(view.controls.getDistance() < view.defaultDist / 2);
+  return replay;
+}
+
+test('finishing after a paused and resumed last object close-up spins around the whole room', async t => {
+  const {view, player, finish} = await lastCloseUp(t);
   player.pause();
   const position = view.camera.position.clone();
   frames(view, 20);
@@ -224,6 +232,14 @@ test('finishing after a paused and resumed last object close-up spins around the
   finish();
   assert.equal(player.playing, false);
   assert.equal(view.current, 'final');
+  checkOverviewSpin(view);
+});
+
+test('scrubbing directly from an object close-up to the end spins around the whole room', async t => {
+  const {view, player, scrub} = await lastCloseUp(t);
+  scrub(100);
+  assert.equal(player.t, player.duration);
+  assert.equal(player.playing, false);
   checkOverviewSpin(view);
 });
 
@@ -242,31 +258,54 @@ test('a stationary canvas press suspends a camera move then lets it finish and s
   checkOverviewSpin(view);
 });
 
-function drag(view) {
+function startDrag(view) {
   view.controls.dispatchEvent({type: 'start'});
   view.controls._rotateLeft(0.5);
   view.controls.update();
-  view.controls.dispatchEvent({type: 'end'});
 }
 
-test('scrubbing from a pause to the end preserves the manual framing', async t => {
+test('natural completion after a released drag returns to the turning overview', async t => {
+  const {view, finish} = await lastCloseUp(t);
+  startDrag(view);
+  view.controls.dispatchEvent({type: 'end'});
+  finish();
+  checkOverviewSpin(view);
+});
+
+test('completion during a drag waits for release before returning to the turning overview', async t => {
+  const {view, finish} = await lastCloseUp(t);
+  startDrag(view);
+  const target = view.controls.target.clone();
+  finish();
+  frames(view, 100);
+  assert.ok(view.controls.target.distanceTo(target) < 1e-10);
+  assert.ok(view.controls.getDistance() < view.defaultDist / 2);
+  view.controls.dispatchEvent({type: 'end'});
+  checkOverviewSpin(view);
+});
+
+test('paused manual framing stays frozen until scrubbing to the end', async t => {
   const {view, scrub} = await page(t, false);
   scrub(40);
-  drag(view);
+  startDrag(view);
+  view.controls.dispatchEvent({type: 'end'});
   const pos = view.camera.position.clone();
   view.controls.dispatchEvent({type: 'start'});
   view.controls.dispatchEvent({type: 'end'});
-  scrub(100);
   frames(view, 8);
   assert.equal(view.userHeld, true);
   assert.ok(view.camera.position.distanceTo(pos) < 1e-10);
+  scrub(100);
+  checkOverviewSpin(view);
 });
 
 test('replaying after a manual turn at the end releases the camera', async t => {
   const {view, player, finish} = await page(t, false);
   finish();
-  drag(view);
+  startDrag(view);
   assert.equal(view.userHeld, true);
+  view.controls.dispatchEvent({type: 'end'});
+  checkOverviewSpin(view);
   player.play();
   assert.equal(player.t, 0);
   assert.equal(view.userHeld, false);
