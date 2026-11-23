@@ -100,7 +100,7 @@ const editingWallMeshes = [];
 let translucentEditingWall = null;
 let placementStates = new Map();
 let selected = null, hovered = null, pendingFrame = false, hold = null, pointerStart = null;
-let toastTimer, lastHoverTime = 0, activeView = 'overview', ready = false;
+let toastTimer, lastHoverTime = 0, activeView = 'overview', ready = false, sceneFailed = false;
 const entities = new Map();
 const ceilingObjects = [], selectedMeshes = [];
 const raycaster = new THREE.Raycaster();
@@ -175,6 +175,8 @@ function validateAfterRender() {
   });
 }
 function fail(error) {
+  ready = false; sceneFailed = true;
+  updateInspector();
   console.error(error);
   $('#loading').hidden = true;
   $('#status').classList.remove('rc-sr-only');
@@ -405,18 +407,19 @@ function applyLayout() {
 }
 
 function updateInspector() {
-  $('#undo').disabled = !history.past.length;
-  $('#redo').disabled = !history.future.length;
+  $('#undo').disabled = !ready || !history.past.length;
+  $('#redo').disabled = !ready || !history.future.length;
   $('#selected-count').textContent = selected ? '1' : '0';
-  $('#selection-fieldset').disabled = !selected || !!falling;
+  $('#selection-fieldset').disabled = !ready || !selected || !!falling;
   $('#empty-selection').hidden = !!selected;
   $('#selection-controls').hidden = !selected;
   $('.rc-controls').hidden = !selected;
   $('#focus').disabled = !selected;
-  $('#reset-object').disabled = !selected || !!falling;
+  $('#reset-object').disabled = !ready || !selected || !!falling;
   updateSessionUI();
   const support = placementStates.get(selected)?.support;
-  joysticks?.setState({visible: !!selected && mode === 'edit', enabled: !!selected && mode === 'edit' && !falling, wall: selected && placement?.isWall(selected), support: entities.get(support)?.name || '地面', landing:dropPlan ? dropPlan.label || (dropPlan.ok ? '地面' : '无可用落点') : ''});
+  joysticks?.setState({visible: !!selected && mode === 'edit', enabled: ready && !!selected && mode === 'edit' && !falling, wall: selected && placement?.isWall(selected), support: entities.get(support)?.name || '地面', landing:dropPlan ? dropPlan.label || (dropPlan.ok ? '地面' : '无可用落点') : ''});
+  for (const button of document.querySelectorAll('button[data-mode]')) button.disabled = !ready;
   workspace.update({ready, selected, pending: !!pending, busy: !!falling, mode, wall: !!selected && placement?.isWall(selected), view: activeView});
   if (!selected) {
     $('#selected-name').textContent = '挑一件物品，试着摆放';
@@ -516,6 +519,7 @@ function setNearWallMode(value) {for (const input of nearWallInputs()) input.che
 function syncNearWallOptions(disabled = false) {for (const input of nearWallInputs()) input.disabled = disabled;}
 
 function beginWallRelocation() {
+  if (!ready) return;
   finishHold();
   if (!selected || !placement.isWall(selected)) return;
   if (wallRelocation) return;
@@ -556,7 +560,7 @@ function showWallGhost(candidate, moved, valid) {
 }
 
 function previewWall(name, point) {
-  if (!wallRelocation) return;
+  if (!ready || !wallRelocation) return;
   clearWallGhost();
   const {candidate, result, carried, valid, message} = wallCandidate(name, point);
   wallRelocation = {...wallRelocation, candidate: result.ok ? candidate : null, moved: carried.moved, target: name, valid, message};
@@ -566,6 +570,7 @@ function previewWall(name, point) {
 }
 
 function lockWallPreview() {
+  if (!ready) return false;
   if (!pending || !wallRelocation?.candidate) {
     showToast('请先在能容纳物品的墙面上选择位置');
     return false;
@@ -634,6 +639,7 @@ function restoreMaterials() {
 }
 
 function select(id, announce = true) {
+  if (id && !ready) return;
   finishHold();
   endWallRelocation();
   if (id !== null && !entities.has(id)) return;
@@ -709,7 +715,7 @@ function nudge(direction) {
 }
 
 function editObject(change, direction) {
-  if (!selected || falling) return false;
+  if (!ready || !selected || falling) return false;
   if (!pending) beginSession(selected);
   if (pending) {pending.locked = true; if (motionNotice?.previewInvalid) layout = copyLayout(pending.lastReachable);}
   motionNotice = null;
@@ -908,18 +914,22 @@ function bindEvents() {
   $('#settle-object').onclick = () => act(() => {if (editObject(() => {}, 'settle')) showToast(placementStates.get(selected).label);});
   $('#reset-object').onclick = () => act(() => editObject((next) => {next[selected] = {x: 0, y: 0, z: 0, yaw: 0};}, 'reset'));
   $('#reset-layout').onclick = async () => {
+    if (!ready) return;
     if (!await workspace.confirm('恢复原始布置？', '房间中的物品将回到扫描时的位置，后来添加的物品会被收起。完成后可以撤销。', '恢复原始布置')) return;
+    if (!ready) return;
     joysticks?.stop(); cancelSession(false); select(null, false); hasEdited = true;
     act(() => {layout = {...initialLayout(roomIds), ...Object.fromEntries(Object.keys(addedPart(layout)).map((id) => [id, stored()]))};});
     persist(); showToast('已恢复原始布置，可撤销'); $('#project-menu').open = false;
   };
   $('#resume-layout').onclick = () => {
+    if (!ready) return;
     try {
       const saved = decodeLayout(JSON.parse(localStorage.getItem(storageKey)), sceneKey, roomIds);
       joysticks?.stop(); cancelSession(false); act(() => {layout = {...saved, ...addedPart(layout)};}); showToast('已继续上次确认的布置');
     } catch (error) {showToast(error.message || '没有可恢复的布局');}
   };
   const undo = () => {
+    if (!ready) return;
     joysticks?.stop();
     finishHold();
     endWallRelocation();
@@ -930,6 +940,7 @@ function bindEvents() {
     else updateInspector();
   };
   const redo = () => {
+    if (!ready) return;
     joysticks?.stop();
     finishHold();
     endWallRelocation();
@@ -996,6 +1007,7 @@ function bindEvents() {
     try {
       if (file.size > 1024 * 1024) throw new Error('布局文件过大');
       const next = decodeLayout(JSON.parse(await file.text()), sceneKey, roomIds);
+      if (!ready) throw new Error('房间正在更新，请稍后再导入布局');
       cancelSession(false);
       act(() => {layout = {...next, ...addedPart(layout)};});
       showToast('布局已导入，可撤销');
@@ -1103,23 +1115,46 @@ function inspectObject(id) {
   else select(id);
 }
 
-function removeImportedObject(id) {
+// Membership changes await the new indexes. Stop edits for the whole operation,
+// including model reads, while leaving rendering and the orbit camera available.
+function pauseAssetEditing() {
+  joysticks?.stop(); finishHold(); endGesture();
+  pointerStart = null; cancelValidation(); setMode('edit');
+  ready = false;
+  updateInspector();
+}
+
+async function removeImportedObject(id) {
   if (!ready || !entities.get(id)?.added) return;
   if (falling || gesture || gestureView || gestureScale || analogActive || hold || (pending && pending.id !== id)) {
     showToast('请先结束当前操作，再删除这份物品'); return;
   }
-  cancelSession(false); select(null, false); cancelValidation(); setMode('edit');
-  const entity = forgetImportedObject(id, {entities, ids, layout, placementSpecs, history});
-  const row = $(`[data-object="${id}"]`);
-  (row.closest('.rc-imported-card') || row).remove();
-  entity.group.removeFromParent();
-  setSeeThrough(entity.group, false);
-  entity.importMaterials.dispose(); disposeObjectTree(entity.group);
-  placementStates.delete(id); dropPlan = null;
-  rebuildAfterAssetChange('delete'); applyLayout(); persist();
-  if ($('#search').value) $('#search').dispatchEvent(new Event('input'));
-  $('#status').textContent = `已删除${entity.name}这一份，重建结果仍保留`;
-  showToast('已删除这一份，可从“导入物品”重新添加');
+  pauseAssetEditing();
+  let rebuilt = false;
+  try {
+    cancelSession(false); select(null, false); cancelValidation();
+    const entity = forgetImportedObject(id, {entities, ids, layout, placementSpecs, history});
+    const row = $(`[data-object="${id}"]`);
+    (row.closest('.rc-imported-card') || row).remove();
+    entity.group.removeFromParent();
+    setSeeThrough(entity.group, false);
+    entity.importMaterials.dispose(); disposeObjectTree(entity.group);
+    placementStates.delete(id); dropPlan = null;
+    $('#status').textContent = '正在更新房间…';
+    if (!await rebuildAfterAssetChange('delete')) return;
+    rebuilt = true; ready = !sceneFailed;
+    if (!ready) return;
+    applyLayout(); persist();
+    if ($('#search').value) $('#search').dispatchEvent(new Event('input'));
+    $('#status').textContent = `已删除${entity.name}这一份，重建结果仍保留`;
+    showToast('已删除这一份，可从“导入物品”重新添加');
+  } catch (error) {
+    fail(error);
+    showToast(`房间更新失败：${error.message || error}`);
+  } finally {
+    ready = rebuilt && !sceneFailed;
+    updateInspector();
+  }
 }
 
 function renderFurnitureThumbnails(list = entities.values(), operation = 'initial') {
@@ -1196,7 +1231,15 @@ function backgroundDrop() {
     session.checking = key; session.placeWhenChecked = false;
     background.request(base.candidate, base.moved, copyLayout(layout))
       .then((answer) => {
-        if (!answer || pending !== session || session.checking !== key) return;
+        if (pending !== session || session.checking !== key) return;
+        if (!answer) {
+          // A failed Worker falls back to the installed main-thread index. A
+          // cancelled generation must not validate or confirm an obsolete pose.
+          if (!background?.failed || JSON.stringify([selected, layout]) !== key) return;
+          session.checking = null; session.placeWhenChecked = false;
+          if (ready && !analogActive && !falling) applyLayout();
+          return;
+        }
         session.checking = null;
         session.verdict = {key, plan: dropVerdict(base, answer.contact, answer.sweep)};
         if (analogActive || falling || JSON.stringify([selected, layout]) !== key) return;
@@ -1211,7 +1254,7 @@ function backgroundDrop() {
 }
 
 function refreshSession() {
-  if (!pending) return;
+  if (!ready || !pending) return;
   const state = placementStates.get(selected);
   const installing = pending.before[selected].visible === false;
   dropPlan = pending.gravity ? planDrop({previewOnly:analogActive}) : null;
@@ -1247,13 +1290,15 @@ function refreshSession() {
 function updateSessionUI() {
   updatePlacementPanel({pending, wall:selected && placement?.isWall(selected), wallRelocation, value:selected && layout[selected]});
   $('#store-object').hidden = !selected || (pending?.before[selected] || layout[selected])?.visible === false;
-  $('#store-object').disabled = !!falling;
+  $('#store-object').disabled = !ready || !!falling;
   $('#settle-object').hidden = !!pending?.gravity;
   if (pending?.gravity) {
     $('#confirm-placement').textContent = falling ? '正在放置…' : dropPlan?.checked === false && dropPlan.ok ? '检查中…' : '确认放置';
     $('#confirm-placement').disabled = !!falling || !pending.valid;
     $('#interaction-help').textContent = '拖动物品或使用右侧工具调整 · Enter 确认 · Esc 取消';
   } else $('#confirm-placement').textContent = '确认放置';
+  if (!ready) $('#confirm-placement').disabled = true;
+  $('#lock-preview').disabled = !ready;
   // With gestures on, the hint says how the hand works.
   if (handsOn()) $('#interaction-help').textContent = GESTURE_HELP[gestureMode];
 }
@@ -1294,7 +1339,7 @@ function cancelSession(announce = true) {
 }
 
 function confirmSession() {
-  if (!pending || falling) return;
+  if (!ready || !pending || falling) return;
   joysticks?.stop();
   cancelValidation();
   finishHold();
@@ -1317,6 +1362,7 @@ function confirmSession() {
 }
 
 function completePlacement() {
+  if (!ready || !pending) return;
   const result = pending.confirm();
   if (!result) {showToast(pending.message || '请先落到有效支撑面'); return;}
   const before = pending.committed(), name = entities.get(selected).name;
@@ -1351,7 +1397,7 @@ function placementPoint(clientX, clientY) {
 }
 
 function followPointer(clientX, clientY, force = false, grab = null) {
-  if (!pending || (pending.locked && !force)) return;
+  if (!ready || !pending || (pending.locked && !force)) return;
   if (placement.isWall(selected)) {
     if (!wallRelocation) beginWallRelocation();
     const hit = pickWall(clientX, clientY);
@@ -1390,6 +1436,7 @@ function followPointer(clientX, clientY, force = false, grab = null) {
 
 const OPEN_HELP = '点击门窗体验开合 · Shift＋左键拖动旋转 · 右键拖动平移 · 滚轮缩放';
 function setMode(nextMode) {
+  if (!ready) return;
   if (nextMode === 'walk' && !walk) return;
   if (pending && nextMode !== 'edit') {showToast('请先确认或取消当前调整，再进入体验'); return;}
   hideOpenHint();
@@ -1459,6 +1506,7 @@ function showOpenHint(part, clientX, clientY) {
 const hideOpenHint = () => {$('#open-hint').hidden = true; host.style.cursor = '';};
 
 function storeObjects(id = null) {
+  if (!ready) return;
   cancelSession(false);
   act(() => {
     const targets = id ? placement.carry(id, layout, copyLayout(layout)).moved || [id] : ids;
@@ -1476,7 +1524,7 @@ function bindPlacementEvents() {
   cancel: cancelSession,
     cancel: () => cancelSession(),
     lock: () => {
-      if (!pending) return;
+      if (!ready || !pending) return;
       if (wallRelocation) {lockWallPreview(); return;}
       pending.locked = !pending.locked;
       if (!pending.locked && placement.isWall(selected)) beginWallRelocation();
@@ -1921,38 +1969,54 @@ async function importObject() {
   if (!ready || !importAsset) return;
   const {run, base} = importAsset, scale = metricScale(base, $('#import-axis').value, Number($('#import-meters').value));
   $('#import-object').disabled = true;
-  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = false;}
+  try {await importRun(run, base, scale, importAsset.capabilities);} finally {$('#import-object').disabled = !ready;}
   $('#import-menu').open = false;
 }
 async function importRun(run, base, scale, capabilities) {
   if (!ready) throw new Error('房间还没加载好');
-  $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
-  const loader = new GLTFLoader();
-  const modelStarted = startStage();
-  const {full, light} = await loadModels(run, (url) => loader.loadAsync(url));
-  finishStage('import', 'modelReadAndParse', modelStarted);
-  cancelSession(false);
-  const id = `added-${++addedCount}`, contact = `${id}:contact`;
-  const entity = createImportedEntity(THREE, {id, contact, full, light, base, scale, run, capabilities,
-    at: [center.x, floorY, center.z], units: config.units, mode: $('#import-lighting').checked ? 'pbr' : 'original'});
-  const {group, name} = entity;
-  room.add(group); room.updateMatrixWorld(true);
-  entities.set(id, entity); ids.push(id);
-  placementSpecs[id] = {body: [contact]};
-  layout[id] = stored();
-  for (const past of [...history.past, ...history.future]) past[id] = stored();
-  appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity], 'import');
-  group.visible = false;
-  // Refresh membership; immutable geometry and indexes of existing pieces are reused.
-  rebuildAfterAssetChange('import');
-  renderer.shadowMap.needsUpdate = true;
-  beginSession(id);
-  const searchStarted = startStage();
-  const spot = freeSpot(id);
-  finishStage('import', 'floorSearch', searchStarted);
-  if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
-  showToast(`已导入${name}：${handsOn() ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
-  if (!handsOn()) pending.locked = false;
+  if (falling) throw new Error('请先等待当前物品放置完成');
+  pauseAssetEditing();
+  let changed = false, rebuilt = false;
+  try {
+    $('#status').textContent = `正在载入 ${objectLabel(run)}…`;
+    const loader = new GLTFLoader();
+    const modelStarted = startStage();
+    const {full, light} = await loadModels(run, (url) => loader.loadAsync(url));
+    if (sceneFailed) throw new Error('房间已停止，请刷新后重试');
+    finishStage('import', 'modelReadAndParse', modelStarted);
+    cancelSession(false);
+    const id = `added-${++addedCount}`, contact = `${id}:contact`;
+    const entity = createImportedEntity(THREE, {id, contact, full, light, base, scale, run, capabilities,
+      at: [center.x, floorY, center.z], units: config.units, mode: $('#import-lighting').checked ? 'pbr' : 'original'});
+    const {group, name} = entity;
+    changed = true;
+    room.add(group); room.updateMatrixWorld(true);
+    entities.set(id, entity); ids.push(id);
+    placementSpecs[id] = {body: [contact]};
+    layout[id] = stored();
+    for (const past of [...history.past, ...history.future]) past[id] = stored();
+    appendWarehouseRow(entity, true); renderFurnitureThumbnails([entity], 'import');
+    group.visible = false;
+    // Refresh membership; immutable geometry and indexes of existing pieces are reused.
+    if (!await rebuildAfterAssetChange('import')) return;
+    rebuilt = true; ready = !sceneFailed;
+    if (!ready) return;
+    renderer.shadowMap.needsUpdate = true;
+    beginSession(id);
+    const searchStarted = startStage();
+    const spot = freeSpot(id);
+    finishStage('import', 'floorSearch', searchStarted);
+    if (spot) {layout[id] = spot; pending.lastReachable = copyLayout(layout); applyLayout();}
+    showToast(`已导入${name}：${handsOn() ? '移动模式下指向它捏合拖动' : '移动鼠标摆放，单击锁定'}，确认后放下`);
+    if (!handsOn()) pending.locked = false;
+  } catch (error) {
+    if (changed && !rebuilt) fail(error);
+    throw error;
+  } finally {
+    // A failed download leaves the old geometry usable; an incomplete rebuild does not.
+    ready = !sceneFailed && (!changed || rebuilt);
+    updateInspector();
+  }
 }
 
 async function load() {
@@ -1966,6 +2030,7 @@ async function load() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = lightProfile.exposure;
   renderMetrics = createRenderMetrics(renderer, {gpu: query.has('lightingLab'), limit: query.has('lightingLab') ? 2400 : 120});
+  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); geometryServices?.dispose(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
   renderer.domElement.setAttribute('aria-label', '房间三维场景，点选物品或使用物品列表');
   host.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement);
@@ -2017,6 +2082,7 @@ async function load() {
     }
     throw error.response?.status === 404 ? new Error('找不到房间模型 Room.glb；请使用更新后的 serve.py 打开房间，缺少的示例模型会按需下载（进度见终端）。') : error;
   });
+  if (sceneFailed) return;
   finishStage('initial', 'modelReadAndParse', modelStarted);
   progress.value = 80;
   room = gltf.scene;
@@ -2080,7 +2146,8 @@ async function load() {
     $('#wall-target').appendChild(option);
   }
   audit.placement = placement.audit;
-  rebuildCollision('initial');
+  $('#loading strong').textContent = '正在准备房间中的物品';
+  if (!await rebuildCollision('initial')) return;
   audit.collision = collision.audit;
   wallVisibility = createWallVisibility(room, placement.wallTargets(), {...wallOptions(placement.wallTargets()), conceal: (root, on) => setSeeThrough(root, on, nearWallMode() === 'hidden' ? 0 : SEE_THROUGH)});
   // GLTFLoader may rename a node; the original name is kept in userData.name.
@@ -2203,7 +2270,6 @@ async function load() {
     },
   });
   if (query.has('lightingLab')) installLightingLab();
-  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); geometryServices?.dispose(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
   // Load the optional effect after the editor works. Missing addons must never prevent editing.
   if (enhancedLighting) void (async () => {
     if (query.get('env') !== 'off') {
@@ -2345,15 +2411,19 @@ function rebuildPlacement(operation) {
   placement = geometryServices.rebuildPlacement(operation);
 }
 
-function rebuildCollision(operation) {
-  ({collision, background, queries: rayQueries} = geometryServices.rebuildCollision(operation));
+async function rebuildCollision(operation) {
+  const result = await geometryServices.rebuildCollision(operation);
+  if (!result) return false;  // Superseded or disposed while the Worker was building.
+  ({collision, background, queries: rayQueries} = result);
+  return true;
 }
 
-function rebuildAfterAssetChange(operation) {
+async function rebuildAfterAssetChange(operation) {
   const started = startStage();
   rebuildPlacement(operation);
-  rebuildCollision(operation);
+  const rebuilt = await rebuildCollision(operation);
   finishStage(operation, 'rebuild', started);
+  return rebuilt;
 }
 
 // Each fixture hides with its recorded wall; one with none (a curtain on a ceiling track)

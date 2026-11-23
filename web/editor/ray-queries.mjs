@@ -50,53 +50,104 @@ export function createRayQueries(THREE, room, owners = []) {
       item.normal.getNormalMatrix(item.mesh.matrixWorld);
     }
   }
-  function boxEntry(box, far) {
+  function boxEntry(box, far, offset = 0) {
     audit.boxes++;
     let low = 0, high = far;
     for (let k = 0; k < 3; k++) {
       const o = localRay.origin.getComponent(k), d = localRay.direction.getComponent(k);
-      if (Math.abs(d) < 1e-15) {if (o < box[k] || o > box[k + 3]) return Infinity; continue;}
-      const t0 = (box[k] - o) / d, t1 = (box[k + 3] - o) / d;
+      if (Math.abs(d) < 1e-15) {if (o < box[offset + k] || o > box[offset + k + 3]) return Infinity; continue;}
+      const t0 = (box[offset + k] - o) / d, t1 = (box[offset + k + 3] - o) / d;
       low = Math.max(low, Math.min(t0, t1)); high = Math.min(high, Math.max(t0, t1));
       if (low > high) return Infinity;
     }
     return low;
+  }
+  // Equal-distance faces used to be resolved by the last hit in the sorted BVH.
+  // Repartitioning can change that face's normal/material at a shared edge. Only
+  // for an actual tie, follow the old partitions down to the last candidate.
+  // No second full tree is built or retained; index.faces keeps the old root order.
+  function resolveTie(index, candidates, far) {
+    const data = index.data;
+    const bounds = (faces) => {
+      const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (const face of faces) for (let k = 0; k < 3; k++) {
+        const offset = face * 10;
+        if (data[offset + k] < box[k]) box[k] = data[offset + k];
+        if (data[offset + k + 3] > box[k + 3]) box[k + 3] = data[offset + k + 3];
+      }
+      return box;
+    };
+    function last(faces, box, root = false) {
+      if (faces.length <= 10) {
+        for (let i = faces.length - 1; i >= 0; i--) {
+          const hit = candidates.get(faces[i]);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      if (!root) {
+        let axis = 0; for (let k = 1; k < 3; k++) if (box[k + 3] - box[k] > box[axis + 3] - box[axis]) axis = k;
+        // Preserve the old arithmetic order too: subtracting two precomputed
+        // centers can round differently for coincident faces.
+        faces.sort((a, b) => data[a * 10 + axis] + data[a * 10 + axis + 3] - data[b * 10 + axis] - data[b * 10 + axis + 3]);
+      }
+      const mid = faces.length >> 1, left = faces.slice(0, mid), right = faces.slice(mid);
+      const leftBox = bounds(left), rightBox = bounds(right);
+      const leftFirst = boxEntry(leftBox, far) <= boxEntry(rightBox, far);
+      const later = leftFirst ? right : left, earlier = leftFirst ? left : right;
+      return later.some(face => candidates.has(face))
+        ? last(later, leftFirst ? rightBox : leftBox)
+        : last(earlier, leftFirst ? leftBox : rightBox);
+    }
+    return last(Array.from(index.faces), index.tree.box, true);
   }
   function nearest(origin, direction, far = Infinity, accept = () => true) {
     audit.queries++;
     let best = null, distance = far;
     for (const item of entries) {
       const {mesh, index} = item;
+      const {tree, data} = index;
+      let tied = null;
       localRay.origin.copy(origin).applyMatrix4(item.inverse);
       v.copy(origin).add(direction).applyMatrix4(item.inverse).sub(localRay.origin);
       const scale = v.length();
       if (!scale) continue;
       localRay.direction.copy(v).multiplyScalar(1 / scale);
       function visit(node) {
-        if (boxEntry(node.box, distance * scale) === Infinity) return;
-        if (!node.faces) {
-          const left = boxEntry(node.left.box, distance * scale), right = boxEntry(node.right.box, distance * scale);
-          if (left <= right) {visit(node.left); visit(node.right);} else {visit(node.right); visit(node.left);}
+        if (boxEntry(tree.boxes, distance * scale, node * 6) === Infinity) return;
+        const link = node * 4, count = tree.links[link + 3];
+        if (!count) {
+          const leftId = tree.links[link], rightId = tree.links[link + 1];
+          const left = boxEntry(tree.boxes, distance * scale, leftId * 6), right = boxEntry(tree.boxes, distance * scale, rightId * 6);
+          if (left <= right) {visit(leftId); visit(rightId);} else {visit(rightId); visit(leftId);}
           return;
         }
-        for (const face of node.faces) {
+        const start = tree.links[link + 2], end = start + count;
+        for (let position = start; position < end; position++) {
+          const faceIndex = tree.order[position];
           audit.triangles++;
-          const materialIndex = mesh.geometry.groups.find((group) => face.faceIndex * 3 >= group.start && face.faceIndex * 3 < group.start + group.count)?.materialIndex || 0;
+          const offset = faceIndex * 10, triangle = index.triangles[faceIndex];
+          const materialIndex = mesh.geometry.groups.find((group) => faceIndex * 3 >= group.start && faceIndex * 3 < group.start + group.count)?.materialIndex || 0;
           const material = Array.isArray(mesh.material) ? mesh.material[materialIndex] : mesh.material;
           if (!material) continue;
-          const facing = localRay.direction.dot(v.fromArray(face.plane)) * item.sign;
+          const facing = localRay.direction.dot(v.set(data[offset + 6], data[offset + 7], data[offset + 8])) * item.sign;
           if (material.side === THREE.FrontSide && facing >= 0 || material.side === THREE.BackSide && facing <= 0) continue;
-          if (!localRay.intersectTriangle(a.fromArray(face.triangle[0]), b.fromArray(face.triangle[1]), c.fromArray(face.triangle[2]), false, point)) continue;
+          if (!localRay.intersectTriangle(a.fromArray(triangle[0]), b.fromArray(triangle[1]), c.fromArray(triangle[2]), false, point)) continue;
           const d = point.distanceTo(localRay.origin) / scale;
           if (d > distance || d < 0) continue;
-          const normal = new THREE.Vector3().fromArray(face.plane).applyMatrix3(item.localNormal).multiplyScalar(item.sign).normalize();
-          const hit = {object: mesh, distance: d, point: point.clone().applyMatrix4(item.world), faceIndex: face.faceIndex,
+          const normal = new THREE.Vector3(data[offset + 6], data[offset + 7], data[offset + 8]).applyMatrix3(item.localNormal).multiplyScalar(item.sign).normalize();
+          const hit = {object: mesh, distance: d, point: point.clone().applyMatrix4(item.world), faceIndex,
             face: {normal, materialIndex}, normal: normal.clone().applyNormalMatrix(item.normal)};
           if (!accept(hit)) continue;
+          if (d === distance && best?.object === mesh) {
+            tied ||= new Map([[best.faceIndex, best]]);
+            tied.set(hit.faceIndex, hit);
+          } else tied = null;
           best = hit; distance = d;
         }
       }
-      visit(index.tree);
+      visit(0);
+      if (tied) best = resolveTie(index, tied, distance * scale);
     }
     return best;
   }

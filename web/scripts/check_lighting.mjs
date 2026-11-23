@@ -130,12 +130,24 @@ try {
         await page.evaluate(async () => {
           const base = {bounds: {min: [-.3275, 0, -.32], max: [.3275, 1.015, .31]},
             transform: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]};
-          await roomLightingLab.importObject('benchmark-chair', base, 1);
+          const importing = roomLightingLab.importObject('benchmark-chair', base, 1);
+          if (roomEditor.ready) throw new Error('导入过程中仍允许编辑');
+          let concurrentRejected = false;
+          try {await roomLightingLab.importObject('benchmark-chair', base, 1);} catch {concurrentRejected = true;}
+          if (!concurrentRejected) throw new Error('并发导入未被阻止');
+          await importing;
+          if (!roomEditor.ready) throw new Error('导入完成后未恢复编辑');
           const remove = document.querySelector('.rc-remove-object');
           if (!remove) throw new Error('导入后未出现删除按钮');
           remove.click();
           if (remove.isConnected) throw new Error('删除后仍有物品卡片');
+          if (roomEditor.ready) throw new Error('删除更新过程中仍允许编辑');
         });
+        // Membership changes wait for the Worker index before editing resumes.
+        await page.waitForFunction(() => {
+          if (window.roomEditorError) throw new Error(window.roomEditorError);
+          return roomEditor.ready;
+        }, null, {timeout: 60000});
       }
       result.editorStages = supportsStages ? await page.evaluate(() => roomLightingLab.stageTimings()) : null;
       if (result.editorStages) {

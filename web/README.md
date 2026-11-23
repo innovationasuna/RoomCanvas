@@ -290,7 +290,7 @@ node web/scripts/check_object_photos.mjs --playwright $PW
 | `check_object_photos.mjs` | 合成 HEIC 原图与误改 PNG / JPEG 后缀、预览尺寸和颜色、损坏文件提示及实际上传编码；模拟接口，不启动重建任务 |
 | `check_replay_resources.mjs` | 24 次 draft 替换的真实 WebGL 资源稳定性；成形中替换、回拖、1/2/8 倍速、灯光切换和迟到 load / warm / prefetch；支持 `--output <报告.json>` |
 
-每个光照档位的 `report.json` 条目在 `editorStages` 下保留最近 128 个分段样本。每个样本记录操作、阶段、页面内起点和耗时（毫秒），以及可编辑物品数。初次加载分开记录模型读取与解析的合计耗时、支撑构建、碰撞几何提取、主线程碰撞构建、Worker 提交和缩略图。`collisionWorkerSubmit` 从主线程准备或复用 Worker 开始，到数据打包并提交结束。`rebuild` 是资产增删时支撑与碰撞子阶段的总耗时；`floorSearch` 记录导入后的落点搜索。用 `--asset-edits` 时，显示模型和碰撞预览均使用仓库内同一份椅子模型，哈希见报告的 `conditions.assetEditModelSha256`。旧版页面的 `editorStages` 为 `null`。
+每个光照档位的 `report.json` 条目在 `editorStages` 下保留最近 128 个分段样本。每个样本记录操作、阶段、页面内起点和耗时（毫秒），以及可编辑物品数。初次加载分开记录模型读取与解析的合计耗时、支撑构建、碰撞几何提取、索引安装、查询准备、Worker 提交和缩略图。`collisionWorkerSubmit` 从主线程准备或复用 Worker 开始，到数据打包并提交结束；`collisionIndexInstall` 记录收到紧凑索引后的安装。保留名称的 `collisionMainBuild` 在正常路径只连接已有索引和准备射线查询，`geometryStatus().collision.builtMeshes` 应为 0；Worker 失败回退时才会在主线程构建。`rebuild` 是资产增删时的总耗时，包含等待 Worker；`floorSearch` 记录导入后的落点搜索。用 `--asset-edits` 时，显示模型和碰撞预览均使用仓库内同一份椅子模型，哈希见报告的 `conditions.assetEditModelSha256`。旧版页面的 `editorStages` 为 `null`。
 
 输出包含示例房间的截图，请放在仓库外，不要提交。
 
@@ -310,6 +310,8 @@ node web/scripts/check_object_photos.mjs --playwright $PW
 
 `scene-editor.js` 连接场景状态与交互流程。实体分组与世界矩阵不变量在 `scene-entities.mjs`，导入模型构建在 `import-entity.mjs`，仓库行在 `warehouse-row.mjs`。`scene-geometry.mjs` 管理放置、碰撞、漫游索引及 Worker 生命周期，`collision-client.mjs` 管理增量传输、代际与异步请求取消。
 
-`entity-geometry.mjs` 提供稳定原始几何；`collision.mjs` 建立的三角形 BVH 同时供 `ray-queries.mjs` 的最近命中查询复用。漫游按实时世界矩阵查询开门、抽屉及承载姿态，地板仍参与落脚判断。隐藏、透明和裁切按使用场景的查询策略过滤。物体增删不重建旧实体的 BVH，过期 Worker 回包不能确认新布局。
+`entity-geometry.mjs` 提供稳定原始几何；`triangle-index.mjs` 用 Float64 保存三角形边界、法向和节点边界，用 Uint32 保存面编号与树结构。首次索引在 Worker 中构建一次，数值数组传回主线程后直接安装，供同步碰撞和 `ray-queries.mjs` 复用。两端各保留一份紧凑数组，不要求跨域隔离或 SharedArrayBuffer。公共边的同距射线命中仍按旧遍历规则选面，原始扫描交叠容差保持不变。
+
+漫游按实时世界矩阵查询开门、抽屉及承载姿态，地板索引也由 Worker 构建，参与射线查询但不作为家具碰撞障碍。隐藏、透明和裁切按使用场景的查询策略过滤。物体增删只发送变更几何，复用已有 BVH；需要新索引时暂停编辑，渲染和相机可继续使用。仅删除物品可直接复用剩余索引，不必等待过期后台检查。过期回包不能安装或确认新布局，未安装的索引会在最新一代补齐。Worker 创建、运行或消息失败时回退到主线程构建和查询。
 
 `check_lighting.mjs --asset-edits --editor-queries` 会在增删物品后验收原生/BVH射线、开合部件、真实 Worker、承载及漫游流程。`lightingLab=1` 时也可执行 `await roomLightingLab.queryBenchmark()`，按同一批射线运行 5 轮原生 Three.js / BVH 对照，并临时打开全部关节后复核、再恢复状态；返回耗时、差异数和三角形访问计数。普通编辑器不加载该基准模块。
