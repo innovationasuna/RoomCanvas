@@ -15,7 +15,7 @@ const report = {recordedAt:new Date().toISOString(), conditions:{viewport:[1440,
   lighting:'balanced-no-ao',handTracking:false,latency:'wheel event received to first WebGL drawing RAF callback completion; excludes OS input and compositor presentation'}, rooms:[]};
 const manifest = JSON.parse(await readFile(new URL('../rooms.json',import.meta.url)));
 try {
-  for (const id of ['office','room3','room-3934']) {
+  for (const id of ['office','room3']) {
     const entry = manifest.rooms.find(room => room.id === id);
     const model = await readFile(new URL(entry.dir.replace(/\/$/,'')+'/Room.glb',new URL('../rooms.json',import.meta.url)));
     const result = {id,modelSha256:createHash('sha256').update(model).digest('hex'),rounds:[]}; report.rooms.push(result);
