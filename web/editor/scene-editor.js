@@ -2141,7 +2141,7 @@ async function load() {
   }
   // Keep the sample's soft daylight and contact shadows on the actual room assets.
   room.traverse(mesh => {if (mesh.isMesh) {mesh.castShadow = mesh.name !== 'Floor0'; mesh.receiveShadow = true;}});
-  offsetDecals(THREE, room);
+  offsetDecals(THREE, room, gltf.parser.associations);
   const sun = scene.children.find(light => light.isDirectionalLight);
   sun.position.set(center.x - 3.5, floorY + 8, center.z + 4);
   sun.target.position.set(center.x, floorY, center.z); scene.add(sun.target);

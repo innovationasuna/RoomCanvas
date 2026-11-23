@@ -683,3 +683,13 @@ test('a picture stays in front of its board while the model fades in, and in its
   v.setFade(root, 1);
   assert.deepEqual([offsets(photo.material), offsets(board.material)], [[true, -1, -4], [false, 0, 0]]);
 });
+
+test('a picture with a plain slot gets a depth mask per slot', () => {
+  const v = view();
+  const geometry = new THREE.BoxGeometry(.6, .8, .0003); geometry.addGroup(0, 6, 0); geometry.addGroup(6, 30, 1);
+  const sheet = Object.assign(new THREE.Mesh(geometry, [new THREE.MeshStandardMaterial({map: new THREE.Texture()}),
+    new THREE.MeshStandardMaterial()]), {name: 'sheet'});
+  const root = loaded(v, 'room', sheet);
+  const masks = root.userData.mask.find((m) => m.parent === sheet).material;
+  assert.deepEqual(masks.map((m) => [m.polygonOffsetFactor, m.polygonOffsetUnits]), [[-2, -8], [-1, -4]]);
+});

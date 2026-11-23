@@ -352,7 +352,7 @@ export class RoomView {
         disposeModel(gltf.scene);
         return null;
       }
-      const root = this.prepare(gltf.scene);
+      const root = this.prepare(gltf.scene, gltf.parser?.associations);
       root.visible = false;
       this.scene.add(root);
       entry.root = root;
@@ -364,9 +364,9 @@ export class RoomView {
     return entry.promise;
   }
 
-  prepare(root) {
+  prepare(root, associations) {
     root.userData.replayRoot = true;
-    offsetDecals(THREE, root);
+    offsetDecals(THREE, root, associations);
     const sources = new Set();
     root.traverse(o => {if (o.isMesh) [o.material].flat().forEach(m => sources.add(m));});
     root.userData.sourceMaterials = [...sources];
@@ -435,7 +435,8 @@ export class RoomView {
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
     for (const o of meshes) {
       if ([o.material].flat().some((m) => wallMats.has(m) || m.transparent || m.opacity < 1 || m.transmission > 0)) continue;
-      const m = new THREE.Mesh(o.geometry, [o.material].flat().some((x) => x.polygonOffset && x.polygonOffsetUnits < 0) ? decalMask : mask);
+      const maskOf = (x) => x.polygonOffset && x.polygonOffsetUnits < 0 ? decalMask : mask;
+      const m = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? o.material.map(maskOf) : maskOf(o.material));
       m.userData.mask = 'depth';
       m.userData.forming = 0;
       m.renderOrder = 1;

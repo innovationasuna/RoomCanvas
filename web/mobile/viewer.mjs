@@ -110,7 +110,7 @@ async function loadRoom() {
     const gltf = await loader.parseAsync(data.buffer, '');
     room = gltf.scene;
     textureResources.check();
-    offsetDecals(THREE, room);
+    offsetDecals(THREE, room, gltf.parser.associations);
     if (signal.aborted) throw new DOMException('已取消', 'AbortError');
     renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'low-power'});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));

@@ -53,3 +53,21 @@ test('instances of one geometry are measured at their own world size, in either 
     assert.deepEqual([offset(thin), offset(thick)], [[[-1, -4]], [false]]);
   }
 });
+
+test('a rotated slab under a non-uniformly scaled parent is measured through the shear', () => {
+  const room = new THREE.Group(), parent = new THREE.Group();
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 1, .01), textured());
+  slab.rotation.y = Math.PI / 4; parent.scale.set(1, 1, .1);
+  parent.add(slab); room.add(parent);
+  assert.equal(offsetDecals(THREE, room), 1);
+});
+
+test('loader associations say which node a primitive belongs to, whatever the primitive is named', () => {
+  const room = new THREE.Group(), floor = new THREE.Group(); floor.name = 'Floor0';
+  const part = new THREE.Mesh(new THREE.PlaneGeometry(6, 5), textured()); part.name = 'Plane_1';
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(.5, .7), textured()); photo.name = 'Photo';
+  floor.add(part, photo); room.add(floor);
+  const associations = new Map([[floor, {nodes: 0}], [part, {meshes: 0, primitives: 1}], [photo, {nodes: 1, meshes: 1, primitives: 0}]]);
+  assert.equal(offsetDecals(THREE, room, associations), 1);
+  assert.deepEqual([offset(part), offset(photo)], [[false], [[-1, -4]]]);
+});
