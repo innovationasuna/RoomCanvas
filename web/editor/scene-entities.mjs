@@ -1,3 +1,6 @@
+import {entityGeometry} from './entity-geometry.mjs';
+import {ridersOf} from './joints.mjs';
+import {CONTACT} from './placement.mjs';
 import {topMembers} from './room-catalog.mjs';
 
 export function groupRoomEntities(THREE, {room, config, floorY, originalMatrices}) {
@@ -32,4 +35,28 @@ export function groupRoomEntities(THREE, {room, config, floorY, originalMatrices
   }
   if (groupingError > 1e-6) throw new Error('物品归组改变了原始位置');
   return {entities, audit: {groupingError, groupedRoots: assigned.size, meshes: originalMatrices.size}};
+}
+
+const shelfContacts = new WeakMap();
+
+// Placement tests the highest face of each named support. For a multi-level carcass
+// the manifest also identifies riders on its inner shelves. Check contact in the
+// current layout so a moved pot never follows a shelf it has left.
+export function cutawaySupport(THREE, entity, state, entities, layout) {
+  if (!state || 'support' in state) return state?.support;
+  const support = entity.authoredSupport;
+  const owner = support && entities.get(support.group);
+  if (!owner || owner === entity || layout[owner.id]?.visible === false) return;
+  const part = entityGeometry(THREE, owner).nodes.get(support.part);
+  if (!part) return;
+  const piece = entity.group;
+  part.updateWorldMatrix(true, false);
+  piece.updateWorldMatrix(true, false);
+  const relative = part.matrixWorld.clone().invert().multiply(piece.matrixWorld);
+  let contact = shelfContacts.get(piece);
+  if (contact?.part !== part || !contact.relative.equals(relative)) {
+    contact = {part, relative, resting: ridersOf(THREE, part, [piece], CONTACT).length > 0};
+    shelfContacts.set(piece, contact);
+  }
+  if (contact.resting) return owner.id;
 }

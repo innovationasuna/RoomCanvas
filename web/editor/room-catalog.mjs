@@ -37,7 +37,10 @@ export function roomConfig(doc) {
     const others = group.members.length - 1;
     // A name written by hand into room_objects.json wins over the category name.
     const name = group.name || (total[group.category] > 1 ? `${label} ${seen[group.category]}` : label);
-    return {id: group.id, name, category: others ? `${label} · 连同上面 ${others} 件` : label, roots: group.members.map(node)};
+    const object = objects.get(group.id), support = objects.get(object.rests_on);
+    const authoredSupport = support?.role === 'furniture' && object.support_part
+      ? {group: support.group, part: object.support_part} : null;
+    return {id: group.id, name, category: others ? `${label} · 连同上面 ${others} 件` : label, roots: group.members.map(node), authoredSupport};
   });
   const placement = Object.fromEntries(groups.map((group) => [group.id, {
     body: [node(group.id)],

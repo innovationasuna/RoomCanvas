@@ -14,7 +14,7 @@ import {updatePlacementPanel, bindPlacementPanel, updateFurnitureReadouts} from 
 import {PlacementSession} from './placement-session.mjs';
 import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs';
 import {roomConfig, flattenObjects} from './room-catalog.mjs';
-import {groupRoomEntities} from './scene-entities.mjs';
+import {groupRoomEntities, cutawaySupport} from './scene-entities.mjs';
 import {createImportedEntity} from './import-entity.mjs';
 import {warehouseRow} from './warehouse-row.mjs';
 
@@ -174,7 +174,7 @@ const lightingPanel = mountLightingPanel({root: $('#lighting-menu'), timeRoot: $
 });
 let analogActive = false, validationFrame = 0, validationTimer = 0;
 let layoutStamp = 0, tallStamp = -1, tall = new Map(), blockingNear = new Set();
-let supportStamp = -1, supported = new Map(), concealedIds = new Set();
+let supported = new Map(), concealedIds = new Set();
 function cancelValidation() {
   cancelAnimationFrame(validationFrame); clearTimeout(validationTimer);
   validationFrame = validationTimer = 0;
@@ -232,11 +232,16 @@ function requestRender() {
       // when the layout changes.
       if (tallStamp !== layoutStamp) {
         tallStamp = layoutStamp;
-        tall = new Map();
+        tall = new Map(); supported = new Map();
         for (const [id, entity] of entities) {
           if (layout[id].visible === false || placement.isWall(id)) continue;
           // A book on a bookcase's top shelf reaches 1.6 m, but it follows its bookcase (below).
-          if (entities.has(placementStates.get(id)?.support)) continue;
+          const owner = cutawaySupport(THREE, entity, placementStates.get(id), entities, layout);
+          if (entities.has(owner) && owner !== id) {
+            if (!supported.has(owner)) supported.set(owner, []);
+            supported.get(owner).push(id);
+            continue;
+          }
           const box = new THREE.Box3().setFromObject(entity.group);
           if (box.isEmpty() || box.max.y - floorY < 1.6) continue;
           const points = [box.min, box.max].flatMap((a) => [box.min, box.max].flatMap((b) => [[a.x, box.min.y, b.z], [a.x, box.max.y, b.z]]));
@@ -256,14 +261,7 @@ function requestRender() {
       const faint = new Set([...entities.keys()].filter((id) => id !== selected
         && ((placement.isWall(id) && hidden.has(placementStates.get(id)?.wall)) || blockingNear.has(id))));
       // What rests on such a piece (books in a bookcase, a bag on a wall ledge) goes with it,
-      // instead of floating where the piece was. Supports come from the placement check.
-      if (supportStamp !== layoutStamp) {
-        supportStamp = layoutStamp; supported = new Map();
-        for (const [id, state] of placementStates) if (entities.has(state?.support) && state.support !== id) {
-          if (!supported.has(state.support)) supported.set(state.support, []);
-          supported.get(state.support).push(id);
-        }
-      }
+      // instead of floating where the piece was.
       for (const queue = [...faint]; queue.length;) for (const child of supported.get(queue.pop()) || []) {
         if (child !== selected && !faint.has(child)) {faint.add(child); queue.push(child);}
       }
