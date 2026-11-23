@@ -410,48 +410,64 @@ export class RoomView {
   // The finished room, lit like the editor's 物理光照: the editor's own rig (../editor/time-lighting.mjs), so
   // the replay follows any change made there. Off again (the replay's own lights) when the replay goes back.
   physical(on) {
-    on = !!on;
-    this.wantPhysical = on;  // tried again each frame until the room model is in place
-    if (on === !!this.rig) return;
+    this.wantPhysical = !!on;
+    // render() requests lighting before it applies the timeline's model. Enter on the next settled frame.
+    if (on || !this.rig) return;
     const {hemisphere, sun, fill} = this.lights;
-    if (!on) {
-      this.forming.finishAll();
-      this.rig.dispose();
-      this.rig = null;
-      Object.assign(hemisphere, {visible: true, intensity: this.saved.hemisphere});
-      Object.assign(sun, {visible: true, castShadow: false, intensity: this.saved.sun});
-      sun.color.copy(this.saved.sunColor);
-      sun.position.copy(this.saved.sunAt);
-      fill.visible = false;
-      this.scene.environmentIntensity = this.saved.environment;
-      this.scene.background.copy(this.saved.background);
-      this.relinkWalls();
-      return;
-    }
-    const root = !this.incoming && this.models[this.current]?.root;
-    if (!root) return;
+    this.forming.finishAll();
+    this.rig.dispose();
+    this.rig = null;
+    for (const {mesh, castShadow, receiveShadow} of this.saved.shadows) Object.assign(mesh, {castShadow, receiveShadow});
+    Object.assign(hemisphere, {visible: true, intensity: this.saved.hemisphere});
+    Object.assign(sun, {visible: true, castShadow: false, intensity: this.saved.sun});
+    sun.color.copy(this.saved.sunColor);
+    sun.position.copy(this.saved.sunAt);
+    fill.visible = false;
+    this.scene.environmentIntensity = this.saved.environment;
+    this.scene.background.copy(this.saved.background);
+    this.saved = null;
+    this.relinkWalls();
+  }
+
+  enablePhysical(root) {
+    const {hemisphere, sun} = this.lights;
     this.forming.finishAll();
     this.saved = {hemisphere: hemisphere.intensity, sun: sun.intensity, sunColor: sun.color.clone(), sunAt: sun.position.clone(),
-      environment: this.scene.environmentIntensity, background: this.scene.background.clone()};
+      environment: this.scene.environmentIntensity, background: this.scene.background.clone(), shadows: []};
     root.updateWorldMatrix(true, true);
     // The floor's and the wall's own meshes: the model nests furniture under Floor0 (and things under walls).
     const box = (name) => {const o = root.getObjectByName(name); return o ? surfaceBox(THREE, o) : null;};
     const bounds = new THREE.Box3().setFromObject(root);
     const floorY = box('Floor0')?.max.y ?? bounds.min.y, ceilingY = box('Wall0')?.max.y ?? bounds.max.y;
-    root.traverse((m) => {if (m.isMesh) {m.castShadow = m.name !== 'Floor0' && !m.userData.mask; m.receiveShadow = true;}});
+    // fadeMats records transparency before either wall or model fading changes the material.
+    const opaqueMaterials = new Set(root.userData.fadeMats.filter(({m, transparent}) => !transparent && !(m.transmission > 0)).map(({m}) => m));
+    root.traverse(mesh => {
+      if (!mesh.isMesh) return;
+      const opaque = !mesh.userData.mask && [mesh.material].flat().every(m => opaqueMaterials.has(m));
+      // A photo blended onto a wall takes the wall's shadows (left unshadowed it glared white); glass takes none.
+      const receives = !mesh.userData.mask && [mesh.material].flat().every(m => !(m.transmission > 0));
+      this.saved.shadows.push({mesh, opaque, receives, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow});
+    });
     sun.shadow.mapSize.set(2048, 2048);
     this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config: roomConfig(root, this.wallFaces, ceilingY),
       walls: this.wallFaces, bounds, floorY, ceilingY, profile: lightingProfile()});
     this.rig.apply('physical');
-    this.relinkWalls();
+    for (const {mesh, opaque, receives} of this.saved.shadows) {
+      mesh.castShadow = opaque && mesh.name !== 'Floor0';
+      mesh.receiveShadow = receives;
+    }
+    this.relinkWalls(root);
   }
 
   // Near walls fade through whatever material each wall mesh shows now (the lighting rig swaps in its own).
-  relinkWalls() {
+  relinkWalls(physicalRoot) {
     for (const w of this.wallFades) {
       w.mats = [];
+      w.receivers = w.root === physicalRoot ? [] : null;
+      w.receiving = null;
       w.part.traverse((o) => {
         if (!o.isMesh || o.userData.mask) return;
+        if (o.receiveShadow) w.receivers?.push(o);
         for (const m of [o.material].flat()) {
           m.userData.base ??= m.opacity;
           m.userData.transparent ??= m.transparent;
@@ -726,7 +742,9 @@ export class RoomView {
     // Held objects take shape once the camera has arrived (or the user moves it, or it takes too long).
     if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || this.time - this.heldSince > MAX_WAIT)) this.forming.release();
     this.forming.update(fdt);
-    if (this.wantPhysical !== !!this.rig) this.physical(this.wantPhysical);
+    if (this.wantPhysical && !this.rig && this.current && this.wanted === this.current && !this.incoming) {
+      this.enablePhysical(this.models[this.current].root);
+    }
     const tris = this.forming.triangles();
     this.formTag.hidden = tris == null;
     if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
@@ -770,6 +788,10 @@ export class RoomView {
       w.a += (goal - w.a) * (1 - Math.exp(-dt * 5));
       const f = w.root.userData.fade ?? 1;
       const shown = w.a > 0.97 && f === 1;
+      if (w.receivers && shown !== w.receiving) {
+        for (const mesh of w.receivers) mesh.receiveShadow = shown;
+        w.receiving = shown;
+      }
       w.mats.forEach((m) => {
         const transparent = m.userData.transparent || !shown;
         if (m.transparent !== transparent) {m.transparent = transparent; m.needsUpdate = true;}
@@ -834,17 +856,28 @@ function wallFaces(plan) {
 }
 
 // What the editor reads from a room's object list, by the names a reconstructed room uses: ceilings, windows
-// (each on its nearest wall), walls and floor, and the ceiling luminaires the room is lit from.
+// (on their parent wall or the nearest wall), walls and floor, and the ceiling luminaires the room is lit from.
 function roomConfig(root, walls, ceilingY) {
-  const kind = (name) => (/^Ceiling/i.test(name) ? '天花板' : /^Window\d|_Window_/i.test(name) ? '窗户'
+  const kind = (name) => (/^Ceiling/i.test(name) ? '天花板' : /(?:^Window|_Window_)\d+$/i.test(name) ? '窗户'
     : /^Wall\d+$/.test(name) ? '墙面' : /^Floor\d+$/.test(name) ? '地面' : null);
   const openings = Object.fromEntries(walls.map((w) => [w.name, []]));
-  for (const o of root.children) {
-    if (kind(o.name) !== '窗户' || !walls.length) continue;
+  const windowRoots = new Set();
+  function nearestWall(o) {
     const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
-    const near = walls.reduce((best, w) => {const gap = Math.abs(w.n[0] * c.x + w.n[2] * c.z - w.d); return !best || gap < best.gap ? {w, gap} : best;}, null);
-    openings[near.w.name].push(o.name);
+    const gap = w => Math.abs(w.n[0] * c.x + w.n[2] * c.z - w.d);
+    return walls.reduce((best, w) => gap(w) < gap(best) ? w : best).name;
   }
-  return {label: (name) => kind(name), isCeiling: (name) => kind(name) === '天花板', openings,
+  function collect(o, wall) {
+    const name = o.userData.name || o.name;
+    if (kind(name) === '窗户') {
+      windowRoots.add(o);
+      if (walls.length) openings[wall || nearestWall(o)].push(name);
+      return;  // The articulated sashes inside Window0 can themselves be named Window1, Window2, ...
+    }
+    if (Object.hasOwn(openings, name)) wall = name;
+    for (const child of o.children) collect(child, wall);
+  }
+  collect(root, null);
+  return {label: (name) => kind(name), isCeiling: (name) => kind(name) === '天花板', openings, windowRoots,
     luminaires: namedLuminaires(THREE, root, {label: kind, ceilingY})};
 }

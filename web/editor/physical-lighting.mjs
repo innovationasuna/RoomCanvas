@@ -125,11 +125,13 @@ export function roomLightParts(THREE, {room, config}) {
   const parts = [], claimed = new Set();
   room.traverse(object => {
     if (object === room) return;
-    if (claimed.has(object.parent)) {claimed.add(object); return;}
+    // The replay retains the GLB hierarchy, where a wall can contain an explicitly identified window.
+    const windowRoot = config?.windowRoots?.has(object);
+    if (claimed.has(object.parent) && !windowRoot) {claimed.add(object); return;}
     const name = nameOf(object), kind = name ? kindOf(name) : null;
     if (!kind) return;
     claimed.add(object);
-    if (kind === 'other' || (kind === 'window' && /drape|sheer|curtain|blind/i.test(name))) return;
+    if (kind === 'other' || (kind === 'window' && (windowRoot === false || /drape|sheer|curtain|blind/i.test(name)))) return;
     // A ceiling's own surface, not the curtains or fixtures the replay's model nests under it.
     const box = kind === 'ceiling' ? surfaceBox(THREE, object) : new THREE.Box3().setFromObject(object);
     if (!box.isEmpty()) parts.push({name, kind, box: {min: box.min.toArray(), max: box.max.toArray()}});
