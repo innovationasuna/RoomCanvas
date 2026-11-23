@@ -4,17 +4,22 @@
 // units, so the picture wins at any distance and angle.
 const THIN = .002;          // m: every vertex within this of the slab's largest face
 const MAX_VERTICES = 512;   // pictures are a few quads; anything bigger is not a decal
+export const DECAL_OFFSET = {factor: -1, units: -4};
+// The room's own floor, ceiling and walls can be single textured quads; they are what pictures lie on.
+const STRUCTURE = /^(Floor|Ceiling|Wall)\d*(_\d+)?$/;
 
-const thinness = new WeakMap();
+function isStructure(mesh) {
+  return STRUCTURE.test(mesh.name) || (!!mesh.parent && !mesh.parent.isScene && STRUCTURE.test(mesh.parent.name)
+    && mesh.name.startsWith(mesh.parent.name));
+}
 
+// Measured per mesh at its world size: instances of one geometry may be scaled differently.
 function isThinSlab(THREE, mesh) {
-  const geometry = mesh.geometry, position = geometry?.attributes?.position;
+  const position = mesh.geometry?.attributes?.position;
   if (!position || position.count > MAX_VERTICES) return false;
-  if (thinness.has(geometry)) return thinness.get(geometry);
-  // The plane of the largest triangle, in the mesh's own frame scaled to world size.
   const scale = mesh.getWorldScale(new THREE.Vector3());
   const point = (i, v) => v.fromBufferAttribute(position, i).multiply(scale);
-  const index = geometry.index, count = index ? index.count : position.count, at = (i) => index ? index.getX(i) : i;
+  const index = mesh.geometry.index, count = index ? index.count : position.count, at = (i) => index ? index.getX(i) : i;
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), triangle = new THREE.Triangle();
   let best = 0; const plane = new THREE.Plane();
   for (let i = 0; i + 2 < count; i += 3) {
@@ -22,25 +27,34 @@ function isThinSlab(THREE, mesh) {
     const area = triangle.getArea();
     if (area > best) {best = area; triangle.getPlane(plane);}
   }
-  let thin = best > 0;
-  for (let i = 0; thin && i < position.count; i++) if (Math.abs(plane.distanceToPoint(point(i, a))) > THIN) thin = false;
-  thinness.set(geometry, thin);
-  return thin;
+  if (!(best > 0)) return false;
+  for (let i = 0; i < position.count; i++) if (Math.abs(plane.distanceToPoint(point(i, a))) > THIN) return false;
+  return true;
 }
 
-// Pulls every textured thin slab under root in front of what it lies on. Returns how many meshes it marked.
+// Pulls every textured thin slab under root in front of what it lies on. Only the slab's textured material slots
+// change, through copies shared among the slabs, so a backing that shares the source material keeps it as it was.
+// Returns how many meshes it marked.
 export function offsetDecals(THREE, root) {
   root.updateMatrixWorld(true);
+  const copies = new Map();
+  const offset = (material) => {
+    if (!copies.has(material)) {
+      const copy = material.clone();
+      copy.polygonOffset = true;
+      copy.polygonOffsetFactor = Math.min(material.polygonOffsetFactor || 0, DECAL_OFFSET.factor);
+      copy.polygonOffsetUnits = Math.min(material.polygonOffsetUnits || 0, DECAL_OFFSET.units);
+      copies.set(material, copy);
+    }
+    return copies.get(material);
+  };
   let marked = 0;
   root.traverse((mesh) => {
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh || isStructure(mesh)) return;
     const materials = [mesh.material].flat();
     if (!materials.some((m) => m?.map) || !isThinSlab(THREE, mesh)) return;
-    for (const material of materials) {
-      material.polygonOffset = true;
-      material.polygonOffsetFactor = Math.min(material.polygonOffsetFactor || 0, -1);
-      material.polygonOffsetUnits = Math.min(material.polygonOffsetUnits || 0, -4);
-    }
+    const next = materials.map((m) => m?.map ? offset(m) : m);
+    mesh.material = Array.isArray(mesh.material) ? next : next[0];
     marked++;
   });
   return marked;
