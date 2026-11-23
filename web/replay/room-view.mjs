@@ -817,13 +817,15 @@ export class RoomView {
   tick() {
     if (this.disposed) return;
     const now = performance.now();
-    const elapsed = this.paused ? 0 : (now - (this.lastTick ?? now)) / 1000;
+    // A live update can fade in a draft while the camera stays still.
+    const animate = !this.paused || this.lastOptions?.quiet === false;
+    const elapsed = animate ? (now - (this.lastTick ?? now)) / 1000 : 0;
     // Sped up, the replay still runs at normal speed while the camera moves in, only a little faster while
     // an object takes shape, and fast in between: the camera work is that of normal speed (the camera itself
     // never moves faster, it would whip round the room).
     const showing = this.speed > 1 && this.showing();
     this.rate = showing === 'move' ? 1 : showing ? Math.sqrt(this.speed) : this.speed;
-    const dt = Math.min(elapsed, 0.05) * Math.min(this.rate, 1);  // camera motion: small steps even after a slow frame
+    const dt = this.paused ? 0 : Math.min(elapsed, 0.05) * Math.min(this.rate, 1);  // camera motion: small steps even after a slow frame
     const fdt = Math.min(elapsed, 0.25) * this.rate;     // fades follow the clock, so they finish on time at low frame rates
     this.lastTick = now;
     this.time += elapsed * 1000 * this.rate;

@@ -315,6 +315,28 @@ test('replaying after a manual turn at the end releases the camera', async t => 
   assert.ok(Math.abs(view.controls.getAzimuthalAngle() - az) > 0.01);
 });
 
+test('following a live job keeps the wheel zoom until the job finishes', async t => {
+  const {view, job, player, poll} = await page(t, true);
+  const {controls, camera} = view;
+  controls._onMouseWheel({deltaY: -1000, preventDefault() {}});
+  const distance = controls.getDistance(), position = camera.position.clone();
+  assert.ok(distance < view.defaultDist * 0.7);
+  frames(view, 100);
+  assert.ok(Math.abs(controls.getDistance() - distance) < 1e-10);
+
+  job.events.push({stage: 'assemble', minute: 5, kind: 'milestone', model: 'final'});
+  await poll();
+  await loaded();
+  frames(view, 60);
+  assert.equal(player.t, player.duration);
+  assert.equal(view.current, 'final');
+  assert.ok(camera.position.distanceTo(position) < 1e-10);
+
+  job.live = false;
+  await poll();
+  checkOverviewSpin(view);
+});
+
 test('a live poll fades in a new draft while scrubbing to the same draft shows it at once', async t => {
   const {view, job, player, poll, scrub} = await page(t, true);
   frames(view, 60);

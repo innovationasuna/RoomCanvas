@@ -327,7 +327,7 @@ addEventListener('keydown', (ev) => {
 function directCamera(t, p) {
   const end = t >= span();
   // Paused, the view holds still; at the end the finished room keeps its slow turn.
-  view.setPlaying(p.playing, end);
+  view.setPlaying(p.playing, end && !data.live);
   if (!p.playing) {hold = 0; posed = false; return;}
   const inLayout = !end && tl.stageAt(t)?.id === 'layout';
   if (inLayout && !posed) {view.pose(0.75, 0.6); posed = true; hold = 0;}
