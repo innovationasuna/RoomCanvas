@@ -1,4 +1,5 @@
 import {entityGeometry, meshGeometry} from './entity-geometry.mjs';
+import {buildTriangleIndex, makeTriangleTree, nodeBox, nodeFaces, readFace} from './triangle-index.mjs';
 // Surface collision uses authored triangles; bounds only prune the search.
 // Translation is swept continuously, so even a long step cannot jump a thin wall.
 import {carryPose} from './placement.mjs';
@@ -116,8 +117,8 @@ function isClosed(mesh) {
     if (!vertices.has(key)) vertices.set(key, vertices.size);
     return vertices.get(key);
   };
-  for (const face of mesh.faces) {
-    const ids = face.triangle.map(vertexId);
+  for (const id of mesh.faces) {
+    const ids = mesh.triangles[id].map(vertexId);
     for (let i = 0; i < 3; i++) {
       const a = ids[i], b = ids[(i + 1) % 3];
       if (a === b) continue;
@@ -150,10 +151,12 @@ function rayBox(point, direction, box) {
 
 function pointOnMesh(mesh, point) {
   function onBoundary(node) {
-    if (!containsPoint(node.box, point)) return false;
-    return node.faces ? node.faces.some((face) => containsPoint(face.box, point) && pointOnTriangle(point, face)) : onBoundary(node.left) || onBoundary(node.right);
+    if (!containsPoint(nodeBox(mesh.tree, node), point)) return false;
+    const faces = nodeFaces(mesh.tree, node);
+    return faces ? faces.some((id) => {const face = readFace(mesh, id); return containsPoint(face.box, point) && pointOnTriangle(point, face);})
+      : onBoundary(mesh.tree.links[node * 4]) || onBoundary(mesh.tree.links[node * 4 + 1]);
   }
-  return onBoundary(mesh.tree);
+  return onBoundary(0);
 }
 
 function pointInside(mesh, point) {
@@ -165,13 +168,14 @@ function pointInside(mesh, point) {
   for (const direction of directions) {
     const hits = []; let grazing = false;
     function visit(node) {
-      if (!rayBox(point, direction, node.box)) return;
-      if (!node.faces) {visit(node.left); visit(node.right); return;}
+      if (!rayBox(point, direction, nodeBox(mesh.tree, node))) return;
+      const faces = nodeFaces(mesh.tree, node);
+      if (!faces) {visit(mesh.tree.links[node * 4]); visit(mesh.tree.links[node * 4 + 1]); return;}
       // Moller-Trumbore, written out in scalars: the same arithmetic as subtract/cross/dot,
       // without allocating arrays for every face of a large mesh.
       const [d0, d1, d2] = direction, [p0, p1, p2] = point;
-      for (const face of node.faces) {
-        const [a, b, c] = face.triangle;
+      for (const id of faces) {
+        const [a, b, c] = mesh.triangles[id];
         const e10 = b[0] - a[0], e11 = b[1] - a[1], e12 = b[2] - a[2], e20 = c[0] - a[0], e21 = c[1] - a[1], e22 = c[2] - a[2];
         const h0 = d1 * e22 - d2 * e21, h1 = d2 * e20 - d0 * e22, h2 = d0 * e21 - d1 * e20;
         const determinant = e10 * h0 + e11 * h1 + e12 * h2;
@@ -185,26 +189,13 @@ function pointInside(mesh, point) {
         hits.push(t);
       }
     }
-    visit(mesh.tree); hits.sort((a, b) => a - b);
+    visit(0); hits.sort((a, b) => a - b);
     const count = hits.filter((t, i) => i === 0 || t - hits[i - 1] > EPS).length;
     const inside = count % 2 === 1;
     if (!grazing) return inside;
     if (inside) insideVotes++;
   }
   return insideVotes >= 2;
-}
-
-function makeBVH(faces) {
-  const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-  for (const {box: b} of faces) for (let k = 0; k < 3; k++) {
-    if (b[k] < box[k]) box[k] = b[k];
-    if (b[k + 3] > box[k + 3]) box[k + 3] = b[k + 3];
-  }
-  if (faces.length <= 10) return {box, faces};
-  let axis = 0; for (let k = 1; k < 3; k++) if (box[k + 3] - box[k] > box[axis + 3] - box[axis]) axis = k;
-  faces.sort((a, b) => a.box[axis] + a.box[axis + 3] - b.box[axis] - b.box[axis + 3]);
-  const mid = faces.length >> 1;
-  return {box, left: makeBVH(faces.slice(0, mid)), right: makeBVH(faces.slice(mid))};
 }
 
 // Exact support projections of mesh vertices. BVH bounds only prune branches;
@@ -215,15 +206,18 @@ function makeBVH(faces) {
 function support(mesh, [x, y, z], floor = -Infinity, found = null) {
   let best = -Infinity, point = null;
   const ix = x >= 0 ? 3 : 0, iy = y >= 0 ? 4 : 1, iz = z >= 0 ? 5 : 2;
-  const upper = ({box}) => x * box[ix] + y * box[iy] + z * box[iz];
+  const upper = (node) => {const offset = node * 6, boxes = mesh.tree.boxes; return x * boxes[offset + ix] + y * boxes[offset + iy] + z * boxes[offset + iz];};
   function visit(node) {
     if (best > floor && floor > -Infinity || upper(node) <= Math.max(best, floor)) return;
-    if (node.faces) {
-      for (const face of node.faces) for (const p of face.triangle) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; point = p;}}
-    } else if (upper(node.left) >= upper(node.right)) {visit(node.left); visit(node.right);}
-    else {visit(node.right); visit(node.left);}
+    const faces = nodeFaces(mesh.tree, node);
+    if (faces) {
+      for (const id of faces) for (const p of mesh.triangles[id]) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; point = p;}}
+    } else {
+      const left = mesh.tree.links[node * 4], right = mesh.tree.links[node * 4 + 1];
+      if (upper(left) >= upper(right)) {visit(left); visit(right);} else {visit(right); visit(left);}
+    }
   }
-  visit(mesh.tree);
+  visit(0);
   if (found) found[0] = point;
   return best;
 }
@@ -251,32 +245,35 @@ function pieces(mesh) {
     // The corners of the faces around each vertex: most faces that are not on the hull have one
     // of them in front, which is cheaper to find than a search of the whole piece.
     const around = [];
-    for (const face of mesh.faces) {
-      const [a, b, c] = face.triangle.map(number);
+    for (const id of mesh.faces) {
+      const triangle = mesh.triangles[id], [a, b, c] = triangle.map(number);
       parent[find(b)] = find(a); parent[find(c)] = find(a);
-      for (const k of [a, b, c]) (around[k] ||= []).push(...face.triangle);
+      for (const k of [a, b, c]) (around[k] ||= []).push(...triangle);
     }
     const groups = new Map();
-    for (const face of mesh.faces) {
-      const root = find(number(face.triangle[0]));
+    for (const id of mesh.faces) {
+      const root = find(number(mesh.triangles[id][0]));
       if (!groups.has(root)) groups.set(root, []);
-      groups.get(root).push(face);
+      groups.get(root).push(id);
     }
-    const found = groups.size === 1 ? [{tree: mesh.tree, faces: mesh.faces}] : [...groups.values()].map((faces) => ({tree: makeBVH(faces.slice()), faces}));
+    const found = groups.size === 1 ? [mesh] : [...groups.values()].map((faces) => ({triangles: mesh.triangles, data: mesh.data, tree: makeTriangleTree(mesh.data, faces.slice()), faces}));
     pieceCache.set(mesh.tree, found.map((piece) => {
       const planes = [0, 1, 2, 3, 4, 5].map((k) => ({n: [0, 1, 2].map((j) => j === k % 3 ? (k < 3 ? 1 : -1) : 0), d: k < 3 ? piece.tree.box[k + 3] : -piece.tree.box[k - 3]}));
       // Only faces parallel to within about a hundredth of a degree are merged, keeping the largest;
       // a real normal is never replaced by a nearby direction.
-      const directions = new Set(), area = ({triangle: [a, b, c]}) => Math.hypot(...cross(subtract(b, a), subtract(c, a)));
-      const largest = piece.faces.map((face) => [area(face), face]).sort((f, g) => g[0] - f[0]).map(([, face]) => face);
-      for (const face of largest) for (const [n, e] of [[face.plane, face.d], [face.plane.map((v) => -v), -face.d]]) {
-        const direction = n.map((v) => Math.round(v * 1e4)).join(','), front = (p) => dot(n, p) > e + EPS;
-        if (directions.has(direction) || face.triangle.some((p) => around[number(p)].some(front))) continue;
-        if (support(piece, n, e + EPS) <= e + EPS) {directions.add(direction); planes.push({n, d: e});}
+      const directions = new Set(), area = ([a, b, c]) => Math.hypot(...cross(subtract(b, a), subtract(c, a)));
+      const largest = Array.from(piece.faces, (id) => [area(piece.triangles[id]), id]).sort((f, g) => g[0] - f[0]).map(([, id]) => id);
+      for (const id of largest) {
+        const face = readFace(piece, id);
+        for (const [n, e] of [[face.plane, face.d], [face.plane.map((v) => -v), -face.d]]) {
+          const direction = n.map((v) => Math.round(v * 1e4)).join(','), front = (p) => dot(n, p) > e + EPS;
+          if (directions.has(direction) || face.triangle.some((p) => around[number(p)].some(front))) continue;
+          if (support(piece, n, e + EPS) <= e + EPS) {directions.add(direction); planes.push({n, d: e});}
+        }
       }
       // A small piece (a wall, a box) is projected through its few vertices rather than its tree.
       // The vertices furthest out along the axes and diagonals are a first guess for any other.
-      const points = piece.faces.length <= 64 ? [...new Set(piece.faces.flatMap((face) => face.triangle))] : null;
+      const points = piece.faces.length <= 64 ? [...new Set(Array.from(piece.faces).flatMap((id) => piece.triangles[id]))] : null;
       const samples = points || [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => [x, y, z]))).filter((u) => u.some(Boolean)).map((u) => {
         const found = []; support(piece, u, -Infinity, found); return found[0];
       });
@@ -306,38 +303,32 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   const owners = input.map((owner) => ({...owner, origin: owner.origin || [0, 0, 0], meshes: owner.meshes.map((mesh) => {
     if (meshIndexes.has(mesh.triangles)) {reusedMeshes++; return {...mesh, ...meshIndexes.get(mesh.triangles)};}
     builtMeshes++;
-    const faces = mesh.triangles.map((triangle, faceIndex) => {
-      const raw = normal(triangle);
-      if (dot(raw, raw) <= 1e-20) return null;
-      const length = Math.hypot(...raw), plane = raw.map((v) => v / length), box = bounds(triangle);
-      return {triangle, faceIndex, box, plane, d: dot(plane,triangle[0])};
-    }).filter(Boolean);
-    const index = {faces, tree: faces.length ? makeBVH(faces) : null};
+    const index = buildTriangleIndex(mesh.triangles);
     meshIndexes.set(mesh.triangles, index);
     return {...mesh, ...index};
-  }).filter((mesh) => mesh.tree)}));
-  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started, projections: 0};
+  }).filter((mesh) => mesh.tree)})).filter((owner) => !owner.queryOnly);
+  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.filter((o) => !o.queryOnly).reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started, projections: 0};
 
   function fixedMesh(meshA, ownerA, poseA, meshB, ownerB, poseB) {
     const relative = (point) => localPoint(worldPoint(point, ownerA, poseA), ownerB, poseB);
     const transformedBoxes = new Map(), transformedFaces = new Map();
-    const nodeBox = (node) => {
-      if (!transformedBoxes.has(node)) transformedBoxes.set(node, bounds(corners(node.box).map(relative)));
+    const placedBox = (node) => {
+      if (!transformedBoxes.has(node)) transformedBoxes.set(node, bounds(corners(nodeBox(meshA.tree, node)).map(relative)));
       return transformedBoxes.get(node);
     };
     const triangle = (face) => {
-      if (!transformedFaces.has(face)) transformedFaces.set(face, face.triangle.map(relative));
-      return transformedFaces.get(face);
+      if (!transformedFaces.has(face.faceIndex)) transformedFaces.set(face.faceIndex, face.triangle.map(relative));
+      return transformedFaces.get(face.faceIndex);
     };
     // A transformed face with its bounds and unit plane, computed once per check.
     const planes = new Map();
     const placed = (face) => {
-      if (!planes.has(face)) {
+      if (!planes.has(face.faceIndex)) {
         const t = triangle(face), raw = normal(t), length = Math.hypot(...raw);
         const n = length < 1e-12 ? null : raw.map((v) => v / length);
-        planes.set(face, {t, box: bounds(t), n, d: n ? dot(n, t[0]) : 0});
+        planes.set(face.faceIndex, {t, box: bounds(t), n, d: n ? dot(n, t[0]) : 0});
       }
-      return planes.get(face);
+      return planes.get(face.faceIndex);
     };
     // Signed distances of a triangle's corners to a plane, as [min, max].
     const span = (points, n, d) => {
@@ -346,12 +337,14 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       return [low, high];
     };
     function crosses(nodeA, nodeB) {
-      if (!overlap(nodeBox(nodeA), nodeB.box)) return false;
-      if (nodeA.faces && nodeB.faces) {
-        for (const fa of nodeA.faces) {
-          const a = placed(fa);
+      if (!overlap(placedBox(nodeA), nodeBox(meshB.tree, nodeB))) return false;
+      const facesA = nodeFaces(meshA.tree, nodeA), facesB = nodeFaces(meshB.tree, nodeB);
+      if (facesA && facesB) {
+        for (const idA of facesA) {
+          const a = placed(readFace(meshA, idA));
           if (!a.n) continue;
-          for (const fb of nodeB.faces) {
+          for (const idB of facesB) {
+            const fb = readFace(meshB, idB);
             if (!overlap(a.box, fb.box)) continue;
             // trianglesCross with both planes computed once: each triangle must straddle the other's.
             const [lowA, highA] = span(a.t, fb.plane, fb.d), [lowB, highB] = span(fb.triangle, a.n, a.d);
@@ -360,10 +353,10 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
         }
         return false;
       }
-      if (!nodeA.faces) return crosses(nodeA.left, nodeB) || crosses(nodeA.right, nodeB);
-      return crosses(nodeA, nodeB.left) || crosses(nodeA, nodeB.right);
+      if (!facesA) return crosses(meshA.tree.links[nodeA * 4], nodeB) || crosses(meshA.tree.links[nodeA * 4 + 1], nodeB);
+      return crosses(nodeA, meshB.tree.links[nodeB * 4]) || crosses(nodeA, meshB.tree.links[nodeB * 4 + 1]);
     }
-    if (crosses(meshA.tree, meshB.tree)) return 'crossing';
+    if (crosses(0, 0)) return 'crossing';
 
     function contained(source, sourceOwner, sourcePose, target, targetOwner, targetPose) {
       if (!isClosed(target)) return false;
@@ -375,9 +368,11 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
         return known.get(point);
       };
       function visit(node) {
-        if (!overlap(bounds(corners(node.box).map(toTarget)), target.tree.box)) return false;
-        if (!node.faces) return visit(node.left) || visit(node.right);
-        for (const face of node.faces) {
+        if (!overlap(bounds(corners(nodeBox(source.tree, node)).map(toTarget)), target.tree.box)) return false;
+        const faces = nodeFaces(source.tree, node);
+        if (!faces) return visit(source.tree.links[node * 4]) || visit(source.tree.links[node * 4 + 1]);
+        for (const id of faces) {
+          const face = readFace(source, id);
           const center = centroid(face.triangle), points = [center, ...face.triangle];
           for (const point of points) if (inside(point)) return true;
           // Fully coincident shells have no crossing and every boundary sample
@@ -392,7 +387,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
         }
         return false;
       }
-      return visit(source.tree);
+      return visit(0);
     }
     if (contained(meshA, ownerA, poseA, meshB, ownerB, poseB) || contained(meshB, ownerB, poseB, meshA, ownerA, poseA)) return 'containment';
     return null;
@@ -615,9 +610,9 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     const radius = Math.max(assemblyRadius, ...corners(meshA.tree.box).map((p) => Math.hypot(p[0], p[2])));
     const padding = changingYaw ? radius * (1 - Math.cos(angle / 2)) : 0;
     const nodeBoxes = new Map(), transformedFaces = new Map();
-    function nodeBox(node) {
+    function sweptBox(node) {
       if (!nodeBoxes.has(node)) {
-        const points = corners(node.box), startPoints = points.map((p) => relative(p, poseA)), startBox = bounds(startPoints);
+        const points = corners(nodeBox(meshA.tree, node)), startPoints = points.map((p) => relative(p, poseA)), startBox = bounds(startPoints);
         const endPoints = changingYaw ? points.map((p) => relative(p, endA)) : null;
         const endBox = changingYaw ? bounds(endPoints) : startBox.map((v,k) => v + delta[k % 3]);
         nodeBoxes.set(node, {startBox, startPoints, endPoints, box: expand(union(startBox, endBox), padding)});
@@ -625,11 +620,13 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       return nodeBoxes.get(node);
     }
     function broadTime(nodeA, nodeB) {
-      const {startBox, startPoints, endPoints, box} = nodeBox(nodeA);
-      if (!overlap(box, nodeB.box)) return Infinity;
+      const {startBox, startPoints, endPoints, box} = sweptBox(nodeA), boxB = nodeBox(meshB.tree, nodeB);
+      if (!overlap(box, boxB)) return Infinity;
       // Large diagonal walls have very loose AABBs. Their actual face planes
       // cheaply reject entire chair BVH branches before reaching triangles.
-      if (nodeB.faces && !nodeB.faces.some((face) => {
+      const faces = nodeFaces(meshB.tree, nodeB);
+      if (faces && !faces.some((id) => {
+        const face = readFace(meshB, id);
         const values = startPoints.map((p) => dot(p,face.plane)), shift = dot(delta,face.plane);
         const lo = Math.min(...values), hi = Math.max(...values);
         const end = endPoints ? endPoints.map((p) => dot(p,face.plane)) : [lo+shift,hi+shift];
@@ -639,7 +636,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       let enter = 0, exit = 1;
       for (let k = 0; k < 3; k++) {
         if (Math.abs(delta[k]) < 1e-14) continue;
-        const t1 = (nodeB.box[k] - startBox[k + 3] - EPS) / delta[k], t2 = (nodeB.box[k + 3] - startBox[k] + EPS) / delta[k];
+        const t1 = (boxB[k] - startBox[k + 3] - EPS) / delta[k], t2 = (boxB[k + 3] - startBox[k] + EPS) / delta[k];
         enter = Math.max(enter, Math.min(t1,t2)); exit = Math.min(exit, Math.max(t1,t2));
       }
       return enter <= exit + EPS ? enter : Infinity;
@@ -649,7 +646,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     const basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p, poseA), startZero));
     const endBasis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => subtract(relative(p, endA), endZero));
     function recovering(fb) {
-      if (recoveryCache.has(fb)) return recoveryCache.get(fb);
+      if (recoveryCache.has(fb.faceIndex)) return recoveryCache.get(fb.faceIndex);
       const n0 = normal(fb.triangle), length = Math.hypot(...n0), n = n0.map((v) => v / length), d = dot(n, fb.triangle[0]);
       const axis = basis.map((v) => dot(n, v)), endAxis = endBasis.map((v) => dot(n, v));
       const [low, high] = projection(meshA, axis, dot(n, startZero) - d);
@@ -659,27 +656,30 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       let touching = false;
       if (away) {
         const scan = (node) => {
-          if (touching || !overlap(bounds(corners(node.box).map((p) => relative(p, poseA))), fb.box)) return;
-          if (node.faces) touching = node.faces.some((face) => trianglesIntersect(face.triangle.map((p) => relative(p, poseA)), fb.triangle));
-          else {scan(node.left); scan(node.right);}
+          if (touching || !overlap(bounds(corners(nodeBox(meshA.tree, node)).map((p) => relative(p, poseA))), fb.box)) return;
+          const faces = nodeFaces(meshA.tree, node);
+          if (faces) touching = faces.some((id) => trianglesIntersect(meshA.triangles[id].map((p) => relative(p, poseA)), fb.triangle));
+          else {scan(meshA.tree.links[node * 4]); scan(meshA.tree.links[node * 4 + 1]);}
         };
-        scan(meshA.tree);
+        scan(0);
       }
       const result = away && touching;
-      recoveryCache.set(fb, result); return result;
+      recoveryCache.set(fb.faceIndex, result); return result;
     }
     let earliest = maxFraction;
     function visit(nodeA, nodeB) {
       if (broadTime(nodeA,nodeB) >= earliest) return;
-      if (nodeA.faces && nodeB.faces) {
-        for (const fa of nodeA.faces) {
-          if (!transformedFaces.has(fa)) {
-            const a = fa.triangle.map((p) => relative(p, poseA)), end = changingYaw ? fa.triangle.map((p) => relative(p, endA)) : null;
+      const facesA = nodeFaces(meshA.tree, nodeA), facesB = nodeFaces(meshB.tree, nodeB);
+      if (facesA && facesB) {
+        for (const idA of facesA) {
+          if (!transformedFaces.has(idA)) {
+            const triangle = meshA.triangles[idA], a = triangle.map((p) => relative(p, poseA)), end = changingYaw ? triangle.map((p) => relative(p, endA)) : null;
             const endBounds = end ? bounds(end) : bounds(a.map((p) => p.map((v, k) => v + delta[k])));
-            transformedFaces.set(fa, {a,end,box:expand(union(bounds(a),endBounds),padding)});
+            transformedFaces.set(idA, {a,end,box:expand(union(bounds(a),endBounds),padding)});
           }
-          const {a,end,box:sweptBounds} = transformedFaces.get(fa);
-          for (const fb of nodeB.faces) {
+          const {a,end,box:sweptBounds} = transformedFaces.get(idA);
+          for (const idB of facesB) {
+            const fb = readFace(meshB, idB);
             if (!overlap(sweptBounds, fb.box)) continue;
             const contact = sweepTriangle(a, fb.triangle, delta, end, padding);
             if (contact !== null && contact < earliest && !recovering(fb)) earliest = contact;
@@ -687,13 +687,14 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
           }
         }
       } else {
-        const pairs = !nodeA.faces && (nodeB.faces || nodeA.box.reduce((v, _, k) => k < 3 ? v + nodeA.box[k + 3] - nodeA.box[k] : v, 0) > nodeB.box.reduce((v, _, k) => k < 3 ? v + nodeB.box[k + 3] - nodeB.box[k] : v, 0))
-          ? [[nodeA.left,nodeB],[nodeA.right,nodeB]] : [[nodeA,nodeB.left],[nodeA,nodeB.right]];
+        const boxA = nodeBox(meshA.tree, nodeA), boxB = nodeBox(meshB.tree, nodeB);
+        const pairs = !facesA && (facesB || boxA.reduce((v, _, k) => k < 3 ? v + boxA[k + 3] - boxA[k] : v, 0) > boxB.reduce((v, _, k) => k < 3 ? v + boxB[k + 3] - boxB[k] : v, 0))
+          ? [[meshA.tree.links[nodeA * 4],nodeB],[meshA.tree.links[nodeA * 4 + 1],nodeB]] : [[nodeA,meshB.tree.links[nodeB * 4]],[nodeA,meshB.tree.links[nodeB * 4 + 1]]];
         pairs.sort((a,b) => broadTime(...a) - broadTime(...b));
         for (const pair of pairs) if (earliest > 0) visit(...pair);
       }
     }
-    visit(meshA.tree, meshB.tree);
+    visit(0, 0);
     return earliest;
   }
 
@@ -769,7 +770,40 @@ export function triangleIndex(triangles) {
   if (!meshIndexes.has(triangles)) buildCollision([{id: 'query', meshes: [{triangles}]}]);
   return meshIndexes.get(triangles);
 }
-export function collisionOwners(THREE, room, entities, {label = () => null} = {}) {
+// Transfer only numeric index data, never the source triangles or a second object
+// tree. The Worker keeps its buffers; postMessage clones them for synchronous page
+// queries without requiring SharedArrayBuffer/cross-origin isolation.
+export function collisionIndexes(owners) {
+  return owners.map(({id, meshes}) => ({id, meshes: meshes.map(({triangles}) => {
+    const {data, faces, tree} = triangleIndex(triangles);
+    return {data, faces, tree};
+  })}));
+}
+
+export function installCollisionIndexes(owners, packed) {
+  const byId = new Map(packed.map((owner) => [owner.id, owner])), pending = [];
+  for (const owner of owners) {
+    const received = byId.get(owner.id);
+    if (received && received.meshes.length !== owner.meshes.length) throw new Error('Collision index mesh count changed');
+    owner.meshes.forEach(({triangles}, i) => {
+      const index = received?.meshes[i];
+      if (!index) {
+        if (!meshIndexes.has(triangles)) throw new Error('Missing collision index');
+        return;
+      }
+      if (meshIndexes.get(triangles)?.data === index.data) return;
+      if (!(index.data instanceof Float64Array) || index.data.length !== triangles.length * 10 || !(index.faces instanceof Uint32Array)
+        || (index.tree ? !(index.tree.boxes instanceof Float64Array) || !(index.tree.links instanceof Uint32Array) || !(index.tree.order instanceof Uint32Array)
+          || index.tree.boxes.length / 6 !== index.tree.links.length / 4 || index.tree.order.length !== index.faces.length : index.faces.length !== 0)) {
+        throw new Error('Invalid collision index');
+      }
+      pending.push([triangles, {triangles, data: index.data, faces: index.faces, tree: index.tree}]);
+    });
+  }
+  for (const [triangles, index] of pending) meshIndexes.set(triangles, index);
+}
+
+export function collisionOwners(THREE, room, entities, {label = () => null, includeQueryOnly = false} = {}) {
   room.updateMatrixWorld(true);
   const owners = [], meshOwners = new Map();
   for (const [id, entity] of entities) {
@@ -788,10 +822,11 @@ export function collisionOwners(THREE, room, entities, {label = () => null} = {}
       // The flat authored floor is enforced by placement's actual contact patches
       // and floorY constraint. Rechecking 50k chair triangles against the same two
       // large coplanar floor faces adds latency but no additional collision rule.
-      if ((root.userData.name || root.name) === 'Floor0') return;
+      const queryOnly = (root.userData.name || root.name) === 'Floor0';
+      if (queryOnly && !includeQueryOnly) return;
       const id = `room:${root.userData.name || root.name}`;
       const name = label(root.userData.name || root.name) || '固定构件';
-      if (!staticOwners.has(id)) staticOwners.set(id, {id, name, origin: [0, 0, 0], meshes: []});
+      if (!staticOwners.has(id)) staticOwners.set(id, {id, name, origin: [0, 0, 0], meshes: [], ...(queryOnly ? {queryOnly: true} : {})});
       owner = staticOwners.get(id);
     }
     if (!mesh.geometry.attributes.position) return;
