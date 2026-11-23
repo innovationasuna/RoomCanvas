@@ -40,6 +40,8 @@ import {colorGrading} from './color-grading.mjs';
 import {mountLightingPanel} from './lighting-panel.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
 import {createWalk} from './walk.mjs';
+import {captureRoom} from './mobile-snapshot.mjs';
+import {mountMobileShare} from './mobile-share.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const host = $('#viewport');
@@ -47,6 +49,22 @@ const warehouse = mountWarehouseDrawer({panel: $('#object-panel'), content: $('#
   toggle: $('#list-toggle'), close: $('#close-list'), onOpenChange: open => workspace.libraryVisibility(open)});
 workspace.bindLibrary(warehouse.setOpen);
 const gestureFeedbackPanel = mountGestureFeedback($('#gesture-card'));
+mountMobileShare({button: $('#mobile-share'), capture: () => {
+  if (!ready || !room) throw new Error('房间尚未加载完成');
+  if (pending || falling || analogActive) throw new Error('请先确认或取消当前调整，再导出房间');
+  const walls = placement.wallTargets();
+  const fixedOwner = wallOptions(walls).owner;
+  const mountedOwners = new Map([...entities].filter(([id]) => placement.isWall(id)).map(([id, entity]) =>
+    [entity.group.userData.name || entity.group.name, placement.wallFrame(id, layout)?.name]));
+  const labels = {};
+  room.traverse(object => {const name = object.userData.name || object.name, label = config.label(name); if (label) labels[name] = label;});
+  return captureRoom(THREE, {room, entities, layout, ceilingObjects, parts: hinged?.parts || [],
+    walls, wallOwner: name => fixedOwner(name) || mountedOwners.get(name),
+    lighting: {profile: lightProfile.name, preset: lightingTime, indoor, grading, warm, labels,
+      environment: enhancedLighting && query.get('env') !== 'off', ao: enhancedLighting && query.get('ao') !== 'off'},
+    name: $('#project-menu h1').textContent || '我的房间', floorY,
+    bounds: {min: roomBounds.min.toArray(), max: roomBounds.max.toArray()}});
+}});
 // The room directory: ?room=<id> for a room of the home page (web/rooms.json); ?scene=<relative
 // path> for any other room directory in the repository, e.g. ?scene=../../samples/room3; beside
 // a published preview (<room>/preview/editor/) with neither.
@@ -1014,6 +1032,7 @@ function bindEvents() {
     } catch (error) {showToast(`导入失败：${error.message}`);}
     event.target.value = '';
   };
+  renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
   // Only a drag that starts on an already selected object moves it. A first click only inspects.
   renderer.domElement.addEventListener('pointerdown', (event) => {
     if (event.button === 1) event.preventDefault(); // Ignore middle presses, including the browser's autoscroll.
@@ -1078,6 +1097,13 @@ function bindEvents() {
       else if (mode === 'preview') {const part = pickOpenable(event.clientX, event.clientY); if (part) {hinged.toggle(part); showOpenHint(part, event.clientX, event.clientY);}}
     }
     pointerStart = null;
+  });
+  renderer.domElement.addEventListener('dblclick', event => {
+    if (event.button !== 0 || mode === 'walk' || falling || wallRelocation || (pending && !pending.locked)) return;
+    const id = pick(event.clientX, event.clientY);
+    if (!id || (pending && pending.id !== id)) return;
+    if (selected !== id) inspectObject(id);
+    if (selected === id) {event.preventDefault(); view('focus');}
   });
   const finishPointerDrag = () => {
     const moved = pointerStart?.moveObject && pointerStart.dragged;
@@ -1295,7 +1321,7 @@ function updateSessionUI() {
   if (pending?.gravity) {
     $('#confirm-placement').textContent = falling ? '正在放置…' : dropPlan?.checked === false && dropPlan.ok ? '检查中…' : '确认放置';
     $('#confirm-placement').disabled = !!falling || !pending.valid;
-    $('#interaction-help').textContent = '拖动物品或使用右侧工具调整 · Enter 确认 · Esc 取消';
+    $('#interaction-help').textContent = '拖动物品或使用侧栏控件调整 · Enter 确认 · Esc 取消';
   } else $('#confirm-placement').textContent = '确认放置';
   if (!ready) $('#confirm-placement').disabled = true;
   $('#lock-preview').disabled = !ready;
@@ -1458,7 +1484,7 @@ function setMode(nextMode) {
 
 // The orbiting camera comes back when nothing else is steering the view: not while walking (the
 // gesture page can still send gestures then), nor while a hand still turns or scales the scene.
-function releaseOrbit() {controls.enabled = !walk?.active && !gesture && !gestureView && !gestureScale;}
+function releaseOrbit() {controls.enabled = !analogActive && !walk?.active && !gesture && !gestureView && !gestureScale;}
 
 // 漫游: the ceiling is shown (as in the room itself), gestures and the orbiting camera rest.
 function enterWalk() {

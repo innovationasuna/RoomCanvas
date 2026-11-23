@@ -4,6 +4,8 @@ These source files are from `mrdoob/three.js` tag **r180**, matching the vendore
 
 Common environment and static lighting dependencies:
 
+- `exporters/GLTFExporter.js` (complete mobile room snapshots, also pinned to r180)
+
 - `environments/RoomEnvironment.js`
 - `postprocessing/GTAOPass.js`
 - `postprocessing/Pass.js`

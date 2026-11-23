@@ -42,6 +42,9 @@ import dev.romainguy.kotlin.math.Mat4
 import io.github.sceneview.model.ModelInstance
 import io.github.sceneview.node.ModelNode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -104,6 +107,10 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     /** 正在从文件选择器拷贝/加载模型：期间禁止开始漫游与重复导入 */
     private var importing = false
+    private var shareJob: Job? = null
+    private var shareGeneration = 0L
+    private var shareDialog: AlertDialog? = null
+    private var importProgress: String? = null
 
     /** 启动时异步加载上次的模型：期间禁用“开始漫游”并显示加载提示 */
     private var loadingInitialModel = false
@@ -206,7 +213,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 先就绪渲染/控件，再加载模型：模型可能来自异步文件选择器
         initPoseRenderer()
         initControls()
-        loadRoomModel()
+        if (!handleShareIntent(intent)) loadRoomModel()
         loadEnvironment()
 
         // 先摆到房间起点，开始前就能看到室内
@@ -215,6 +222,12 @@ class VrWalkthroughActivity : AppCompatActivity() {
         }
         binding.vrTouchControls.inputEnabled = false
         updateStartHint(force = true)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent(intent)
     }
 
     override fun onResume() {
@@ -262,6 +275,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        shareGeneration++
+        shareJob?.cancel()
+        shareDialog?.dismiss()
         handler.removeCallbacksAndMessages(null)
         poseRenderer.session = null
         arSession?.stop()
@@ -377,11 +393,12 @@ class VrWalkthroughActivity : AppCompatActivity() {
         animation: GlbAnimationTargets.Result = GlbAnimationTargets.Result(),
         label: String? = null
     ) {
-        modelNode?.let { releaseModelNode(it) }
         importError = null
         // 不自动播放：SceneView 默认会对每条动画 playAnimation(loop = true)，
         // 正是柜门/窗户不停开合的来源。开关改由 ArticulationController 驱动。
         val node = ModelNode(modelInstance = instance, autoAnimate = false)
+        // Construct first: a failed new model must not destroy the old usable room.
+        modelNode?.let { releaseModelNode(it) }
         binding.sceneView.addChildNode(node)
         modelNode = node
         articulation = ArticulationController(
@@ -396,7 +413,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 用模型包围盒自动定地面与人眼高度。重建模型的 y=0 不一定在地面，
         // 例如 Room-nonagent.glb 的地面在 y=-1.595m，所以不能假设原点即地面。
         val box = node.boundingBox
-        val minY = box.center[1] - box.halfExtent[1]
+        val minY = animation.floorY?.takeIf { it >= box.center[1] - box.halfExtent[1] - .1f && it < box.center[1] + box.halfExtent[1] }
+            ?: (box.center[1] - box.halfExtent[1])
         val centerX = box.center[0]
         val centerZ = box.center[2]
         val sizeX = box.halfExtent[0] * 2f
@@ -570,6 +588,107 @@ class VrWalkthroughActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** A browser click explicitly imports one immutable snapshot; newer links cancel older tasks. */
+    private fun handleShareIntent(incoming: Intent): Boolean {
+        if (incoming.action != Intent.ACTION_VIEW || incoming.data?.scheme != "roomcanvas") return false
+        val source = try { RoomShareImport.manifestUrl(incoming.data.toString()) }
+        catch (e: Exception) {
+            importError = e.message ?: "分享链接无效"
+            updateStartHint(force = true)
+            return false
+        }
+        if (importing && shareJob == null) {
+            Toast.makeText(this, "正在导入本地文件，完成后请重新打开分享", Toast.LENGTH_LONG).show()
+            return true
+        }
+        if (shareJob?.isActive == true && shareSource == source.toString()) return true
+        shareGeneration++
+        val generation = shareGeneration
+        shareJob?.cancel()
+        shareDialog?.dismiss()
+        if (started) exitRoaming()
+        importing = true
+        importError = null
+        importProgress = "正在连接电脑…"
+        binding.btnStart.isEnabled = false
+        binding.btnPickRoom.isEnabled = false
+        shareDialog = AlertDialog.Builder(this)
+            .setTitle("导入手机房间")
+            .setMessage(importProgress)
+            .setCancelable(false)
+            .setNegativeButton("取消") { _, _ ->
+                shareGeneration++
+                shareJob?.cancel(); shareJob = null
+                importing = false; importProgress = null
+                binding.btnPickRoom.isEnabled = true
+                binding.btnStart.isEnabled = modelNode != null
+                updateStartHint(force = true)
+                if (modelNode == null) loadRoomModel()
+            }.show()
+        shareSource = source.toString()
+        updateStartHint(force = true)
+        val destination = File(filesDir, "models/shared/${java.util.UUID.randomUUID()}.glb")
+        shareJob = lifecycleScope.launch {
+            var applied = false
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    RoomShareImport.download(source, destination) { message ->
+                        runOnUiThread {
+                            if (generation == shareGeneration) {
+                                importProgress = message; shareDialog?.setMessage(message); updateStartHint(force = true)
+                            }
+                        }
+                    }
+                }
+                ensureActive()
+                if (generation != shareGeneration) return@launch
+                importProgress = "正在解析房间…"; shareDialog?.setMessage(importProgress)
+                val animation = withContext(Dispatchers.IO) { GlbAnimationTargets.parseFile(result.file) }
+                ensureActive()
+                if (generation != shareGeneration) return@launch
+                val instance = binding.sceneView.modelLoader.createModelInstance(result.file)
+                    ?: throw IllegalStateException("模型无法解析")
+                val previous = prefs.getString(PREF_MODEL_PATH, null)
+                val label = "${result.name} · ${result.version.take(8)}"
+                applyModelInstance(instance, animation, label)
+                applied = true
+                prefs.edit().putString(PREF_MODEL_PATH, result.file.absolutePath)
+                    .putString(PREF_MODEL_NAME, label).putString("last_share_version", result.version)
+                    .putString("last_share_manifest", source.toString()).apply()
+                // Only the former committed file, never another in-flight download.
+                if (previous != null && previous != result.file.absolutePath) {
+                    val old = File(previous)
+                    if (old.canonicalPath.startsWith(File(filesDir, "models").canonicalPath + File.separator)) old.delete()
+                }
+                Toast.makeText(this@VrWalkthroughActivity, "房间已导入，可离线打开", Toast.LENGTH_LONG).show()
+            } catch (_: CancellationException) {
+                // Cancellation and a new link deliberately leave the last usable room untouched.
+            } catch (e: Exception) {
+                if (generation == shareGeneration) {
+                    importError = "导入失败：${e.message ?: "请确认同一 Wi-Fi 且电脑服务仍在运行"}"
+                    shareDialog?.dismiss()
+                    AlertDialog.Builder(this@VrWalkthroughActivity).setTitle("房间未导入")
+                        .setMessage(importError).setPositiveButton("重试") { _, _ -> handleShareIntent(incoming) }
+                        .setNegativeButton("返回", null).show()
+                }
+            } finally {
+                if (!applied) destination.delete()
+                File(destination.path + ".part").delete()
+                if (generation == shareGeneration) {
+                    importing = false; shareJob = null; importProgress = null
+                    shareDialog?.dismiss(); shareDialog = null
+                    binding.btnPickRoom.isEnabled = true
+                    binding.btnStart.isEnabled = modelNode != null
+                    updateStartHint(force = true)
+                    if (!applied && modelNode == null) loadRoomModel()
+                }
+            }
+        }
+        return true
+    }
+
+    private var shareSource: String? = null
 
     private fun displayName(uri: Uri): String {
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -975,7 +1094,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
     private fun updateStartHint(force: Boolean = false) {
         // 导入中/上次导入失败：保持提示，不被每 500ms 的状态刷新覆盖
         if (importing) {
-            binding.tvStartHint.text = "正在导入模型…"
+            binding.tvStartHint.text = importProgress ?: "正在导入模型…"
             return
         }
         if (loadingInitialModel) {

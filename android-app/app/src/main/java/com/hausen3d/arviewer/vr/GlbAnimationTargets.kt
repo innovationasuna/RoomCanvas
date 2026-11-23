@@ -37,7 +37,8 @@ object GlbAnimationTargets {
      */
     data class Result(
         val targets: Map<Int, List<String>> = emptyMap(),
-        val openTimes: Map<Int, Float> = emptyMap()
+        val openTimes: Map<Int, Float> = emptyMap(),
+        val floorY: Float? = null
     )
 
     private const val TAG = "GlbAnimationTargets"
@@ -152,7 +153,14 @@ object GlbAnimationTargets {
         } else {
             emptyMap()
         }
-        return Result(targets, openTimes)
+        val nodes = json.optJSONArray("nodes")
+        var floorY: Float? = null
+        if (nodes != null) for (i in 0 until nodes.length()) {
+            val snapshot = nodes.optJSONObject(i)?.optJSONObject("extras")?.optJSONObject("roomcanvas") ?: continue
+            val y = snapshot.optDouble("floorY", Double.NaN)
+            if (snapshot.optInt("schema") == 1 && y.isFinite()) floorY = y.toFloat()
+        }
+        return Result(targets, openTimes, floorY)
     }
 
     /** .gltf 可能是文本 JSON（也可能内嵌 base64），同样限制读取总量。 */
