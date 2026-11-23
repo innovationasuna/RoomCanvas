@@ -54,6 +54,19 @@ function partsOf(root, key) {
   return node ? [node] : nodesFor(root, key);
 }
 
+// Alpha-blended cloth can hang inside the same window as a pane with an unnamed material.
+function blendedPane(mesh, material, windowRoots) {
+  const glass = /glass|glaz|pane(?!l)/i, fabric = /sheer|curtain|drape|cloth|blind/i;
+  if (fabric.test(material.name)) return false;
+  if (glass.test(material.name)) return true;
+  for (let node = mesh; node; node = node.parent) {
+    const name = node.userData.name || node.name;
+    if (fabric.test(name)) return false;
+    if (glass.test(name) || windowRoots.has(node)) return true;
+  }
+  return false;
+}
+
 export class RoomView {
   // files(rel) -> URL of an allowlisted run file; scaffold = {points, layout} URLs or null.
   constructor(container, {files, scaffold, background = getComputedStyle(container).getPropertyValue('--rc-canvas').trim(),
@@ -444,23 +457,23 @@ export class RoomView {
     const box = (name) => {const o = root.getObjectByName(name); return o ? surfaceBox(THREE, o) : null;};
     const bounds = new THREE.Box3().setFromObject(root);
     const floorY = box('Floor0')?.max.y ?? bounds.min.y, ceilingY = box('Wall0')?.max.y ?? bounds.max.y;
+    const config = roomConfig(root, this.wallFaces, ceilingY, this.lastOptions?.openings?.Window);
     // fadeMats records transparency before either wall or model fading changes the material.
-    const opaqueMaterials = new Set(), receivers = new Set();
+    const opaqueMaterials = new Set(), blendedMaterials = new Set();
     for (const {m, transparent, opacity} of root.userData.fadeMats) {
       if (m.transmission > 0) continue;
       if (!transparent) opaqueMaterials.add(m);
-      // A wall photo gets its cutout from texture alpha at full base opacity.
-      if (!transparent || opacity === 1) receivers.add(m);
+      else if (opacity < 1) blendedMaterials.add(m);
     }
     root.traverse(mesh => {
       if (!mesh.isMesh) return;
       const materials = [mesh.material].flat();
       const opaque = !mesh.userData.mask && materials.every(m => opaqueMaterials.has(m));
-      const receives = !mesh.userData.mask && materials.every(m => receivers.has(m));
+      const receives = !mesh.userData.mask && materials.every(m => !(m.transmission > 0)
+        && !(blendedMaterials.has(m) && blendedPane(mesh, m, config.windowRoots)));
       this.saved.shadows.push({mesh, opaque, receives, castShadow: mesh.castShadow, receiveShadow: mesh.receiveShadow});
     });
     sun.shadow.mapSize.set(2048, 2048);
-    const config = roomConfig(root, this.wallFaces, ceilingY, this.lastOptions?.openings?.Window);
     this.rig = createTimeLighting(THREE, {renderer: this.renderer, scene: this.scene, room: root, config,
       walls: this.wallFaces, bounds, floorY, ceilingY, profile: lightingProfile()});
     this.rig.apply('physical');
@@ -871,7 +884,7 @@ function wallFaces(plan) {
 // (on their parent wall or the nearest wall), walls and floor, and the ceiling luminaires the room is lit from.
 function roomConfig(root, walls, ceilingY, windowIds) {
   const windows = new Set(windowIds);
-  const isWindow = name => windows.has(name) || /^Window(?:\d+|Left|Right)$|_Window_\d+$/i.test(name);
+  const isWindow = name => windows.has(name) || /^Window(?:[_-]?\d+|Left|Right)$|_Window_\d+$/i.test(name);
   const kind = (name) => (isWindow(name) ? '窗户' : /^Ceiling/i.test(name) ? '天花板'
     : /^Wall\d+$/.test(name) ? '墙面' : /^Floor\d+$/.test(name) ? '地面' : null);
   const openings = Object.fromEntries(walls.map((w) => [w.name, []]));

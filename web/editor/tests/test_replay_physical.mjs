@@ -26,7 +26,10 @@ function fixture(nested = true, windowNames = ['Window0']) {
   const sash = add(window, 'Window1');
   for (const name of windowNames.slice(1)) add(window.parent, name).scale.y = 2;
   const glass = add(sash, 'Pane', new THREE.MeshPhysicalMaterial({transmission: 1}));
-  const blendedGlass = add(sash, 'ClearPane', new THREE.MeshStandardMaterial({transparent: true, opacity: .15, depthWrite: false}));
+  const blendedGlass = add(sash, 'Primitive0', new THREE.MeshStandardMaterial({transparent: true, opacity: .32, depthWrite: false}));
+  const sheer = add(window, 'WindowSheer_pleated_cloth', new THREE.MeshStandardMaterial({
+    name: 'White sheer woven curtain', transparent: true, opacity: .32, depthWrite: false,
+  }));
   const photo = add(wall, 'PhotoCollage', new THREE.MeshStandardMaterial({map: new THREE.Texture(), transparent: true, depthWrite: false}));
   add(root, 'Window0_Curtain'); add(root, 'WindowDaylightBackdrop0');
   const floor = add(root, 'Floor0');
@@ -40,11 +43,11 @@ function fixture(nested = true, windowNames = ['Window0']) {
   });
   view.camera.position.z = 5;
   view.prepare(root);
-  return {view, root, wall, sash, glass, blendedGlass, photo, floor};
+  return {view, root, wall, sash, glass, blendedGlass, sheer, photo, floor};
 }
 
 test('physical wall shadows agree from either entry angle and all per-mesh flags return on exit', () => {
-  const {view, wall, sash, glass, blendedGlass, photo, floor, root} = fixture();
+  const {view, wall, sash, glass, blendedGlass, sheer, photo, floor, root} = fixture();
   const mask = root.userData.mask[0];
   glass.castShadow = photo.receiveShadow = mask.castShadow = true;
   sash.castShadow = floor.receiveShadow = true;
@@ -67,8 +70,7 @@ test('physical wall shadows agree from either entry angle and all per-mesh flags
         assert.equal(mesh.receiveShadow, !angle);
       }
       for (const mesh of [glass, blendedGlass, mask]) assert.deepEqual([mesh.castShadow, mesh.receiveShadow], [false, false], mesh.name);
-      // The photo on the wall casts nothing but takes the wall's shadows while the wall shows.
-      assert.deepEqual([photo.castShadow, photo.receiveShadow], [false, !angle]);
+      for (const mesh of [photo, sheer]) assert.deepEqual([mesh.castShadow, mesh.receiveShadow], [false, !angle], mesh.name);
       assert.deepEqual([floor.castShadow, floor.receiveShadow], [false, true]);
       assert.equal(view.renderer.shadowMap.needsUpdate, false);
     }
@@ -102,6 +104,21 @@ test('an unlabelled room with only a window backdrop has no physical window ligh
   assert.deepEqual(view.rig.snapshot().physical.lights.filter(p => p.kind === 'window'), []);
   view.physical(false);
 });
+
+for (const name of ['Window_0', 'Window-0']) {
+  test(`an unlabelled room lights ${name} and skips its backdrop`, () => {
+    const {view, root} = fixture(false, [name]);
+    const window = root.getObjectByName(name), backdrop = root.getObjectByName('WindowDaylightBackdrop0');
+    backdrop.name = name + '_Backdrop';
+    window.clear();
+    root.clear(); root.add(window, backdrop);
+    view.wallFaces = [];
+    view.physical(true); view.tick();
+    const {parts, lights} = view.rig.snapshot().physical;
+    for (const list of [parts, lights]) assert.deepEqual(list.filter(p => p.kind === 'window').map(p => p.name), [name]);
+    view.physical(false);
+  });
+}
 
 test('named window openings each supply a light and exclude their sashes and nearby scenery', () => {
   const {view} = fixture(true, ['WindowLeft', 'WindowRight']);
