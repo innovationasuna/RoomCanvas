@@ -112,19 +112,24 @@ export class RoomView {
     c.enableDamping = true;
     c.maxPolarAngle = Math.PI * 0.47;
     this.frame(new THREE.Box3(new THREE.Vector3(-2, -1.5, -2), new THREE.Vector3(2, 1.2, 2)));
-    c.addEventListener('start', () => {this.userHeld = true; this.aimTo = null; this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};});
+    this.watchOrbit();
     this.vel = {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()};
+    this.playing = false;
+    this.atEnd = false;
     this.wantSpin = false;
+    this.paused = false;
     this.speed = 1;         // playback speed the viewer chose
     this.rate = 1;          // the speed right now: sped up, the replay still slows down for what is worth watching
     this.time = 1;          // ms on the view's own clock, which runs at that speed
     this.userHeld = false;
+    this.userMoved = false;
     this.aimTo = null;
     this.focusTo = null;
     this.wallFades = [];
     this.models = {};       // key -> {root, mask}
     this.retiring = new Set(); // bounded by in-flight shader compilation
     this.retryAt = {};      // key -> when a failed model load may be tried again
+    this.wanted = null;
     this.current = null;    // model key fully shown
     this.incoming = null;   // model key fading in
     this.mix = 1;
@@ -159,10 +164,16 @@ export class RoomView {
     const size = box.getSize(new THREE.Vector3());
     this.radius = Math.max(size.x, size.z, 3);
     const offset = new THREE.Vector3(1, 1.05, 1.08).normalize().multiplyScalar(this.radius * 2.15);
-    this.camera.position.copy(this.center).add(offset);
-    this.controls.target.copy(this.center);
     this.defaultDist = offset.length();
     this.defaultPolar = new THREE.Spherical().setFromVector3(offset).phi;
+    // A late layout refines the overview, but keeps the model's or the viewer's framing.
+    if (this.modelsFramed || this.userMoved) return;
+    this.camera.position.copy(this.center).add(offset);
+    this.controls.target.copy(this.center);
+    if (this.orbitStart) {
+      this.orbitStart.position.copy(this.camera.position);
+      this.orbitStart.target.copy(this.controls.target);
+    }
   }
 
   // Load the point cloud and layout once they exist; a live job may not have them yet, so callers retry.
@@ -225,7 +236,7 @@ export class RoomView {
       this.scene.add(group);
     }
     this.scaffoldReady = true;
-    if (this.state) this.apply(this.state);
+    if (this.state) this.apply(this.state, this.lastOptions);
   }
 
   // The scan unfolds from the middle of the room outwards: each point, in turn by its distance from the
@@ -401,24 +412,36 @@ export class RoomView {
 
   // Bring a model in: it fades in over the one shown now (quiet: switch at once, e.g. while scrubbing).
   async show(key, url, quiet) {
+    const changed = key !== this.wanted;
     this.wanted = key;
+    this.quiet = quiet;
+    if (this.incoming && this.incoming !== key) {
+      const root = this.models[this.incoming].root;
+      this.forming.finishModel(root);
+      root.visible = false;
+      this.setFade(root, 1);
+      if (this.partsShown === root) this.partsShown = null;
+      this.incoming = null;
+      this.mix = 1;
+    }
     if (!key) {this.swap(null); return;}
-    if (key === this.current && this.incoming && this.incoming !== key) this.swap(key);
-    if (key === this.current || key === this.incoming) return;
+    if (key === this.current) return;
+    if (key === this.incoming) {if (quiet) this.swap(key); return;}
+    if (!changed) return;  // The pending load will use the latest quiet setting.
     const pending = this.model(key, url), requested = this.models[key];
     const entry = await pending.catch(() => null);
     if (!entry && this.wanted === key && (!this.models[key] || this.models[key] === requested)) this.wanted = null;  // apply() retries this generation
     if (!entry || this.wanted !== key || this.disposed || this.models[key] !== entry) return;
-    if (quiet) this.swap(key);
+    if (key === this.current || key === this.incoming) return;
+    if (this.quiet) this.swap(key);
     else {
       this.incoming = key;
       this.mix = 0;
       entry.root.visible = true;
       this.setFade(entry.root, 0);
     }
-    // The state was applied while the model was loading (e.g. after a seek while paused): apply it again now,
-    // as quietly as it was asked for (while playing, what appears with the model takes shape).
-    if (this.state) this.apply(this.state, {...this.lastOptions, quiet});
+    // The playhead may have moved while the model was loading.
+    if (this.state) this.apply(this.state, this.lastOptions);
   }
 
   // The finished room, lit like the editor's 物理光照: the editor's own rig (../editor/time-lighting.mjs), so
@@ -545,7 +568,7 @@ export class RoomView {
   // full: show the reached model as it is.
   apply(state, {quiet = false, modelUrl, openings, addedAll} = {}) {
     this.state = state;
-    this.lastOptions = {modelUrl, openings, addedAll};
+    this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
     const key = state.model || (state.shell && seedUrl ? 'seed' : null);
     const partial = !state.model && key === 'seed';
@@ -576,8 +599,8 @@ export class RoomView {
     if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
     // While the assembled room shows, fetch the final model in the background so the switch starts on time.
     if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
-    if (key !== this.wanted && key && modelUrl) this.show(key, modelUrl(key), quiet);
-    else if (!key && (this.current || this.incoming || this.wanted)) {this.wanted = null; this.swap(null);}
+    if (key && modelUrl && (key !== this.wanted || quiet !== this.quiet)) this.show(key, modelUrl(key), quiet);
+    else if (!key && (this.current || this.incoming || this.wanted)) this.show(null, null, quiet);
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
@@ -639,8 +662,54 @@ export class RoomView {
   }
 
   // ---------- camera direction (the page decides when to spin, aim or pose) ----------
-  release() {this.userHeld = false;}
-  spin(on) {this.wantSpin = on;}
+  watchOrbit() {
+    const c = this.controls;
+    c.addEventListener('start', () => {
+      this.orbitStart = {position: this.camera.position.clone(), target: c.target.clone()};
+    });
+    c.addEventListener('change', () => {
+      const start = this.orbitStart;
+      if (start && !this.userHeld && (start.position.distanceToSquared(this.camera.position) > 1e-12 ||
+        start.target.distanceToSquared(c.target) > 1e-12)) {
+        this.userHeld = this.userMoved = true;
+        this.stopCamera();
+      }
+    });
+    c.addEventListener('end', () => {
+      this.orbitStart = null;
+      if (this.atEnd) this.resumeOverview();
+    });
+  }
+  resumeOverview() {
+    this.userHeld = false;
+    this.clearAim();
+  }
+  stopCamera() {
+    this.aimTo = this.focusTo = null;
+    this.vel.theta = this.vel.phi = this.vel.dist = 0;
+    this.vel.target.set(0, 0, 0);
+  }
+  setPlaying(playing, end = false) {
+    if (playing && !this.playing) this.userHeld = false;
+    const atEnd = end && !playing;
+    if (atEnd && !this.atEnd && !this.orbitStart) this.resumeOverview();
+    this.atEnd = atEnd;
+    this.playing = playing;
+    this.wantSpin = playing || end;
+    const paused = !this.wantSpin;
+    if (this.paused === paused) return;
+    this.paused = paused;
+    this.lastTick = performance.now();
+    this.controls.enableDamping = !paused;
+    if (!paused) return;
+    this.stopCamera();
+    // Flush OrbitControls' pending drag without applying that remaining motion to the paused frame.
+    const position = this.camera.position.clone(), target = this.controls.target.clone();
+    this.controls.update();
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.controls.update();
+  }
   // Turn to what was just built; close (moves in toward the objects) while they take shape.
   aim(keys, {close = false} = {}) {
     const box = new THREE.Box3();
@@ -732,7 +801,7 @@ export class RoomView {
     }
     return best;
   }
-  pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center.clone(), at: 0};}
+  pose(az, polar) {this.aimTo = {az, polar, dist: null, target: this.center, at: 0};}
   settledFor() {return this.aimTo?.at ? this.time - this.aimTo.at : 0;}
   // What is going on that is worth watching: the camera is on its way to an object ('move'), or an object
   // takes shape or a new model fades in ('form').
@@ -741,28 +810,29 @@ export class RoomView {
     return this.incoming || this.forming.active.size ? 'form' : null;
   }
   clearAim() {
-    if (!this.aimTo) return;
     this.aimTo = null;
-    this.focusTo = this.center.clone();
+    this.focusTo = this.center;
   }
 
   tick() {
     if (this.disposed) return;
     const now = performance.now();
-    const elapsed = (now - (this.lastTick ?? now)) / 1000;
+    // A live update can fade in a draft while the camera stays still.
+    const animate = !this.paused || this.lastOptions?.quiet === false;
+    const elapsed = animate ? (now - (this.lastTick ?? now)) / 1000 : 0;
     // Sped up, the replay still runs at normal speed while the camera moves in, only a little faster while
     // an object takes shape, and fast in between: the camera work is that of normal speed (the camera itself
     // never moves faster, it would whip round the room).
     const showing = this.speed > 1 && this.showing();
     this.rate = showing === 'move' ? 1 : showing ? Math.sqrt(this.speed) : this.speed;
-    const dt = Math.min(elapsed, 0.05) * Math.min(this.rate, 1);  // camera motion: small steps even after a slow frame
+    const dt = this.paused ? 0 : Math.min(elapsed, 0.05) * Math.min(this.rate, 1);  // camera motion: small steps even after a slow frame
     const fdt = Math.min(elapsed, 0.25) * this.rate;     // fades follow the clock, so they finish on time at low frame rates
     this.lastTick = now;
     this.time += elapsed * 1000 * this.rate;
     if (this.incoming && fdt > 0) {
       this.mix = Math.min(this.mix + fdt / FADE_SECONDS, 1);
       this.setFade(this.models[this.incoming].root, this.mix);
-      if (this.mix >= 1) this.swap(this.incoming);
+      if (this.mix >= 1 && this.wanted === this.incoming) this.swap(this.incoming);
     }
     // Held objects take shape once the camera has arrived (or the user moves it, or it takes too long).
     if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || this.time - this.heldSince > MAX_WAIT)) this.forming.release();
@@ -774,7 +844,7 @@ export class RoomView {
     this.formTag.hidden = tris == null;
     if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.autoRotate = false;
-    if (!this.userHeld && dt > 0) {
+    if (!this.orbitStart && !this.userHeld && dt > 0) {
       const tgt = this.controls.target, v = this.vel, a = this.aimTo;
       const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(tgt));
       if (a) {
@@ -810,7 +880,7 @@ export class RoomView {
     for (const w of this.wallFades) {
       const d = new THREE.Vector2(w.c.x - tgt.x, w.c.z - tgt.z).normalize();
       const goal = 1 - 0.88 * THREE.MathUtils.smoothstep(d.dot(view), 0.05, 0.6);
-      w.a += (goal - w.a) * (1 - Math.exp(-dt * 5));
+      w.a = this.paused ? goal : w.a + (goal - w.a) * (1 - Math.exp(-dt * 5));
       const f = w.root.userData.fade ?? 1;
       const shown = w.a > 0.97 && f === 1;
       if (w.receivers && shown !== w.receiving) {

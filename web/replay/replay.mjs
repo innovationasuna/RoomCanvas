@@ -19,7 +19,7 @@ const POLL = 5000;
 const WATCH = 6000;
 
 let lastAdded = null;
-let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, wasPlaying = false, posed = false;
+let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, posed = false;
 // The record's cards (log.mjs), the card of each event, the last card shown, the cards a reader opened (kept
 // across live updates), and whether the next update should bring the current record into view (a seek).
 let deck = [], cardOf = [], shownCard = -1, reveal = false;
@@ -68,10 +68,9 @@ async function start() {
   $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (data.start ? ` · ${new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3)}` : '');
   view = window.view = new RoomView($('view'), {files, scaffold: {points: `${api}/scaffold/points.bin`, layout: `${api}/scaffold/layout.json`, colors: `${api}/scaffold/colors.bin`}});
   setRate();
-  rebuild();
+  rebuild(data.live);
   $('loading').remove();
   if (data.live) {
-    player.seek(span());
     setTimeout(poll, POLL);
   } else {
     player.play();
@@ -86,21 +85,19 @@ async function poll() {
     if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
       const wasEnd = player.t >= span() - 0.01;
       data = next;
-      rebuild();
-      if (following || wasEnd) player.seek(span());
+      rebuild(following || wasEnd);
     }
     $('liveError').hidden = true;
   } catch {
     $('liveError').hidden = false;
   }
   if (data.live) setTimeout(poll, POLL);
-  else render(player.t, player, true);
 }
 
 // ---------- rebuild everything that depends on the event list ----------
 // Door / window ids in build order, so Wall0_Door_0 maps to the assembled room's Door0 and so on.
 let openings = {};
-function rebuild() {
+function rebuild(followLatest) {
   // A reader who scrolled up keeps the card they were reading where it was.
   const log = $('log'), top = () => log.getBoundingClientRect().top;
   const kept = tl && !nearEnd() && [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top());
@@ -130,7 +127,8 @@ function rebuild() {
     '<div class="head" id="head"></div>';
   fitLabels();
   $('live').hidden = !data.live;
-  render(player.t, player, true);
+  if (followLatest) player.seek(span(), {animate: data.live});
+  else render(player.t, player);
   const again = anchor && [...log.querySelectorAll('[data-key]')].find((el) => el.dataset.key === anchor.key);
   if (again) log.scrollTop += again.getBoundingClientRect().top - top() - anchor.offset;
 }
@@ -327,18 +325,18 @@ addEventListener('keydown', (ev) => {
 
 // ---------- camera: slow spin while playing; turn to what was just built; layout from above ----------
 function directCamera(t, p) {
-  if (p.playing && !wasPlaying) view.release();
-  wasPlaying = p.playing;
   const end = t >= span();
+  // Paused, the view holds still; at the end the finished room keeps its slow turn.
+  view.setPlaying(p.playing, end && !data.live);
+  if (!p.playing) {hold = 0; posed = false; return;}
   const inLayout = !end && tl.stageAt(t)?.id === 'layout';
   if (inLayout && !posed) {view.pose(0.75, 0.6); posed = true; hold = 0;}
   if (!inLayout && posed) {view.pose(null, view.defaultPolar); posed = false; hold = 1;}
   if (hold && view.settledFor() > hold) {view.clearAim(); hold = 0;}
-  view.spin(p.playing || end);
 }
 
-player.on((t, p) => render(t, p));
-function render(t, p, force = false) {
+player.on(render);
+function render(t, p, animate = p.playing) {
   if (!tl || !view) return;
   p.rate = view.rate;
   directCamera(t, p);
@@ -361,7 +359,7 @@ function render(t, p, force = false) {
   });
   const result = done ? outcome(tl.events) : null;
   const key = `${si}-${done}-${data.status}`;
-  if (key !== lastKey || force) {
+  if (key !== lastKey) {
     lastKey = key;
     $('track').querySelectorAll('.lab').forEach((el) => el.classList.toggle('now', !done && el.dataset.s === st?.id));
     hideCovered();
@@ -378,19 +376,19 @@ function render(t, p, force = false) {
   }
   const scene = sceneAt(tl, t);
   const addedAll = tl.build?.reveal.map((r) => r.node);
-  view.apply(scene, {quiet: !p.playing && !following, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
+  view.apply(scene, {quiet: !animate, modelUrl: (k) => data.models[k] && files(data.models[k]), openings, addedAll});
   // Turn to the parts the agent just added (while playing forward).
   const newly = scene.added && lastAdded ? [...scene.added].filter((n) => !lastAdded.has(n) && !/^Ceiling/i.test(n)) : [];
   lastAdded = scene.added;
   if (p.playing && newly.length && view.aim(newly, {close: true})) hold = WATCH;
   const idx = tl.indexAt(t);
-  if (idx === lastIdx && !force) return;
+  if (idx === lastIdx) return;
   const prevIdx = lastIdx;
   lastIdx = idx;
   const e = tl.events[idx];
   // Once the room shell shows, a finished object takes shape in place: move in close to watch it (not to
   // one made again, which is already there and passes in a moment).
-  if (idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
+  if (p.playing && idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   renderLog(idx);
 }
 
