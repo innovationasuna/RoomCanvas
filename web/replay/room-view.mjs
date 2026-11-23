@@ -525,9 +525,9 @@ export class RoomView {
     const previous = this.wanted, changed = key !== previous;
     this.wanted = key;
     this.quiet = quiet;
-    // During playback the fading room becomes the next backdrop when the target is ready.
+    // Keep the fading backdrop during playback and when pausing on the same pending target.
     const nextFade = !quiet && key !== this.current && (this.models[key]?.root || url);
-    if (this.incoming && this.incoming !== key && (!key || (this.current && !nextFade))) {
+    if (changed && this.incoming && this.incoming !== key && (!key || (this.current && !nextFade))) {
       const cancelled = this.incoming, root = this.models[cancelled].root;
       this.restoreWindows();
       this.forming.finishModel(root);

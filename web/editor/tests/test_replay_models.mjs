@@ -621,6 +621,32 @@ test('forward playback keeps the fading room over its base while the third room 
   }
 });
 
+test('pausing while the third room loads keeps the bench visible until that room is ready', async t => {
+  let finish;
+  t.mock.method(GLTFLoader.prototype, 'loadAsync', () => new Promise(resolve => {finish = resolve;}));
+  const v = view(), bench = mesh('bench');
+  loaded(v, 'round0', mesh('floor'));
+  loaded(v, 'round1', bench);
+  apply(v, 'round0', true);
+  apply(v, 'round1');
+  for (let i = 0; i < 7; i++) tick(v);
+  const options = {modelUrl: key => key === 'round2' ? key : null};
+  apply(v, 'round2', false, {}, options);
+  assert.deepEqual(visible(v), ['round0', 'round1']);
+  assert.equal(bench.material.opacity, 0.875);
+
+  v.paused = true;
+  apply(v, 'round2', true, {}, options);
+  tick(v);
+  assert.deepEqual(visible(v), ['round0', 'round1']);
+  assert.equal(bench.visible, true);
+  assert.equal(bench.material.opacity, 0.875);
+  finish({scene: group('round2', mesh('bench'))});
+  await setImmediate();
+  assert.deepEqual(visible(v), ['round2']);
+  assert.equal(v.models.round2.root.getObjectByName('bench').material.opacity, 1);
+});
+
 test('returning to a cached final keeps the book added by the fading round visible on the first frame', () => {
   const v = view(), book = mesh('ShelfC1R0A_Book07'), finalBook = mesh(book.name);
   loaded(v, 'round5', mesh('floor'));
