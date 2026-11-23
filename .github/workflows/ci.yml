@@ -73,7 +73,6 @@ jobs:
           for check in collision wall_mount seat_support gravity; do node web/scripts/check_$check.mjs --scene-dir samples/office; done
           node web/scripts/check_room.mjs --scene-dir samples/office
           node web/scripts/check_room.mjs --scene-dir samples/room3
-          node web/scripts/check_room.mjs --scene-dir samples/room-3934
           # The largest sample (264 MB, 295 books): the default 2 GB heap is too small; it peaks near 4 GB.
           node --max-old-space-size=5120 web/scripts/check_room.mjs --scene-dir samples/activity-classroom
 

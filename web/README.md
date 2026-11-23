@@ -77,7 +77,7 @@ python3 web/scripts/serve.py
 
 ### 示例房间的模型
 
-示例房间的 `Room.glb`（四个共约 459 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
+示例房间的 `Room.glb`（三个共约 369 MB）不在 Git 里，是本仓库 [`sample-rooms` release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 的附件；`room_objects.json` 和 `thumbnail.jpg` 仍在仓库里。`samples/models.json` 逐个列出模型：放在哪（`path`）、release 的 `tag`、附件名 `asset`、字节数 `bytes` 和 `sha256`。**本机**，在 `RoomCanvas/` 根目录，只需 Python 标准库：
 
 ```bash
 python3 scripts/fetch_samples.py            # 下载缺少或大小不对的模型
@@ -268,7 +268,6 @@ node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs' 'web/mobile/tests/
 python3 -m unittest discover -s web/scripts
 python3 scripts/fetch_samples.py
 node web/scripts/check_room.mjs --scene-dir samples/room3
-node web/scripts/check_room.mjs --scene-dir samples/room-3934  # 57 件可编辑物品
 for c in collision wall_mount seat_support gravity; do node web/scripts/check_$c.mjs --scene-dir samples/office; done
 ```
 

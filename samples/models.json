@@ -3,7 +3,6 @@
   "models": [
     {"path": "samples/office/Room.glb", "tag": "sample-rooms", "asset": "office-Room.glb", "bytes": 35974968, "sha256": "812c8efe501630f3e2a0e5e72560178099f2c88658e38b83843e80ea778ced9a"},
     {"path": "samples/room3/Room.glb", "tag": "sample-rooms", "asset": "room3-Room.glb", "bytes": 69728572, "sha256": "5575ff9688e94e2cb56b59e057014aa1a065a2c37eb8d473668dd5990d526d06"},
-    {"path": "samples/room-3934/Room.glb", "tag": "sample-rooms", "asset": "room-3934-Room.glb", "bytes": 89149372, "sha256": "250edc0a2b2cb2a31ce911d4b1e12a558a9d4e2150f9aaa49d19432c0e68de3b"},
     {"path": "samples/activity-classroom/Room.glb", "tag": "sample-rooms", "asset": "activity-classroom-Room.glb", "bytes": 263727712, "sha256": "0701f58d19581076cd6c760088dc7bacdf0d3ede5c1306c11368f3ed8aad3f9c"}
   ]
 }

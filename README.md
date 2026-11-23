@@ -15,7 +15,7 @@
 ![Activity Classroom 总览：长桌与 20 把椅子、窗边软凳、书柜与照片墙](docs/images/activity-classroom-2026-11-23/overview.png)
 
 - **按实测尺寸摆放。** 用带 LiDAR 的 iPhone 扫描房间，在带纹理的模型里挪动桌椅，检查是否碰撞、能否放稳。
-- **先试四个示例房间。** 网页无需构建；用 Python 3 启动本机服务，模型下载好就能开始布置。
+- **先试三个示例房间。** 网页无需构建；用 Python 3 启动本机服务，模型下载好就能开始布置。
 - **拍照添物。** 给新物品拍照，量一条边，按真实大小放进房间看效果。
 - **用双手调整。** 摄像头在本机识别手势，一只手转动视角，另一只手摆放物品。
 - **把布置带到手机。** 扫码就能走进摆好的房间。在电脑上还能回看扫描如何一步步变成房间模型。
@@ -72,13 +72,13 @@
 <tr><td><img src="docs/images/activity-classroom-2026-11-23/night-lighting.png" alt="夜间顶灯照亮长桌和书柜"><br><b>夜间</b> · 在环境面板切换时段，看灯光和阴影。</td>
 <td><img src="docs/images/activity-classroom-2026-11-23/add-object.png" alt="添加物品的名称输入框和照片选择区"><br><b>添加物品</b> · 从物品库选择照片，生成模型后确认尺寸。</td></tr></table>
 
-更多场景截图见 [Activity Classroom](docs/images/activity-classroom-2026-11-23/) · [Room_3934](docs/images/room-3934-2026-11-16/) · [办公室](docs/images/office-v1/)。
+更多场景截图见 [Activity Classroom](docs/images/activity-classroom-2026-11-23/) · [办公室](docs/images/office-v1/)。
 
 <a id="1-启动"></a>
 
 ## 快速开始
 
-### A. 在本机试玩四个示例房间
+### A. 在本机试玩三个示例房间
 
 在 macOS 或 Linux 上准备 Git、Python 3.8 或更高版本和可读取本仓库的 GitHub 账号。Windows 用户可在 WSL 的 Linux 环境中运行。以下命令使用 GitHub CLI（`gh`）登录，请先安装它。
 
@@ -89,9 +89,9 @@ cd RoomCanvas
 python3 web/scripts/serve.py
 ```
 
-模型随私有仓库的 [sample-rooms Release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 分发，四个共约 458.6 MB。获取模型可使用已登录的 GitHub CLI，或可读仓库的 `GH_TOKEN`。如已通过 Git 凭证克隆并设好令牌，直接运行最后一条命令。
+模型随私有仓库的 [sample-rooms Release](https://github.com/innovationasuna/RoomCanvas/releases/tag/sample-rooms) 分发，三个共约 369.4 MB。获取模型可使用已登录的 GitHub CLI，或可读仓库的 `GH_TOKEN`。如已通过 Git 凭证克隆并设好令牌，直接运行最后一条命令。
 
-打开 <http://127.0.0.1:7880/web/>，选卧室、办公室、Room_3934 或 Activity Classroom。缺少的模型会在后台下载。下载完成后刷新；若终端提示缺少凭证，可登录 GitHub 后按提示手动下载。[模型获取说明](web/README.md#示例房间的模型)
+打开 <http://127.0.0.1:7880/web/>，选卧室、办公室或 Activity Classroom。缺少的模型会在后台下载。下载完成后刷新；若终端提示缺少凭证，可登录 GitHub 后按提示手动下载。[模型获取说明](web/README.md#示例房间的模型)
 
 ### B. 连接已有 GPU 服务器
 
@@ -225,7 +225,7 @@ CI 扫描提交历史中的密钥，并检查房间重建、网页、物品 API 
 
 ## 数据与隐私
 
-卧室（`room3`）、Room_3934 和 Activity Classroom 的模型及缩略图来自实拍，仅供项目成员使用，请勿转发。后两个示例来自同一房间的两次扫描。
+卧室（`room3`）和 Activity Classroom 的模型及缩略图来自实拍，仅供项目成员使用，请勿转发。
 
 原始扫描、照片和含相机轨迹的 `room_layout.json` 不提交到 Git。默认部署会将上传的扫描解包到仓库根目录下的 `runs/web-room-jobs/<任务 ID>/capture/`。设置 `ROOMCANVAS_HOME` 可更改运行目录。`/runs/` 已列入 `.gitignore`。
 
