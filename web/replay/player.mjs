@@ -19,12 +19,13 @@ export class Player {
     };
     requestAnimationFrame(loop);
   }
-  on(fn) {this.subs.push(fn); fn(this.t, this);}
-  emit() {this.subs.forEach((fn) => fn(this.t, this));}
+  on(fn) {this.subs.push(fn); fn(this.t, this, this.playing);}
+  emit(animate = this.playing) {this.subs.forEach((fn) => fn(this.t, this, animate));}
   play() {if (this.t >= this.duration) this.t = 0; this.playing = true; this.emit();}
   pause() {this.playing = false; this.emit();}
   toggle() {this.playing ? this.pause() : this.play();}
-  seek(t) {this.t = Math.min(Math.max(t, 0), this.duration); this.emit();}
+  // A live update can animate its new objects while the playback clock is stopped.
+  seek(t, {animate = false} = {}) {this.t = Math.min(Math.max(t, 0), this.duration); this.emit(animate);}
 }
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
