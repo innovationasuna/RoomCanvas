@@ -133,6 +133,7 @@ CARD = "GPU-00000000-0000-0000-0000-000000000001"
 
 def launch(tmp_path, *args):
     import os
+    import shutil
     import subprocess
     import sys
 
@@ -150,7 +151,7 @@ elif any(a.startswith("--query-gpu=index,uuid,memory.used") for a in sys.argv):
     print("0,{CARD},12")
 """)
     executable(runtime / "litereality-env/bin/python", """
-import os, sys
+import json, os, sys
 from pathlib import Path
 if "-c" in sys.argv:
     print(Path(os.environ["LR_REPO_ROOT"]) / "src/litereality_agent/__init__.py")
@@ -160,13 +161,17 @@ if sys.argv[2].endswith(".premake"):
     (out / "TissueBox.glb").write_bytes(b"premade")
 elif "--through" not in sys.argv:
     (out / "room_preview").mkdir(parents=True, exist_ok=True)
+    if sys.argv[2].endswith(".articulate"):
+        (out / "summary.json").write_text(json.dumps({"attempt_id": os.environ["LITEREALITY_RUN_ID"], "existing": 0, "added": 0}))
     (out / "room_preview" / "Room.glb").write_bytes(b"room of " + out.name.encode())
 """)
     env = dict(os.environ, ROOMCANVAS_HOME=str(tmp_path), CUDA_VISIBLE_DEVICES="0",
                ROOMCANVAS_GPU="0", ROOMCANVAS_GPU_LOCK_DIR=str(tmp_path / "locks"),
                PATH=str(runtime / "bin") + os.pathsep + os.environ["PATH"])
     env.pop("VIEWFORGE_GPU_LOCK", None)
-    result = subprocess.run([sys.executable, str(ROOT / "room-reconstruction/server/run_room.py"), *args],
+    parent = shutil.which("python3", path=os.defpath) or sys.executable
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run([parent, "-S", str(ROOT / "room-reconstruction/server/run_room.py"), *args],
                             env=env, timeout=20, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -196,6 +201,8 @@ def test_passes_run_alone_write_the_records_a_full_run_writes(tmp_path):
     assert [start["kind"], done["kind"], model["kind"]] == ["articulate_start", "articulate_done", "model_saved"]
     assert start["source"] == str(source) and (done["status"], done["exit"]) == ("ok", 0)
     assert model["model"] == "articulated" and model["path"] == str(articulated.resolve())
+    assert model["joints"] == 0
+    assert model["artifact_digest"] == telemetry.artifact_digest(articulated)
     assert {r["stage"] for r in (start, done, model)} == {"articulate"}
     assert (run / "articulate/attempt-01/exit").read_text().strip() == "0"
 

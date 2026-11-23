@@ -24,6 +24,7 @@ import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import room_replay  # noqa: E402
+from replay_history import file_digest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -38,24 +39,6 @@ MAX_ENTRIES = 50000
 ID = r'[0-9a-f]{32}'
 PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
 DIGEST = 'X-RoomCanvas-SHA256'
-_digests, _digests_lock = {}, threading.Lock()
-
-
-def sha256(path):
-    """A file's sha256, worked out again only when its size or modification time changes (models are hundreds of MB)."""
-    info = path.stat()
-    key = (info.st_size, info.st_mtime_ns)
-    with _digests_lock:
-        known = _digests.get(path)
-    if known and known[0] == key:
-        return known[1]
-    digest = hashlib.sha256()
-    with path.open('rb') as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b''):
-            digest.update(chunk)
-    with _digests_lock:
-        _digests[path] = key, digest.hexdigest()
-    return digest.hexdigest()
 
 
 from room_scan import extract_scan as _extract_scan
@@ -176,10 +159,11 @@ class Handler(HTTPAuth, BaseHTTPRequestHandler):
             if version not in (digest, legacy):
                 return self.respond(409, {'error': '图片版本已更新'})
         else:
-            digest = sha256(asset) if self.command == 'HEAD' else None
+            stat = asset.stat()
+            digest = file_digest(asset, stat) if self.command == 'HEAD' else None
         self.send_response(200)
         self.send_header('Content-Type', mimetypes.guess_type(asset.name)[0] or 'application/octet-stream')
-        self.send_header('Content-Length', str(len(picture) if picture is not None else asset.stat().st_size))
+        self.send_header('Content-Length', str(len(picture) if picture is not None else stat.st_size))
         if cache:  # finished runs do not change; live ones may rewrite a model
             self.send_header('Cache-Control', 'max-age=3600')
         if self.command == 'HEAD':

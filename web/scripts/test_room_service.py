@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import quote
@@ -164,6 +164,25 @@ class ScanValidation(unittest.TestCase):
                 with self.subTest(kind=kind, files=files), tempfile.TemporaryDirectory() as root:
                     with self.assertRaises(ValueError):
                         service.extract_scan(archive(kind=kind, files=files), Path(root))
+
+
+class FileHeaders(unittest.TestCase):
+    def test_head_digest_changes_after_replacement_with_same_size_and_mtime(self):
+        handler = object.__new__(service.Handler)
+        handler.command = 'HEAD'
+        handler.send_response, handler.send_header, handler.end_headers = Mock(), Mock(), Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / 'Room.glb'
+            model.write_bytes(b'old')
+            handler.send_file(model)
+            handler.send_header.assert_any_call(service.DIGEST, hashlib.sha256(b'old').hexdigest())
+            stat = model.stat()
+            replacement = model.with_suffix('.new')
+            replacement.write_bytes(b'new')
+            os.utime(replacement, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            replacement.replace(model)
+            handler.send_file(model)
+            handler.send_header.assert_any_call(service.DIGEST, hashlib.sha256(b'new').hexdigest())
 
 
 class Preview(unittest.TestCase):

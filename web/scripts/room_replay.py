@@ -32,14 +32,14 @@ STAGES = [
     {'id': 'photos', 'name': '整理物品图片', 'desc': '从照片中裁出物品，生成便于看清外形的图片。'},
     {'id': 'plan', 'name': '制作物品模型', 'desc': '选择合适的做法，制作物品并检查摆放和开合。'},
     {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸、补充陈设，再对照照片自查修改，最后把纸巾盒、瓶子、绿植这类小物品按照片做成模型放好。'},
-    {'id': 'parts', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，装好后检查房间。'},
+    {'id': 'parts', 'name': '处理可开合部件', 'desc': '检查柜门和抽屉，按需添加转轴或滑轨，再检查房间。'},
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
     {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，再做好小物品和可开合部件，修改后的房间就是结果。'},
     # Only listed for a run whose room was revised after it was published, or (older runs) that went through
     # the small-object pass or the openable parts after publishing (see stages_of).
     {'id': 'revise', 'name': '按意见修改', 'desc': '对照修改意见逐项调整房间，并检查修改效果。'},
     {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
-    {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
+    {'id': 'articulate', 'name': '处理可开合部件', 'desc': '检查柜门和抽屉，按需添加转轴或滑轨。'},
 ]
 STAGE_IDS = [s['id'] for s in STAGES]
 # Finer stages the records still name, shown as one: the modelling agent's own adjusting and self-checking are
@@ -63,6 +63,11 @@ FILES = re.compile(r'^(?:'
                    r'|realism_authoring/evidence/contact_sheets/[\w.-]+\.jpg'
                    r')$')
 SEED = 'scene_init/scene_stage/room_init/room_preview/Room.glb'
+SEED_PREVIEW = Path(SEED).parent
+CHAIR_MANIFESTS = (SEED_PREVIEW / 'manifest.json', SEED_PREVIEW.parent / 'room/manifest.json')
+SEED_LAYOUT = SEED_PREVIEW / 'room_layout.json'
+STAGED_MANIFEST = 'scene_init/scene_stage/_scene_assets/manifest.json'
+CLUSTER_FILE = 'scene_init/obj_stage/object_init/chair_clusters/*/chair_clusters.json'
 FINAL = 'realism_authoring/room_preview/Room.glb'
 TRACES = 'scene_init/obj_stage/traces'
 # The openable-parts and small-object passes write beside the scene (RUN/articulate, RUN/small-objects; the
@@ -381,8 +386,6 @@ def pipeline_events(scene, until=None):
     # one: only the last pass's records are shown, and the openable-parts room only when no pass started since.
     small_from = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start' and not inside(r)),
                      default=-1)
-    pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')
-                     and not inside(r)), default=-1)
     # The author stage's own passes belong to the room it built, or after its repair to the repair.
     repairing, repaired = [], set()
     for r in rows:
@@ -532,24 +535,54 @@ def pipeline_events(scene, until=None):
         shown = last and _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
         events.append({'id': f'small{k}', 't': rows[save]['t'] if save is not None else r['t'], 'stage': phase(k, 'assemble'),
                        'kind': 'milestone', 'say': small_summary(r), **({'model': 'small_objects'} if shown else {})})
-    for k in saves:
-        if rows[k]['model'] == 'articulated':
-            shown = k == max(j for j in saves if rows[j]['model'] == 'articulated') and \
-                _model_time(scene, rows, 'articulated', ARTICULATED, until)
-            events.append({'id': f'parts{k}', 't': rows[k]['t'], 'stage': phase(k, 'parts'), 'kind': 'milestone',
-                           'say': '装好可开合部件', **({'model': 'articulated'} if shown else {})})
+    def articulation_result(save, evidence):
+        joints = save.get('joints')
+        counted = type(joints) is int and joints >= 0
+        result = {'say': '装好可开合部件' if counted and joints else '完成开合处理'}
+        if evidence.get('time'):
+            result.update(model='articulated', artifact_digest=evidence['artifact_digest'])
+        if counted and (not evidence or evidence.get('source') == 'event'):
+            result['joints'] = joints
+        return result
+
+    part_saves = [k for k in saves if rows[k]['model'] == 'articulated']
+    for k in part_saves:
+        evidence = model_evidence(scene, [rows[k]], 'articulated', ARTICULATED) if k == part_saves[-1] else {}
+        events.append({'id': f'parts{k}', 't': rows[k]['t'], 'stage': phase(k, 'parts'), 'kind': 'milestone',
+                       **articulation_result(rows[k], evidence)})
     # An older run's small-object pass closes with its room, said with what it did to the items.
     small = (_model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
              if saved_at([r for r in rows[small_from + 1:] if not inside(r)], 'small_objects') else None)
     if small or small_done:
         events.append({'id': 'small_objects', 't': small or small_done['t'], 'stage': 'small_objects', 'kind': 'milestone',
                        'say': small_summary(small_done), **({'model': 'small_objects'} if small else {})})
-    articulated = (_model_time(scene, rows, 'articulated', ARTICULATED, until)
-                   if saved_at([r for r in rows[pass_from + 1:] if not inside(r)], 'articulated') else None)
-    if articulated:
-        events.append({'id': 'articulated', 't': articulated, 'stage': 'articulate', 'kind': 'milestone',
-                       'say': '装好可开合部件，这就是发布的房间', 'model': 'articulated'})
+    save, receipt = standalone_articulation(rows)
+    evidence = model_evidence(scene, [save], 'articulated', ARTICULATED) if save else {}
+    if evidence.get('time'):
+        event = {'id': 'articulated', 't': save['t'], 'stage': 'articulate', 'kind': 'milestone',
+                 **articulation_result(save, evidence)}
+        events.append(event)
+        if receipt and final and final <= save['t']:
+            if receipt > save['t']:
+                event = {**event, 'id': 'articulated_published', 't': receipt}
+                events.append(event)
+            event['say'] += '，已发布这版房间'
+            if evidence['source'] == 'event':
+                event['published'] = True
     return events
+
+
+def standalone_articulation(rows):
+    pass_from = max((k for k, r in enumerate(rows) if r.get('kind') in ('small_objects_start', 'articulate_start')
+                     and not inside(r)), default=-1)
+    standalone = rows[pass_from + 1:]
+    save = next((r for r in reversed(standalone) if r.get('kind') == 'model_saved' and r.get('model') == 'articulated'), None)
+    if not save or inside(save):
+        return None, None
+    receipt = next((r['t'] for r in standalone if r.get('kind') == 'artifact_published'
+                    and r.get('phase') == 'articulate' and r.get('artifact_digest')
+                    and r['artifact_digest'] == save.get('artifact_digest')), None)
+    return save, receipt
 
 
 def inside(row):
@@ -681,7 +714,7 @@ def review_events(scene, until=None):
                   for i in review.get('issues', [])]
         issues = [i.strip() for i in issues if str(i).strip()]
         event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(n - 1, 2)], 'kind': 'review',
-                 'say': say, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
+                 'round': n, 'say': say, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
         if (folder / 'Room.glb').is_file():
             event['model'] = f'round{k}'
         events.append(event)
@@ -737,6 +770,35 @@ def glb_tree(path):
 
 
 WORD = re.compile(r'[A-Za-z0-9_]+')
+
+
+def chair_clusters(scene):
+    """The scan boxes actually used as placement targets when the seed room was assembled."""
+    scene = Path(scene)
+    for rel in (*CHAIR_MANIFESTS, SEED_LAYOUT, STAGED_MANIFEST):
+        try:
+            data = json.loads((scene / rel).read_text())
+            if rel == SEED_LAYOUT:
+                members = {}
+                placed = False
+                for obj in data['objects']:
+                    source = Path(obj.get('source_glb') or '').stem
+                    if source and re.fullmatch(r'Chair\d+', obj['id']):
+                        placed = True
+                        if re.fullmatch(r'ChairCluster\d+', source):
+                            members.setdefault(source, []).append(obj['id'])
+                if placed:
+                    return members
+            else:
+                return {a['object']: a.get('represents_prims') or [a['maps_to_prim']] for a in data['assets']
+                        if re.fullmatch(r'ChairCluster\d+', a.get('object', ''))}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    path = _first(scene.glob(CLUSTER_FILE))
+    try:
+        return {c['cluster_id']: c['members'] for c in json.loads(path.read_text())['clusters']} if path else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def build_schedule(scene, until=None):
@@ -1183,7 +1245,7 @@ def timeline(job_dir, status='completed', until=None):
                                if not until or a <= until], start) if start else []
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
             'stages': stages_of(events, published_passes(rows)), 'events': events, 'models': models(scene, until),
-            'build': build, 'idle': idle,
+            'build': build, 'idle': idle, 'chair_clusters': chair_clusters(scene),
             'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
                                for model, rel in [('seed', SEED), ('final', FINAL), ('small_objects', SMALL_OBJECTS),
                                                   ('articulated', ARTICULATED)]}}
@@ -1372,7 +1434,12 @@ def _scaffold(job_dir):
     tmp = points_out.with_suffix('.tmp')
     tmp.write_bytes(bytes(buffer))
     tmp.replace(points_out)
-    layout_out.write_text(json.dumps({'boxes': boxes, 'walls': walls, 'floor': base.get('shell', {}).get('floor_z', 0),
+    scan_ids = base.get('shell', {}).get('objects')
+    if scan_ids is None and 'dropped' in sh:
+        scan_ids = set(sh['objects']).union(sh['dropped'])
+    scan_chairs = sorted(k for k in scan_ids if re.fullmatch(r'Chair\d+', k)) if scan_ids is not None else None
+    layout_out.write_text(json.dumps({'boxes': boxes, 'walls': walls, 'scan_chairs': scan_chairs,
+                                      'floor': base.get('shell', {}).get('floor_z', 0),
                                       'points': len(buffer) // 12}))
     return points_out, layout_out
 
@@ -1381,6 +1448,7 @@ def _scaffold(job_dir):
 
 # Besides the served FILES, the replay reads these (logs, review verdicts, point cloud and layout).
 READS = ('scene_init/obj_stage/traces/trace.jsonl', 'scene_init/obj_stage/traces/authoring_trace.*.jsonl',
+         *map(str, CHAIR_MANIFESTS), str(SEED_LAYOUT), STAGED_MANIFEST, CLUSTER_FILE,
          'scene_init/obj_stage/traces/history/authoring_trace.*.run_*.jsonl',  # earlier sessions (not their raw logs)
          'realism_authoring/acceptance/*/round_*/visual_review.json',
          'scene_init/obj_stage/object_init/input/scan_geometry/*/scene_points.obj',
@@ -1432,11 +1500,13 @@ def register(data_dir, run, name, until=None):
     if len(scenes) != 1:
         raise SystemExit(f'expected one scene under {run}/pipeline')
     scene = scenes[0]
-    rows = [r for r in read_jsonl(scene / TRACES / 'trace.jsonl') if isinstance(r.get('t'), (int, float))]
-    if until is None:  # the run ends with its last review or final export; later records belong to other work
+    rows = trace_rows(scene)
+    if until is None:
         ends = [r[0] for r in _rounds(scene)] + [_model_time(scene, rows, m, rel) for m, rel in
                                                  (('final', FINAL), ('small_objects', SMALL_OBJECTS),
                                                   ('articulated', ARTICULATED))]
+        _, receipt = standalone_articulation(rows)
+        ends.append(receipt)
         until = max(t for t in ends if t) + 120
     identifier = uuid.uuid4().hex
     folder = Path(data_dir) / identifier
@@ -1460,7 +1530,8 @@ def main():
     parser.add_argument('--data-dir', type=Path, required=True, help='the room service --data-dir')
     parser.add_argument('--run', type=Path, required=True, help='run directory containing pipeline/<scene>')
     parser.add_argument('--name', required=True)
-    parser.add_argument('--until', type=float, help='ignore records after this Unix time (default: last review + 2 min)')
+    parser.add_argument('--until', type=float, help='ignore records after this Unix time '
+                        '(default: last review, model or matching publication + 2 min)')
     parser.add_argument('--slim-to', type=Path, help='first copy only the files the replay needs here, and register that copy')
     args = parser.parse_args()
     run = args.run

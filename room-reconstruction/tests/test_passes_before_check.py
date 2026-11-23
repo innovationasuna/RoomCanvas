@@ -123,6 +123,9 @@ def run_passes(c, monkeypatch, fail=(), options=None, left=None):
         out.mkdir(parents=True, exist_ok=True)
         for name in pass_cache.ROOM_FILES:
             (out / name).write_text(f"{short} {name}")
+        if short == "articulate" and not left:
+            (out.parent / "summary.json").write_text(json.dumps({"attempt_id": os.environ.get("LITEREALITY_RUN_ID"),
+                                                                "existing": 2, "added": 1}))
         if left and short in left:  # what the pass could not do, as its summary.json says
             key = "undone" if short == "small_objects" else "failed_objects"
             (out.parent / "summary.json").write_text(json.dumps({key: left[short]}))
@@ -158,6 +161,7 @@ def test_the_openable_parts_take_the_small_objects_room_and_both_are_recorded(tm
         ("model_saved", "articulated")]
     assert {r["stage"] for r in rows} == {"author"}  # the replay shows them with the room built
     assert rows[0]["path"] == f"{SMALL}/Room.glb"
+    assert rows[-1]["joints"] == 3
 
 
 def test_a_pass_that_fails_is_left_out(tmp_path, monkeypatch):

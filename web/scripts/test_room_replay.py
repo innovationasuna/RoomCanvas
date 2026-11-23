@@ -5,6 +5,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -194,11 +195,14 @@ class Events(unittest.TestCase):
 
     def test_scaffold_converts_layout_to_the_model_frame(self):
         job = self.root / 'job'
+        shell = self.scene / 'scene_init/obj_stage/object_init/input/scene_data/demo/layout_shell.json'
+        write(shell, json.dumps({**json.loads(shell.read_text()), 'dropped': ['Chair0']}))
         (job / 'run').mkdir(parents=True)
         (job / 'run' / 'pipeline').symlink_to(self.root / 'run' / 'pipeline')
         points, layout = replay.scaffold(job)
         self.assertEqual(points.stat().st_size, 2 * 12)
         data = json.loads(layout.read_text())
+        self.assertEqual(data['scan_chairs'], ['Chair0'])
         self.assertEqual(data['boxes'][0]['center'], [0, 0.5, -1])
         self.assertEqual(data['boxes'][0]['size'], [1, 2, 0.5])
         self.assertAlmostEqual(data['boxes'][0]['yaw'], 3.14159265 / 2, places=5)
@@ -551,6 +555,46 @@ class PhasedRun(unittest.TestCase):
         summary = replay.timeline(self.root, 'running', T0 + 2505)['events'][-1]  # counted, the room not saved yet
         self.assertEqual((summary['t'], summary.get('model')), (T0 + 2500, None))
 
+    def test_published_label_waits_for_the_matching_room_receipt(self):
+        import hashlib
+        digest = hashlib.sha256((self.run / replay.ARTICULATED).read_bytes()).hexdigest()
+        rows = [{'t': T0 + 3301, 'kind': 'model_saved', 'model': 'articulated', 'artifact_digest': digest, 'joints': 2},
+                {'t': T0 + 3302, 'kind': 'artifact_published', 'phase': 'articulate', 'artifact_digest': 'other'},
+                {'t': T0 + 3303, 'kind': 'artifact_published', 'phase': 'articulate', 'artifact_digest': digest}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in rows))
+        def labels(until):
+            return [(e['t'] - T0, e.get('published', False)) for e in replay.timeline(self.root, until=T0 + until)['events']
+                    if e.get('model') == 'articulated']
+        self.assertEqual(labels(3302), [(3301, False)])
+        self.assertEqual(labels(3303), [(3301, False), (3303, True)])
+        saves = [e for e in replay.pipeline_events(self.scene, T0 + 3303) if e.get('model') == 'articulated']
+        self.assertEqual([(e['joints'], e['artifact_digest']) for e in saves], [(2, digest), (2, digest)])
+        write(self.run / replay.ARTICULATED, b'replacement')
+        data = replay.timeline(self.root, until=T0 + 3303)
+        self.assertEqual(data['model_evidence']['articulated']['source'], 'external_change')
+        self.assertEqual(labels(3303), [(3301, False), (3303, False)])
+        event = next(e for e in data['events'] if e['id'] == 'articulated_published')
+        self.assertIn('已发布', event['say'])
+        self.assertNotIn('joints', event)
+        self.assertEqual(event['artifact_digest'], hashlib.sha256(b'replacement').hexdigest())
+
+    def test_registration_includes_the_matching_late_receipt_unless_explicitly_cut_off(self):
+        import hashlib
+        digest = hashlib.sha256((self.run / replay.ARTICULATED).read_bytes()).hexdigest()
+        rows = [{'kind': 'model_saved', 'model': 'articulated', 't': T0 + 3301, 'joints': 0, 'artifact_digest': digest},
+                {'kind': 'artifact_published', 'phase': 'articulate', 't': T0 + 3541, 'artifact_digest': digest},
+                {'kind': 'artifact_published', 'phase': 'articulate', 't': T0 + 9000, 'artifact_digest': 'unrelated'}]
+        with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
+            f.writelines(json.dumps(row) + '\n' for row in rows)
+        for cutoff, end, labels in [(None, T0 + 3661, [False, True]), (T0 + 3421, T0 + 3421, [False])]:
+            job = self.data / replay.register(self.data, self.run, 'phased', until=cutoff)
+            until = json.loads((job / 'job.json').read_text())['until']
+            self.assertEqual(until, end)
+            events = [e for e in replay.timeline(job, until=until)['events'] if e.get('model') == 'articulated']
+            self.assertEqual([e.get('published', False) for e in events], labels)
+            self.assertTrue(all(e['joints'] == 0 and '装好' not in e['say'] for e in events))
+
     def test_a_run_without_the_pass_is_unchanged(self):
         job = self.root / 'plain'
         make_run(job / 'run')
@@ -581,7 +625,7 @@ class PhasedRun(unittest.TestCase):
             (T0 + 4100, 'small_objects', '瓶子换成了按照片重建的模型'),
             (T0 + 4210, 'small_objects', '小物品处理好了：按照片重做 1 件，1 件保持原样'),
             (T0 + 4500, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨'),
-            (T0 + 4800, 'articulate', '装好可开合部件，这就是发布的房间')])
+            (T0 + 4800, 'articulate', '完成开合处理')])
         # Before the openable parts are made again, the earlier openable-parts room does not end the replay.
         events = replay.timeline(self.root, 'running', T0 + 4150)['events']
         self.assertEqual([(e['t'], e['stage']) for e in events if e['t'] > T0 + 1140],
@@ -796,7 +840,7 @@ def before_the_check(run):
         {'t': T0 + 1085, 'kind': 'model_saved', 'model': 'small_objects', 'path': small, **inside},
         {'t': T0 + 1090, 'kind': 'articulate_start', 'source': 'x', **inside},
         {'t': T0 + 1120, 'kind': 'articulate_done', 'status': 'ok', 'exit': 0, **inside},
-        {'t': T0 + 1120, 'kind': 'model_saved', 'model': 'articulated', 'path': parts, **inside},
+        {'t': T0 + 1120, 'kind': 'model_saved', 'model': 'articulated', 'path': parts, 'joints': 3, **inside},
         {'t': T0 + 1130, 'kind': 'repair_done', 'status': 'repaired', **inside},
         {'t': T0 + 1140, 'kind': 'model_saved', 'model': 'final', 'stage': 'publish', 'run': 'attempt-01'},
     ]
@@ -828,7 +872,7 @@ class PassesBeforeTheCheck(unittest.TestCase):
             (760, 'assemble', '纸巾盒换成了按照片重建的模型', None),
             (790, 'assemble', '小物品处理好了：按照片重做 1 件，去掉 1 件', None),
             (800, 'parts', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', None),
-            (900, 'parts', '装好可开合部件', None),
+            (900, 'parts', '完成开合处理', None),
             (1000, 'review', '检查房间没通过', 'round0'),
             (1010, 'review2', '按检查出的问题开始修复房间', None),
             (1050, 'review2', '逐个看房间里的小物品，挑出需要按照片重做的', None),
@@ -842,6 +886,22 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED),
                          (self.scene / 'realism_authoring/articulate/room_preview/Room.glb').resolve())
         self.assertFalse([e for e in data['events'] if re.search('沿用|复用', e['say'])])
+
+    def test_replay_reader_keeps_each_integrated_save_joint_count(self):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        first, last = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == 'articulated']
+        first['joints'], last['joints'] = 3, 0
+        trace.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        events = replay.pipeline_events(self.scene)
+        script = """import {readReplay} from './replay/timeline.mjs';
+            import {readFileSync} from 'node:fs';
+            console.log(JSON.stringify(readReplay(JSON.parse(readFileSync(0))).events));"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).resolve().parents[1],
+                                input=json.dumps({'stages': [], 'events': events}), text=True, capture_output=True, check=True)
+        parts = [e for e in json.loads(result.stdout) if re.fullmatch(r'parts\d+', e['id'])]
+        self.assertEqual([(e.get('joints'), e['say'], e.get('model')) for e in parts],
+                         [(3, '装好可开合部件', None), (0, '完成开合处理', 'articulated')])
 
     def test_a_repair_that_changed_nothing_says_so_and_an_older_record_reads_as_before(self):
         rows = replay.trace_rows(self.scene)
@@ -871,6 +931,7 @@ class PassesBeforeTheCheck(unittest.TestCase):
 
     def test_without_a_repair_the_rooms_of_the_passes_show_before_the_check(self):
         data = replay.timeline(self.root, 'running', T0 + 1005)
+        self.assertFalse(next(e for e in data['events'] if e.get('model') == 'articulated').get('published'))
         self.assertEqual([(e['t'] - T0, e['stage'], e.get('model')) for e in data['events'] if e.get('kind') == 'milestone'
                           and e['t'] > T0 + 650], [(790, 'assemble', 'small_objects'), (900, 'parts', 'articulated')])
         self.assertEqual([s['id'] for s in data['stages']], EIGHT)
@@ -896,6 +957,51 @@ def glb(path, tree, t):
 
 
 class BuildSchedule(unittest.TestCase):
+    def test_seed_placement_sources_survive_a_slim_export(self):
+        preview = Path(replay.SEED).parent
+        def manifest(chair):
+            return {'assets': [{'object': 'ChairCluster0', 'maps_to_prim': chair}]}
+        sources = [
+            ('scene_init/obj_stage/object_init/chair_clusters/demo/chair_clusters.json',
+             {'clusters': [{'cluster_id': 'ChairCluster0', 'members': ['Chair9']}]}, 'Chair9'),
+            ('scene_init/scene_stage/_scene_assets/manifest.json', manifest('Chair8'), 'Chair8'),
+            (preview / 'room_layout.json', {'objects': [{'id': 'Chair4', 'source_glb': 'ChairCluster0.glb'},
+                                                        {'id': 'Table0', 'source_glb': None}]}, 'Chair4'),
+            (preview.parent / 'room/manifest.json', manifest('Chair3'), 'Chair3'),
+            (preview / 'manifest.json', manifest('Chair1'), 'Chair1'),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            job = Path(tmp)
+            scene = make_run(job / 'run')
+            for rel, data, chair in sources:
+                with self.subTest(rel=rel):
+                    write(scene / rel, json.dumps(data))
+                    before = replay.timeline(job)['chair_clusters']
+                    self.assertEqual(before, {'ChairCluster0': [chair]})
+                    slim_job = job / f'slim-{chair}'
+                    replay.slim(job / 'run', slim_job / 'run')
+                    self.assertEqual(replay.timeline(slim_job)['chair_clusters'], before)
+                    self.assertIsNone(replay.scene_file(scene, str(rel)))
+
+    def test_seed_preview_manifest_alone_supplies_clusters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = Path(tmp)
+            write((scene / replay.SEED).with_name('manifest.json'), json.dumps({'assets': [
+                {'object': 'ChairCluster1', 'represents_prims': ['Chair1', 'Chair4']}]}))
+            self.assertEqual(replay.chair_clusters(scene), {'ChairCluster1': ['Chair1', 'Chair4']})
+
+    def test_chair_boxes_follow_the_assembled_manifest_including_singletons(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = Path(tmp)
+            scene = make_run(job / 'run')
+            write(scene / 'scene_init/obj_stage/object_init/chair_clusters/demo/chair_clusters.json',
+                  json.dumps({'clusters': [{'cluster_id': 'ChairCluster0', 'members': ['Chair9']}]}))
+            self.assertEqual(replay.chair_clusters(scene), {'ChairCluster0': ['Chair9']})
+            write(scene / 'scene_init/scene_stage/_scene_assets/manifest.json', json.dumps({'assets': [
+                {'object': 'ChairCluster0', 'maps_to_prim': 'Chair0', 'represents_prims': ['Chair0', 'Chair4']},
+                {'object': 'ChairCluster1', 'maps_to_prim': 'Chair1'}, {'object': 'Table0', 'maps_to_prim': 'Table0'}]}))
+            self.assertEqual(replay.timeline(job)['chair_clusters'], {'ChairCluster0': ['Chair0', 'Chair4'], 'ChairCluster1': ['Chair1']})
+
     def test_agent_added_parts_appear_when_first_named(self):
         with tempfile.TemporaryDirectory() as tmp:
             scene = make_run(Path(tmp) / 'run')
@@ -1136,6 +1242,8 @@ class Sessions(unittest.TestCase):
             (2150, 'revise', '按检查出的问题修好了房间', None), (2200, 'revise', '导出最终房间', 'final'),
             (2300, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', None)])
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
+        self.assertEqual([(e['model'], e['round']) for e in data['events'] if e['kind'] == 'review'],
+                         [('round0', 1), ('round1', 1)])
         self.assertEqual(len({e['id'] for e in data['events']}), len(data['events']))
         # The first session, before the room was published, keeps its stage.
         self.assertEqual([e['stage'] for e in data['events'] if e['id'] == 'a0'], ['assemble'])  # a self-check: building

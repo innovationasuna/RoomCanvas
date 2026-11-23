@@ -192,6 +192,24 @@ def test_pass_invalidation_reaches_all_substages_despite_same_mtime(tmp_path, mo
     assert list((run.out / ".stale").glob("*/items.json")) == []
 
 
+def test_replay_summary_reader_changes_keep_articulation_cache(tmp_path, monkeypatch):
+    from inspect import getfile
+
+    from litereality_agent import telemetry
+    from litereality_agent.pipeline.realism_authoring.articulate.run import Pass
+
+    run = Pass(scene(tmp_path))
+    run.items = [{"id": "kept"}]
+    run.save()
+    original = cache.file_hash
+    reader = Path(getfile(telemetry.saved_joints))
+    monkeypatch.setattr(cache, "file_hash", lambda path: "changed reader" if path == reader else original(path))
+    resumed = Pass(tmp_path)
+    assert resumed.dependency_key == run.dependency_key
+    assert resumed.items == run.items
+    assert not (run.out / ".stale").exists()
+
+
 @pytest.mark.parametrize("module", ["articulate", "small_objects"])
 def test_a_pass_whose_code_or_models_changed_starts_over(tmp_path, module):
     import importlib

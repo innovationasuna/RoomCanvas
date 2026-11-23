@@ -154,6 +154,18 @@ def _sequence(row: dict) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def saved_joints(out, run):
+    """Attach this pass's joint count to the save before a retry replaces its summary."""
+    try:
+        summary = json.loads((out / "summary.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(summary, dict) or summary.get("attempt_id") != run:
+        return {}
+    counts = [summary.get(key) for key in ("existing", "added")]
+    return {"joints": sum(counts)} if all(type(n) is int and n >= 0 for n in counts) else {}
+
+
 def artifact_digest(path: str | Path) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
