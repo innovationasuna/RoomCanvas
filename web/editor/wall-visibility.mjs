@@ -83,7 +83,7 @@ export function setSeeThrough(root, on, opacity = SEE_THROUGH) {
   if (on) root.userData.seeThroughOpacity = opacity; else delete root.userData.seeThroughOpacity;
   const faint = (material) => {
     const clone = Object.assign(material.clone(), {transparent: true, depthWrite: false,
-      opacity: Math.min(material.opacity ?? 1, opacity)});
+      opacity: material.isNightWindow ? material.opacity * opacity : Math.min(material.opacity ?? 1, opacity)});
     // Glass with transmission shows the room behind from a small blurred render, in blocks:
     // as a faint layer over the room it would print a mosaic over everything seen through it.
     if ('transmission' in clone) clone.transmission = 0;

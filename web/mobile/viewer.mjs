@@ -17,14 +17,13 @@ function render() {
   if (frame || !renderer) return;
   frame = requestAnimationFrame(() => {
     frame = 0;
-    if (!renderer) return;
+    if (!staticLighting) return;
     const visibility = roomVisibility?.update(camera.position.clone().sub(orbit.target).toArray(), {walking: !!walk?.active});
     $('viewport').dataset.hiddenWalls = visibility?.hidden.join(',') || '';
     if (visibility?.changed) renderer.shadowMap.needsUpdate = true;
-    lighting?.syncOccluders();
+    if (renderer.shadowMap.needsUpdate) lighting?.syncOccluders();
     const view = walk?.active ? walk.camera : camera;
-    staticLighting?.setCamera(view);
-    if (staticLighting) staticLighting.render(); else renderer.render(scene, view);
+    staticLighting.setCamera(view); staticLighting.render();
   });
 }
 function resize() {
@@ -126,6 +125,8 @@ async function loadRoom() {
     const floor = room.getObjectByName('Floor0'), floorBox = floor ? new THREE.Box3().setFromObject(floor) : box;
     const floorY = Number.isFinite(manifest.floorY) ? manifest.floorY : floorBox.min.y;
     lighting = createMobileLighting(THREE, {renderer, scene, visibility: roomVisibility, bounds: box, floorY});
+    await lighting.ready;
+    if (signal.aborted) throw new DOMException('已取消', 'AbortError');
     if (lighting.settings.environment) environment = createEnvironmentLighting(renderer, scene, {intensity: scene.environmentIntensity});
     walk = createWalk(THREE, {canvas: renderer.domElement, room, floorY,
       bounds: {min: [floorBox.min.x, floorBox.min.z], max: [floorBox.max.x, floorBox.max.z]},

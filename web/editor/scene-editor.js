@@ -15,6 +15,7 @@ import {PlacementSession} from './placement-session.mjs';
 import {createWallVisibility, nearestWall, worldVertices, setSeeThrough, seeThrough, againstWall, inNearHalf, SEE_THROUGH} from './wall-visibility.mjs';
 import {roomConfig, flattenObjects} from './room-catalog.mjs';
 import {groupRoomEntities, cutawaySupport} from './scene-entities.mjs';
+import {updateImportLighting} from './import-materials.mjs';
 import {createImportedEntity} from './import-entity.mjs';
 import {warehouseRow} from './warehouse-row.mjs';
 
@@ -57,11 +58,9 @@ mountMobileShare({button: $('#mobile-share'), capture: () => {
   const fixedOwner = wallOptions(walls).owner;
   const mountedOwners = new Map([...entities].filter(([id]) => placement.isWall(id)).map(([id, entity]) =>
     [entity.group.userData.name || entity.group.name, placement.wallFrame(id, layout)?.name]));
-  const labels = {};
-  room.traverse(object => {const name = object.userData.name || object.name, label = config.label(name); if (label) labels[name] = label;});
-  return captureRoom(THREE, {room, entities, layout, ceilingObjects, parts: hinged?.parts || [],
+  return captureRoom(THREE, {room, config, entities, layout, ceilingObjects, parts: hinged?.parts || [],
     walls, wallOwner: name => fixedOwner(name) || mountedOwners.get(name),
-    lighting: {profile: lightProfile.name, preset: lightingTime, indoor, grading, warm, labels,
+    lighting: {profile: lightProfile.name, preset: lightingTime, indoor, grading, warm,
       environment: enhancedLighting && query.get('env') !== 'off', ao: enhancedLighting && query.get('ao') !== 'off'},
     name: $('#project-menu h1').textContent || '我的房间', floorY,
     bounds: {min: roomBounds.min.toArray(), max: roomBounds.max.toArray()}});
@@ -157,12 +156,12 @@ let lightingRig = null, grading = colorGrading(), gradingFrame = 0;
 let lightingTime = enhancedLighting ? timePreset(query.get('time')) : 'balanced';
 let indoor = indoorLighting({power: query.get('indoor') !== 'off'});
 const lightingPanel = mountLightingPanel({root: $('#lighting-menu'), timeRoot: $('#light-menu'), initialTime: lightingTime, initialIndoor: indoor,
-  onTime: value => {lightingTime = value; warm = false; lightingRig?.apply(value); requestRender();},
+  onTime: value => {lightingTime = value; warm = false; renderAfterLighting(lightingRig?.apply(value));},
   onIndoor: value => {
     const wasOn = indoor.power;
-    indoor = indoorLighting(value); lightingRig?.setIndoor(indoor);
+    indoor = indoorLighting(value); const pendingLights = lightingRig?.setIndoor(indoor);
     try {localStorage.setItem(`roomcanvas:indoor-lighting:${sceneKey}`, JSON.stringify(indoor));} catch {}
-    if (wasOn || indoor.power) requestRender();
+    if (wasOn || indoor.power) renderAfterLighting(pendingLights);
   },
   onGrade: value => {
     grading = colorGrading(value); staticLighting?.setGrading(grading);
@@ -211,6 +210,11 @@ function showToast(message) {
   $('#toast').hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {$('#toast').hidden = true;}, 2700);
+}
+
+function renderAfterLighting(pendingLights) {
+  if (pendingLights) pendingLights.then(requestRender, error => showToast(error.message));
+  else requestRender();
 }
 
 function requestRender() {
@@ -276,7 +280,8 @@ function requestRender() {
         if (setSeeThrough(entity.group, faint.has(id), hideNear ? 0 : SEE_THROUGH)) renderer.shadowMap.needsUpdate = true;
       }
     }
-    lightingRig?.syncOccluders();
+    // Camera-only redraws reuse the shadow maps and their caster state.
+    if (renderer.shadowMap.needsUpdate) lightingRig?.syncOccluders();
     updateSelectionVisuals();
     if (camera === orbitCamera) {
       const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
@@ -414,6 +419,7 @@ function applyLayout() {
   for (const [id, entity] of entities) applyEntityPose(entity, layout[id]);
   room.updateMatrixWorld(true);
   layoutStamp++;
+  if (!analogActive) lightingRig?.invalidateWindowReflection();
   if (placement) placementStates = new Map(ids.filter(id => layout[id].visible !== false).map((id) => [id, placement.assess(id, layout)]));
   if (pending) refreshSession();
   updateDropProjection();
@@ -669,7 +675,7 @@ function select(id, announce = true) {
   if (id !== null && !entities.has(id)) return;
   restoreMaterials();
   // The piece being arranged is shown solid, also against a see-through near wall.
-  if (id) setSeeThrough(entities.get(id).group, false);
+  if (id && setSeeThrough(entities.get(id).group, false)) renderer.shadowMap.needsUpdate = true;
   selected = id;
   motionNotice = null;
   hovered = null;
@@ -1014,8 +1020,7 @@ function bindEvents() {
   $('#import-lighting').onchange = () => {
     if (pending) {$('#import-lighting').checked = !$('#import-lighting').checked; showToast('请先确认或取消当前摆放，再切换受光模式'); return;}
     select(null);
-    const imported = [...entities.values()].filter(entity => entity.importMaterials);
-    for (const entity of imported) entity.importMaterials.setMode($('#import-lighting').checked ? 'pbr' : 'original');
+    const imported = updateImportLighting(entities, $('#import-lighting').checked ? 'pbr' : 'original', lightingRig);
     if (imported.length) renderFurnitureThumbnails(imported, 'changeMaterials');
     renderer.shadowMap.needsUpdate = true; requestRender();
   };
@@ -2174,8 +2179,9 @@ async function load() {
     if (query.get('indoor') === 'off') indoor = {...indoor, power: false};
     lightingPanel.setIndoor(indoor);
     lightingRig = createTimeLighting(THREE, {renderer, scene, room, config, walls: placement.wallTargets(), bounds, floorY, ceilingY, profile: lightProfile,
+      revealRoot: root => ceilingObjects.includes(root) || [...wallGhostSources].some(id => entities.get(id)?.group === root && layout[id]?.visible !== false),
       fitShadows: query.get('shadows') !== 'original', environment: query.get('env') !== 'off', indoor});
-    lightingRig.apply(lightingTime);
+    await lightingRig.apply(lightingTime);
     lightingPanel.setFixtures(lightingRig.fixtures);
   }
   renderFurnitureThumbnails();
@@ -2200,7 +2206,7 @@ async function load() {
       .map(({node: name}) => named.get(name));
     const riders = ridersOf(THREE, node, pieces).map((piece) => {piece.updateMatrix(); return {node: piece, rest: piece.matrix.clone()};});
     return {joint, node, rest: node.matrix.clone(), riders};
-  }), {render: requestRender, settled: () => {renderer.shadowMap.needsUpdate = true; requestRender();}});
+  }), {render: requestRender, settled: () => {lightingRig?.invalidateWindowReflection(); renderer.shadowMap.needsUpdate = true; requestRender();}});
   audit.openParts = hinged.parts.length;
   // The floor's own box keeps the walk indoors where a door or a window has no wall to stop it.
   const floorBox = new THREE.Box3().setFromObject(room.getObjectByName('Floor0'));
@@ -2382,8 +2388,8 @@ function installLightingLab() {
       for (const object of ceilingObjects) object.visible = !!state.ceiling;
       warm = !!state.warm;
       lightingTime = enhancedLighting ? timePreset(state.lightingTime) : 'balanced'; lightingPanel.setTime(lightingTime);
-      indoor = indoorLighting(state.indoor); lightingPanel.setIndoor(indoor); lightingRig?.setIndoor(indoor);
-      if (lightingRig) lightingRig.apply(lightingTime, {warm});
+      indoor = indoorLighting(state.indoor); lightingPanel.setIndoor(indoor); renderAfterLighting(lightingRig?.setIndoor(indoor));
+      if (lightingRig) renderAfterLighting(lightingRig.apply(lightingTime, {warm}));
       else for (const object of scene.children) if (object.isDirectionalLight) object.color.set(warm ? 0xffd2a5 : 0xffffff);
       grading = colorGrading(state.grading); lightingPanel.setGrade(grading); staticLighting?.setGrading(grading);
       useCamera(projection);

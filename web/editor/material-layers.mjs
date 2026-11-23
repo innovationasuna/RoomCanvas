@@ -10,13 +10,16 @@
 // order, so the later ones win. Code that changes the mesh's own look (lighting presets, an
 // imported object's lit/unlit mode) goes through setOwnMaterial / setOwnShadows, which keeps the
 // layers on top.
-export const LAYERS = ['seeThrough', 'wallChoice', 'editingWall', 'selected', 'preview'];
+export const LAYERS = ['timeExterior', 'seeThrough', 'wallChoice', 'editingWall', 'selected', 'preview'];
 
 // mesh → {own: {material, castShadow, receiveShadow}, layers: Map(name → layer), made: [materials]}.
 // Not in userData: Object3D.clone() copies userData through JSON.
 const states = new WeakMap();
 
 export function ownMaterial(mesh) {return states.get(mesh)?.own.material ?? mesh.material;}
+
+// The reflection sees the active time preset underneath editor-only layers.
+export function roomMaterial(mesh) {return states.get(mesh)?.timeMaterial ?? ownMaterial(mesh);}
 
 export function ownShadows(mesh) {
   const own = states.get(mesh)?.own ?? mesh;
@@ -62,10 +65,12 @@ function rebuild(mesh, state) {
   state.made = [];
   const {own} = state;
   let materials = [own.material].flat(), castShadow = own.castShadow, receiveShadow = own.receiveShadow;
+  state.timeMaterial = null;
   for (const name of LAYERS) {
     const layer = state.layers.get(name);
     if (!layer) continue;
     if (layer.material) materials = materials.map((material) => {const made = layer.material(material); state.made.push(made); return made;});
+    if (name === 'timeExterior') state.timeMaterial = Array.isArray(own.material) ? materials : materials[0];
     if (layer.castShadow !== undefined) castShadow = layer.castShadow;
     if (layer.receiveShadow !== undefined) receiveShadow = layer.receiveShadow;
   }

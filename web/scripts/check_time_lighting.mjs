@@ -76,6 +76,45 @@ try {
   assert.ok(pixels.angles[160].far.reduce((a, b) => a + b) > pixels.angles[60].far.reduce((a, b) => a + b) + 30, '扩大光照角度没有照亮更远处的地面');
   await save('night-distance-fixture.png', report.attenuation.image); delete report.attenuation.image;
   for (const [angle, data] of Object.entries(pixels.angles)) {await save(`night-angle-${angle}-fixture.png`, data.image); delete data.image;}
+  report.sashes = await fixture.evaluate(async base => {
+    const THREE = await import('three'), {createNightWindow} = await import(new URL('editor/night-window.mjs', base));
+    const renderer = new THREE.WebGLRenderer(); renderer.setSize(96, 48);
+    const scene = new THREE.Scene(), room = new THREE.Group(); scene.add(room);
+    scene.background = new THREE.Color(0);
+    const face = {n: [0, 0, 1]}, window = {face, position: new THREE.Vector3()};
+    const probe = createNightWindow(THREE, {room, scene, window, center: new THREE.Vector3(0, 0, 2), diagonal: 6, revealRoot: () => false});
+    const glass = new THREE.MeshPhysicalMaterial({transmission: 1, side: THREE.DoubleSide});
+    const panes = [-.5, .5].map(x => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(.9, .9), glass);
+      mesh.position.x = x; room.add(mesh);
+      mesh.material = probe.material(glass, 0, probe.onMainWall(mesh, face));
+      return mesh;
+    });
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(12, 6), new THREE.MeshBasicMaterial({color: 0xffffff, side: THREE.DoubleSide}));
+    wall.position.z = 3; room.add(wall); probe.power(true);
+    const camera = new THREE.OrthographicCamera(-1, 1, .5, -.5, .1, 5);
+    camera.position.z = 2;
+    const gl = renderer.getContext(), pixel = new Uint8Array(4);
+    function sample() {
+      renderer.render(scene, camera);
+      return [24, 72].map(x => {gl.readPixels(x, 24, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel); return pixel[0];});
+    }
+    const closed = sample(); panes[0].rotation.y = Math.PI / 3;
+    const open = sample();
+    camera.position.set(Math.sqrt(3) * 1.5, 0, 1.5); camera.lookAt(0, 0, 0);
+    camera.left = -.5; camera.right = .5; camera.updateProjectionMatrix();
+    panes[0].rotation.y = 0; const grazing = sample();
+    panes[0].rotation.y = Math.PI / 6; const turned = sample();
+    const captures = probe.snapshot().captures;
+    probe.dispose(); renderer.dispose();
+    return {closed, open, grazing, turned, captures};
+  }, values.url);
+  const {closed, open, grazing, turned, captures} = report.sashes;
+  assert.ok(closed[0] > 0 && closed[0] === closed[1]);
+  assert.deepEqual(open, [0, closed[1]], '打开的窗扇反射方向转出室内，邻扇应保留原倒影');
+  assert.ok(turned[0] > 0 && turned[0] < grazing[0], '转向相机的窗扇应降低菲涅耳反射强度');
+  assert.equal(turned[1], grazing[1]);
+  assert.equal(captures, 1);
   await fixture.close();
   for (const room of values.rooms.split(',').filter(Boolean)) {
     console.log('检查时段和调色：' + room);
@@ -121,11 +160,11 @@ try {
       assert.equal(light.lights.filter(light => light.visible && light.castShadow).length,
         ['morning', 'noon', 'afternoon'].includes(time) && light.time.window ? 2 : time === 'night' ? nightShadows : 1);
       if (time === 'night') {
-        assert.ok(light.environment.intensity < .03);
+        assert.equal(light.environment.intensity, .08);
         assert.equal(light.time.lamp.decay, 2);
         assert.ok(light.lights.filter(light => light.type === 'DirectionalLight').every(light => light.intensity === 0 && !light.visible));
       } else if (time !== 'balanced') {
-        assert.ok(light.time.lamp.visible && light.time.lamp.level > 0 && light.time.lamp.level < .1);
+        assert.equal(light.time.lamp.level, .25);
         assert.ok(light.time.windowLight.visible && light.time.windowLight.intensity > 0);
       }
       const image = await page.evaluate(() => roomEditor.captureFrame()); await save(`${room}-${time}.png`, image);
@@ -157,8 +196,9 @@ try {
       assert.deepEqual(state.indoor, {power: false, angle: 160});
       assert.ok(!state.lamp.visible);
       assert.equal(await page.locator('#lamp-power').textContent(), '开灯');
-      assert.deepEqual(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => !light.role?.startsWith('indoor'))), outside.lights, '室内开关改变了室外光照');
-      assert.equal(state.environmentIntensity, outside.time.environmentIntensity);
+      const fixedLights = lights => lights.filter(l => time !== 'night' || l.type !== 'HemisphereLight');
+      assert.deepEqual(fixedLights(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => !light.role?.startsWith('indoor')))), fixedLights(outside.lights), '室内开关改变了室外光照');
+      assert.equal(state.environmentIntensity, time === 'night' ? 0 : outside.time.environmentIntensity);
       const off = await page.evaluate(() => roomEditor.captureFrame());
       assert.notEqual(off, wide, '关灯没有改变实际画面');
       if (time === 'night') await save(`${room}-night-lamps-off.png`, off);
@@ -208,7 +248,8 @@ try {
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'indoor').length),
       await page.evaluate(() => roomEditor.snapshot().lighting.time.lights.length));
     assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.role === 'outdoor-window').length), 1);
-    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.type === 'RectAreaLight').length), 0);
+    assert.equal(await page.evaluate(() => roomEditor.snapshot().lighting.lights.filter(light => light.type === 'RectAreaLight').length),
+      Math.min(6, await page.evaluate(() => roomEditor.snapshot().lighting.time.luminaires.length)));
     await page.locator('#light-menu').evaluate(element => {element.open = false;});
     await page.locator('#lighting-menu').evaluate(element => {element.open = false;});
     await page.evaluate(() => roomLightingLab.resetMetrics());

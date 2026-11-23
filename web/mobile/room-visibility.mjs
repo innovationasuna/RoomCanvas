@@ -49,6 +49,7 @@ export function createRoomVisibility(THREE, room) {
   });
   return {
     model, walls,
+    revealRoot: root => visible.get(root),
     config: {label, openings, isCeiling: name => ceilings.has(name)},
     wallRoots: model.children.filter(root => !ceilings.has(root.name) && owners.get(root.name)),
     update(direction, {walking = false} = {}) {
