@@ -299,6 +299,9 @@ export class RoomView {
           return copy;
         });
         o.material = Array.isArray(o.material) ? copies : copies[0];
+        // What blends on a wall (the photo collage) draws after it. Once the wall fades both are sorted by
+        // distance, and their centres differ, so turning the camera swapped them and the collage flickered.
+        if (copies.some((m) => m.userData.transparent)) o.renderOrder = 1;
       });
       const c = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
       this.wallFades.push({mats, c, root, part, a: 1});
