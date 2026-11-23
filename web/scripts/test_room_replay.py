@@ -641,6 +641,34 @@ class PhasedRun(unittest.TestCase):
         replay.slim(self.run, self.root / 'slim')
         self.assertEqual(replay.scene_file(self.root / 'slim/pipeline/demo', 'small-objects/reference/TissueBox0.png').read_bytes(), b'reference')
 
+    def test_live_reference_version_tracks_model_switch_and_image_rewrite(self):
+        models = self.root / 'models'
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        key = 'TissueBox0'
+
+        def media():
+            events = replay.timeline(self.root, 'running', T0 + 5000)['events']
+            return next(e['media'][0] for e in events if e.get('object_id') == key and e.get('work') == 'small')
+
+        def use_model(model, t):
+            reference = write(models / 'work' / model / 'reference.png', model.encode(), T0 + 3000)
+            with trace.open('a') as f:
+                f.write(json.dumps({'t': t, 'kind': 'small_object_done', 'name': key, 'run': 'new',
+                                    'method': 'trellis', 'status': 'ok', 'source': str(models / f'{model}.glb')}) + '\n')
+            current = media()
+            self.assertEqual(replay.scene_file(self.scene, current['src']), reference.resolve())
+            return current
+
+        with trace.open('a') as f:
+            f.write(json.dumps({'t': T0 + 3900, 'kind': 'small_objects_start', 'run': 'new'}) + '\n')
+        first = use_model('First', T0 + 4100)
+        second = use_model('Second', T0 + 4101)
+        self.assertEqual(first['src'], second['src'])
+        self.assertNotEqual(first['version'], second['version'])
+        self.assertEqual(second['version'], media()['version'])
+        write(models / 'work/Second/reference.png', b'redrawn', T0 + 3001)
+        self.assertNotEqual(media()['version'], second['version'])
+
     def test_an_item_framed_with_its_whole_shelf_shows_its_own_part(self):
         camera = {'frame_index': 7, 'position': [0, 0, 0], 'forward': [0, 1, 0], 'up': [0, 0, 1],
                   'intrinsics': {'fx': 1000, 'fy': 1000, 'cx': 960, 'cy': 720}, 'resolution': [1920, 1440]}

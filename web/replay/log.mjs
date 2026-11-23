@@ -34,24 +34,37 @@ export function cards(events) {
 // The members of a card that had happened by event index idx.
 export const upTo = (card, idx) => card.members.filter((k) => k <= idx);
 
+// Assign numbers once per job, including objects seen before a live timeline was revised.
+export function objectNames(events, names = new Map()) {
+  for (const e of events) {
+    if (!e.object_id || !e.work) continue;
+    const name = e.object_name || '';
+    if (!names.has(name)) names.set(name, new Map());
+    const ids = names.get(name);
+    if (!ids.has(e.object_id)) ids.set(e.object_id, ids.size + 1);
+  }
+  return names;
+}
+
 // One entry per object, in the order they first came: its latest event (k) and picture (with the part of it
 // showing the object, crop, when the picture shows much more).
-export function objects(events, members) {
+export function objects(events, members, names = objectNames(events)) {
   const by = new Map();
   for (const k of members) {
     const e = events[k], prev = by.get(e.object_id);
-    by.set(e.object_id, {id: e.object_id, name: e.object_name || '', k, img: e.img || prev?.img || null,
+    const name = e.object_name || '', ids = names.get(name);
+    const label = ids?.size > 1 ? `${name} ${ids.get(e.object_id)}` : name;
+    by.set(e.object_id, {id: e.object_id, name, label, k, img: e.img || prev?.img || null,
       crop: e.img ? cropOf(e) : prev?.crop || null});
   }
-  const items = [...by.values()], names = new Map();
-  for (const item of items) {
-    if (!names.has(item.name)) names.set(item.name, []);
-    names.get(item.name).push(item);
-  }
-  for (const group of names.values()) {
-    group.forEach((item, i) => {item.label = group.length > 1 ? `${item.name} ${i + 1}` : item.name;});
-  }
-  return items;
+  return [...by.values()];
+}
+
+// Resolve a picture once so thumbnails, zoom and the strip filter all use the same revision.
+export function pictureUrls(event, files) {
+  const media = event.media?.map((m) => ({...m, src: files(m.src) + (m.version == null ? '' : `?v=${encodeURIComponent(m.version)}`)}));
+  const i = event.media?.findIndex((m) => m.src === event.img) ?? -1;
+  return {...event, img: i >= 0 ? media[i].src : event.img && files(event.img), media};
 }
 
 // The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
@@ -90,11 +103,13 @@ export function pictures(events, members, max = 2, allowed = () => true) {
 // Keep detached pictures, including ones hidden by folding or seeking back, without retaining their cards.
 export class CardImages {
   byCard = new Map();
+  strips = new Set();
 
   collect(card) {
     const key = card.dataset.key;
     for (const img of [...card.querySelectorAll('img')].reverse()) {
       const src = img.dataset.file;
+      if (this.strips.has(src) && !img.closest('.cell')) continue;
       if (!this.byCard.has(key)) this.byCard.set(key, new Map());
       const bySrc = this.byCard.get(key);
       if (!bySrc.has(src)) bySrc.set(src, []);
@@ -106,28 +121,69 @@ export class CardImages {
   take(key, src) {
     const bySrc = this.byCard.get(key), matches = bySrc?.get(src);
     if (!matches) return;
-    const img = matches.pop();
+    let kept;
+    while (matches.length && !kept) {
+      const img = matches.pop();
+      if (!img.complete || img.naturalWidth) kept = img;
+    }
     if (!matches.length) bySrc.delete(src);
     if (!bySrc.size) this.byCard.delete(key);
-    return img;
+    return kept;
+  }
+
+  attach(key, img, onLoad) {
+    const kept = this.take(key, img.dataset.file);
+    if (kept) {
+      kept.style.cssText = img.style.cssText;
+      img.replaceWith(kept);
+    } else {
+      img.addEventListener('load', onLoad, {once: true});
+      img.src = img.dataset.file;
+    }
   }
 
   prune(deck, events) {
     const cards = new Map(deck.map((card) => [card.key, card]));
     for (const [key, bySrc] of this.byCard) {
-      const members = cards.get(key)?.members || [];
+      const card = cards.get(key), members = card?.members || [];
       const sources = new Set(members.flatMap((k) => [events[k].img, ...(events[k].media || []).map((m) => m.src)]));
-      for (const src of bySrc.keys()) if (!sources.has(src)) bySrc.delete(src);
+      const grid = card?.type === 'objects' && members.length > 1;
+      for (const src of bySrc.keys()) if (!sources.has(src) || (!grid && this.strips.has(src))) bySrc.delete(src);
       if (!bySrc.size) this.byCard.delete(key);
     }
   }
 }
 
+export const nearEnd = (log, distance = 48) => log.scrollHeight - log.scrollTop - log.clientHeight < distance;
+
+export function keepReading(log, events, appended = false) {
+  const scroll = log.scrollTop, {top, bottom} = log.getBoundingClientRect();
+  if (nearEnd(log, appended ? 48 : 1)) return () => {log.scrollTop = log.scrollHeight;};
+  const card = [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top);
+  const cardTop = card?.getBoundingClientRect().top;
+  // In an expanded card the sticky heading stays put while the lines underneath it scroll.
+  const row = cardTop < top && [...card.querySelectorAll('[data-i]')].find((el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom > top && r.top < bottom && getComputedStyle(el).position !== 'sticky';
+  });
+  const id = row && events[row.dataset.i].id;
+  const rowTop = row && row.getBoundingClientRect().top;
+  return (updated = events) => {
+    const next = card && log.querySelector(`[data-key="${CSS.escape(card.dataset.key)}"]`);
+    const k = row && (id != null ? updated.findIndex((e) => e.id === id) : row.dataset.i);
+    const line = row && log.querySelector(`${row.tagName}${row.classList.contains('lead') ? '.lead' : ':not(.lead)'}[data-i="${k}"]`);
+    if (line && getComputedStyle(line).position !== 'sticky') log.scrollTop += line.getBoundingClientRect().top - rowTop;
+    else if (next) log.scrollTop += next.getBoundingClientRect().top - cardTop;
+    else log.scrollTop = scroll;
+  };
+}
+
 // Scroll by the smallest amount for a whole card. For a tall one, show its start if the current line fits too.
-export function cardScroll(top, bottom, current, height, gap = 12) {
+export function cardScroll(top, bottom, current, height, heading = 0) {
+  const gap = 12;
   if (bottom - top > height - 2 * gap) {
     if (current.bottom - top <= height - 2 * gap) return top - gap;
-    return Math.min(current.top - gap, current.bottom - height + gap);
+    return Math.min(current.top - heading - gap, current.bottom - height + gap);
   }
   if (top < gap) return top - gap;
   return Math.max(0, bottom - height + gap);

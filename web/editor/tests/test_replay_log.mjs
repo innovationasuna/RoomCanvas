@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cards, upTo, objects, lines, pictures, isStrip, CardImages, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, isStrip, CardImages, keepReading, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
 
 const made = (id, name, minute, img) => ({stage: 'plan', minute, kind: 'tool', say: `做好${name}的模型`, object_id: id, object_name: name, work: 'model', img});
 const agent = (minute, say, extra = {}) => ({stage: 'assemble', minute, kind: 'tool', say, session: 'a0', ...extra});
@@ -68,6 +68,19 @@ test('same-name objects have distinct thumbnail labels and keep the names used f
     [['门', '门 1', 'c.png'], ['门', '门 2', 'b.png'], ['桌子', '桌子', null]]);
 });
 
+test('object numbers survive reversed stage order, a seek and a live rebuild', () => {
+  const a = made('A', '门', 1), b = made('B', '门', 2);
+  const events = [{...a, work: 'image'}, {...b, work: 'image'}, b, a];
+  const [images, models] = cards(events), names = objectNames(events);
+  const labels = (members) => objects(events, members, names).map((o) => [o.id, o.label]);
+  assert.deepEqual(labels(images.members), [['A', '门 1'], ['B', '门 2']]);
+  assert.deepEqual(labels(models.members), [['B', '门 2'], ['A', '门 1']]);
+  assert.deepEqual(labels(upTo(models, 2)), [['B', '门 2']]);
+  assert.deepEqual(labels(upTo(images, 0)), [['A', '门 1']]);
+  objectNames([b, a], names);
+  assert.deepEqual(objects([b, a], [0], names).map((o) => o.label), ['门 2']);
+});
+
 test('known strip pictures give their places to other evidence', () => {
   assert.deepEqual([0, 39, 40, 400, 401].map((w) => isStrip(w, 100)), [false, true, false, false, true]);
   assert.equal(isStrip(100, 0), false);
@@ -75,11 +88,70 @@ test('known strip pictures give their places to other evidence', () => {
   assert.deepEqual(pictures(events, [0, 1], 2, (src) => src !== 'strip.jpg').map((p) => p.src), ['a.jpg', 'b.jpg']);
 });
 
+const img = (file, grid = false) => ({
+  dataset: {file}, style: {}, closest: () => grid, remove() {this.detached = true;},
+  addEventListener() {}, replaceWith(node) {this.reused = node;},
+});
+const card = (key, imgs) => ({dataset: {key}, querySelectorAll: () => imgs});
+
+test('a new revision of the same reference gets its own URL, node and strip decision', () => {
+  const cache = new CardImages(), path = 'small-objects/reference/key.png', files = (rel) => '/files/' + rel;
+  const reference = (version) => pictureUrls({img: path, media: [{src: path, version}]}, files);
+  const first = reference('1'), second = reference('2');
+  assert.equal(first.img, '/files/' + path + '?v=1');
+  assert.equal(second.img, second.media[0].src);
+  assert.notEqual(first.img, second.img);
+  assert.equal(reference(undefined).img, files(path));
+  cache.strips.add(first.img);
+  cache.collect(card('key', [img(first.img, true)]));
+  cache.prune([{key: 'key', type: 'objects', members: [0, 1]}], [second, {}]);
+  assert.equal(cache.take('key', first.img), undefined);
+  assert.ok(!cache.strips.has(second.img));
+  const fresh = img(second.img);
+  cache.attach('key', fresh, () => {});
+  assert.equal(fresh.src, second.img);
+});
+
+test('redrawing keeps a pending image and retries one that failed while detached', () => {
+  const cache = new CardImages(), first = img('a.jpg');
+  cache.attach('work', first, () => {});
+  assert.equal(first.src, 'a.jpg');
+  first.complete = false;
+  cache.collect(card('work', [first]));
+  const pending = img('a.jpg');
+  cache.attach('work', pending, () => {});
+  assert.equal(pending.reused, first);
+  cache.collect(card('work', [first]));
+  Object.assign(first, {complete: true, naturalWidth: 0});
+  const retry = img('a.jpg');
+  cache.attach('work', retry, () => {});
+  assert.equal(retry.src, 'a.jpg');
+  Object.assign(retry, {complete: true, naturalWidth: 64});
+  cache.collect(card('work', [retry]));
+  const again = img('a.jpg');
+  cache.attach('work', again, () => {});
+  assert.equal(again.reused, retry);
+});
+
+test('filtering evicts cached strips on redraw and live rebuild, preserving grid thumbnails', () => {
+  const cache = new CardImages(), events = [{img: 'strip'}, {}];
+  const deck = ['work', 'same', 'objects'].map((type) => ({key: type, type, members: [0, 1]}));
+  const grid = img('strip', true);
+  cache.collect(card('work', [img('strip')]));
+  cache.collect(card('objects', [grid]));
+  cache.strips.add('strip');
+  cache.prune(deck, events);
+  cache.collect(card('work', [img('strip')]));
+  cache.collect(card('same', [img('strip')]));
+  assert.deepEqual([...cache.byCard.keys()], ['objects']);
+  cache.prune(deck, events);
+  assert.equal(cache.take('objects', 'strip'), grid);
+  assert.equal(cache.byCard.size, 0);
+});
+
 test('detached thumbnails survive a seek or rebuild and are reused once per card and source', () => {
   const cache = new CardImages();
-  const img = (file) => ({dataset: {file}, remove() {this.detached = true;}});
   const a = img('same'), b = img('same'), c = img('same'), d = img('other');
-  const card = (key, imgs) => ({dataset: {key}, querySelectorAll: () => imgs});
   cache.collect(card('doors', [a, b, d]));
   cache.collect(card('checks', [c]));
   cache.collect(card('obsolete', [img('same')]));
@@ -106,4 +178,59 @@ test('seek fits the whole card with margins, then its heading and current row fo
   assert.equal(cardScroll(50, 450, row, 200), 38);
   assert.equal(cardScroll(-300, 270, {top: 180, bottom: 230}, 200), 42);
   assert.equal(cardScroll(-300, 270, {top: -50, bottom: 230}, 200), -62);
+});
+
+test('rebuilding anchors a normal row or its card even when the heading starts below the viewport edge', (t) => {
+  globalThis.CSS = {escape: String};
+  globalThis.getComputedStyle = (el) => el.style;
+  t.after(() => {delete globalThis.CSS; delete globalThis.getComputedStyle;});
+  const log = {scrollTop: 300, scrollHeight: 1000, clientHeight: 200, getBoundingClientRect: () => ({top: 0, bottom: 200})};
+  const rect = (y) => ({top: y - log.scrollTop, bottom: y - log.scrollTop + 40});
+  const row = (i, position, bounds) => ({dataset: {i}, style: {position}, tagName: 'P',
+    classList: {contains: () => false}, getBoundingClientRect: bounds});
+  const heading = row(0, 'sticky', () => rect(Math.min(600, Math.max(325, log.scrollTop))));
+  const body = row(1, 'static', () => rect(bodyY));
+  let bodyY = 380, rows = [heading, body];
+  const holder = {dataset: {key: 'work'}, getBoundingClientRect: () => ({top: 280 - log.scrollTop, bottom: 640 - log.scrollTop}),
+    querySelectorAll: () => rows};
+  log.querySelectorAll = () => [holder];
+  log.querySelector = (sel) => sel.includes('data-key') ? holder : sel.includes('data-i="1"') ? body : heading;
+  const events = [{id: 'first'}, {id: 'second'}];
+  const before = body.getBoundingClientRect().top;
+  const restore = keepReading(log, events, true);
+  bodyY += 20;
+  log.scrollTop = 800;
+  restore(events);
+  assert.equal(body.getBoundingClientRect().top, before);
+  rows = [heading];
+  log.scrollTop = 300;
+  const restoreCard = keepReading(log, events, true);
+  log.scrollTop = 800;
+  restoreCard(events);
+  assert.equal(log.scrollTop, 300);
+});
+
+test('a reflow keeps the 39px below the reader, while an append or a pinned reader follows the end', () => {
+  let scroll = 761;
+  const log = {scrollHeight: 1000, clientHeight: 200,
+    get scrollTop() {return scroll;}, set scrollTop(y) {scroll = Math.min(y, this.scrollHeight - this.clientHeight);},
+    getBoundingClientRect: () => ({top: 0, bottom: 200}), querySelectorAll: () => []};
+  keepReading(log, [])();
+  assert.equal(log.scrollTop, 761);
+  const append = keepReading(log, [], true);
+  log.scrollHeight += 30;
+  append();
+  assert.equal(log.scrollTop, log.scrollHeight - log.clientHeight);
+  log.scrollTop = log.scrollHeight - log.clientHeight;
+  const reflow = keepReading(log, []);
+  log.scrollHeight += 10;
+  reflow();
+  assert.equal(log.scrollTop, log.scrollHeight - log.clientHeight);
+});
+
+test('seeking an oversized row clears the sticky heading and still fits shorter rows', () => {
+  const height = 200, heading = 42;
+  const scroll = cardScroll(-300, 270, {top: -50, bottom: 230}, height, heading);
+  assert.equal(-50 - scroll, heading + 12);
+  assert.equal(cardScroll(-300, 270, {top: 180, bottom: 230}, height, heading), 42);
 });

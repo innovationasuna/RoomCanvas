@@ -141,11 +141,16 @@ def scene_file(scene, rel):
     return path if root in path.parents and path.is_file() else None
 
 
-def _mtime(path):
+def _stat(path):
     try:
-        return path.stat().st_mtime
+        return path.stat()
     except OSError:
         return None
+
+
+def _mtime(path):
+    stat = _stat(path)
+    return stat and stat.st_mtime
 
 
 def _first(paths):
@@ -245,8 +250,11 @@ def small_media(scene, key, until=None, closeup=None, rows=None, done=None):
     applied, so shown only from then)."""
     folder = small_folder(scene) / 'evidence' / key
     reference = small_reference(scene, key, rows)
-    t = reference and _mtime(reference)
-    media = [{'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': t}] if t and (not done or t <= done) else []
+    media = []
+    stat = reference and _stat(reference)
+    if stat and (not done or stat.st_mtime <= done):
+        media.append({'src': f'small-objects/reference/{key}.png', 'role': 'reference', 't': stat.st_mtime,
+                      'version': f'{stat.st_dev:x}-{stat.st_ino:x}-{stat.st_mtime_ns:x}'})
     for name, role in (('view0.jpg', 'photo'), ('pair_after.jpg', 'comparison')):
         t = _mtime(folder / name)
         if t and (not until or t <= until or role == 'photo'):  # the photo is the capture's, not the pass's work

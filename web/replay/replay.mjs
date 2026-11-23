@@ -5,14 +5,13 @@ import {buildTimeline, clock, sceneAt, outcome, withoutScores, withoutErrors, DU
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
-import {cards, upTo, objects, lines, pictures, cropOf, isStrip, CardImages, cardScroll, WORK} from './log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, cropOf, isStrip, CardImages, keepReading, nearEnd, cardScroll, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
 const api = `/room-reconstruction/jobs/${job}/replay`;
 const files = (rel) => `${api}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
 const KIND = {tool: '操作', image: '图片', result: '检查'};
-const NEAR = 48;  // px from the bottom: a reader this close follows new records; further up, they keep their place
 const POLL = 5000;
 // ms the camera stays on an object once there (it takes shape in 3 s); long enough that it goes on to the
 // next object rather than backing out in between.
@@ -24,7 +23,7 @@ let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKe
 // across live updates), and whether the next update should bring the current record into view (a seek).
 let deck = [], cardOf = [], shownCard = -1, reveal = false;
 const open = new Set();
-const cardImages = new CardImages(), strips = new Set();
+const cardImages = new CardImages(), names = new Map();
 const player = window.player = new Player(span());
 let view = null;
 
@@ -54,7 +53,7 @@ async function fetchData() {
   const response = await fetch(api, {cache: 'no-store'});
   if (!response.ok) throw new Error(response.status === 404 ? '没有找到这个重建任务' : '房间重建服务未连接');
   const data = await response.json();
-  data.events = withoutErrors(data.events || []);
+  data.events = withoutErrors(data.events || []).map((e) => pictureUrls(e, files));
   return data;
 }
 
@@ -84,10 +83,10 @@ async function poll() {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
     if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)) {
-      const wasEnd = player.t >= span() - 0.01, restore = keepReading();
+      const wasEnd = player.t >= span() - 0.01, restore = keepReading($('log'), tl.events, next.events.length > data.events.length);
       data = next;
       rebuild(following || wasEnd);
-      restore();
+      restore(tl.events);
     }
     $('liveError').hidden = true;
   } catch {
@@ -107,6 +106,7 @@ function rebuild(followLatest) {
   tl = buildTimeline(data);
   player.duration = tl.duration;
   deck = cards(tl.events);
+  objectNames(tl.events, names);
   cardOf = deck.flatMap((card, c) => card.members.map(() => c));
   openings = {Door: [], Window: []};
   for (const e of tl.events) for (const id of e.show || []) {
@@ -138,28 +138,6 @@ function rebuild(followLatest) {
 // the agent's work with its first and latest lines, the rest folded. A card shows only what had happened by the
 // current record, so moving the playhead into a card adds or takes away its lines and pictures.
 const say = (e) => esc(withoutScores(e.say));
-const nearEnd = () => $('log').scrollHeight - $('log').scrollTop - $('log').clientHeight < NEAR;
-function keepReading() {
-  const log = $('log'), scroll = log.scrollTop, top = log.getBoundingClientRect().top;
-  if (nearEnd()) return () => {log.scrollTop = log.scrollHeight;};
-  const card = [...log.querySelectorAll('[data-key]')].find((el) => el.getBoundingClientRect().bottom > top);
-  const cardTop = card?.getBoundingClientRect().top;
-  // In an expanded card the sticky heading stays put while the lines underneath it scroll.
-  const row = cardTop < top && [...card.querySelectorAll('[data-i]')].find((el) => {
-    const r = el.getBoundingClientRect();
-    return r.bottom > top && !(r.top === top && getComputedStyle(el).position === 'sticky');
-  });
-  const id = row && tl.events[row.dataset.i].id;
-  const rowTop = row && row.getBoundingClientRect().top;
-  return () => {
-    const next = card && log.querySelector(`[data-key="${CSS.escape(card.dataset.key)}"]`);
-    const k = row && (id != null ? tl.events.findIndex((e) => e.id === id) : row.dataset.i);
-    const line = row && log.querySelector(`${row.tagName}${row.classList.contains('lead') ? '.lead' : ':not(.lead)'}[data-i="${k}"]`);
-    if (line) log.scrollTop += line.getBoundingClientRect().top - rowTop;
-    else if (next) log.scrollTop += next.getBoundingClientRect().top - cardTop;
-    else log.scrollTop = scroll;
-  };
-}
 // A picture; with a crop, only that part of it (an item on a shelf whose photo shows the whole shelf), zoomed to fill.
 function image(src, crop) {
   if (!crop) return `<img data-file="${esc(src)}" alt="" loading="lazy">`;
@@ -176,7 +154,7 @@ const fold = (text) => `<button type="button" class="fold" data-more>${text}</bu
 function single(ks) {
   const k = ks.at(-1), e = tl.events[k];
   // A check's verdict keeps its photo / model pair whole, low and wide under the words.
-  const src = !strips.has(e.img) && e.img;
+  const src = !cardImages.strips.has(e.img) && e.img;
   if (e.kind === 'review') return line(k) + (src ? `<span class="wide" data-z="${k}" data-src="${esc(src)}">${image(src)}</span>` : '');
   return `<div class="row">${line(k, ks.length)}${src ? pic(k, src, cropOf(e)) : ''}</div>`;
 }
@@ -187,7 +165,7 @@ function named(items) {
   return [...count].map(([name, n]) => esc(name) + (n > 1 ? ` ×${n}` : '')).join('、');
 }
 function objectCard(ks, opened) {
-  const items = objects(tl.events, ks), shown = items.filter((o) => o.img), bare = items.filter((o) => !o.img);
+  const items = objects(tl.events, ks, names), shown = items.filter((o) => o.img), bare = items.filter((o) => !o.img);
   // Two rows of three at most; the last place says how many more until opened.
   const fits = opened || shown.length <= 6 ? shown.length : 5;
   const cells = shown.slice(0, fits).map((o) => `<span class="cell" data-z="${o.k}" data-src="${esc(o.img)}" data-i="${o.k}">` +
@@ -199,7 +177,7 @@ function objectCard(ks, opened) {
     fold(opened ? '收起' : `展开 ${ks.length} 条记录`) + '</div>';
 }
 function workCard(ks, opened) {
-  const all = lines(tl.events, ks), shots = pictures(tl.events, ks, 2, (src) => !strips.has(src));
+  const all = lines(tl.events, ks), shots = pictures(tl.events, ks, 2, (src) => !cardImages.strips.has(src));
   const text = opened || all.length <= 2 ? all.map((l) => line(l.k, l.n)).join('') + (all.length > 2 ? fold('收起') : '')
     : line(all[0].k, all[0].n) + fold(`… 另有 ${all.length - 2} 条`) + line(all.at(-1).k, all.at(-1).n);
   return `<div class="card work"><div class="text">${text}</div>` +
@@ -215,21 +193,12 @@ function draw(c, idx) {
     (stage ? `<div class="stage-h">${esc(data.stages.find((s) => s.id === card.stage)?.name)}</div>` : '') + body + '</div>';
   const old = $('log').querySelector(`[data-c="${c}"]`), fresh = holder.firstChild;
   if (old) cardImages.collect(old);
-  fresh.querySelectorAll('img').forEach((img) => {
-    const kept = cardImages.take(card.key, img.dataset.file);
-    if (kept) {
-      kept.style.cssText = img.style.cssText;
-      img.replaceWith(kept);
-    } else {
-      img.addEventListener('load', filterStrip, {once: true});
-      img.src = files(img.dataset.file);
-    }
-  });
+  fresh.querySelectorAll('img').forEach((img) => cardImages.attach(card.key, img, filterStrip));
   if (old) old.replaceWith(fresh);
   else $('log').append(fresh);
 }
 function renderLog(idx) {
-  const follow = nearEnd(), grew = idx > shownTo;
+  const follow = nearEnd($('log')), grew = idx > shownTo;
   const last = idx < 0 ? -1 : cardOf[idx];
   for (let c = shownCard; c > last; c--) {
     const el = $('log').querySelector(`[data-c="${c}"]`);
@@ -249,9 +218,11 @@ function revealCard() {
   if (!card) return;
   const box = log.getBoundingClientRect(), r = card.getBoundingClientRect();
   const active = card.querySelector('.detail .now') || card.querySelector('.cell.now') || card.querySelector('.now:not(.lead)');
-  const row = active?.getBoundingClientRect() || {top: r.top, bottom: r.top};
+  const first = card.querySelector('.lead, .work .text > .line');
+  const heading = first && getComputedStyle(first).position === 'sticky' ? first : null;
+  const row = active && active !== heading ? active.getBoundingClientRect() : {top: r.top, bottom: r.top};
   log.scrollTop += cardScroll(r.top - box.top, r.bottom - box.top,
-    {top: row.top - box.top, bottom: row.bottom - box.top}, log.clientHeight);
+    {top: row.top - box.top, bottom: row.bottom - box.top}, log.clientHeight, heading?.getBoundingClientRect().height || 0);
 }
 function mark(idx) {
   $('log').querySelectorAll('.now').forEach((el) => el.classList.remove('now'));
@@ -262,7 +233,7 @@ function zoom(k, src) {
   // A rebuilt small object: once the room was rendered with it, the photo beside the rebuilt model.
   const later = (e.media || []).findLast((m) => m.role === 'comparison' && m.minute <= tl.realAt(player.t));
   player.pause();
-  $('lb').innerHTML = `<div><img src="${files(later?.src || src || e.img)}" alt=""><div class="cap">${say(e)}</div></div>`;
+  $('lb').innerHTML = `<div><img src="${esc(later?.src || src || e.img)}" alt=""><div class="cap">${say(e)}</div></div>`;
   $('lb').classList.add('on');
 }
 $('log').addEventListener('click', (ev) => {
@@ -422,10 +393,13 @@ function render(t, p, animate = p.playing) {
 function filterStrip(event) {
   const img = event.target;
   if (!isStrip(img.naturalWidth, img.naturalHeight)) return;
-  strips.add(img.dataset.file);
+  if (!cardImages.strips.has(img.dataset.file)) {
+    cardImages.strips.add(img.dataset.file);
+    cardImages.prune(deck, tl.events);
+  }
   const holder = img.closest('.th, .wide');
   if (holder?.isConnected) {
-    const restore = keepReading();
+    const restore = keepReading($('log'), tl.events);
     draw(+holder.closest('[data-c]').dataset.c, shownTo);
     mark(shownTo);
     restore();
