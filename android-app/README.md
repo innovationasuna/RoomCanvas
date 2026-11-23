@@ -47,7 +47,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## 在本机模拟器上调试
 
 1. 在 macOS 的 Android SDK 中安装 Emulator 和 Platform Tools，准备名为 `RoomCanvas_API_34` 的 Android 14 ARM64 虚拟设备。使用自定义 SDK 路径时设置 `ANDROID_HOME`。
-2. 启动脚本读取固定位置的 APK。首次准备时，从仓库根目录执行下面的命令，将本次构建的 APK 放到脚本使用的位置。
+2. 首次使用时从仓库根目录创建 `output/android/`。每次要测试新构建时，先用下面的 `cp` 命令更新该目录中的 APK，再运行启动脚本。
 3. 启动后若提示需要华为 AR Engine 服务，选“仅用方向键”。导入房间后点“开始漫游”。用鼠标按方向键或拖动右半屏，与触屏操作对应。
 
 ```bash
