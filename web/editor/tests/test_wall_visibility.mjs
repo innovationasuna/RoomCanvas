@@ -1,11 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import * as THREE from '../../vendor/build/three.module.js';
+import {roomConfig} from '../room-catalog.mjs';
+import {cutawaySupport} from '../scene-entities.mjs';
 import {hiddenWalls, deriveJoins, createWallVisibility, setSeeThrough, seeThrough, nearestWall, againstWall, inNearHalf, SEE_THROUGH} from '../wall-visibility.mjs';
 const walls = [
   {name: 'Wall0', n: [1,0,0]}, {name: 'Wall1', n: [-1,0,0]},
   {name: 'Wall2', n: [0,0,1]}, {name: 'Wall3', n: [0,0,-1]},
 ];
+
+test('a pot on an inner shelf follows the editable cabinet only while it rests there', () => {
+  const manifest = new URL('../../../samples/activity-classroom/room_objects.json', import.meta.url);
+  const {catalog} = roomConfig(JSON.parse(readFileSync(manifest, 'utf8')));
+  const entity = (id) => ({...catalog.find(item => item.id === id), origin: new THREE.Vector3(), group: new THREE.Group()});
+  const cabinet = entity('CabinetMount'), pot = entity('ShelfC0R1B');
+  const entities = new Map([[cabinet.id, cabinet], [pot.id, pot]]);
+  const layout = {[cabinet.id]: {}, [pot.id]: {}};
+  const carcass = new THREE.Group();
+  carcass.name = 'Storage_Carcass';
+  cabinet.group.add(carcass);
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(2, .1, 1));
+  const upperShelf = shelf.clone();
+  upperShelf.position.y = 1;
+  carcass.add(shelf, upperShelf);
+  const potMesh = new THREE.Mesh(new THREE.BoxGeometry(.2, .2, .2));
+  potMesh.position.y = .15;
+  pot.group.add(potMesh);
+  const support = (state = {state: 'draft'}) => cutawaySupport(THREE, pot, state, entities, layout);
+  assert.equal(support(), 'CabinetMount', 'Storage0 is part of the wall-mounted cabinet');
+  assert.equal(support({support: 'Table0'}), 'Table0', 'current placement takes precedence');
+  assert.equal(support({support: null}), null, 'floor contact also takes precedence');
+  layout.CabinetMount.visible = false;
+  assert.equal(support(), undefined, 'a stored cabinet cannot support the pot');
+  layout.CabinetMount.visible = true;
+  pot.group.position.x = .5;
+  assert.equal(support(), 'CabinetMount', 'the pot still touches the shelf after sliding along it');
+  pot.group.position.x = 3;
+  assert.equal(support(), undefined, 'the pot moved past the end of its authored shelf');
+  pot.group.position.set(0, .2, 0);
+  assert.equal(support(), undefined, 'the pot lifted clear of the shelf');
+});
 test('view direction hides facing and edge-on walls and restores the opposite side', () => {
   assert.deepEqual([...hiddenWalls(walls, [4,3,0])], ['Wall1', 'Wall2', 'Wall3']);
   const corner = hiddenWalls(walls, [4,3,4]);
