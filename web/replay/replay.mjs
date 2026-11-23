@@ -193,8 +193,20 @@ function draw(c, idx) {
   const holder = document.createElement('div');
   holder.innerHTML = `<div data-c="${c}" data-key="${esc(card.key)}">` +
     (stage ? `<div class="stage-h">${esc(data.stages.find((s) => s.id === card.stage)?.name)}</div>` : '') + body + '</div>';
-  const old = $('log').querySelector(`[data-c="${c}"]`);
-  old ? old.replaceWith(holder.firstChild) : $('log').append(holder.firstChild);
+  const old = $('log').querySelector(`[data-c="${c}"]`), fresh = holder.firstChild;
+  if (!old) return $('log').append(fresh);
+  // Keep the pictures already shown: a new <img> is blank until it decodes, so rebuilding a growing card
+  // made every thumbnail in it flash at each record.
+  const shown = new Map();
+  old.querySelectorAll('img').forEach((img) => shown.set(img.getAttribute('src'), [...shown.get(img.getAttribute('src')) || [], img]));
+  fresh.querySelectorAll('img').forEach((img) => {
+    const kept = shown.get(img.getAttribute('src'))?.shift();
+    if (kept) {
+      kept.style.cssText = img.style.cssText;
+      img.replaceWith(kept);
+    }
+  });
+  old.replaceWith(fresh);
 }
 function renderLog(idx) {
   const follow = nearEnd(), grew = idx > shownTo;
