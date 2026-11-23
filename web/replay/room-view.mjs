@@ -32,6 +32,7 @@ const CLOSE_POLAR = 1.0;  // rad from straight down: looking at an object a litt
 const HIGH_POLAR = 0.7;   // a steeper look, over what stands in front
 const MAX_WAIT = 2200;    // ms an object waits for the camera before taking shape anyway
 const MAX_GROUP = 40;     // more objects appearing at once than this is the whole model being shown: no forming
+const NEAR_SHARE = 0.02, NEAR_MIN = 0.05, NEAR_MAX = 0.5;  // camera near plane, as a share of the distance to the target
 const CASCADE_STEP = 0.25, CASCADE_SECONDS = 4;  // objects appearing together start this far apart, all within
 
 // Pipeline object ids -> nodes of the assembled room: Bed0 stays Bed0; the k-th door / window becomes Door<k> /
@@ -777,6 +778,10 @@ export class RoomView {
       });
     }
     this.controls.update();
+    // The near plane follows the distance: from the overview a fixed 5 cm left about 1 mm of depth precision,
+    // and a window's photo backdrop 1 mm before its backing broke into grey blocks as the camera turned.
+    const near = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
+    if (Math.abs(near - this.camera.near) > 1e-3) {this.camera.near = near; this.camera.updateProjectionMatrix();}
     this.renderer.render(this.scene, this.camera);
   }
 
