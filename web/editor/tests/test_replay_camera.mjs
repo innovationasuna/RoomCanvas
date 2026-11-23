@@ -11,13 +11,14 @@ const imports = registerHooks({resolve(specifier, context, next) {
   return next(specifier, context);
 }});
 const {RoomView} = await import('../../replay/room-view.mjs');
+const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
 const {OrbitControls} = await import('three/addons/controls/OrbitControls.js');
 imports.deregister();
 
 function model() {
   const root = new THREE.Group();
   root.visible = false;
-  Object.assign(root.userData, {fade: 1, mask: [], fadeMats: []});
+  Object.assign(root.userData, {fade: 1, mask: [], fadeMats: [], windows: new Map()});
   const entry = {root};
   entry.promise = Promise.resolve(entry);
   return entry;
@@ -28,10 +29,10 @@ function room() {
   const view = Object.assign(Object.create(RoomView.prototype), {
     camera, controls: new OrbitControls(camera), scene: new THREE.Scene(), center: new THREE.Vector3(),
     vel: {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()}, paused: false, rate: 1, speed: 1, time: 1,
-    renderer: {render() {}}, forming: {active: new Set(), waiting: () => false, update() {}, triangles: () => null,
-      finishModel(root) {this.active.delete(root);}, finishAll() {this.active.clear();}}, formTag: {}, wallFades: [], wantPhysical: false,
+    renderer: {capabilities: {getMaxAnisotropy: () => 1}, render() {}}, forming: {active: new Set(), waiting: () => false, update() {}, triangles: () => null,
+      releaseModel() {}, finishModel(root) {this.active.delete(root);}, finishAll() {this.active.clear();}}, formTag: {}, wallFades: [], wantPhysical: false,
   });
-  Object.assign(view, {models: {seed: model(), final: model()}, boxes: {}, calm: {matches: false}});
+  Object.assign(view, {models: {seed: model(), final: model()}, retryAt: {}, retiring: new Set(), boxes: {}, calm: {matches: false}});
   view.watchOrbit();
   view.controls.enableDamping = true;
   view.frame(new THREE.Box3(new THREE.Vector3(-2, -1, -2), new THREE.Vector3(2, 1, 2)));
@@ -158,7 +159,7 @@ async function page(t, live, data = {}) {
     return nodes.get(id);
   }
   let frame, poll;
-  const host = {window: {view}, location: {search: '?job=' + '0'.repeat(32)},
+  const host = {window: {view}, location: {href: 'https://room.test/replay.html', search: '?job=' + '0'.repeat(32)},
     document: {getElementById: node, createElement: element}, ResizeObserver: class {observe() {}},
     addEventListener() {}, requestAnimationFrame(fn) {frame = fn;},
   };
@@ -337,25 +338,42 @@ test('following a live job keeps the wheel zoom until the job finishes', async t
   checkOverviewSpin(view);
 });
 
+test('a live rebuild keeps a paused reader at the same time without starting effects', async t => {
+  const {view, job, player, poll, scrub} = await page(t, true);
+  scrub(40);
+  const time = player.t;
+  job.events.push({stage: 'assemble', minute: 5, kind: 'milestone', model: 'final'});
+  await poll();
+  assert.equal(player.t, time);
+  assert.equal(player.playing, false);
+  assert.equal(view.lastOptions.quiet, true);
+});
+
 test('a live poll fades in a new draft while scrubbing to the same draft shows it at once', async t => {
   const {view, job, player, poll, scrub} = await page(t, true);
   frames(view, 60);
   job.events.push({stage: 'assemble', minute: 5, kind: 'milestone', model: 'draft1'});
   job.models.draft1 = 'draft1';
-  const draft = view.models.draft1 = model();
+  t.mock.method(GLTFLoader.prototype, 'loadAsync', async () => ({scene: new THREE.Group()}));
+  view.warm = async () => {};
+  view.modelsFramed = true;
   await poll();
   await loaded();
   frames(view, 8);
   assert.equal(player.playing, false);
   assert.equal(view.incoming, 'draft1');
-  assert.ok(draft.root.visible && draft.root.userData.fade > 0 && draft.root.userData.fade < 1);
+  const draft = view.models.draft1.root;
+  assert.ok(draft.visible && draft.userData.fade > 0 && draft.userData.fade < 1);
   scrub(0);
+  assert.equal(view.models.draft1, undefined);
   scrub(100);
   await loaded();
   assert.equal(view.current, 'draft1');
   assert.equal(view.incoming, null);
-  assert.ok(draft.root.visible);
-  assert.equal(draft.root.userData.fade, 1);
+  const reloaded = view.models.draft1.root;
+  assert.notEqual(reloaded, draft);
+  assert.ok(reloaded.visible);
+  assert.equal(reloaded.userData.fade, 1);
 });
 
 function loadLayout(view) {

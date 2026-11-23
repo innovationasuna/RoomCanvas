@@ -123,6 +123,7 @@ export class Materializer {
     this.scene = scene;
     this.wire = wire;
     this.active = new Map();  // node -> effect
+    this.layers = new WeakMap(); // mesh -> active solid replacements, in start order
     // Point/wire shaders belong to the view; clipped copies belong to one model.
     this.clones = new Map();     // original material -> reusable clipped copies
     this.busy = new Set();        // clones in use (two objects taking shape at once may share a material)
@@ -132,11 +133,13 @@ export class Materializer {
 
   // held: the object stays hidden until release(), e.g. while the camera moves in. delay: seconds it stays hidden
   // after that, so a group taking shape together forms one after another (its points are sampled only then).
-  start(node, {held = false, delay = 0} = {}) {
+  start(node, {held = false, delay = 0, skipWindows = false} = {}) {
     this.finish(node);
     node.updateWorldMatrix(true, true);
     const meshes = [];
-    node.traverse((o) => {if (o.isMesh && o.visible && !o.userData.mask) meshes.push(o);});
+    node.traverse((o) => {
+      if (o.isMesh && o.visible && !o.userData.mask && !(skipWindows && o.userData.replayWindowMesh)) meshes.push(o);
+    });
     const box = new THREE.Box3();
     meshes.forEach((o) => box.expandByObject(o));
     if (!meshes.length || box.isEmpty()) return;
@@ -157,15 +160,23 @@ export class Materializer {
     const wireMats = kit.wireMats;
     const swaps = [], extras = [];
     for (const o of meshes) {
-      const orig = o.material, list = [orig].flat();
+      // An object and one of its descendants can take shape at the same time.
+      const mask = o.children.find(child => child.userData.mask === 'depth');
+      if (mask) {mask.userData.forming++; mask.visible = false;}
+      const layers = this.layers.get(o) || [];
+      const orig = layers.length ? layers[0].orig : o.material, list = [orig].flat();
       const clones = list.map((m) => {
         const c = this.clipped(m, owner(node));
         this.busy.add(c);
         c.clippingPlanes = [solidTop];
         return c;
       });
-      o.material = Array.isArray(orig) ? clones : clones[0];
-      swaps.push({o, orig, list, clones});
+      const material = Array.isArray(orig) ? clones : clones[0];
+      const swap = {o, orig, list, clones, mask, material};
+      layers.push(swap);
+      this.layers.set(o, layers);
+      o.material = material;
+      swaps.push(swap);
       for (const m of wireMats) {
         const w = new THREE.Mesh(o.geometry, m);
         w.userData.mask = true;  // not part of the model (skipped by sampling and fades)
@@ -220,13 +231,19 @@ export class Materializer {
   }
 
   // Let held objects take shape.
-  release() {for (const e of this.active.values()) e.held = false;}
+  release(frozenRoot) {for (const e of this.active.values()) if (!inside(e.node, frozenRoot)) e.held = false;}
   waiting() {return [...this.active.values()].some((e) => e.held);}
 
-  update(dt) {
+  update(dt, frozenRoot, hiddenWindows) {
     for (const e of this.active.values()) {
-      if (!e.held) e.t += dt;
-      if (e.t >= DONE || !shown(e.node)) {this.finish(e.node); continue;}
+      const frozen = frozenRoot && inside(e.node, frozenRoot), visible = shown(e.node);
+      if (e.cloud) e.cloud.visible = visible; // the cloud lives in the scene, outside the hidden window subtree
+      if (!visible) {
+        if (!frozen || !hiddenWindows || !shown(e.node, hiddenWindows)) this.finish(e.node);
+        continue;
+      }
+      if (!e.held && !frozen) e.t += dt;
+      if (e.t >= DONE) {this.finish(e.node); continue;}
       this.place(e);
     }
   }
@@ -261,7 +278,9 @@ export class Materializer {
     // The clones follow the originals, which the room view keeps fading (near walls, model swaps).
     for (const s of e.swaps) s.clones.forEach((c, i) => {
       const m = s.list[i];
-      c.opacity = m.opacity; c.transparent = m.transparent; c.depthWrite = m.depthWrite; c.visible = m.visible;
+      if (c.transparent !== m.transparent) {c.transparent = m.transparent; c.needsUpdate = true;}
+      c.opacity = m.opacity; c.depthWrite = m.depthWrite; c.visible = m.visible;
+      c.polygonOffset = m.polygonOffset; c.polygonOffsetFactor = m.polygonOffsetFactor; c.polygonOffsetUnits = m.polygonOffsetUnits;
     });
   }
 
@@ -277,7 +296,14 @@ export class Materializer {
     const e = this.active.get(node);
     if (!e) return;
     this.active.delete(node);
-    for (const s of e.swaps) {s.o.material = s.orig; s.clones.forEach((c) => this.busy.delete(c));}
+    for (const s of e.swaps) {
+      const layers = this.layers.get(s.o);
+      layers.splice(layers.indexOf(s), 1);
+      s.o.material = layers.at(-1)?.material ?? s.orig;
+      if (!layers.length) this.layers.delete(s.o);
+      if (s.mask && --s.mask.userData.forming === 0) s.mask.visible = !!s.mask.userData.fadeVisible;
+      s.clones.forEach((c) => this.busy.delete(c));
+    }
     e.extras.forEach((w) => w.removeFromParent());
     e.cloud?.removeFromParent();
     e.cloud?.geometry.dispose();
@@ -327,7 +353,7 @@ function lifted(material) {
   return material;
 }
 
-function shown(node) {
-  for (let o = node; o; o = o.parent) if (!o.visible) return false;
+export function shown(node, temporarilyHidden) {
+  for (let o = node; o; o = o.parent) if (!o.visible && !temporarilyHidden?.has(o)) return false;
   return true;
 }

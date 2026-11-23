@@ -132,7 +132,7 @@ function rebuild(followLatest) {
   fitLabels();
   $('live').hidden = !data.live;
   if (followLatest) player.seek(span(), {animate: data.live});
-  else render(player.t, player, true);
+  else render(player.t, player);
 }
 
 // ---------- left: the record, newest at the bottom ----------
@@ -261,12 +261,11 @@ $('dots').onclick = (ev) => {
 
 // ---------- timeline ----------
 function seekTo(t) {
-  player.pause();
+  following = t >= span() - 0.01;
   reveal = true;  // the record moved to is brought into view (seek renders at once)
-  player.seek(t);
+  player.seek(t, {pause: true});
   revealCard();
   reveal = false;
-  following = t >= span() - 0.01;
 }
 function fitLabels() {
   const width = $('track').clientWidth;
