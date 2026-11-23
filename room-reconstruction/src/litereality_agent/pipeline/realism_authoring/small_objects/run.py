@@ -33,6 +33,11 @@ The operator may steer it through the environment (all optional):
 Photos, policy and a supplied model are part of each item's own inputs: changing them judges and
 rebuilds again only the items they concern. Each item's outcome is traced as `small_object_done`
 when it is settled.
+
+A box the author marked with `RoomScene.mark_small` (a `marker` item) is only rebuilt or dropped:
+Astra is asked judge.MARKER, with the author's description, and a "procedural" answer or force is
+coerced to "trellis". A marker whose rebuild fails stays the author's coloured box (`kept`, with
+the reason in its trace record and summary.md).
 """
 
 from __future__ import annotations
@@ -134,10 +139,14 @@ class Pass:
         method = {"drop": "dropped", "procedural": "procedural"}.get(decision, "kept")
         if decision == "trellis" and item.get("glb"):
             method = "trellis"
-        source = item["decision"].get("source") if method == "trellis" else None
+        extra = {"marker": True} if item.get("marker") else {}
+        if method == "trellis" and item["decision"].get("source"):
+            extra["source"] = item["decision"]["source"]
+        if method == "kept":  # why the author's model (a marker's box) is still there
+            extra["reason"] = (item.get("decision_error") or item.get("reference_error")
+                               or item.get("glb_error") or "not rebuilt")
         self.record("small_object_done", name=item["id"], method=method,
-                    status="failed" if method == "kept" else "ok", reused=reused,
-                    **({"source": source} if source else {}))
+                    status="failed" if method == "kept" else "ok", reused=reused, **extra)
 
     def photos(self, item) -> list[Path]:
         """The operator's close-ups of this item, <LR_SMALL_OBJECTS_PHOTOS>/<id>/*.jpg."""
@@ -161,9 +170,10 @@ class Pass:
         """What decides an item besides the room: its photos, the policy and a supplied model.
         None when there is none of them, so an item judged before they existed keeps its results."""
         photos, model = self.photos(item), self.model(item)
-        if not photos and not self.policy and not model:
+        policy = None if item.get("marker") else self.policy  # a marker's question has none
+        if not photos and not policy and not model:
             return None
-        key = {"policy": self.policy, "photos": {p.name: cache.file_hash(p) for p in photos}}
+        key = {"policy": policy, "photos": {p.name: cache.file_hash(p) for p in photos}}
         if model:  # only then, so the key of an item without one stays what it was
             key["model"] = cache.file_hash(model)
         return cache.fingerprint(key)
@@ -218,9 +228,15 @@ class Pass:
                 and not self.model(item)):
             self.log(f"{item['id']}: no photo to rebuild it from; LR_SMALL_OBJECTS_FORCE ignored")
             want = judged
+        coerced = item.get("marker") and want == "procedural"
+        if coerced:  # a marker's box is a placeholder, never the model to keep
+            self.log(f"{item['id']}: a marker is rebuilt or dropped, not kept; procedural -> trellis")
+            want = "trellis"
         if want == answer["decision"]:
             return False
-        item["decision"] = {**answer, "decision": want, "judged": judged, "forced": want != judged}
+        earlier = {key: value for key, value in answer.items() if key != "coerced"}
+        item["decision"] = {**earlier, "decision": want, "judged": judged, "forced": want != judged,
+                            **({"coerced": True} if coerced else {})}
         return True
 
     def listing(self):
@@ -405,7 +421,9 @@ class Pass:
             # The operator's close-ups lead: the first tile is the sheet's primary view.
             tiles = [*evidence.photo_inputs(self.photos(item), folder / "tiles"),
                      *evidence.generator_inputs(item["views"], folder / "tiles")]
-            meta = rebuild.make_reference(item, tiles, item["decision"]["description"], folder)
+            # A marker's own description stands in when Astra gave none.
+            description = item["decision"]["description"] or item.get("description", "")
+            meta = rebuild.make_reference(item, tiles, description, folder)
             return str(folder / "reference.png"), (meta or {}).get("cost_usd") or 0
 
         with ThreadPoolExecutor(self.concurrency) as pool:
@@ -501,8 +519,9 @@ class Pass:
 
     def outcome(self, item) -> str:
         decision = item.get("decision", {}).get("decision")
+        unchanged = "marker box kept" if item.get("marker") else "unchanged"
         if decision is None:
-            return "unchanged (no decision: " + item.get("decision_error", "not judged") + ")"
+            return unchanged + " (no decision: " + item.get("decision_error", "not judged") + ")"
         if decision == "procedural":
             return "kept procedural"
         if decision == "drop":
@@ -510,7 +529,7 @@ class Pass:
         if item["decision"].get("source") and item.get("glb"):
             return "the operator's model " + Path(item["decision"]["source"]).name
         if not item.get("glb"):
-            return "unchanged, rebuild failed (" + str(item.get("reference_error")
+            return unchanged + ", rebuild failed (" + str(item.get("reference_error")
                                                       or item.get("glb_error")) + "); rerun to retry"
         return "rebuilt with TRELLIS"
 

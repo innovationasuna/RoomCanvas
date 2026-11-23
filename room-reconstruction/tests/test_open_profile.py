@@ -206,3 +206,25 @@ def test_the_repair_session_gets_the_same_paragraph(tmp_path, monkeypatch):
     assert "OPERATOR MATERIAL" in briefed.prompt and str(material.resolve()) in briefed.roots()
     assert "OPERATOR MATERIAL" not in plain.prompt
     assert plain.roots() == sorted({str(scan), str(report.parent)})
+
+
+# ── small objects: marked for the pass, not modelled ─────────────────────────
+
+
+def test_the_small_object_profiles_mark_instead_of_modelling():
+    for name in ("simulation", "open"):
+        text = author.PROFILES[name]
+        assert "scene.mark_small(" in text and "multi-part procedural geometry" not in text
+    assert "mark_small" not in author.PROFILES["base"] + author.PROFILES["detail"]
+    assert "books/boxes as small blocks" in author.PROFILES["detail"]  # part of the shelf
+
+
+def test_a_room_older_than_mark_small_is_told_where_to_copy_it(tmp_path, monkeypatch):
+    note = author.MARK_SMALL_TEMPLATE.format(template=author.TEMPLATE)
+    _, room, spec, _ = _author(tmp_path, monkeypatch)
+    assert note in spec.prompt and "def mark_small" in author.TEMPLATE.read_text()
+    _, _, spec, _ = _author(tmp_path, monkeypatch, profile="base")  # asks for no marker
+    assert note not in spec.prompt
+    (room / "Room.py").write_text("class RoomScene:\n    def mark_small(self): ...\n")
+    _, _, spec, _ = _author(tmp_path, monkeypatch)
+    assert note not in spec.prompt and "scene.mark_small(" in spec.prompt

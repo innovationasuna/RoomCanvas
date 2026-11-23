@@ -6,7 +6,9 @@ A candidate is an object the author stage built from primitives that a person co
 move: not the room shell, not a door or window, not a reconstructed asset (it already has a
 `source_glb`), not a fixed installation (sockets, switches, lights, vents), not anything mounted
 on a wall or the ceiling (curtains, pictures, wall shelves), and not furniture that holds other
-things (`placeable_surface`). There is no size threshold; Astra decides per item.
+things (`placeable_surface`). There is no size threshold; Astra decides per item. A box the author
+marked with `RoomScene.mark_small` (`small_marker`) is always one: the author put it there for
+this pass to rebuild, and only its rebuild or its removal is asked about (`marker`).
 
 Objects stacked on each other (a pile of books, a loose score on the top book) are judged and
 rebuilt as one item: an object that rests on another candidate and covers most of it, while
@@ -40,6 +42,8 @@ def overlap(a, b) -> float:
 
 
 def is_candidate(item: dict, objects: dict[str, dict]) -> bool:
+    if item.get("small_marker"):
+        return True
     category = item["category"]
     if item.get("source_glb") or category in STRUCTURE | OPENINGS | FIXED:
         return False
@@ -103,5 +107,10 @@ def find_candidates(layout: dict) -> list[dict]:
             "rests_on": base.get("rests_on"),
             "attached_to": base.get("attached_to"),
             "support_part": base.get("support_part"),
+            # Both always present, so an item that stops being a marker or changes its
+            # description is not the same candidate any more (pass_cache.carry).
+            "marker": all(item.get("small_marker") for item in items),
+            "description": "; ".join(item["description"] for item in items
+                                     if item.get("description")),
         })
     return result

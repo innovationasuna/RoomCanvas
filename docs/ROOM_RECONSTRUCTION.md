@@ -145,7 +145,7 @@ PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
   --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
 ```
 
-`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁。author 的建模会话搭完房间后，先在这个房间上做小物件（见 [小物件](#小物件)：会话里放好的现成模型不再动，其余小物品逐件去掉、保留或按照片用 TRELLIS 重建）和可动部件（见 [可动部件](#可动部件)），再检查一次装好的完整房间（家具支撑，再由独立模型对照照片判断是否通过，不打分）。没通过就修一次：修复 agent 改的是 `Room.py`，改完重新编译，小物件和可动部件在修改后的房间上自动再做一遍（两步各自保留没被修改动到的物品的判断、模型和检查，只重做变了的），这个房间就是结果，不再复查，发布时也不再检查（`--repair-rounds 0` 只检查不修：没通过时这一阶段以 `needs_repair` 结束，不会发布，正式重建不要用）。发布的就是这个完整房间：检查时的版本没有变时不重新编译，直接把它放进 `realism_authoring/room_preview/` 并烘焙材质。哪一步没做成（日志 `realism_authoring/logs/small_objects.log`、`articulate.log`）时，房间不带这一步的结果继续检查和发布，`author_acceptance.json` 和发布的 `acceptance.json` 的 `passes` 记下每一步的结果。上面的模型和思考程度由命令行显式指定。
+`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁。author 的建模会话搭完房间后，先在这个房间上做小物件（见 [小物件](#小物件)：会话里放好的现成模型不再动，会话用 `mark_small` 标出的小物品逐件按照片用 TRELLIS 重建或去掉，会话自己搭的其余小物品逐件去掉、保留或重建）和可动部件（见 [可动部件](#可动部件)），再检查一次装好的完整房间（家具支撑，再由独立模型对照照片判断是否通过，不打分）。没通过就修一次：修复 agent 改的是 `Room.py`，改完重新编译，小物件和可动部件在修改后的房间上自动再做一遍（两步各自保留没被修改动到的物品的判断、模型和检查，只重做变了的），这个房间就是结果，不再复查，发布时也不再检查（`--repair-rounds 0` 只检查不修：没通过时这一阶段以 `needs_repair` 结束，不会发布，正式重建不要用）。发布的就是这个完整房间：检查时的版本没有变时不重新编译，直接把它放进 `realism_authoring/room_preview/` 并烘焙材质。哪一步没做成（日志 `realism_authoring/logs/small_objects.log`、`articulate.log`）时，房间不带这一步的结果继续检查和发布，`author_acceptance.json` 和发布的 `acceptance.json` 的 `passes` 记下每一步的结果。上面的模型和思考程度由命令行显式指定。
 
 房间发布之后还要按意见修改时（例如换一张贴图、改几件物品），把要求写进 `LR_AUTHOR_EXTRA` 指向的说明里，再用 `run_room.py <扫描> <运行目录> --from author --through publish --revise`（其余 `--set` 与之前相同）：`--revise` 让已经完成的 author 阶段在现有房间上再开一次建模会话，不回到初版房间（`--force author` 才是从头再搭），之后照常做小物件和可动部件、检查、修复、发布。不带 `--revise` 时，已完成的 author 阶段会直接复用，不会开新会话。
 
@@ -190,7 +190,7 @@ PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
 
 会话上限用 `--set LR_CODEX_SESSION_SECONDS=<秒>`（默认 3600）和 `--set AUTHOR_STEPS=<工具调用次数>`（open 默认 300）。到达任一上限时 Codex 会话被结束，已保存的 `Room.py` 和断点保留，author 阶段报 `needs_repair` 而失败；用同样的参数重新执行即接着上次的房间开新会话。
 
-有预先做好的小物件模型时（见 [预先做好小物件模型](#预先做好小物件模型)），agent 自己把它们放进房间，不用在 `README.md` 里交代。要让小物件那一步重建其余的某样东西，`README.md` 应要求 agent 把它做成单独一组（`group_fixture`），用描述性的驼峰名（如 `TissueBox0`、`Plant1`；小物件那一步按名字在扫描照片里找它），并声明 `rests_on`（桌面或地面），不要用 `attached_to` 挂在墙或天花板上，也不要标成可放东西的家具。挂墙的、类别为 `panel`、`socket`、`light` 等固定设施的，以及已有重建网格的物品都不会成为候选；叠放在另一个候选上并盖住它大半的物件会和它合成一组。
+有预先做好的小物件模型时（见 [预先做好小物件模型](#预先做好小物件模型)），agent 自己把它们放进房间，不用在 `README.md` 里交代。建模 agent 本来就会把桌面、柜面上能在照片里指认的散放小物件用 `mark_small` 标出来（见 [小物件](#小物件)），交给小物件那一步重建。要让小物件那一步重建其余的某样东西，`README.md` 应要求 agent 同样用 `mark_small` 标出它，或把它做成单独一组（`group_fixture`），用描述性的驼峰名（如 `TissueBox0`、`Plant1`；小物件那一步按名字在扫描照片里找它），并声明 `rests_on`（桌面或地面），不要用 `attached_to` 挂在墙或天花板上，也不要标成可放东西的家具。agent 自己搭的物品中，挂墙的、类别为 `panel`、`socket`、`light` 等固定设施的，以及已有重建网格的物品都不会成为候选（`mark_small` 标出的总是候选）；叠放在另一个候选上并盖住它大半的物件会和它合成一组。
 
 ## 接入网页
 
@@ -240,7 +240,13 @@ python3 web/scripts/serve.py
 
 ## 小物件
 
-对房间中的书、拖鞋、枕头等物品，挑选照片、判断是否需要重建，再用 TRELLIS 生成模型并放回原处。完整重建里由 author 阶段在检查之前自动做（结果在场景的 `realism_authoring/small_objects/`），下面的变量照样用 `--set` 传给完整重建。对以前发布的房间（发布后才单独做小物件的旧流程），也可以单独运行，不重跑房间建模，结果不经过检查：
+对房间中的书、拖鞋、枕头等物品，挑选照片、判断是否需要重建，再用 TRELLIS 生成模型并放回原处。
+
+建模 agent（simulation、open 两种任务说明）不再给散放的小物件（杯子、纸巾盒、盆栽、瓶子等）搭形状，只用 `Room.py` 里的 `scene.mark_small("TissueBox0", "tissue_box", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0", description="a white tissue box", color=(r, g, b))` 标出每一件：一个方块，底面中心、尺寸、朝向与 `place_model` 的约定相同，涂成它的主色，按种类加序号命名，`description` 一行写它是什么、颜色和材质。方块在 `room_layout.json` 里带 `small_marker: true` 和 `description`。书架上的一排书、柜子里的东西等属于家具本身的部分仍是家具自己的几何体，不标。比 `mark_small` 早的 `Room.py` 没有这个方法，任务说明会让 agent 从 `room_ops/compile/build_room.py` 抄进去（连同 `_register`、`index` 里带出标记的几行）。
+
+小物件那一步对标出的方块只在重建和去掉之间选：仍逐件问一次判断模型（问题说明当前模型只是占位方块，附上 agent 写的描述，并要它写出重建用的描述），只有任何图里都看不出这件东西时才去掉；判断或 `LR_SMALL_OBJECTS_FORCE` 给出 `procedural` 时改成 `trellis`，`decision` 记 `coerced: true`。`LR_SMALL_OBJECTS_POLICY` 只影响 agent 自己搭的物品，那些物品的判断和以前一样。重建成功后方块被换成 TRELLIS 模型；生成参考图或 TRELLIS 没做成时（例如等不到共享 GPU 的显存），方块按原样留在房间里，这一步不失败：`summary.md` 写 `marker box kept, rebuild failed (原因)`，`small_object_done` 的 `method` 为 `kept`，带 `marker: true` 和 `reason`，author 阶段把这一步记为 `partial` 并列出这些物件。agent 改了某件的描述或把它改成/改回标记时，只重新判断、重建这一件。
+
+完整重建里由 author 阶段在检查之前自动做（结果在场景的 `realism_authoring/small_objects/`），下面的变量照样用 `--set` 传给完整重建。对以前发布的房间（发布后才单独做小物件的旧流程），也可以单独运行，不重跑房间建模，结果不经过检查：
 
 **服务器上**，在 `RoomCanvas/` 根目录，按 [运行](#运行) 设置 `ROOMCANVAS_HOME` 和 `PY` 后执行；输入是含 `scene.json` 的已有场景目录：
 
@@ -255,8 +261,8 @@ python3 web/scripts/serve.py
 
 | 变量 | 作用 |
 | --- | --- |
-| `LR_SMALL_OBJECTS_POLICY=trellis-first` | 尽量用 TRELLIS 重建：只有任何图里都看不出来才删，只有规整到 TRELLIS 帮不上忙的才保留原模型；不设时判断标准不变 |
-| `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（仍会问一次，用于取得重建所需的描述）；id 不在候选里时报错 |
+| `LR_SMALL_OBJECTS_POLICY=trellis-first` | 尽量用 TRELLIS 重建：只有任何图里都看不出来才删，只有规整到 TRELLIS 帮不上忙的才保留原模型；不设时判断标准不变。`mark_small` 标出的方块本来就这样判断，不受它影响 |
+| `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（仍会问一次，用于取得重建所需的描述）；id 不在候选里时报错；对标出的方块，`procedural` 按 `trellis` 处理 |
 | `LR_SMALL_OBJECTS_PHOTOS=<目录>` | `<目录>/<id>/*.jpg` 是该物件的近照，交给判断模型，并作为参考图的前几格；扫描里看不到但有近照的物件也会被判断 |
 | `LR_SMALL_OBJECTS_MODELS=<目录>` | 预先做好的模型（见下）：id 为 `<种类>` 或 `<种类>` 加数字的物件（`TissueBox0`、`TissueBox12`）直接用 `<目录>/<种类>.glb`，`<目录>/<id>.glb` 优先；不问判断模型、不生成参考图、不启动 TRELLIS（按它替换的物件尺寸再去一次碎块，以前做好的模型也一样），扫描里看不到也照样替换，之后和自己重建的一样贴合原位置、朝向并放回房间。记录里 `decision` 带 `forced` 和 `source`，`small_object_done` 带 `source`；换了某个模型只重做用它的物件；目录里没有对应物件的模型只在日志里列一次；目录不存在时报错 |
 
@@ -271,7 +277,7 @@ python3 web/scripts/serve.py
 "$PY" room-reconstruction/server/run_room.py --premake-small-objects '<近照目录>' '<模型目录>' [--only TissueBox ...]
 ```
 
-近照按种类分目录：`<近照目录>/<种类>/*.jpg`（或 `.jpeg`），例如 `TissueBox/`、`WaterBottle/`，同一种类的几件（两包纸巾）共用一个模型；可选 `<近照目录>/<种类>/description.txt`，一行写这是什么，没有时按种类名写成 “a tissue box”。种类目录里也可以放一张 `reference.png`：物件本身已经抠好的一张图（四周透明，或黑底），这时直接拿它当参考图，不再调用图像模型（可以没有近照）；适合只有一个好角度、已经有干净图的物件，深色物件用透明底才不会和黑底混在一起。每个种类走小物件重建的同一套步骤，只去掉需要房间的部分：近照拼成参考底图、图像模型生成参考图（设置取服务器 `.env`）、TRELLIS（经 `run_room.py` 取得 GPU 和 TRELLIS 环境）、去掉碎块（按接触判断：保留最大的一块、立在模型底面上的各块，以及和这些块相接触的块，其余不论大小都去掉；一排架子上各自立着的几件、一叠书、书上的花瓶都保留）、按参考图校正色相并把非金属物件的金属度归零。结果是 `<模型目录>/<种类>.glb`，旁边的 `<种类>.json` 记下近照哈希、描述和模型设置；重跑时输入没变的种类直接跳过，换了近照的重做。失败的种类不留下 `.glb`，命令以非零退出；终端打印每个种类用了几张近照、结果路径和用时。运行记录在 `<模型目录>/attempt-NN/`，不写回放记录。重建时加 `--set LR_SMALL_OBJECTS_MODELS=<模型目录>`：会话开始前每个 `<种类>.glb` 去掉碎块后复制到房间的 `Models/<种类>.glb`（`Models/.sources.json` 记下来源哈希，来源没变就不重做），任务说明里多一段，列出每个模型的描述、宽深高比例和参考图（`<模型目录>/work/<种类>/reference.png`），要 agent 用 `Room.py` 里的 `scene.place_model("TissueBox0", "Models/TissueBox.glb", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0")` 按照片的位置放好，不再用方块搭占位：`bottom` 是底面中心，`size` 是量出的尺寸（只给一个数时是高度，保持模型比例），模型正面（−Y）按 `yaw_deg` 转向照片里朝的方向。这样放进去的物件带 `source_glb`，小物件那一步不再动它；会话仍用占位搭了的同名物件（`TissueBox1` 等），小物件那一步照旧换成 `<种类>.glb`。比 `place_model` 早的 `Room.py`（如 `--revise` 以前的房间）没有这个方法，任务说明会让 agent 从 `room_ops/compile/build_room.py` 抄进去。和补充材料一样，模型目录不计入 author 的输入指纹，author 跑过之后再换模型不会让它重跑。单独运行小物件时也可以加这个变量，按名字替换占位。
+近照按种类分目录：`<近照目录>/<种类>/*.jpg`（或 `.jpeg`），例如 `TissueBox/`、`WaterBottle/`，同一种类的几件（两包纸巾）共用一个模型；可选 `<近照目录>/<种类>/description.txt`，一行写这是什么，没有时按种类名写成 “a tissue box”。种类目录里也可以放一张 `reference.png`：物件本身已经抠好的一张图（四周透明，或黑底），这时直接拿它当参考图，不再调用图像模型（可以没有近照）；适合只有一个好角度、已经有干净图的物件，深色物件用透明底才不会和黑底混在一起。每个种类走小物件重建的同一套步骤，只去掉需要房间的部分：近照拼成参考底图、图像模型生成参考图（设置取服务器 `.env`）、TRELLIS（经 `run_room.py` 取得 GPU 和 TRELLIS 环境）、去掉碎块（按接触判断：保留最大的一块、立在模型底面上的各块，以及和这些块相接触的块，其余不论大小都去掉；一排架子上各自立着的几件、一叠书、书上的花瓶都保留）、按参考图校正色相并把非金属物件的金属度归零。结果是 `<模型目录>/<种类>.glb`，旁边的 `<种类>.json` 记下近照哈希、描述和模型设置；重跑时输入没变的种类直接跳过，换了近照的重做。失败的种类不留下 `.glb`，命令以非零退出；终端打印每个种类用了几张近照、结果路径和用时。运行记录在 `<模型目录>/attempt-NN/`，不写回放记录。重建时加 `--set LR_SMALL_OBJECTS_MODELS=<模型目录>`：会话开始前每个 `<种类>.glb` 去掉碎块后复制到房间的 `Models/<种类>.glb`（`Models/.sources.json` 记下来源哈希，来源没变就不重做），任务说明里多一段，列出每个模型的描述、宽深高比例和参考图（`<模型目录>/work/<种类>/reference.png`），要 agent 用 `Room.py` 里的 `scene.place_model("TissueBox0", "Models/TissueBox.glb", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0")` 按照片的位置放好，不再标占位方块：`bottom` 是底面中心，`size` 是量出的尺寸（只给一个数时是高度，保持模型比例），模型正面（−Y）按 `yaw_deg` 转向照片里朝的方向。这样放进去的物件带 `source_glb`，小物件那一步不再动它；没有现成模型的小物件照常用 `mark_small` 标出。会话仍用 `mark_small` 标了或自己搭了的同名物件（`TissueBox1` 等），小物件那一步照旧换成 `<种类>.glb`。比 `place_model` 早的 `Room.py`（如 `--revise` 以前的房间）没有这个方法，任务说明会让 agent 从 `room_ops/compile/build_room.py` 抄进去。和补充材料一样，模型目录不计入 author 的输入指纹，author 跑过之后再换模型不会让它重跑。单独运行小物件时也可以加这个变量，按名字替换占位。
 
 ## 可动部件
 

@@ -3,9 +3,10 @@
 With LR_SMALL_OBJECTS_MODELS=<dir> (premake's output: <Kind>.glb, its <Kind>.json receipt and
 work/<Kind>/reference.png), every model is copied into the room as Models/<Kind>.glb before the
 session, and the brief lists them: the session puts each one where the photographs show it with
-`RoomScene.place_model` instead of building a stand-in for the pass to swap. A model put in that
+`RoomScene.place_model` instead of marking a stand-in for the pass to swap. A model put in that
 way has a `source_glb`, so the small-object pass after the session leaves it alone; a thing the
-session still built itself stays a candidate and gets its model by name as before (run.Pass.model).
+session still marked (`RoomScene.mark_small`) or built itself stays a candidate and gets its
+model by name as before (run.Pass.model).
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ close-ups. Put each one where the photographs show it, in Room.py:
 depth, height), or only its height to keep the model's proportions; `yaw_deg` turns its front
 (-Y) the way it faces in the photographs. Name the copies <Kind>, <Kind>0, <Kind>1 ... Use these
 models rather than building those things from primitives, and declare their support like any
-group. Small things without a model you build as usual: after your session a pass rebuilds them
-from the photographs.{template}
+group. Small things without a model you mark, not model: `scene.mark_small("<Kind>0", ...)`, one
+box at the measured place and size; after your session a pass rebuilds them from the
+photographs.{template}
 {rows}
 """
 

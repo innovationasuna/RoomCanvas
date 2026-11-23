@@ -1025,7 +1025,8 @@ class RoomScene:
 
     # ---------------------------------------------------------------- index
     def _register(self, rid, cat, meshes, source=None, handle=None,
-                  rests_on=None, attached_to=None, support_part=None, rebuilt=None):
+                  rests_on=None, attached_to=None, support_part=None, rebuilt=None,
+                  small_marker=None, description=None):
         mn, mx = world_bbox(meshes)
         self.objects[rid] = {
             "id": rid,
@@ -1044,6 +1045,9 @@ class RoomScene:
         }
         if rebuilt:  # a ready model put in by place_model: its own group (room_objects.py)
             self.objects[rid]["rebuilt"] = rebuilt
+        if small_marker:  # a box from mark_small: the small-object pass rebuilds it with TRELLIS
+            self.objects[rid]["small_marker"] = True
+            self.objects[rid]["description"] = description or ""
 
     def index(self):
         """(Re)build the object registry from the live scene graph."""
@@ -1063,6 +1067,8 @@ class RoomScene:
                     attached_to=o.get("attached_to"),
                     support_part=o.get("support_part"),
                     rebuilt=o.get("rebuilt"),
+                    small_marker=o.get("small_marker"),
+                    description=o.get("description"),
                 )
         return self.objects
 
@@ -1243,6 +1249,40 @@ class RoomScene:
                        handle=name, rests_on=rests_on, attached_to=attached_to,
                        support_part=support_part, rebuilt="model")
         print(f"  placed model '{name}' ({os.path.basename(glb_path)}) at {tuple(round(v, 3) for v in bottom)}")
+        return handle
+
+    def mark_small(
+        self, name, category, bottom, size, yaw_deg=0.0, rests_on=None, attached_to=None,
+        support_part=None, description="", color=(0.5, 0.5, 0.5),
+    ):
+        """Mark a loose small object (a mug, a tissue box, a plant) for the small-object pass, which
+        rebuilds it with TRELLIS from the photographs: ONE box, the centre of its underside at
+        `bottom` (x, y, z), the measured `size` (width, depth, height), turned `yaw_deg` about Z
+        (its front faces -Y before the turn, as in `place_model`). Its shape is not modelled; the
+        box carries what the pass needs: the place, the size, the support, `description` (one
+        line: what it is, its colour and material) and `color`, its main sRGB colour, so a box the
+        pass could not rebuild still reads right. Grouped like `group_fixture`; name it by kind and
+        index (`TissueBox0`), which is how a ready model of that kind finds it. Returns the handle."""
+        w, d, h = size
+        if max(color) > 1.0:  # 0-255 given
+            color = tuple(c / 255.0 for c in color)
+        # The size goes into the vertices, not the object's scale: whatever rests on the box or
+        # replaces it hangs under an unstretched object.
+        mesh = _unit_cube_mesh(f"{name}_box")
+        mesh.transform(Matrix.Diagonal((w, d, h, 1.0)) @ Matrix.Translation((0.0, 0.0, 0.5)))
+        box = bpy.data.objects.new(f"{name}_box", mesh)
+        box.matrix_world = (Matrix.Translation(Vector(bottom))
+                            @ Matrix.Rotation(math.radians(yaw_deg), 4, "Z"))
+        box.data.materials.append(self._solid_mat(f"{name}_marker", tuple(color)))
+        handle = group_fixture(name, category, [box], COLL_ADDED, rests_on=rests_on,
+                               attached_to=attached_to, support_part=support_part)
+        handle["small_marker"] = True
+        handle["description"] = description or ""
+        bpy.context.view_layer.update()  # settle parenting before reading bbox
+        self._register(name, category, mesh_descendants(handle), handle=name, rests_on=rests_on,
+                       attached_to=attached_to, support_part=support_part, small_marker=True,
+                       description=description)
+        print(f"  marked '{name}' ({category}) at {tuple(round(v, 3) for v in bottom)}")
         return handle
 
     def render_from(self, frame_index, out_path, res_div=1):

@@ -288,6 +288,7 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
 
 4) THE SMALL OBJECTS. This is the job that decides whether the room is believable, and it is the
    one you must NOT run out of budget before reaching — start it while you still have room to work.
+   Marking them (below) is cheap, so there is no reason to leave a surface out.
    An empty desk is the loudest possible statement that a scene is synthetic. Real rooms are full
    of small, specific, slightly untidy things, and the photographs are full of them: mugs, glasses,
    bottles, papers, folders, notebooks, pens and pen pots, books, laptops, monitors, keyboards,
@@ -296,11 +297,18 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
    • Work SURFACE BY SURFACE. For each placeable surface in the room (the desks, tables, counters,
      shelves, cabinet tops) find it in the photos and author WHAT IS ACTUALLY ON IT, in roughly the
      positions the photos show.
-   • Build them as small multi-part procedural geometry — a mug is a cylinder plus a handle, a
-     laptop is a base plus a screen at an angle, a plant is a pot plus foliage. They are small in
-     frame, so simple honest shapes at the right SIZE, COLOUR and POSITION beat detailed shapes at
-     the wrong ones. Metric: a mug is ~8 cm across and ~10 cm tall, an A4 sheet is 210x297 mm, a
-     laptop is ~32 cm wide.
+   • Do NOT model their shapes. MARK each one with one call in `Room.py`:
+         scene.mark_small("Mug0", "mug", bottom=(x, y, z), size=(w, d, h), yaw_deg=a,
+                          rests_on="Table0", description="a white ceramic mug", color=(r, g, b))
+     `bottom` is the centre of its underside on the support's measured top, `size` its measured
+     width, depth and height, `yaw_deg` turns its front (-Y) the way it faces in the photographs,
+     `color` its main sRGB colour, `description` one line: what it is, its colour, its material.
+     It is ONE box; after your session a pass rebuilds every marked object from the photographs
+     with an image-to-3D model, so what matters is the right POSITION, SIZE, YAW and COLOUR.
+     Metric: a mug is ~8 cm across and ~10 cm tall, an A4 sheet is 210x297 mm, a laptop is
+     ~32 cm wide. Name them by kind and index: `Mug0`, `TissueBox1`, `Plant0`.
+   • What is PART OF a fixture — the row of books on a shelf, the contents of a cabinet assembly —
+     stays that fixture's own geometry, not a marker.
    • Do not tidy the room. Things sit at angles, papers overlap, cables trail, a chair is pushed
      out. Alignment to the axes is the giveaway of a generated scene — rotate them.
    • Do not invent a prop you cannot point at in a photograph. A believable room is a SPECIFIC
@@ -308,10 +316,10 @@ FOUR JOBS, IN THIS ORDER. Do not start one before the previous is done.
 
 SIMULATION READINESS — REQUIRED FOR EVERY OBJECT YOU ADD, NOT AN EXTRA.
 The room has to be something a physics engine can accept, and that needs two things from you:
-• GROUP each object as ONE unit with `group_fixture(name, category, parts, rests_on=..., attached_to=...)`
-  (near the collection helpers in `Room.py`). Collect the parts of ONE object into a list and pass
-  them. Name them like the furniture handles — `Mug0`, `Laptop0`, `Plant0`, `Radiator0`, `Lamp0`
-  (increment per instance). A loose pile of boxes is not an object.
+• GROUP each object you build as ONE unit with `group_fixture(name, category, parts, rests_on=..., attached_to=...)`
+  (near the collection helpers in `Room.py`); a `mark_small` box is grouped already. Collect the
+  parts of ONE object into a list and pass them. Name them like the furniture handles — `Radiator0`,
+  `Lamp0`, `Mug0` (increment per instance). A loose pile of boxes is not an object.
 • STATE WHAT HOLDS IT UP. `rests_on="Table0"` for anything standing on a surface, `rests_on="Floor0"`
   for anything on the floor, `attached_to="Wall3"` (or `"Ceiling0"`) for anything fixed to the
   structure. Every single added object gets one or the other — no exceptions, no guesses left
@@ -423,7 +431,12 @@ thing to invent — author what THIS room contains.
   cables. Multi-part, at their measured positions, never flush slabs; you may lift screens,
   boards and pictures out of the photographs with `rectify_region`.
 • The small objects on every placeable surface, in roughly the positions the photographs show,
-  at real sizes, not tidied — axis-alignment is the giveaway of a generated room.
+  at real sizes, not tidied — axis-alignment is the giveaway of a generated room. Do not model
+  them: mark each one with `scene.mark_small(name, category, bottom=(x, y, z), size=(w, d, h),
+  yaw_deg=…, rests_on=…, description="what it is, its colour and material", color=(r, g, b))`,
+  one box at its measured place, size and yaw, named by kind and index (`Mug0`, `TissueBox1`);
+  a pass after your session rebuilds every marked object from the photographs. Marking is cheap,
+  so do every surface. What is part of a fixture (the books on a shelf) stays its own geometry.
 • The pipeline's assets kept: do not delete or flatten an articulated object or replace a
   reconstructed mesh with a box. You MAY correct a furniture box's position, size or yaw when
   your measurements show the scan got it wrong — say so in your summary with the measurement.
@@ -461,6 +474,14 @@ their supports, the gate's verdict, and what you could not do.
 """
 
 PROFILES = {"base": PROMPT, "detail": DETAIL_PROMPT, "simulation": SIMULATION_PROMPT, "open": OPEN_PROMPT}
+
+# Room.py is the assembler copied in when the room was seeded: one seeded before `mark_small` has
+# neither the method nor the lines that carry its mark into room_layout.json.
+TEMPLATE = Path(__file__).resolve().parents[1] / "room_ops" / "compile" / "build_room.py"
+MARK_SMALL_TEMPLATE = (
+    "This Room.py predates `RoomScene.mark_small`: copy that method into it from {template}, with "
+    "the `small_marker`/`description` lines of `_register` and `index` that carry the mark into "
+    "room_layout.json.\n")
 
 # Budgets the open brief needs: the one-shot run that motivated it took 69 tool calls to a finished,
 # self-audited room, and our scripted pass was cut at 56 by a quota. 300 with a 400-turn backstop
@@ -583,6 +604,13 @@ async def run(room: Path, surface_ref: Path, scan: Path, model: str, max_turns: 
             path=evidence / "operator" if evidence else operator)
     if brief:
         prompt += "\n" + brief
+    if "mark_small(" in prompt:
+        try:
+            current = "def mark_small" in (room / "Room.py").read_text(encoding="utf-8")
+        except OSError:
+            current = True
+        if not current:
+            prompt += MARK_SMALL_TEMPLATE.format(template=TEMPLATE)
     if previous:
         prompt += (f"\nThis is a FILE-LEVEL resumed session ({resume_check}). FIRST read "
                    f"{room.parent / '.author_resume.json'} and inspect the saved source/resources. "

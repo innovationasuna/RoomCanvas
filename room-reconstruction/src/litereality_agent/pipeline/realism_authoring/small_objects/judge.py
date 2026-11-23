@@ -1,8 +1,9 @@
 """What Astra is asked about each item, and how its answers are read.
 
-One question per item: drop it, keep the procedural model, or rebuild it with TRELLIS. A
-read-only image question through `ask_images`; the harness is the `agent` role's (Codex / GPT-6
-Astra).
+One question per item: drop it, keep the procedural model, or rebuild it with TRELLIS. A box the
+author marked for the pass (`marker`) is only rebuilt or dropped (MARKER), and the run coerces a
+"procedural" answer for it to "trellis". A read-only image question through `ask_images`; the
+harness is the `agent` role's (Codex / GPT-6 Astra).
 """
 
 from __future__ import annotations
@@ -66,6 +67,31 @@ Reply with ONLY a JSON object:
   "description": "<{describe}: what the real object looks like, e.g. 'a light-blue paper shopping
 bag with rope handles'{otherwise}>"}}"""
 
+# A marker is a placeholder box the author put where the object is instead of modelling it
+# (RoomScene.mark_small): nothing to keep, so the only question is whether any image shows the
+# object well enough to rebuild it. The description is always asked for; the rebuild needs it.
+MARKER = """\
+You are reviewing one object in a 3D reconstruction of a real room: "{label}" (id {id},
+category {category}{members}), about {size} metres (width x depth x height), {support}.
+The author of the room did not model it: it is a plain placeholder box at the object's measured
+place and size, which the author described as: {description}. The box is never kept; the object
+is rebuilt with an image-to-3D model from the photos, unless no image shows it.
+
+{images}{placeholder}
+
+Choose exactly one:
+- "trellis": rebuild it from the photos. Choose this whenever the images show the object well
+  enough to recognise it, even when it is small, flat or printed.
+- "drop": remove it. Choose this only when no image shows the object usably: it is hidden, out of
+  frame or too blurred to make out in every image, or the outlined region shows something else.
+
+Reply with ONLY a JSON object:
+{{"decision": "trellis" | "drop",
+  "reason": "<one or two sentences>",
+  "description": "<always, whatever you decide: what the real object looks like in the images,
+e.g. 'a light-blue paper shopping bag with rope handles'>"}}"""
+
+
 def _support(item: dict) -> str:
     if item.get("rests_on"):
         return f"resting on {item['rests_on']}"
@@ -77,7 +103,8 @@ def _support(item: dict) -> str:
 def decide_prompt(item: dict, detected: bool, photos: int = 0, policy: str | None = None,
                   describe: bool = False) -> str:
     """`photos` close-ups from the operator follow the scan's images; `describe` asks for the
-    description whatever the decision, for a reference a forced or policy-made rebuild needs."""
+    description whatever the decision, for a reference a forced or policy-made rebuild needs.
+    A marker is asked MARKER, whatever the policy."""
     members = f", a stack of {len(item['members'])} objects" if len(item["members"]) > 1 else ""
     if item.get("views", True):
         images = VIEWS.format(
@@ -89,6 +116,14 @@ def decide_prompt(item: dict, detected: bool, photos: int = 0, policy: str | Non
         images += (f"\nThe last {photos} image(s) are close-up photos the operator took of this "
                    "very object for this run (not from the scan, no camera pose); they show it "
                    "best.")
+    if item.get("marker"):
+        return MARKER.format(
+            label=item["label"], id=item["id"], category=item["category"], members=members,
+            size=" x ".join(f"{v:.2f}" for v in item["size"]), support=_support(item),
+            description=f'"{item["description"]}"' if item.get("description") else "(nothing)",
+            images=images,
+            placeholder="\nIn IMAGE 2 the CURRENT MODEL is that placeholder box, not a model of the "
+            "object." if item.get("views", True) else "")
     return DECIDE.format(
         label=item["label"], id=item["id"], category=item["category"], members=members,
         size=" x ".join(f"{v:.2f}" for v in item["size"]), support=_support(item),
