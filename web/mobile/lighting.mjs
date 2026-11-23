@@ -2,6 +2,9 @@ import {createTimeLighting, timePreset} from '../editor/time-lighting.mjs';
 import {lightingProfile} from '../editor/lighting-profiles.mjs';
 import {colorGrading} from '../editor/color-grading.mjs';
 
+// Older shares baked these daylight multipliers into the window materials.
+const legacyExteriorScale = {morning: .65, noon: .95, afternoon: .50};
+
 // The same physical rig as the editor, with bounded mobile shadow buffers.
 // Texture pixels, physical light intensities and exposure are unchanged.
 export function createMobileLighting(THREE, {renderer, scene, visibility, bounds, floorY}) {
@@ -33,7 +36,7 @@ export function createMobileLighting(THREE, {renderer, scene, visibility, bounds
   fill.position.set(-5, 4, -4);
   scene.add(hemisphere, sun, sun.target, fill);
   const rig = createTimeLighting(THREE, {renderer, scene, room: model, config: {...config, luminaires: settings.luminaires}, walls, bounds, floorY, ceilingY,
-    revealRoot: visibility.revealRoot, bakedNoonExterior: preset === 'noon' && settings.exterior !== 'authored',
+    revealRoot: visibility.revealRoot, bakedExteriorScale: settings.exterior === 'authored' ? 1 : legacyExteriorScale[preset] ?? 1,
     profile, environment: settings.environment !== false, indoor: settings.indoor});
   const ready = rig.apply(preset, {warm: !!settings.warm});
   for (const light of scene.children) if (light.isLight && light !== sun && light.shadow) light.shadow.mapSize.set(512, 512);

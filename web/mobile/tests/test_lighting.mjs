@@ -4,6 +4,7 @@ import * as THREE from '../../vendor/build/three.module.js';
 import {createRoomVisibility} from '../room-visibility.mjs';
 import {registerHooks} from 'node:module';
 import {PHYSICAL, physicalExposure} from '../../editor/physical-lighting.mjs';
+import {captureRoom, encodeRoom} from '../../editor/mobile-snapshot.mjs';
 
 const ltcModules = [];
 const imports = registerHooks({load(url, context, next) {
@@ -29,13 +30,32 @@ function fixture(settings, {withBackdrop = false, door = false, photoMaterial} =
     add('Wall1', [.1, 3, 4], [-2, 1.5, 0]);
     add('Door_Wall1', [.08, 2, 1], [-1.95, 1, .8]);
   }
-  if (settings?.luminaires) add('Panel0', [.6, .05, .6], [0, 2.9, 0]);
+  for (const [i, name] of (settings?.luminaires ?? []).entries()) add(name, [.6, .05, .6], [i, 2.9, 0]);
   room.updateMatrixWorld(true);
   const renderer = {shadowMap: {}, toneMappingExposure: 1};
   const visibility = createRoomVisibility(THREE, room);
   const lighting = createMobileLighting(THREE, {renderer, scene, visibility, bounds: new THREE.Box3().setFromObject(room), floorY: 0});
   return {scene, room, wall, glass, photo, renderer, visibility, lighting};
 }
+
+test('a failed LTC import still opens the night room with full fixture spot lighting', async t => {
+  const blocked = registerHooks({resolve(name, context, next) {
+    if (name.endsWith('/RectAreaLightUniformsLib.js')) throw new Error('LTC offline');
+    return next(name, context);
+  }});
+  t.after(() => blocked.deregister());
+  const luminaires = ['Panel0', 'Panel1'];
+  const day = fixture({preset: 'noon', luminaires}), night = fixture({preset: 'night', luminaires});
+  t.after(() => {day.lighting.dispose(); night.lighting.dispose();});
+  await night.lighting.ready;
+  assert.equal(night.scene.children.some(light => light.isRectAreaLight), false);
+  const spots = night.scene.children.filter(light => light.isSpotLight && light.visible);
+  assert.equal(spots.length, 2);
+  assert.equal(spots.filter(light => light.castShadow).length, 1);
+  const expected = day.lighting.snapshot().lights.map(light => light.intensity / .25);
+  assert.deepEqual(spots.map(spot => spot.intensity), expected);
+  assert.deepEqual(night.lighting.snapshot().lights.map(light => light.intensity), expected);
+});
 
 test('cold mobile entry loads LTC only for powered night fixtures and shares it until the last room closes', async () => {
   try {
@@ -68,6 +88,50 @@ test('old noon snapshots retain their already scaled photo and central lamp fall
   assert.equal(photo.material.emissiveIntensity, 1.52);
   assert.equal(lighting.snapshot().lamp.source, 'room-bounds-center');
   lighting.dispose();
+});
+
+test('legacy and authored morning and afternoon GLBs reopen with the same window materials', async t => {
+  const vendor = new URL('../../vendor/', import.meta.url);
+  const hooks = registerHooks({resolve(name, context, next) {
+    if (name === 'three') return next(new URL('build/three.module.js', vendor).href, context);
+    if (name.startsWith('three/addons/')) return next(new URL(name.replace('three/addons/', 'examples/jsm/'), vendor).href, context);
+    return next(name, context);
+  }});
+  t.after(() => hooks.deregister());
+  globalThis.FileReader = class {
+    async readAsArrayBuffer(blob) {this.result = await blob.arrayBuffer(); this.onloadend();}
+  };
+  t.after(() => {delete globalThis.FileReader;});
+  const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
+  for (const [preset, bakedScale, expectedIntensity] of [['morning', .65, 1.952], ['afternoon', .50, 1.296]]) {
+    const reopen = async legacy => {
+      const room = new THREE.Group();
+      const lit = new THREE.MeshStandardMaterial({color: 0xcda892, emissive: 0xffffff, emissiveIntensity: 1.6});
+      const unlit = new THREE.MeshBasicMaterial({color: 0x7b93ab});
+      for (const [i, material] of [lit, unlit].entries()) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 1, .1), material);
+        mesh.name = 'WindowDaylightBackdrop' + i; room.add(mesh);
+      }
+      const snapshot = captureRoom(THREE, {room, entities: new Map(), layout: {}, lighting: {preset}});
+      if (legacy) {
+        delete snapshot.metadata.lighting.exterior;
+        snapshot.root.children[0].material.emissiveIntensity *= bakedScale;
+        snapshot.root.children[1].material.color.multiplyScalar(bakedScale);
+      }
+      const {blob} = await encodeRoom(snapshot);
+      const {scene: model} = await new GLTFLoader().parseAsync(await blob.arrayBuffer(), '');
+      const scene = new THREE.Scene(); scene.background = new THREE.Color(); scene.add(model);
+      const lighting = createMobileLighting(THREE, {scene, renderer: {shadowMap: {}}, visibility: createRoomVisibility(THREE, model),
+        bounds: new THREE.Box3().setFromObject(model), floorY: 0});
+      await lighting.ready;
+      const a = model.getObjectByName('WindowDaylightBackdrop0').material, b = model.getObjectByName('WindowDaylightBackdrop1').material;
+      const result = [a.emissiveIntensity, ...a.emissive.toArray(), ...a.color.toArray(), ...b.color.toArray()];
+      lighting.dispose(); return result;
+    };
+    const authored = await reopen(false), legacy = await reopen(true);
+    assert.ok(Math.abs(authored[0] - expectedIntensity) < 1e-12);
+    legacy.forEach((value, i) => assert.ok(Math.abs(value - authored[i]) < 1e-12, `${preset}: ${value} vs ${authored[i]}`));
+  }
 });
 
 test('night reflection includes wall-mounted objects during a mobile cutaway and reuses the view when walking', () => {

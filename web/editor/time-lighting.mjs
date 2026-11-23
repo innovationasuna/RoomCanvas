@@ -28,7 +28,7 @@ const DAY_LAMP_COLOR = 0xffdcb4;
 // and a small shadowed fraction of one fixture. Window skylight is a finite local approximation.
 // Shadow maps update on demand.
 export function createTimeLighting(THREE, {renderer, scene, room, config, walls, bounds, floorY, ceilingY, profile, fitShadows = true, environment = true, indoor,
-  revealRoot = root => config.isCeiling(root.userData.name || root.name), bakedNoonExterior = false}) {
+  revealRoot = root => config.isCeiling(root.userData.name || root.name), bakedExteriorScale = 1}) {
   const hemisphere = scene.children.find(light => light.isHemisphereLight);
   const [sun, fill] = scene.children.filter(light => light.isDirectionalLight);
   const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
@@ -59,6 +59,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   const areas = planLuminaireLights(luminaires, {perLuminaire: 1}).map(spec => ({
     spec, fixture: luminaires.find(item => item.name === spec.luminaire), light: null,
   }));
+  const usesNightAreas = () => selected === 'night' && areas.length > 0;
   const shadowSpec = lampSpecs.find(spec => spec.castShadow);
   const shadowArea = areas.find(({spec}) => spec.luminaire === shadowSpec.luminaire);
   const shadowShare = shadowArea ? shadowArea.spec.share * LUMINAIRE_LIGHTS.shadowFraction : 1;
@@ -104,7 +105,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   function applyExterior(preset) {
     const tint = preset.exteriorTint && new THREE.Color(preset.exteriorTint);
     for (const {mesh, photo, daylight, onMainWall, scalesAtNoon} of exterior) {
-      const noon = preset === TIME_PRESETS.noon && scalesAtNoon && !bakedNoonExterior;
+      const noon = preset === TIME_PRESETS.noon && scalesAtNoon && bakedExteriorScale !== preset.exterior;
       // A display layer keeps the photo in mobile exports and stays underneath cutaway/selection.
       const layer = {
         castShadow: tint && daylightCards.has(mesh) ? false : undefined,
@@ -118,6 +119,10 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
             return nightWindow.material(material, preset.nightSky, onMainWall);
           }
           const copy = material.clone();
+          if (tint && scalesAtNoon && bakedExteriorScale !== 1) {
+            if (copy.emissive) copy.emissiveIntensity /= bakedExteriorScale;
+            if (copy.isMeshBasicMaterial) copy.color.multiplyScalar(1 / bakedExteriorScale);
+          }
           if (photo(material) && tint) {
             copy.color.multiply(tint).multiplyScalar(preset.exterior);
             copy.emissive?.multiply(tint);
@@ -186,6 +191,14 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
       ltcUsers.set(uniforms, (ltcUsers.get(uniforms) ?? 0) + 1);
       createAreas();
       nightWindow.invalidate();
+    }, () => {
+      // Keep the fixture spots at full power if the optional LTC tables are unavailable.
+      areas.length = 0;
+      if (!disposed && selected === 'night' && lamps.power) {
+        updateIndoor();
+        renderer.shadowMap.needsUpdate = true;
+        nightWindow.invalidate();
+      }
     }).finally(() => {loadingAreas = null;});
     return loadingAreas;
   }
@@ -230,15 +243,15 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     // source yields the rest of its direct illumination; it cannot cast a Three.js shadow.
     for (const {spot, spec} of spots) {
       const shadow = night && spec.castShadow;
-      spot.visible = ceilingOn && (!night || shadow);
+      spot.visible = ceilingOn && (!usesNightAreas() || shadow);
       spot.castShadow = spot.visible && shadow;
       spot.color.set(night ? TIME_PRESETS.night.color : DAY_LAMP_COLOR);
-      spot.position.fromArray(shadow && shadowArea ? shadowArea.spec.position : spec.position);
+      spot.position.fromArray(shadow && usesNightAreas() ? shadowArea.spec.position : spec.position);
       spot.target.position.set(spot.position.x, floorY, spot.position.z);
       spot.angle = THREE.MathUtils.degToRad(lamps.angle / 2);
       spot.shadow.camera.fov = lamps.angle; spot.shadow.camera.updateProjectionMatrix();
       Object.assign(spot.shadow, spotShadowBias(spot.position.y - floorY, spot.angle, spot.shadow.mapSize.x));
-      const share = shadow ? shadowShare : spec.share;
+      const share = shadow && usesNightAreas() ? shadowShare : spec.share;
       spot.intensity = spot.visible ? lampPower * level * share : 0;
     }
     if (night) {
@@ -350,11 +363,11 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
       luminaires: luminaires.map(({name, center, axis, length, width, area}) => ({name, center, axis, length, width, area})),
       lights: [
         ...lampSpecs.flatMap((spec, index) => {
-          if (selected === 'night' && !spec.castShadow) return [];
+          if (usesNightAreas() && !spec.castShadow) return [];
           const spot = spots[index]?.spot;
           return [{type: 'SpotLight', source: spec.source, luminaire: spec.luminaire ?? null, folded: spec.folded ?? [],
-            position: spot?.position.toArray() ?? (selected === 'night' && shadowArea ? shadowArea.spec.position : spec.position),
-            share: selected === 'night' ? shadowShare : spec.share,
+            position: spot?.position.toArray() ?? (usesNightAreas() ? shadowArea.spec.position : spec.position),
+            share: usesNightAreas() ? shadowShare : spec.share,
             intensity: spot?.intensity ?? 0, visible: spot?.visible ?? false, castShadow: spot?.castShadow ?? false, shadowCandidate: spec.castShadow}];
         }),
         ...(selected === 'night' ? areas.map(({light, spec, fixture}) => ({type: 'RectAreaLight', source: 'luminaire', luminaire: spec.luminaire,
