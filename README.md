@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-2f6b4f)](LICENSE) [![Three.js](https://img.shields.io/badge/Three.js-r180-1f2937)](https://threejs.org/) [![Python](https://img.shields.io/badge/Python-3-3776ab)](https://www.python.org/) [![Node.js](https://img.shields.io/badge/Node.js-22.12%2B-5fa04e)](https://nodejs.org/) [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-6b7280)](#快速开始)
 
-[官方介绍页](#官方介绍页) · [功能](#功能) · [截图](#截图) · [快速开始](#快速开始) · [怎么用](#怎么用) · [工作原理](#工作原理) · [开发](#开发与测试) · [路线图](#路线图) · [文档](#文档)
+[功能](#功能) · [截图](#截图) · [快速开始](#快速开始) · [怎么用](#怎么用) · [工作原理](#工作原理) · [开发](#开发与测试) · [路线图](#路线图) · [文档](#文档)
 
 </div>
 
@@ -99,12 +99,6 @@
 </table>
 
 当前展示为重建场景 `Activity Classroom`（2026-11-23 截取），五张截图保存在 [`docs/images/activity-classroom-2026-11-23/`](docs/images/activity-classroom-2026-11-23/)。此前的 `Room_3934` 展示保留在 [`docs/images/room-3934-2026-11-16/`](docs/images/room-3934-2026-11-16/)，旧版 `office` 场景展示保留在 [`docs/images/office-v1/`](docs/images/office-v1/)。
-
-## 官方介绍页
-
-官方介绍页沿用本地编辑器的深灰与金色风格，包含功能展示、日夜效果对比、快速开始和文档入口。源码位于 [`sites/roomcanvas-official/`](sites/roomcanvas-official/README.md)，无需构建。
-
-运行下方网页服务后，可打开 [本地官方介绍页](http://127.0.0.1:7880/sites/roomcanvas-official/dist/)。页面只使用官方办公室样例，不包含私人卧室素材。
 
 ## 快速开始
 
@@ -269,7 +263,6 @@ flowchart LR
 | [`room-reconstruction/`](room-reconstruction/) | 房间重建：扫描 → 房间结构与家具 → 小物件重建 → 可动部件识别 | Codex（GPT-6 Astra）、Blender、TRELLIS.2 |
 | [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，以 API 形式提供 | Starlette、BiRefNet、DA3、MV-SAM3D |
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
-| [`sites/roomcanvas-official/`](sites/roomcanvas-official/) | 官方介绍页、功能展示与快速开始 | HTML、CSS、JavaScript，无构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
 | [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（Room_3934）、`activity-classroom`（上方截图里的 Activity Classroom，同一间活动室重新扫描后的重建）；模型在 `sample-rooms` release，清单是 `samples/models.json` | |
