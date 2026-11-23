@@ -43,11 +43,23 @@ export function objects(events, members) {
     by.set(e.object_id, {id: e.object_id, name: e.object_name || '', k, img: e.img || prev?.img || null,
       crop: e.img ? cropOf(e) : prev?.crop || null});
   }
-  return [...by.values()];
+  const items = [...by.values()], names = new Map();
+  for (const item of items) {
+    if (!names.has(item.name)) names.set(item.name, []);
+    names.get(item.name).push(item);
+  }
+  for (const group of names.values()) {
+    group.forEach((item, i) => {item.label = group.length > 1 ? `${item.name} ${i + 1}` : item.name;});
+  }
+  return items;
 }
 
 // The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
 export const cropOf = (e) => (e.media || []).find((m) => m.src === e.img && m.crop)?.crop || null;
+
+export function isStrip(width, height) {
+  return width > 0 && height > 0 && (width < 0.4 * height || width > 4 * height);
+}
 
 // Lines in order, the same sentence said again in a row once: {k: its latest event, n: how many times}.
 export function lines(events, members) {
@@ -66,11 +78,57 @@ export function lines(events, members) {
 
 // The pictures of a stretch of work, latest first, each once: those its lines name (each line's own first,
 // then the others it looked at), none made up.
-export function pictures(events, members, max = 2) {
+export function pictures(events, members, max = 2, allowed = () => true) {
   const latest = [...members].reverse();
   const out = [];
   for (const [k, src] of [...latest.map((k) => [k, events[k].img]), ...latest.flatMap((k) => (events[k].media || []).map((m) => [k, m.src]))]) {
-    if (src && out.length < max && !out.some((p) => p.src === src)) out.push({k, src});
+    if (src && out.length < max && allowed(src) && !out.some((p) => p.src === src)) out.push({k, src});
   }
   return out;
+}
+
+// Keep detached pictures, including ones hidden by folding or seeking back, without retaining their cards.
+export class CardImages {
+  byCard = new Map();
+
+  collect(card) {
+    const key = card.dataset.key;
+    for (const img of [...card.querySelectorAll('img')].reverse()) {
+      const src = img.dataset.file;
+      if (!this.byCard.has(key)) this.byCard.set(key, new Map());
+      const bySrc = this.byCard.get(key);
+      if (!bySrc.has(src)) bySrc.set(src, []);
+      bySrc.get(src).push(img);
+      img.remove();
+    }
+  }
+
+  take(key, src) {
+    const bySrc = this.byCard.get(key), matches = bySrc?.get(src);
+    if (!matches) return;
+    const img = matches.pop();
+    if (!matches.length) bySrc.delete(src);
+    if (!bySrc.size) this.byCard.delete(key);
+    return img;
+  }
+
+  prune(deck, events) {
+    const cards = new Map(deck.map((card) => [card.key, card]));
+    for (const [key, bySrc] of this.byCard) {
+      const members = cards.get(key)?.members || [];
+      const sources = new Set(members.flatMap((k) => [events[k].img, ...(events[k].media || []).map((m) => m.src)]));
+      for (const src of bySrc.keys()) if (!sources.has(src)) bySrc.delete(src);
+      if (!bySrc.size) this.byCard.delete(key);
+    }
+  }
+}
+
+// Scroll by the smallest amount for a whole card. For a tall one, show its start if the current line fits too.
+export function cardScroll(top, bottom, current, height, gap = 12) {
+  if (bottom - top > height - 2 * gap) {
+    if (current.bottom - top <= height - 2 * gap) return top - gap;
+    return Math.min(current.top - gap, current.bottom - height + gap);
+  }
+  if (top < gap) return top - gap;
+  return Math.max(0, bottom - height + gap);
 }

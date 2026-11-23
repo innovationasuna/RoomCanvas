@@ -36,7 +36,7 @@ STAGES = [
     {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，再做好小物品和可开合部件，修改后的房间就是结果。'},
     # Only listed for a run whose room was revised after it was published, or (older runs) that went through
     # the small-object pass or the openable parts after publishing (see stages_of).
-    {'id': 'revise', 'name': '按意见修改', 'desc': '房间发布后收到修改意见，建模 agent 回到这间房间逐条改进，再检查、发布一次。'},
+    {'id': 'revise', 'name': '按意见修改', 'desc': '对照修改意见逐项调整房间，并检查修改效果。'},
     {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
     {'id': 'articulate', 'name': '装上可开合部件', 'desc': '找出柜门、抽屉等能开合的部件，装上转轴或滑轨，这就是发布的房间。'},
 ]

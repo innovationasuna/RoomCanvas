@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cards, upTo, objects, lines, pictures, GROUP_MAX} from '../../replay/log.mjs';
+import {cards, upTo, objects, lines, pictures, isStrip, CardImages, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
 
 const made = (id, name, minute, img) => ({stage: 'plan', minute, kind: 'tool', say: `做好${name}的模型`, object_id: id, object_name: name, work: 'model', img});
 const agent = (minute, say, extra = {}) => ({stage: 'assemble', minute, kind: 'tool', say, session: 'a0', ...extra});
@@ -59,4 +59,51 @@ test("an object's picture keeps the part that shows it, and only for that pictur
                  media: [{src: 'view0.jpg', role: 'photo', crop: [0.4, 0.4, 0.5, 0.5]}, {src: 'pair_after.jpg', role: 'comparison'}]};
   assert.deepEqual(objects([shelf], [0]).map((o) => o.crop), [[0.4, 0.4, 0.5, 0.5]]);
   assert.deepEqual(objects([{...shelf, media: [{src: 'other.jpg', crop: [0, 0, 1, 1]}]}], [0]).map((o) => o.crop), [null]);
+});
+
+test('same-name objects have distinct thumbnail labels and keep the names used for folded counts', () => {
+  const events = [made('Wall4_Door_0', '门', 1, 'a.png'), made('Wall7_Door_1', '门', 2, 'b.png'),
+    made('Table0', '桌子', 3), made('Wall4_Door_0', '门', 4, 'c.png')];
+  assert.deepEqual(objects(events, [0, 1, 2, 3]).map((o) => [o.name, o.label, o.img]),
+    [['门', '门 1', 'c.png'], ['门', '门 2', 'b.png'], ['桌子', '桌子', null]]);
+});
+
+test('known strip pictures give their places to other evidence', () => {
+  assert.deepEqual([0, 39, 40, 400, 401].map((w) => isStrip(w, 100)), [false, true, false, false, true]);
+  assert.equal(isStrip(100, 0), false);
+  const events = [agent(1, 'a', {img: 'a.jpg'}), agent(2, 'b', {img: 'strip.jpg', media: [{src: 'b.jpg'}]})];
+  assert.deepEqual(pictures(events, [0, 1], 2, (src) => src !== 'strip.jpg').map((p) => p.src), ['a.jpg', 'b.jpg']);
+});
+
+test('detached thumbnails survive a seek or rebuild and are reused once per card and source', () => {
+  const cache = new CardImages();
+  const img = (file) => ({dataset: {file}, remove() {this.detached = true;}});
+  const a = img('same'), b = img('same'), c = img('same'), d = img('other');
+  const card = (key, imgs) => ({dataset: {key}, querySelectorAll: () => imgs});
+  cache.collect(card('doors', [a, b, d]));
+  cache.collect(card('checks', [c]));
+  cache.collect(card('obsolete', [img('same')]));
+  cache.collect(card('doors', [img('replaced')]));
+  cache.prune([{key: 'doors', members: [0]}, {key: 'checks', members: [1]}],
+    [{img: 'same', media: [{src: 'other'}]}, {img: 'same'}]);
+  assert.equal(cache.take('obsolete', 'same'), undefined);
+  assert.equal(cache.take('doors', 'replaced'), undefined);
+  assert.ok([a, b, c, d].every((i) => i.detached));
+  assert.equal(cache.take('checks', 'same'), c);
+  assert.equal(cache.take('doors', 'same'), a);
+  cache.collect(card('doors', [a]));  // redraw with the second occurrence still folded
+  assert.equal(cache.take('doors', 'other'), d);
+  assert.equal(cache.take('doors', 'same'), a);
+  assert.equal(cache.take('doors', 'same'), b);
+  assert.equal(cache.take('doors', 'same'), undefined);
+});
+
+test('seek fits the whole card with margins, then its heading and current row for taller cards', () => {
+  const row = {top: 140, bottom: 160};
+  assert.equal(cardScroll(0, 180, row, 200), -12); // tall enough to need the heading aligned
+  assert.equal(cardScroll(20, 180, row, 200), 0);
+  assert.equal(cardScroll(80, 220, row, 200), 32);
+  assert.equal(cardScroll(50, 450, row, 200), 38);
+  assert.equal(cardScroll(-300, 270, {top: 180, bottom: 230}, 200), 42);
+  assert.equal(cardScroll(-300, 270, {top: -50, bottom: 230}, 200), -62);
 });
