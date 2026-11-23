@@ -6,7 +6,7 @@ export function mountMobileShare({button, capture}) {
   dialog.setAttribute('aria-labelledby', 'mobile-share-title');
   dialog.innerHTML = `<form method="dialog" class="mobile-share-heading"><h2 id="mobile-share-title">在手机中打开</h2><button aria-label="关闭手机分享">×</button></form>
     <p>把这次布置带到手机，选择浏览器体验或 Android App。</p>
-    <p class="mobile-share-note">手机与电脑连接同一 Wi-Fi，保持电脑服务运行。分享后继续编辑，不会改变这份布局。</p>
+    <p class="mobile-share-note">手机与电脑连接同一 Wi-Fi，保持电脑服务运行。首次生成二维码时开启同网访问；分享后继续编辑，不会改变这份布局。</p>
     <p id="mobile-share-status" role="status" aria-live="polite">准备生成当前布局</p>
     <div class="mobile-share-result" hidden>
       <div id="mobile-share-qr" role="img" aria-label="手机打开房间的二维码"></div>
@@ -45,7 +45,7 @@ export function mountMobileShare({button, capture}) {
     $('#mobile-share-copy').disabled = false;
     const code = window.qrcode(0, 'M'); code.addData(url); code.make();
     $('#mobile-share-qr').innerHTML = code.createSvgTag({cellSize: 5, margin: 20, scalable: true});
-    status.textContent = '已准备好。用手机相机扫码打开。';
+    status.textContent = `已准备好。用手机相机扫码打开；链接保留 ${published.retentionDays} 天，过期后需重新生成。`;
   }
   $('#mobile-share-host').addEventListener('input', () => {if (published) updateURL();});
   $('#mobile-share-copy').onclick = async () => {
@@ -58,7 +58,7 @@ export function mountMobileShare({button, capture}) {
       const configResponse = await fetch('/web/mobile-shares/config');
       if (!configResponse.ok) throw new Error('请更新并重启 RoomCanvas 网页服务，再生成手机分享');
       const config = await configResponse.json();
-      if (!config.enabled) throw new Error('手机分享服务未启动，请重启网页服务或更换分享端口');
+      if (!config.enabled) throw new Error('手机分享已禁用，可以下载房间 GLB 手动导入');
       const {blob, metadata} = await prepare();
       status.textContent = '正在保存分享版本…';
       const response = await fetch('/web/mobile-shares', {method: 'POST', headers: {'Content-Type': 'model/gltf-binary'}, body: blob});

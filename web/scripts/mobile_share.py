@@ -2,6 +2,9 @@
 import hashlib
 import ipaddress
 import json
+import logging
+import os
+import time
 import re
 import secrets
 import shutil
@@ -21,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def lan_addresses():
-    addresses = set()
+    addresses, excluded = set(), set()
     preferred = None
     try:
         addresses.update(item[4][0] for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET))
@@ -30,7 +33,12 @@ def lan_addresses():
     # macOS often resolves its hostname to loopback. Enumerate interfaces without contacting a server.
     try:
         output = subprocess.check_output(['ifconfig'], text=True, timeout=2, stderr=subprocess.DEVNULL)
-        addresses.update(re.findall(r'\binet (\d+\.\d+\.\d+\.\d+)', output))
+        interface = ''
+        for line in output.splitlines():
+            if line and not line[0].isspace():
+                interface = line.split(':', 1)[0]
+            target = excluded if interface.lower().startswith(('utun', 'tun', 'tap', 'tailscale', 'wg', 'ppp')) else addresses
+            target.update(re.findall(r'\binet (\d+\.\d+\.\d+\.\d+)', line))
     except (OSError, subprocess.SubprocessError):
         pass
     try:
@@ -40,8 +48,8 @@ def lan_addresses():
             addresses.add(preferred)
     except (OSError, ValueError, subprocess.SubprocessError):
         preferred = None
-    usable = sorted(a for a in addresses if ipaddress.ip_address(a).is_private
-                    and not ipaddress.ip_address(a).is_loopback and not ipaddress.ip_address(a).is_link_local)
+    networks = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
+    usable = sorted(a for a in addresses - excluded if any(ipaddress.ip_address(a) in n for n in networks))
     if preferred in usable:
         usable.remove(preferred)
         usable.insert(0, preferred)
@@ -84,8 +92,32 @@ def validate_glb(path):
 
 
 class SnapshotStore:
-    def __init__(self, directory):
+    def __init__(self, directory, retention_days=7):
         self.directory = Path(directory)
+        if not 1 <= retention_days <= 365:
+            raise ValueError('分享保留天数须为 1～365')
+        self.retention_seconds = retention_days * 86400
+        self.lock = threading.RLock()
+
+    def expired(self, identifier, now=None):
+        try:
+            stamp = (self.directory / identifier / 'manifest.json').stat().st_mtime
+        except FileNotFoundError:
+            return False
+        return stamp + self.retention_seconds <= (time.time() if now is None else now)
+
+    def cleanup(self):
+        removed = 0
+        with self.lock:
+            for path in self.directory.iterdir() if self.directory.exists() else ():
+                if (re.fullmatch(SHARE_ID, path.name) and path.is_dir()
+                        and not path.is_symlink() and self.expired(path.name)):
+                    try:
+                        shutil.rmtree(path)
+                        removed += 1
+                    except OSError:
+                        logging.getLogger(__name__).warning('Expired share cleanup failed; will retry')
+        return removed
 
     def create(self, stream, length):
         if not 20 <= length <= MAX_MODEL:
@@ -111,7 +143,12 @@ class SnapshotStore:
                 'url': f'/s/{identifier}/room.glb', 'bytes': length, 'sha256': digest.hexdigest(),
             })
             (temporary / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
-            temporary.rename(self.directory / identifier)
+            with self.lock:
+                temporary.rename(self.directory / identifier)
+            try:
+                self.cleanup()
+            except OSError:
+                logging.getLogger(__name__).warning('Share cleanup unavailable; will retry')
             return manifest
         finally:
             if temporary.exists():
@@ -155,32 +192,40 @@ class ShareHandler(SimpleHTTPRequestHandler):
 
     def deliver(self, head):
         route = urlsplit(self.path).path
-        path = None
+        path = identifier = None
         if re.fullmatch(rf'/s/{SHARE_ID}/?', route):
             identifier = route.split('/')[2]
             if (self.store.directory / identifier / 'manifest.json').is_file():
                 path = self.root / 'web/mobile/index.html'
         elif re.fullmatch(rf'/s/{SHARE_ID}/(manifest\.json|room\.glb)', route):
-            path = self.store.directory / route.split('/')[2] / route.split('/')[3]
+            identifier = route.split('/')[2]
+            path = self.store.directory / identifier / route.split('/')[3]
         elif route in STATIC_FILES:
             path = self.root / route.lstrip('/')
         elif re.fullmatch(r'/web/assets/fonts/manrope-[A-Za-z0-9.-]+\.woff2', route):
             path = self.root / route.lstrip('/')
-        if path is None or not path.is_file():
-            return self.send_error(404, 'Share or resource not found')
-        self.send_response(200)
-        self.send_header('Content-Type', 'model/gltf-binary' if path.suffix == '.glb' else self.guess_type(str(path)))
-        self.send_header('Content-Length', str(path.stat().st_size))
-        self.send_header('Cache-Control', 'no-cache')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Referrer-Policy', 'no-referrer')
-        self.end_headers()
-        if not head:
+        with self.store.lock:
+            if identifier is not None and self.store.expired(identifier):
+                return self.send_error(410, 'Share expired; generate a new link')
             try:
-                with path.open('rb') as source:
+                source = path.open('rb') if path is not None else None
+            except (FileNotFoundError, IsADirectoryError):
+                source = None
+        if source is None:
+            return self.send_error(404, 'Share or resource not found')
+        with source:
+            self.send_response(200)
+            self.send_header('Content-Type', 'model/gltf-binary' if path.suffix == '.glb' else self.guess_type(str(path)))
+            self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Referrer-Policy', 'no-referrer')
+            self.end_headers()
+            if not head:
+                try:
                     shutil.copyfileobj(source, self.wfile, 1024 * 1024)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
     def do_POST(self):
         self.send_error(405, 'Read only')
@@ -193,3 +238,51 @@ def start_share_server(store, host, port):
     thread = threading.Thread(target=server.serve_forever, daemon=True, name='mobile-share')
     thread.start()
     return server
+
+
+class LazyShareServer:
+    """No socket until an explicit publish; concurrent publishes share one listener."""
+    def __init__(self, store, host, port):
+        self.store, self.host, self.port = store, host, port
+        self.server = None
+        self.lock = threading.Lock()
+        self.closed = False
+
+    def ensure_started(self):
+        with self.lock:
+            if self.closed:
+                raise OSError('Sharing service is closed')
+            if self.server is None:
+                self.server = start_share_server(self.store, self.host, self.port)
+            return self.server.server_port
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+            if self.server is not None:
+                self.server.shutdown()
+                self.server.server_close()
+                self.server = None
+
+
+class SnapshotJanitor:
+    """Periodic disk cleanup without exposing a LAN listener."""
+    def __init__(self, store, interval=3600):
+        self.store, self.interval = store, interval
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True, name='share-cleanup')
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                self.store.cleanup()
+            except OSError:
+                logging.getLogger(__name__).warning('Share cleanup unavailable; will retry')
+            self.stop_event.wait(self.interval)
+
+    def start(self):
+        self.thread.start()
+
+    def close(self):
+        self.stop_event.set()
+        self.thread.join()
