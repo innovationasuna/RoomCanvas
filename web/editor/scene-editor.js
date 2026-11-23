@@ -125,6 +125,9 @@ const raycaster = new THREE.Raycaster();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(getComputedStyle(host).getPropertyValue('--rc-canvas').trim());
 const orbitCamera = new THREE.PerspectiveCamera(45, 1, .02, 3000);
+// The orbit camera's near plane follows the viewing distance (a share of it, within these bounds): a fixed 2 cm
+// plane loses depth precision across a room seen from afar, and a notice 1 mm in front of its backing flickers.
+const NEAR_SHARE = .02, NEAR_MIN = .02, NEAR_MAX = 2;
 const planCamera = new THREE.OrthographicCamera(-5, 5, 4, -4, .02, 3000);
 let camera = orbitCamera;
 camera.aspect = 1;
@@ -274,6 +277,10 @@ function requestRender() {
     }
     lightingRig?.syncOccluders();
     updateSelectionVisuals();
+    if (camera === orbitCamera) {
+      const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * NEAR_SHARE, NEAR_MIN, NEAR_MAX);
+      if (Math.abs(near - camera.near) > 1e-3) {camera.near = near; camera.updateProjectionMatrix();}
+    }
     const view = walking ? walk.camera : camera;
     staticLighting?.setCamera(view);
     renderMetrics.measure('interactive', () => {if (staticLighting) staticLighting.render(); else renderer.render(scene, view);});
@@ -840,6 +847,11 @@ function view(mode) {
   requestRender();
 }
 
+// A point the camera cuts away with its near plane is not on screen, so a click passes through it. Compare
+// view-space depth, not distance along the ray, so this holds at the edges of the picture as well.
+const clippedByNear = (point, view = camera) => view.isPerspectiveCamera
+  && -point.clone().applyMatrix4(view.matrixWorldInverse).z < view.near;
+
 function pick(clientX, clientY) {
   if (!ready) return null;
   camera.updateMatrixWorld();
@@ -848,7 +860,7 @@ function pick(clientX, clientY) {
   for (const hit of raycaster.intersectObject(room, true)) {
     let visible = true;
     for (let object = hit.object; object; object = object.parent) {if (!object.visible) visible = false;}
-    if (!visible || seeThrough(hit.object)) continue;
+    if (!visible || seeThrough(hit.object) || clippedByNear(hit.point)) continue;
     const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
     if (material.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;
     return hit.object.userData.editorId || null;
@@ -870,7 +882,7 @@ function openableAt(at, view = camera) {
   view.updateMatrixWorld();
   raycaster.setFromCamera(new THREE.Vector2(at.x, at.y), view);
   rayQueries.refresh();
-  const hit = rayQueries.nearest(raycaster.ray.origin, raycaster.ray.direction, Infinity, solidHit);
+  const hit = rayQueries.nearest(raycaster.ray.origin, raycaster.ray.direction, Infinity, (h) => solidHit(h) && !clippedByNear(h.point, view));
   if (hit) return openableOf(hit.object);
   return null;
 }
@@ -1410,7 +1422,7 @@ function placementPoint(clientX, clientY) {
   let target = null;
   for (const hit of raycaster.intersectObject(room, true)) {
     const owner = hit.object.userData.editorId || null;
-    if (owner === selected || (owner && layout[owner].visible === false)) continue;
+    if (owner === selected || (owner && layout[owner].visible === false) || clippedByNear(hit.point)) continue;
     // Decorative contents, backs and arms are not placement targets. Only a
     // point on an authored support surface can raise the candidate off the floor.
     target = placement.supportAtPoint(owner, hit.point.toArray(), layout);
