@@ -4,7 +4,7 @@
 
 状态：阶段 1～3 已实现并完成本机验证，Android 模拟器导入与离线重开已通过，等待手机真机验收；阶段 4～5 待实施。
 
-首期范围：阶段 1～3。使用入口、安装包、协议及验证说明见 [手机打开与 App 导入](MOBILE_HANDOFF.md)。
+首期范围：阶段 1～3。使用入口、安装包、协议及验证说明见 [手机打开与 App 导入](../MOBILE_HANDOFF.md)。
 
 勾选表示实现或所述验证已经完成；涉及真机的条目保留待验收，未将设备模拟计为真机。
 
@@ -191,7 +191,7 @@
 
 实施前优先验证三点：当前场景能否导出为 App 可加载的完整 GLB；目标手机在实际 Wi-Fi 下能否访问分享服务；手机浏览器唤起 App 的方式是否稳定。它们是技术验证任务，不要求用户先选择底层方案。
 
-项目参考：[网页说明](../web/README.md)、[Android 入口声明](../android-app/app/src/main/AndroidManifest.xml)、[App 房间导入](../android-app/app/src/main/java/com/hausen3d/arviewer/VrWalkthroughActivity.kt)、[布局数据](../web/editor/layout.mjs)、[网页服务](../web/scripts/serve.py)。
+项目参考：[网页说明](../../web/README.md)、[Android 入口声明](../../android-app/app/src/main/AndroidManifest.xml)、[App 房间导入](../../android-app/app/src/main/java/com/hausen3d/arviewer/VrWalkthroughActivity.kt)、[布局数据](../../web/editor/layout.mjs)、[网页服务](../../web/scripts/serve.py)。
 
 ## 10. 本次实施记录（2026-11-16）
 
@@ -205,8 +205,8 @@
 
 ## 11. Android 模拟器验证（2026-11-23）
 
-- 已安装 Android 14 ARM64 模拟器与本地 0.2.0 APK，提供 [双击启动脚本](../scripts/start_android_emulator.command)。
+- 已安装 Android 14 ARM64 模拟器与本地 0.2.0 APK，提供 [双击启动脚本](../../scripts/start_android_emulator.command)。
 - 使用办公室快照 `2b938758` 完成 Chrome 分享页 → App 冷启动导入、热启动再次导入，下载文件 SHA-256 与清单一致。
 - 已验证模型及贴图显示、方向键移动、滑动转向、回到起点、结束漫游，以及断网后重启加载本地房间；日志未发现崩溃或 ANR。
 - 未修改 App 渲染代码和模型贴图分辨率。模拟器使用“仅用方向键”模式，真实走动定位及实际手机性能仍需真机验收，相关真机条目保持未勾选。
-- 操作方法与详细结果见 [使用说明](MOBILE_HANDOFF.md#本地-android-模拟器2026-11-23)。
+- 操作方法与详细结果见 [使用说明](../MOBILE_HANDOFF.md#本地-android-模拟器2026-11-23)。

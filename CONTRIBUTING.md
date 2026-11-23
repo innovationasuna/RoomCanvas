@@ -1,5 +1,7 @@
 # 参与开发
 
+按任务查找指南和维护契约，见[文档总索引](docs/README.md)。Android SDK、构建和模拟器的配置见 [Android App 说明](android-app/README.md)。
+
 ## 流程
 
 1. 从最新的 `main` 拉分支，一个功能一个分支：`feat/…`、`fix/…`、`docs/…`。移动文件、更新文档随相关功能一起提交，不单独开 PR。
@@ -16,7 +18,7 @@
    for suite in api assets dimensions objects masks capture runner cover_scene mvsam_pbr da3_arrays collision_proxy reconstruction_quality; do python -m unittest discover -s tests -p "test_${suite}.py"; done
    # 手势（在 gesture/ 下）
    npm ci && npm run typecheck && npm test && npm run check:resources && npm run build
-   # Android App（在 android-app/ 下，CI 不运行）
+   # Android App（在 android-app/ 下，CI 不运行）：使用 JDK 21 构建，Java/Kotlin 源码目标为 17
    ./gradlew :app:testDebugUnitTest :app:assembleDebug
    ```
    改动网页界面时，在本地打开页面确认效果，见 [README](README.md#快速开始)。光照相关的浏览器检查见 [网页编辑器](web/README.md#测试)。
