@@ -1,8 +1,8 @@
 // One low-resolution view into the room, shared by panes on its main window wall.
 // Reproject against a plane inside the room to retain parallax across adjacent panes.
-import {hasLayer, ownMaterial} from './material-layers.mjs';
+import {roomMaterial, ownShadows} from './material-layers.mjs';
 
-export function createNightWindow(THREE, {room, scene, window, center, diagonal, config}) {
+export function createNightWindow(THREE, {room, scene, window, center, diagonal, revealRoot}) {
   let target, capturedEnvironment, dirty = true, lit = false, captures = 0;
   let modelRoot = room;
   while (modelRoot.parent && modelRoot.parent !== scene) modelRoot = modelRoot.parent;
@@ -17,7 +17,7 @@ export function createNightWindow(THREE, {room, scene, window, center, diagonal,
   }
   const depth = window ? Math.max(1, center.clone().sub(window.position).dot(inward) * 1.6) : 1;
   const uniforms = {interiorView: {value: null}, interiorProjection: {value: projection},
-    interiorNormal: {value: inward}, interiorDepth: {value: depth}, roomLit: {value: 0}};
+    interiorNormal: {value: inward}, interiorPlane: {value: window ? inward.dot(window.position) + depth : 0}, roomLit: {value: 0}};
 
   function capture(renderer) {
     const previous = renderer.getRenderTarget(), face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
@@ -32,15 +32,18 @@ export function createNightWindow(THREE, {room, scene, window, center, diagonal,
       for (const child of scene.children) if (child !== modelRoot && !child.isLight && child.visible) {
         child.visible = false; hidden.push(child);
       }
-      for (const root of room.children) if (!root.visible && ['墙面', '天花板'].includes(config.label(root.userData.name || root.name))) {
+      for (const root of room.children) if (!root.visible && revealRoot(root)) {
         root.visible = true; shown.push(root);
       }
       room.traverseVisible(mesh => {
         if (!mesh.isMesh) return;
-        if ([mesh.material].flat().some(m => m instanceof WindowMaterial)) {
-          mesh.visible = false; hidden.push(mesh);
-        } else if (hasLayer(mesh, 'seeThrough') && !hasLayer(mesh, 'timeExterior')) {
-          materials.push([mesh, mesh.material]); mesh.material = ownMaterial(mesh);
+        const material = roomMaterial(mesh), {receiveShadow} = ownShadows(mesh);
+        if (material !== mesh.material || receiveShadow !== mesh.receiveShadow) {
+          materials.push([mesh, mesh.material, mesh.receiveShadow]);
+          mesh.material = material; mesh.receiveShadow = receiveShadow;
+        }
+        for (const slot of [material].flat()) if (slot.isNightWindow && slot.visible) {
+          slot.visible = false; hidden.push(slot);
         }
       });
       // The outer beauty pass has already updated shadows. The view reuses those maps.
@@ -54,7 +57,7 @@ export function createNightWindow(THREE, {room, scene, window, center, diagonal,
       captures++;
       dirty = false;
     } finally {
-      for (const [mesh, material] of materials) mesh.material = material;
+      for (const [mesh, material, receiveShadow] of materials) {mesh.material = material; mesh.receiveShadow = receiveShadow;}
       for (const object of hidden) object.visible = true;
       for (const object of shown) object.visible = false;
       renderer.setRenderTarget(previous, face, mip);
@@ -75,38 +78,42 @@ export function createNightWindow(THREE, {room, scene, window, center, diagonal,
     }
     onBeforeCompile(shader) {
       Object.assign(shader.uniforms, uniforms, {normalReflectance: {value: this.userData.normalReflectance}});
-      shader.vertexShader = 'varying vec3 glassPosition;\n' + shader.vertexShader.replace('#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nglassPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-      shader.fragmentShader = `varying vec3 glassPosition;
+      shader.vertexShader = 'varying vec3 glassPosition, glassNormal;\n' + shader.vertexShader.replace('#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nglassPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;\nglassNormal = inverseTransformDirection(normalMatrix * normal, viewMatrix);');
+      shader.fragmentShader = `varying vec3 glassPosition, glassNormal;
         uniform sampler2D interiorView;
         uniform mat4 interiorProjection;
         uniform vec3 interiorNormal;
-        uniform float interiorDepth, roomLit, normalReflectance;
+        uniform float interiorPlane, roomLit, normalReflectance;
         ` + shader.fragmentShader.replace('#include <envmap_fragment>', `
           vec3 incident = isOrthographic ? -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]) : normalize(glassPosition - cameraPosition);
-          vec3 ray = reflect(incident, interiorNormal);
+          vec3 paneNormal = normalize(glassNormal);
+          vec3 ray = reflect(incident, paneNormal);
           float facing = dot(ray, interiorNormal);
-          vec4 clip = interiorProjection * vec4(glassPosition + ray * (interiorDepth / max(facing, 0.001)), 1.0);
+          float distanceToPlane = interiorPlane - dot(glassPosition, interiorNormal);
+          vec4 clip = interiorProjection * vec4(glassPosition + ray * (distanceToPlane / max(facing, 0.001)), 1.0);
           vec2 uv = clip.xy / max(clip.w, 0.001) * 0.5 + 0.5;
           vec2 margin = min(uv, 1.0 - uv);
           float coverage = smoothstep(0.0, 0.035, min(margin.x, margin.y)) * step(0.001, facing);
           outgoingLight = texture2D(interiorView, clamp(uv, 0.0, 1.0)).rgb;
           // Schlick Fresnel for the authored glass IOR; preserve the layer's opacity control.
-          float fresnel = normalReflectance + (1.0 - normalReflectance) * pow(1.0 - clamp(facing, 0.0, 1.0), 5.0);
+          float fresnel = normalReflectance + (1.0 - normalReflectance) * pow(1.0 - clamp(abs(dot(incident, paneNormal)), 0.0, 1.0), 5.0);
           diffuseColor.a = fresnel * opacity / max(normalReflectance, 0.0001) * coverage * roomLit;
         `);
     }
   }
 
   return {
-    material(source, sky, mesh, face) {
+    onMainWall(mesh, face) {
+      if (!window || !face || new THREE.Vector3(...face.n).normalize().dot(inward) < .995) return false;
+      const meshCenter = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
+      return Math.abs(meshCenter.sub(window.position).dot(inward)) <= .6;
+    },
+    material(source, sky, onMainWall) {
       const ior = source.ior ?? 1.5, normalReflectance = ((ior - 1) / (ior + 1)) ** 2;
       const options = {color: sky, side: source.side, transparent: true, depthWrite: false,
         forceSinglePass: true, opacity: source.opacity * normalReflectance};
-      if (!window || !face || new THREE.Vector3(...face.n).normalize().dot(inward) < .995) return new THREE.MeshBasicMaterial(options);
-      // A view into one side of the room is valid only for panes belonging to that wall.
-      const meshCenter = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
-      if (Math.abs(meshCenter.sub(window.position).dot(inward)) > .6) return new THREE.MeshBasicMaterial(options);
+      if (!onMainWall) return new THREE.MeshBasicMaterial(options);
       const material = new WindowMaterial(options);
       material.userData.normalReflectance = normalReflectance;
       return material;

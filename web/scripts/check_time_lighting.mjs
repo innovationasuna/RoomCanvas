@@ -76,6 +76,45 @@ try {
   assert.ok(pixels.angles[160].far.reduce((a, b) => a + b) > pixels.angles[60].far.reduce((a, b) => a + b) + 30, '扩大光照角度没有照亮更远处的地面');
   await save('night-distance-fixture.png', report.attenuation.image); delete report.attenuation.image;
   for (const [angle, data] of Object.entries(pixels.angles)) {await save(`night-angle-${angle}-fixture.png`, data.image); delete data.image;}
+  report.sashes = await fixture.evaluate(async base => {
+    const THREE = await import('three'), {createNightWindow} = await import(new URL('editor/night-window.mjs', base));
+    const renderer = new THREE.WebGLRenderer(); renderer.setSize(96, 48);
+    const scene = new THREE.Scene(), room = new THREE.Group(); scene.add(room);
+    scene.background = new THREE.Color(0);
+    const face = {n: [0, 0, 1]}, window = {face, position: new THREE.Vector3()};
+    const probe = createNightWindow(THREE, {room, scene, window, center: new THREE.Vector3(0, 0, 2), diagonal: 6, revealRoot: () => false});
+    const glass = new THREE.MeshPhysicalMaterial({transmission: 1, side: THREE.DoubleSide});
+    const panes = [-.5, .5].map(x => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(.9, .9), glass);
+      mesh.position.x = x; room.add(mesh);
+      mesh.material = probe.material(glass, 0, probe.onMainWall(mesh, face));
+      return mesh;
+    });
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(12, 6), new THREE.MeshBasicMaterial({color: 0xffffff, side: THREE.DoubleSide}));
+    wall.position.z = 3; room.add(wall); probe.power(true);
+    const camera = new THREE.OrthographicCamera(-1, 1, .5, -.5, .1, 5);
+    camera.position.z = 2;
+    const gl = renderer.getContext(), pixel = new Uint8Array(4);
+    function sample() {
+      renderer.render(scene, camera);
+      return [24, 72].map(x => {gl.readPixels(x, 24, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel); return pixel[0];});
+    }
+    const closed = sample(); panes[0].rotation.y = Math.PI / 3;
+    const open = sample();
+    camera.position.set(Math.sqrt(3) * 1.5, 0, 1.5); camera.lookAt(0, 0, 0);
+    camera.left = -.5; camera.right = .5; camera.updateProjectionMatrix();
+    panes[0].rotation.y = 0; const grazing = sample();
+    panes[0].rotation.y = Math.PI / 6; const turned = sample();
+    const captures = probe.snapshot().captures;
+    probe.dispose(); renderer.dispose();
+    return {closed, open, grazing, turned, captures};
+  }, values.url);
+  const {closed, open, grazing, turned, captures} = report.sashes;
+  assert.ok(closed[0] > 0 && closed[0] === closed[1]);
+  assert.deepEqual(open, [0, closed[1]], '打开的窗扇反射方向转出室内，邻扇应保留原倒影');
+  assert.ok(turned[0] > 0 && turned[0] < grazing[0], '转向相机的窗扇应降低菲涅耳反射强度');
+  assert.equal(turned[1], grazing[1]);
+  assert.equal(captures, 1);
   await fixture.close();
   for (const room of values.rooms.split(',').filter(Boolean)) {
     console.log('检查时段和调色：' + room);

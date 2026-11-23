@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import * as THREE from '../../vendor/build/three.module.js';
 import {createTimeLighting, timePreset} from '../time-lighting.mjs';
 import {setSeeThrough} from '../wall-visibility.mjs';
+import {setLayer} from '../material-layers.mjs';
+import {createImportMaterials, updateImportLighting} from '../import-materials.mjs';
+import {createRoomVisibility} from '../../mobile/room-visibility.mjs';
+import {createMobileLighting} from '../../mobile/lighting.mjs';
 import {captureRoom} from '../mobile-snapshot.mjs';
 import {indoorLighting} from '../indoor-lighting.mjs';
 
-function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition, backdropMaterials, glazing} = {}) {
+function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition, backdropMaterials, glazing, luminaires = []} = {}) {
   const bounds = new THREE.Box3(new THREE.Vector3(...low), new THREE.Vector3(...high));
   const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
   const scene = new THREE.Scene(); scene.background = new THREE.Color('#e9ede5');
@@ -28,13 +32,12 @@ function fixture({low = [-2, 0, -2], high = [2, 3, 2], fixturePosition, backdrop
   sun.position.set(-3.5, 8, 4); sun.target.position.set(0, 0, 0); sun.castShadow = true;
   scene.add(hemi, sun, sun.target, fill);
   const renderer = {toneMappingExposure: 1.1, shadowMap: {needsUpdate: false}};
-  // No ceiling luminaires listed (Lamp0 is not one): these tests cover the central-lamp fallback;
-  // test_room_luminaires.mjs covers rooms lit from their luminaires.
-  const config = {openings: {Wall1: ['Window0']}, label: name => ({Window0: '窗户', DaylightBackdrop: '窗外景', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name), luminaires: []};
-  const rig = createTimeLighting(THREE, {renderer, scene, room, config, walls: [{name: 'Wall1', n: [0, 0, 1]}],
+  const config = {openings: {Wall1: ['Window0']}, label: name => ({Wall1: '墙面', Window0: '窗户', DaylightBackdrop: '窗外景', Ceiling0: '天花板', Lamp0: '灯'})[name], isCeiling: name => ['Ceiling0', 'Lamp0'].includes(name), luminaires};
+  const walls = [{name: 'Wall1', n: [0, 0, 1], tangent: [1, 0, 0], d: -2, bounds: [[-2, 0], [2, 3]]}];
+  const rig = createTimeLighting(THREE, {renderer, scene, room, config, walls,
     bounds, floorY: low[1], ceilingY: high[1],
     profile: {key: 3, fill: .65, hemisphere: 1.1, environment: .35}});
-  return {rig, renderer, scene, room, wall, roof, window, sun, fill, hemi};
+  return {rig, renderer, scene, room, wall, roof, window, sun, fill, hemi, config, walls, bounds};
 }
 test('day presets use the principal window and refit the sun; balanced restores authored lighting', () => {
   const f = fixture(), original = f.sun.position.clone();
@@ -164,7 +167,7 @@ test('night window captures visible interior once and reuses it across camera-on
     render(_scene, camera) {
       draws++;
       assert.ok(camera !== view && target !== original);
-      assert.equal(helper.visible, false); assert.equal(f.window.visible, false);
+      assert.equal(helper.visible, false); assert.equal(f.window.material.visible, false);
       assert.equal(f.renderer.shadowMap.needsUpdate, false);
     },
   });
@@ -181,6 +184,74 @@ test('night window captures visible interior once and reuses it across camera-on
   assert.equal(f.window.material.opacity, clear * .08);
   draw(); assert.equal(draws, 4);
   f.rig.dispose(); original.dispose();
+});
+
+test('overview and walk share a complete night reflection without stored furniture or editor tints', () => {
+  const photoSource = new THREE.MeshStandardMaterial({emissive: 0xffffff});
+  const f = fixture({backdropMaterials: [photoSource]});
+  const lamp = f.room.getObjectByName('Lamp0'), photo = f.room.getObjectByName('DaylightBackdrop');
+  const chair = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const imported = {importMaterials: createImportMaterials(THREE, chair)};
+  const stored = chair.clone(); stored.visible = lamp.visible = false; f.room.add(chair, stored);
+  const selected = {material: m => {const copy = m.clone(); copy.color.set(0x00ff00); return copy;}};
+  f.rig.apply('night');
+  for (const mesh of [chair, photo]) setLayer(mesh, 'selected', selected);
+  setSeeThrough(f.wall, true);
+  const view = new THREE.PerspectiveCamera(), captures = [];
+  Object.assign(f.renderer, {xr: {enabled: false}, extensions: {has: () => false},
+    getRenderTarget: () => null, setRenderTarget() {}, getActiveCubeFace: () => 0, getActiveMipmapLevel: () => 0,
+    render() {
+      captures.push(chair.material.type);
+      assert.ok(f.roof.visible && lamp.visible && !stored.visible);
+      assert.equal(f.window.material.visible, false);
+      assert.equal(photo.material[0].color.getHex(), 0x152339);
+      assert.equal(chair.material.color.getHex(), 0xffffff);
+      assert.equal(f.wall.material.transparent, false);
+    }});
+  const draw = () => f.window.material.onBeforeRender(f.renderer, f.scene, view, f.window.geometry, f.window);
+  draw();
+  assert.ok(!f.roof.visible && !lamp.visible && f.window.material.visible);
+  assert.equal(chair.material.color.getHex(), 0x00ff00); assert.ok(f.wall.material.transparent);
+  lamp.visible = f.roof.visible = true; setSeeThrough(f.wall, false);
+  for (const mesh of [chair, photo]) setLayer(mesh, 'selected', null);
+  draw(); assert.deepEqual(captures, ['MeshBasicMaterial']);
+  const entities = new Map([['chair', imported]]);
+  assert.deepEqual(updateImportLighting(entities, 'pbr', f.rig), [imported]);
+  draw(); draw();
+  assert.deepEqual(updateImportLighting(entities, 'pbr', f.rig), []); draw();
+  assert.deepEqual(captures, ['MeshBasicMaterial', 'MeshStandardMaterial']);
+  imported.importMaterials.dispose(); f.rig.dispose();
+});
+
+test('snapshots rebuild the editor fixtures in every preset and apply noon exterior scaling once', async () => {
+  const photo = new THREE.MeshStandardMaterial({emissive: 0xffffff, emissiveIntensity: 1.6});
+  const f = fixture({luminaires: ['Lamp0'], backdropMaterials: [photo, new THREE.MeshBasicMaterial()]});
+  const backdrop = f.room.getObjectByName('DaylightBackdrop');
+  for (const preset of ['physical', 'noon', 'balanced', 'morning', 'afternoon', 'night']) {
+    await f.rig.apply(preset);
+    const snapshot = captureRoom(THREE, {room: f.room, config: f.config, walls: f.walls, entities: new Map(), layout: {},
+      wallOwner: name => ['Window0', 'Wall1'].includes(name) ? 'Wall1' : null, lighting: {preset}});
+    const scene = new THREE.Scene(); scene.background = new THREE.Color(); scene.add(snapshot.root);
+    const shared = snapshot.root.getObjectByName('DaylightBackdrop');
+    const renderer = {shadowMap: {}}, visibility = createRoomVisibility(THREE, snapshot.root);
+    assert.deepEqual(snapshot.metadata.lighting.luminaires, ['Lamp0']);
+    if (preset === 'noon') assert.equal(shared.material[0].emissiveIntensity, 1.6);
+    const mobile = createMobileLighting(THREE, {scene, renderer, visibility, bounds: f.bounds, floorY: 0});
+    await mobile.ready;
+    const state = mobile.snapshot();
+    assert.deepEqual(state.luminaires, f.rig.snapshot().luminaires);
+    if (preset === 'physical') {
+      assert.deepEqual(state.physical.lights.filter(l => l.kind === 'luminaire'), f.rig.snapshot().physical.lights.filter(l => l.kind === 'luminaire'));
+      assert.ok(state.physical.lights.some(l => l.kind === 'luminaire'));
+    }
+    if (preset === 'noon') {
+      assert.equal(shared.material[0].emissiveIntensity, backdrop.material[0].emissiveIntensity);
+      assert.equal(shared.material[1].color.r, backdrop.material[1].color.r);
+      assert.equal(backdrop.material[0].emissiveIntensity, 1.6 * .95);
+    }
+    mobile.dispose(); snapshot.dispose();
+  }
+  f.rig.dispose();
 });
 
 test('without luminaires, night uses one attenuated central ceiling light and one shadow map; mode changes never duplicate it', () => {

@@ -33,8 +33,9 @@ export function createMobileLighting(THREE, {renderer, scene, visibility, bounds
   fill.position.set(-5, 4, -4);
   scene.add(hemisphere, sun, sun.target, fill);
   const rig = createTimeLighting(THREE, {renderer, scene, room: model, config: {...config, luminaires: settings.luminaires}, walls, bounds, floorY, ceilingY,
+    revealRoot: visibility.revealRoot, bakedNoonExterior: preset === 'noon' && settings.exterior !== 'authored',
     profile, environment: settings.environment !== false, indoor: settings.indoor});
-  rig.apply(preset, {warm: !!settings.warm});
+  const ready = rig.apply(preset, {warm: !!settings.warm});
   for (const light of scene.children) if (light.isLight && light !== sun && light.shadow) light.shadow.mapSize.set(512, 512);
 
   // A cutaway is only a viewing aid. Hidden opaque walls and attached objects
@@ -50,6 +51,7 @@ export function createMobileLighting(THREE, {renderer, scene, visibility, bounds
   });
   scene.add(proxies);
   return {
+    ready,
     settings: {preset, environment: settings.environment !== false, ao: settings.ao !== false, grading: colorGrading(settings.grading)},
     syncOccluders() {
       rig.syncOccluders();

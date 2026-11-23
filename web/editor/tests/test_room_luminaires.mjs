@@ -147,11 +147,11 @@ function lit({luminaires = [], walls, low = [-2, 0, -2.5], high = [2, 3, 2.5], i
 const indoorSpots = scene => scene.children.filter(light => light.userData.lightingRole === 'indoor');
 const markers = scene => scene.children.filter(object => object.isMesh && object.geometry.type === 'SphereGeometry');
 
-test('lights stand at the luminaires: one lamp in a 20 m² room is as bright as the central lamp, a larger room gets more', () => {
+test('lights stand at the luminaires: one lamp in a 20 m² room is as bright as the central lamp, a larger room gets more', async () => {
   const central = lit(); central.rig.apply('night');
   const today = central.rig.snapshot().lamp.intensity;
   assert.equal(central.rig.snapshot().lights[0].source, 'fallback'); assert.equal(markers(central.scene).length, 1);
-  const one = lit({luminaires: [{name: 'Panel0', length: .6, width: .6, at: [1, 2.99, 1]}]}); one.rig.apply('night');
+  const one = lit({luminaires: [{name: 'Panel0', length: .6, width: .6, at: [1, 2.99, 1]}]}); await one.rig.apply('night');
   let state = one.rig.snapshot();
   near(state.floorArea, 20); assert.equal(state.luminaires.length, 1); assert.equal(one.rig.fixtures, 1);
   assert.equal(state.lights.length, 2); assert.equal(state.lights[0].source, 'luminaire'); assert.equal(state.lamp.source, 'luminaire');
@@ -163,7 +163,7 @@ test('lights stand at the luminaires: one lamp in a 20 m² room is as bright as 
   assert.equal(spot.castShadow, true); assert.deepEqual(spot.shadow.mapSize.toArray(), [LUMINAIRE_LIGHTS.shadowMap, LUMINAIRE_LIGHTS.shadowMap]);
   // 80 m² with three strips: (80 / 20) ** .75 times the power, by emitting area, one night shadow map.
   const big = lit({low: [-5, 0, -4], high: [5, 3, 4], luminaires: [0, 1, 2].map(i => ({name: `LinearLight${i}`, length: 6.8, width: .12, at: [0, 2.98, -2.5 + i * 2.5], turn: .3}))});
-  big.rig.apply('night'); state = big.rig.snapshot();
+  await big.rig.apply('night'); state = big.rig.snapshot();
   near(state.floorArea, 80);
   // The central lamp's height term: 3 m ceiling, the lamp .18 m under it.
   const central80 = Math.max(4, (3 - .18) ** 2 * 4.5);
@@ -184,7 +184,7 @@ test('lights stand at the luminaires: one lamp in a 20 m² room is as bright as 
   assert.equal(indoorSpots(big.scene).length, 0);
 });
 
-test('night rectangles follow rotated diffusers, respect the light cap and switch off with the indirect light', () => {
+test('night rectangles follow rotated diffusers, respect the light cap and switch off with the indirect light', async () => {
   const fixtures = Array.from({length: 8}, (_, i) => ({
     name: `Strip${i}`, length: 6.8, width: .12, turn: .3, at: [0, 4.9, i - 4],
   }));
@@ -192,7 +192,7 @@ test('night rectangles follow rotated diffusers, respect the light cap and switc
     const f = lit({low: [-4, 2, -5], high: [4, 5, 5], luminaires: fixtures.slice(0, count)});
     const rectangles = () => f.scene.children.filter(light => light.isRectAreaLight);
     f.rig.apply('noon'); assert.equal(rectangles().length, 0);
-    f.rig.apply('night');
+    await f.rig.apply('night');
     const lights = rectangles(), state = f.rig.snapshot();
     assert.equal(lights.length, Math.min(count, LUMINAIRE_LIGHTS.max));
     near(sum(state.lights.map(light => light.share)), 1);
@@ -213,7 +213,7 @@ test('night rectangles follow rotated diffusers, respect the light cap and switc
     for (const preset of ['morning', 'noon', 'afternoon', 'physical', 'balanced']) {
       f.rig.apply(preset); assert.ok(lights.every(light => !light.visible));
     }
-    f.rig.apply('night');
+    await f.rig.apply('night');
     assert.deepEqual(rectangles(), lights); assert.ok(lights.every(light => light.visible));
     f.rig.dispose(); assert.equal(rectangles().length, 0);
   }

@@ -25,23 +25,26 @@ export function createImportMaterials(THREE, root, {mode = 'original', preserveP
     entries.push({mesh, source, original, lit, array: Array.isArray(mesh.material), sourceGeometry: geometry,
       receiveShadow: mesh.receiveShadow, normalAdded: !geometry.attributes.normal});
   });
+  // Native textured PBR assets keep their material when legacy vertex-colour lighting is off.
+  let activeMode;
   function setMode(next) {
     if (!['original', 'pbr'].includes(next)) throw new Error('未知导入材质模式');
-    mode = next;
+    const effective = preservePBR ? 'pbr' : next;
+    if (effective === activeMode) return false;
+    activeMode = effective;
     for (const entry of entries) {
-      // Native textured PBR assets keep their material even when the legacy vertex-colour
-      // lighting experiment is off. That toggle still controls legacy SAM3D imports.
-      const lit = mode === 'pbr' || preservePBR;
+      const lit = effective === 'pbr';
       const materials = lit ? entry.lit : entry.original;
       // The mesh's own look: a selection tint or a see-through layer stays on top of it.
       setOwnMaterial(entry.mesh, entry.array ? materials : materials[0]);
       setOwnShadows(entry.mesh, {receiveShadow: lit});
     }
+    return entries.length > 0;
   }
   setMode(mode);
   return {
     setMode,
-    snapshot() {return {mode: preservePBR ? 'pbr' : mode, meshes: entries.length, normalsAdded: entries.filter(e => e.normalAdded).length,
+    snapshot() {return {mode: activeMode, meshes: entries.length, normalsAdded: entries.filter(e => e.normalAdded).length,
       vertexColorMeshes: entries.filter(e => e.mesh.geometry.attributes.color).length,
       litTypes: [...new Set(entries.flatMap(e => e.lit.map(m => m.type)))],
       sourcePBR: entries.filter(e => e.source.every(m => m.isMeshStandardMaterial)).length};},
@@ -55,4 +58,10 @@ export function createImportMaterials(THREE, root, {mode = 'original', preserveP
       for (const resource of resources) if (!sources.has(resource)) resource.dispose();
     },
   };
+}
+
+export function updateImportLighting(entities, mode, rig) {
+  const changed = [...entities.values()].filter(entity => entity.importMaterials?.setMode(mode));
+  if (changed.length) rig?.invalidateWindowReflection();
+  return changed;
 }

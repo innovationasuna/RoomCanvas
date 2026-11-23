@@ -18,6 +18,9 @@ const states = new WeakMap();
 
 export function ownMaterial(mesh) {return states.get(mesh)?.own.material ?? mesh.material;}
 
+// The reflection sees the active time preset underneath editor-only layers.
+export function roomMaterial(mesh) {return states.get(mesh)?.timeMaterial ?? ownMaterial(mesh);}
+
 export function ownShadows(mesh) {
   const own = states.get(mesh)?.own ?? mesh;
   return {castShadow: own.castShadow, receiveShadow: own.receiveShadow};
@@ -62,10 +65,12 @@ function rebuild(mesh, state) {
   state.made = [];
   const {own} = state;
   let materials = [own.material].flat(), castShadow = own.castShadow, receiveShadow = own.receiveShadow;
+  state.timeMaterial = null;
   for (const name of LAYERS) {
     const layer = state.layers.get(name);
     if (!layer) continue;
     if (layer.material) materials = materials.map((material) => {const made = layer.material(material); state.made.push(made); return made;});
+    if (name === 'timeExterior') state.timeMaterial = Array.isArray(own.material) ? materials : materials[0];
     if (layer.castShadow !== undefined) castShadow = layer.castShadow;
     if (layer.receiveShadow !== undefined) receiveShadow = layer.receiveShadow;
   }

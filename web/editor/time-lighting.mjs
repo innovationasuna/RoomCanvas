@@ -1,4 +1,3 @@
-import {RectAreaLightUniformsLib} from '../vendor/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import {createNightWindow} from './night-window.mjs';
 import {shadowSettings} from './lighting-settings.mjs';
 import {indoorLighting} from './indoor-lighting.mjs';
@@ -20,6 +19,7 @@ export const TIME_PRESETS = Object.freeze({
 });
 export const timePreset = value => Object.hasOwn(TIME_PRESETS, value) ? value : 'noon';
 
+const ltcUsers = new WeakMap();
 const DAY_LAMP_COLOR = 0xffdcb4;
 
 // Day: window/sun dominate with a weak ceiling light. Night: the ceiling light dominates.
@@ -27,7 +27,8 @@ const DAY_LAMP_COLOR = 0xffdcb4;
 // a room without any keeps one invented lamp at the top centre. Night uses the emitting rectangles
 // and a small shadowed fraction of one fixture. Window skylight is a finite local approximation.
 // Shadow maps update on demand.
-export function createTimeLighting(THREE, {renderer, scene, room, config, walls, bounds, floorY, ceilingY, profile, fitShadows = true, environment = true, indoor}) {
+export function createTimeLighting(THREE, {renderer, scene, room, config, walls, bounds, floorY, ceilingY, profile, fitShadows = true, environment = true, indoor,
+  revealRoot = root => config.isCeiling(root.userData.name || root.name), bakedNoonExterior = false}) {
   const hemisphere = scene.children.find(light => light.isHemisphereLight);
   const [sun, fill] = scene.children.filter(light => light.isDirectionalLight);
   const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
@@ -72,7 +73,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
   const physical = createPhysicalLighting(THREE, {scene, room, config, bounds, toneExposure: baseExposure,
     walls, ceilingY, floorY, own: ownMaterial, setOwn: setOwnMaterial, luminaires: plan, angle: lamps.angle});
   const glassCasters = new Map();
-  const nightWindow = createNightWindow(THREE, {scene, room, window: windows[0], center, diagonal, config});
+  const nightWindow = createNightWindow(THREE, {scene, room, window: windows[0], center, diagonal, revealRoot});
   const exterior = [], daylightCards = new Set();
   const emits = material => material.emissive && material.emissive.r + material.emissive.g + material.emissive.b > 0;
   const windowFaces = new Map(windows.map(({name, face}) => [named.get(name), face]));
@@ -89,14 +90,11 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
       if (backdrop || slots.every(photo)) daylightCards.add(object);
       const scalesAtNoon = slots.some(material => emits(material) || material.isMeshBasicMaterial);
       const daylight = backdrop || scalesAtNoon || slots.some(photo);
-      if (daylight || slots.some(material => material.transmission > 0)) {
-        const noon = scalesAtNoon ? slots.map(material => {
-          const copy = material.clone();
-          if (copy.emissive) copy.emissiveIntensity *= TIME_PRESETS.noon.exterior;
-          if (copy.isMeshBasicMaterial) copy.color.multiplyScalar(TIME_PRESETS.noon.exterior);
-          return copy;
-        }) : null;
-        exterior.push({mesh: object, source, photo, daylight, face, noon: noon && (Array.isArray(source) ? noon : noon[0])});
+      const glazed = slots.some(material => material.transmission > 0);
+      if (daylight || glazed) {
+        // Wall membership is measured before a hinged sash moves away from its frame.
+        const onMainWall = glazed && nightWindow.onMainWall(object, face);
+        exterior.push({mesh: object, photo, daylight, onMainWall, scalesAtNoon});
       }
     }
     for (const child of object.children) collectExterior(child, kind, face);
@@ -105,9 +103,8 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
 
   function applyExterior(preset) {
     const tint = preset.exteriorTint && new THREE.Color(preset.exteriorTint);
-    for (const {mesh, source, photo, daylight, face, noon} of exterior) {
-      const own = preset === TIME_PRESETS.noon && noon ? noon : source;
-      if (ownMaterial(mesh) !== own) setOwnMaterial(mesh, own);
+    for (const {mesh, photo, daylight, onMainWall, scalesAtNoon} of exterior) {
+      const noon = preset === TIME_PRESETS.noon && scalesAtNoon && !bakedNoonExterior;
       // A display layer keeps the photo in mobile exports and stays underneath cutaway/selection.
       const layer = {
         castShadow: tint && daylightCards.has(mesh) ? false : undefined,
@@ -118,18 +115,19 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
               polygonOffset: true, polygonOffsetUnits: -2});
           }
           if (preset.nightSky && material.transmission > 0) {
-            return nightWindow.material(material, preset.nightSky, mesh, face);
+            return nightWindow.material(material, preset.nightSky, onMainWall);
           }
           const copy = material.clone();
           if (photo(material) && tint) {
             copy.color.multiply(tint).multiplyScalar(preset.exterior);
             copy.emissive?.multiply(tint);
           }
+          if (noon && copy.isMeshBasicMaterial) copy.color.multiplyScalar(preset.exterior);
           if (copy.emissive) copy.emissiveIntensity *= preset.exterior;
           return copy;
         },
       };
-      setLayer(mesh, 'timeExterior', (tint && daylight) || preset.nightSky ? layer : null);
+      setLayer(mesh, 'timeExterior', noon || (tint && daylight) || preset.nightSky ? layer : null);
     }
   }
   // The luminaires' own glow follows the light switch, on owned copies as above.
@@ -178,9 +176,20 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     marker = new THREE.Mesh(new THREE.SphereGeometry(.06, 16, 8), new THREE.MeshBasicMaterial({color: DAY_LAMP_COLOR, toneMapped: false}));
     marker.position.copy(lampPosition); scene.add(marker);
   }
+  let loadingAreas, disposed = false;
   function nightAreaLights() {
     if (!areas.length || areas[0].light) return;
-    if (!THREE.UniformsLib.LTC_FLOAT_1) RectAreaLightUniformsLib.init(THREE.UniformsLib);
+    loadingAreas ??= import('../vendor/examples/jsm/lights/RectAreaLightUniformsLib.js').then(({RectAreaLightUniformsLib}) => {
+      if (disposed || selected !== 'night' || !lamps.power) return;
+      const uniforms = THREE.UniformsLib;
+      if (!uniforms.LTC_FLOAT_1) RectAreaLightUniformsLib.init(uniforms);
+      ltcUsers.set(uniforms, (ltcUsers.get(uniforms) ?? 0) + 1);
+      createAreas();
+      nightWindow.invalidate();
+    }).finally(() => {loadingAreas = null;});
+    return loadingAreas;
+  }
+  function createAreas() {
     for (const entry of areas) {
       const {spec, fixture} = entry;
       const {axis: [x, z], center, length, width, area} = fixture;
@@ -215,7 +224,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     physical.setIndoor(lamps);
     if (ceilingOn) ceilingLights();
     const night = selected === 'night';
-    if (night && ceilingOn) nightAreaLights();
+    const pending = night && ceilingOn ? nightAreaLights() : undefined;
     for (const {light} of areas) if (light) light.visible = night && ceilingOn;
     // The shadow map belongs to a weak direct component on the fixture itself. The area
     // source yields the rest of its direct illumination; it cannot cast a Three.js shadow.
@@ -244,12 +253,14 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     for (const {mesh, copies, bases} of glow) for (const materials of [copies, [ownMaterial(mesh)].flat()]) {
       materials.forEach((material, index) => {if (bases[index] !== undefined) material.emissiveIntensity = bases[index] * glowScale;});
     }
+    return pending;
   }
   function setIndoor(value) {
-    lamps = indoorLighting(value); updateIndoor();
+    lamps = indoorLighting(value); const pending = updateIndoor();
     if (selected === 'night') nightWindow.invalidate();
     // Daytime window/sun shadows are unaffected by the unshadowed indoor fill.
     if (['night', 'physical'].includes(selected)) renderer.shadowMap.needsUpdate = true;
+    return pending;
   }
   function syncOccluders() {
     const physical = selected !== 'balanced';
@@ -297,7 +308,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
     else sun.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.color);
     fill.color.set(base ? warm ? 0xffd2a5 : 0xffffff : preset.sky ?? 0xffffff);
     scene.environmentIntensity = environment ? base ? profile.environment : physicalMode ? physical.environmentIntensity : preset.environment : 0;
-    updateIndoor();
+    const pending = updateIndoor();
     scene.background.set(base ? original.background : preset.background);
     if (base) {
       sun.position.copy(original.position); sun.target.position.copy(original.target);
@@ -315,6 +326,7 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
       sun.target.position.copy(target); sun.position.copy(target).addScaledVector(direction, Math.max(12, diagonal * 2)); fitSun();
     }
     syncOccluders(); renderer.shadowMap.needsUpdate = true;
+    return pending;
   }
   // Keep reporting the adjustable spot, including when it supplies the night shadow.
   function lampState() {
@@ -351,12 +363,18 @@ export function createTimeLighting(THREE, {renderer, scene, room, config, walls,
       ]}),
 
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      if (areas[0]?.light) {
+        const uniforms = THREE.UniformsLib, users = ltcUsers.get(uniforms) - 1;
+        ltcUsers.set(uniforms, users);
+        if (!users) for (const key of ['LTC_FLOAT_1', 'LTC_FLOAT_2', 'LTC_HALF_1', 'LTC_HALF_2']) uniforms[key].dispose();
+      }
       nightWindow.dispose();
       restoreModelLights();
       physical.dispose();
       renderer.toneMappingExposure = baseExposure;
       applyExterior(TIME_PRESETS.balanced);
-      for (const {noon} of exterior) if (noon) [noon].flat().forEach(material => material.dispose());
       roof.removeFromParent(); roofMaterial.dispose();
       for (const {mesh, source, copies} of glow) {
         setOwnMaterial(mesh, source);

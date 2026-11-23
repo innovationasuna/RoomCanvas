@@ -2,7 +2,7 @@ import {ownMaterial} from './material-layers.mjs';
 
 // Capture synchronously before any texture encoding awaits. Editor userData can contain circular
 // articulation references; only the public snapshot metadata belongs in a portable GLB.
-export function captureRoom(THREE, {room, entities, layout, ceilingObjects = [], parts = [], walls = [], wallOwner = () => null, lighting = null, name, floorY, bounds}) {
+export function captureRoom(THREE, {room, config, entities, layout, ceilingObjects = [], parts = [], walls = [], wallOwner = () => null, lighting = null, name, floorY, bounds}) {
   const hidden = new Set([...entities.values()].filter(e => layout[e.id]?.visible === false).map(e => e.group));
   const ceilings = new Set(ceilingObjects), rest = new Map();
   for (const part of parts) {
@@ -51,7 +51,18 @@ export function captureRoom(THREE, {room, entities, layout, ceilingObjects = [],
     }).filter(([, owner]) => owner)),
     ceilings: ceilingObjects.map(source => source.userData.name || source.name),
   };
-  if (lighting) metadata.lighting = JSON.parse(JSON.stringify(lighting));
+  if (lighting) {
+    const settings = {...lighting, exterior: 'authored'};
+    if (config) {
+      settings.luminaires = config.luminaires;
+      settings.labels = {};
+      room.traverse(object => {
+        const name = object.userData.name || object.name, label = config.label(name);
+        if (label) settings.labels[name] = label;
+      });
+    }
+    metadata.lighting = JSON.parse(JSON.stringify(settings));
+  }
   root.userData.roomcanvas = metadata;
   root.updateMatrixWorld(true);
   return {root, metadata, dispose() {for (const material of materials.values()) material.dispose();}};
