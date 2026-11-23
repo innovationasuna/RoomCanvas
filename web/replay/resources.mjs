@@ -14,5 +14,5 @@ export function disposeModel(root) {
   images.forEach(image => image.close?.());
   root.removeFromParent();
   root.clear();
-  for (const key of ['sourceMaterials', 'fadeMats', 'mask', 'warm', 'materializerMaterials']) delete root.userData[key];
+  for (const key of ['sourceMaterials', 'fadeMats', 'mask', 'windows', 'warm', 'materializerMaterials']) delete root.userData[key];
 }

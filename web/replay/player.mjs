@@ -25,7 +25,11 @@ export class Player {
   pause() {this.playing = false; this.emit();}
   toggle() {this.playing ? this.pause() : this.play();}
   // A live update can animate its new objects while the playback clock is stopped.
-  seek(t, {animate = false} = {}) {this.t = Math.min(Math.max(t, 0), this.duration); this.emit(animate);}
+  seek(t, {animate = false, pause = false} = {}) {
+    if (pause) this.playing = false;
+    this.t = Math.min(Math.max(t, 0), this.duration);
+    this.emit(animate);
+  }
 }
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));

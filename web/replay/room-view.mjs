@@ -3,7 +3,7 @@
 // the previous one, and each object that appears takes shape once the camera has moved in close to it. The
 // camera follows smoothly; near walls fade so the room stays readable.
 import * as THREE from 'three';
-import {Materializer, prefetch} from './materialize.mjs';
+import {Materializer, prefetch, shown} from './materialize.mjs';
 import {disposeModel} from './resources.mjs';
 import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {surfaceBox} from '../editor/physical-lighting.mjs';
@@ -26,6 +26,7 @@ function smoothDamp(cur, goal, vel, smoothTime, maxSpeed, dt) {
 const SPIN = 0.058; // rad/s
 const FADE_SECONDS = 2;
 const WALLISH = /^(Wall\d|Door\d|Window\d)|Drape|Sheer|Curtain|Panorama|Bulkhead/i;
+const WINDOW = /^Window(\d+)$/i, BACKDROP = /^(?:Window)?DaylightBackdrop(\d*)$/i;
 const HIDDEN = /^Ceiling/i;
 const SHELL = /^(Floor|Wall)\d+$/;
 const CLOSE_POLAR = 1.0;  // rad from straight down: looking at an object a little from above
@@ -52,6 +53,65 @@ function partsOf(root, key) {
   if (!root) return [];
   const node = root.getObjectByName(key);
   return node ? [node] : nodesFor(root, key);
+}
+
+// A world box only locates the opening reliably for axis-aligned panes. Check the actual
+// triangles once at load time: an exporter can bake the wall rotation into the vertices.
+function openingBox(part) {
+  const box = new THREE.Box3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  function aligned(o) {
+    if (BACKDROP.test(o.name)) return true;
+    if (o.isMesh) {
+      const {position} = o.geometry.attributes, index = o.geometry.index;
+      if (!position) return false;
+      const vertex = (v, i) => v.fromBufferAttribute(position, index ? index.getX(i) : i).applyMatrix4(o.matrixWorld);
+      for (let i = 0, count = index?.count ?? position.count; i < count; i += 3) {
+        vertex(a, i); vertex(b, i + 1); vertex(c, i + 2);
+        b.sub(a).cross(c.sub(a)).normalize();
+        if (Math.abs(b.x) > 1e-5 && Math.abs(b.z) > 1e-5) return false;
+      }
+      box.union(surfaceBox(THREE, o));
+    }
+    return o.children.every(aligned);
+  }
+  return aligned(part) && !box.isEmpty() ? box : null;
+}
+
+function sameOpening(a, b) {
+  if (!a || !b || !a.intersectsBox(b)) return false;
+  const size = a.getSize(new THREE.Vector3()).max(b.getSize(new THREE.Vector3()));
+  const along = size.x >= size.z ? 'x' : 'z';
+  return [along, 'y'].every(axis => {
+    const overlap = Math.min(a.max[axis], b.max[axis]) - Math.max(a.min[axis], b.min[axis]);
+    return overlap > 0 && overlap >= 0.5 * size[axis];
+  });
+}
+
+function sameModelPath(a, b) {
+  while (!a.userData.replayRoot && !b.userData.replayRoot) {
+    if (!a.name || a.name !== b.name) return false;
+    a = a.parent; b = b.parent;
+  }
+  return !!(a.userData.replayRoot && b.userData.replayRoot);
+}
+
+// Accept at most one possible plate. A plate elsewhere in the model with an ambiguous
+// name is enough to leave this opening on the ordinary fade.
+function windowParts(part, backdrops) {
+  const number = WINDOW.exec(part.name)[1];
+  const plates = backdrops.filter(o => {
+    const id = BACKDROP.exec(o.name)[1];
+    return !id || id === number || part.getObjectById(o.id);
+  });
+  if (!plates.length) return [part];
+  if (plates.length !== 1) return [];
+  const [plate] = plates, id = BACKDROP.exec(plate.name)[1];
+  if (id && id !== number) return [];
+  if (!part.getObjectById(plate.id)) {
+    if (plate.parent !== part.parent) return [];
+    if (!id && part.parent.children.filter(o => WINDOW.test(o.name)).length !== 1) return [];
+  }
+  return [part, plate];
 }
 
 // Alpha-blended cloth can hang inside the same window as a pane with an unnamed material.
@@ -271,6 +331,14 @@ export class RoomView {
     if (this.models[key]) return this.models[key].promise;
     // A live job can list a model while it is still being written: after a failed load, try again later.
     if (performance.now() < (this.retryAt[key] || 0)) throw new Error(`retry ${key} later`);
+    // Each live draft overwrites the final file. FileLoader coalesces in-flight loads by URL.
+    if (key.startsWith('draft')) {
+      const version = new URL(url, globalThis.location?.href);
+      if (version.protocol === 'http:' || version.protocol === 'https:') {
+        version.searchParams.set('draft', key);
+        url = version.href;
+      }
+    }
     const entry = this.models[key] = {controller: new AbortController()};
     entry.promise = new GLTFLoader().loadAsync(url).catch((error) => {
       if (this.models[key] === entry) {
@@ -331,9 +399,28 @@ export class RoomView {
       const c = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
       this.wallFades.push({mats, c, root, part, a: 1});
     }
+    const windows = root.userData.windows = new Map(), backdrops = [];
+    root.updateWorldMatrix(true, true);
+    const collectWindows = (part) => {
+      if (!WINDOW.test(part.name) && !BACKDROP.test(part.name)) {part.children.forEach(collectWindows); return;}
+      if (WINDOW.test(part.name)) {
+        windows.set(part.name, windows.has(part.name) ? null : {part, box: openingBox(part)});
+      }
+      // Wall materials already have private copies. A standalone window may share its paint with furniture.
+      part.traverse(o => {
+        if (BACKDROP.test(o.name)) backdrops.push(o);
+        if (!o.isMesh) return;
+        o.userData.replayWindowMesh = true;
+        const copies = [o.material].flat().map(m => wallMats.has(m) ? m : m.clone());
+        o.material = Array.isArray(o.material) ? copies : copies[0];
+      });
+    };
+    root.children.forEach(collectWindows);
+    for (const window of windows.values()) if (window) window.parts = windowParts(window.part, backdrops);
     const all = new Set();
     root.traverse((o) => {if (o.isMesh) [o.material].flat().forEach((m) => all.add(m));});
-    root.userData.fadeMats = [...all].map((m) => ({m, opacity: m.userData.base ?? m.opacity, transparent: m.transparent, depthWrite: m.depthWrite, wall: wallMats.has(m)}));
+    root.userData.fadeMats = [...all].map((m) => ({m, opacity: m.userData.base ?? m.opacity, transparent: m.transparent,
+      depthWrite: m.depthWrite, polygonOffset: m.polygonOffset, factor: m.polygonOffsetFactor, units: m.polygonOffsetUnits, wall: wallMats.has(m)}));
     root.userData.fade = 1;
     // Depth mask for fading in: only the outermost surfaces of the incoming model get colour.
     const mask = new THREE.MeshBasicMaterial({colorWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4});
@@ -342,9 +429,10 @@ export class RoomView {
     const meshes = [];
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
     for (const o of meshes) {
-      if ([o.material].flat().some((m) => wallMats.has(m) || m.transparent || m.opacity < 1)) continue;
+      if ([o.material].flat().some((m) => wallMats.has(m) || m.transparent || m.opacity < 1 || m.transmission > 0)) continue;
       const m = new THREE.Mesh(o.geometry, mask);
-      m.userData.mask = true;
+      m.userData.mask = 'depth';
+      m.userData.forming = 0;
       m.renderOrder = 1;
       m.visible = false;
       o.add(m);
@@ -398,50 +486,109 @@ export class RoomView {
   setFade(root, f) {
     if (!root || root.userData.fade === f) return;
     root.userData.fade = f;
+    if (f === 0) for (const wall of this.wallFades) if (wall.root === root) this.fadeWall(wall);
     for (const x of root.userData.fadeMats) {
-      if (x.wall) continue;
-      x.m.transparent = f < 1 || x.transparent;
+      if (x.wall || this.windowHandoff?.materials.has(x.m)) continue;
+      const transparent = f < 1 || x.transparent;
+      if (x.m.transparent !== transparent) {x.m.transparent = transparent; x.m.needsUpdate = true;}
       x.m.opacity = x.opacity * f;
       x.m.depthWrite = f < 1 ? false : x.depthWrite;
-      x.m.polygonOffset = f < 1; x.m.polygonOffsetFactor = -1; x.m.polygonOffsetUnits = -4;
-      x.m.needsUpdate = true;
+      x.m.polygonOffset = f < 1 || x.polygonOffset;
+      x.m.polygonOffsetFactor = f < 1 ? -1 : x.factor;
+      x.m.polygonOffsetUnits = f < 1 ? -4 : x.units;
     }
     const masking = f > 0 && f < 1;
-    root.userData.mask.forEach((m) => (m.visible = masking));
+    for (const m of root.userData.mask) {
+      m.userData.fadeVisible = masking && !this.windowHandoff?.masks.has(m);
+      m.visible = m.userData.fadeVisible && !m.userData.forming;
+    }
+  }
+
+  fadeWall(w) {
+    const receiving = w.a > 0.97 && w.root.userData.fade === 1;
+    if (w.receivers && receiving !== w.receiving) {
+      for (const mesh of w.receivers) mesh.receiveShadow = receiving;
+      w.receiving = receiving;
+    }
+    for (const m of w.mats) {
+      const f = this.windowHandoff?.materials.has(m) ? 1 : w.root.userData.fade;
+      const solid = w.a > 0.97 && f === 1;
+      const transparent = m.userData.transparent || !solid;
+      if (m.transparent !== transparent) {m.transparent = transparent; m.needsUpdate = true;}
+      m.opacity = m.userData.base * w.a * f;
+      m.depthWrite = solid && m.userData.depthWrite && m.userData.base > 0.9;
+    }
   }
 
   // Bring a model in: it fades in over the one shown now (quiet: switch at once, e.g. while scrubbing).
   async show(key, url, quiet) {
-    const changed = key !== this.wanted;
+    const previous = this.wanted, changed = key !== previous;
     this.wanted = key;
     this.quiet = quiet;
-    if (this.incoming && this.incoming !== key) {
-      const root = this.models[this.incoming].root;
+    // Keep the fading backdrop during playback and when pausing on the same pending target.
+    const nextFade = !quiet && key !== this.current && (this.models[key]?.root || url);
+    if (changed && this.incoming && this.incoming !== key && (!key || (this.current && !nextFade))) {
+      const cancelled = this.incoming, root = this.models[cancelled].root;
+      this.restoreWindows();
       this.forming.finishModel(root);
       root.visible = false;
       this.setFade(root, 1);
       if (this.partsShown === root) this.partsShown = null;
       this.incoming = null;
       this.mix = 1;
+      if (cancelled.startsWith('draft')) this.drop(cancelled);
     }
-    if (!key) {this.swap(null); return;}
+    if (changed && previous?.startsWith('draft') && previous !== this.current && previous !== this.incoming) this.drop(previous);
+    if (!key) {if (changed || this.current) this.swap(null); return;}
     if (key === this.current) return;
-    if (key === this.incoming) {if (quiet) this.swap(key); return;}
-    if (!changed) return;  // The pending load will use the latest quiet setting.
-    const pending = this.model(key, url), requested = this.models[key];
-    const entry = await pending.catch(() => null);
-    if (!entry && this.wanted === key && (!this.models[key] || this.models[key] === requested)) this.wanted = null;  // apply() retries this generation
-    if (!entry || this.wanted !== key || this.disposed || this.models[key] !== entry) return;
-    if (key === this.current || key === this.incoming) return;
+    let entry = this.models[key];
+    const loading = !entry?.root;
+    if (loading) {
+      if (this.disposed || !url || performance.now() < (this.retryAt[key] || 0)) return;
+      entry = await this.model(key, url).catch(() => null);
+      if (!entry || this.disposed || this.wanted !== key || this.models[key] !== entry) return;
+      if (this.current === key || this.incoming === key) return;
+    }
+    if (this.incoming && this.incoming !== key) this.swap(this.incoming);
     if (this.quiet) this.swap(key);
-    else {
+    else if (this.incoming !== key) {
       this.incoming = key;
       this.mix = 0;
       entry.root.visible = true;
+      const {appeared} = this.revealModel(key);
+      this.handoffWindows(this.models[this.current]?.root, entry.root);
       this.setFade(entry.root, 0);
+      this.materialize(appeared);
     }
-    // The playhead may have moved while the model was loading.
-    if (this.state) this.apply(this.state, this.lastOptions);
+    if (loading && this.state) this.apply(this.state, {...this.lastOptions, quiet: this.quiet});
+  }
+
+  handoffWindows(outgoing, incoming) {
+    if (!outgoing) return;
+    // A matched window and its exterior plate enter together, with the plate still in the transmission pass.
+    const oldParts = new Set(), newParts = new Set();
+    for (const [name, next] of incoming.userData.windows) {
+      const old = outgoing.userData.windows.get(name);
+      if (!old || !next || !sameOpening(old.box, next.box)) continue;
+      const from = old.parts, to = next.parts;
+      if (!to.length || from.length !== to.length ||
+          !to.every((part, i) => sameModelPath(part, from[i]) && shown(part) && shown(from[i]))) continue;
+      from.forEach(part => oldParts.add(part));
+      to.forEach(part => newParts.add(part));
+    }
+    const handoff = this.windowHandoff = {hidden: oldParts, materials: new Set(), masks: new Set()};
+    for (const part of oldParts) part.visible = false;
+    for (const part of newParts) {
+      part.traverse(o => {
+        if (o.userData.mask) handoff.masks.add(o);
+        else if (o.isMesh) for (const m of [o.material].flat()) handoff.materials.add(m);
+      });
+    }
+  }
+
+  restoreWindows() {
+    this.windowHandoff?.hidden.forEach(part => {part.visible = true;});
+    this.windowHandoff = null;
   }
 
   // The finished room, lit like the editor's 物理光照: the editor's own rig (../editor/time-lighting.mjs), so
@@ -527,13 +674,17 @@ export class RoomView {
   }
 
   swap(key) {
+    this.restoreWindows();
     if (this.rig) {this.physical(false); this.wantPhysical = true;}
+    const outgoing = this.models[this.current]?.root;
+    if (outgoing) this.forming.finishModel(outgoing);
+    if (this.partsShown === outgoing) this.partsShown = null;
     for (const [k, e] of Object.entries(this.models)) if (e.root) {e.root.visible = k === key; this.setFade(e.root, 1);}
     this.current = key;
     this.incoming = null;
     this.mix = 1;
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
-    for (const k of Object.keys(this.models)) if (k.startsWith('draft') && k !== key) this.drop(k);
+    for (const k of Object.keys(this.models)) if (k.startsWith('draft') && k !== key && k !== this.wanted) this.drop(k);
   }
 
   drop(key) {
@@ -544,7 +695,7 @@ export class RoomView {
     const root = entry.root;
     if (this.rig && this.current === key) this.physical(false);
     if (this.current === key) this.current = null;
-    if (this.incoming === key) this.incoming = null;
+    if (this.incoming === key) {this.restoreWindows(); this.incoming = null; this.mix = 1;}
     if (this.wanted === key) this.wanted = null;
     if (!root) return;
     this.forming.finishModel(root);
@@ -566,29 +717,28 @@ export class RoomView {
 
   // partial: show the room as it is being built (shell + finished objects of the assembled room);
   // full: show the reached model as it is.
-  apply(state, {quiet = false, modelUrl, openings, addedAll} = {}) {
+  apply(state, {quiet = false, modelUrl, openings, addedAll} = this.lastOptions || {}) {
     this.state = state;
     this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
     const key = state.model || (state.shell && seedUrl ? 'seed' : null);
     const partial = !state.model && key === 'seed';
-    const inRoom = !!key && !!this.models[key]?.root && (this.current === key || this.incoming === key);
+    if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(key), quiet);
+    const inRoom = !!key && (this.current === key || this.incoming === key);
+    const hasRoom = !!(this.current || this.incoming);
     if (this.points) {
       this.points.material.userData.reveal.value = state.points;
       this.points.material.opacity = state.pointsFade;
       this.points.material.depthWrite = state.pointsFade === 1;
-      this.points.visible = !inRoom && state.pointsFade > 0;
+      this.points.visible = !hasRoom && state.pointsFade > 0;
     }
     if (this.wallLines) {
-      this.wallLines.visible = state.walls > 0 && !inRoom;
+      this.wallLines.visible = state.walls > 0 && !hasRoom;
       this.wallLines.children.forEach((l) => (l.material.opacity = 0.6 * state.walls));
     }
-    if (quiet) this.forming.finishAll();
-    const {shown: placed, appeared} = this.revealed(partial, state.built, openings);
-    // A finished object takes shape in the room; several at once (a set of chairs) one after another. Not when
-    // the whole model appears at once.
-    if (!quiet && (this.current === 'seed' || this.incoming === 'seed') && appeared.length <= MAX_GROUP) this.materialize(appeared);
-    this.reveal(state.model === 'final' ? state.added : null, quiet);
+    if (quiet && inRoom) this.forming.finishModel(this.models[key].root);
+    const {shown: placed, appeared} = inRoom ? this.revealModel(key) : {};
+    if (inRoom && !quiet) this.materialize(appeared);
     for (const [id, group] of Object.entries(this.boxes)) {
       const done = state.built.has(id);
       // Boxes stand for what is not in the room yet; a finished object without a room model gets a gold outline.
@@ -599,39 +749,45 @@ export class RoomView {
     if (seedUrl && !this.models.seed) this.model('seed', seedUrl).catch(() => {});
     // While the assembled room shows, fetch the final model in the background so the switch starts on time.
     if (key === 'seed' && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
-    if (key && modelUrl && (key !== this.wanted || quiet !== this.quiet)) this.show(key, modelUrl(key), quiet);
-    else if (!key && (this.current || this.incoming || this.wanted)) this.show(null, null, quiet);
+  }
+
+  revealModel(key) {
+    if (this.state && key === 'seed') {
+      const result = this.revealed(!this.state.model, this.state.built, this.lastOptions.openings);
+      if (result.appeared.length > MAX_GROUP) result.appeared = [];
+      return result;
+    }
+    return {appeared: this.state && key === 'final' ? this.reveal(this.state.added) : []};
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
   // while playing fades in; after a seek it is simply there.
-  reveal(added, quiet) {
+  reveal(added) {
     const root = this.models.final?.root, all = this.lastOptions?.addedAll, appeared = [];
-    if (!root || !all) return;
-    const inView = this.current === 'final' || this.incoming === 'final';
+    if (!root || !all) return appeared;
     // The parts already there when the final model comes in take shape too, rather than fade in with it.
-    const fresh = added && inView && this.partsShown !== root;
-    if (inView) this.partsShown = added ? root : null;
+    const fresh = added && this.partsShown !== root;
+    this.partsShown = added ? root : null;
     for (const name of all) {
       const node = root.getObjectByName(name);
       if (!node) continue;
       const show = !HIDDEN.test(name) && (!added || added.has(name));  // the ceiling stays hidden
       const appears = show && (!node.visible || fresh);
       node.visible = show;
-      if (appears && !quiet && inView) appeared.push(node);
+      if (appears) appeared.push(node);
     }
-    this.materialize(appeared);
+    return appeared;
   }
 
   // The objects wait (hidden) until the camera has moved in, then take shape: from the floor up, one after
   // another within a few seconds.
   materialize(nodes) {
-    if (this.calm.matches || !nodes.length) return;
+    if (!nodes.length || this.calm.matches) return;
     if (!this.forming.waiting()) this.heldSince = this.time;
     const low = (o) => new THREE.Box3().setFromObject(o).min;
     const order = nodes.map((o) => [o, low(o)]).sort(([, a], [, b]) => Math.round(a.y * 5) - Math.round(b.y * 5) || a.x + a.z - b.x - b.z);
     const step = Math.min(CASCADE_STEP, CASCADE_SECONDS / nodes.length);
-    order.forEach(([node], k) => this.forming.start(node, {held: !this.userHeld, delay: k * step}));
+    order.forEach(([node], k) => this.forming.start(node, {held: !this.userHeld, delay: k * step, skipWindows: !!this.windowHandoff}));
   }
 
   // In partial mode hide the assembled room's objects that are not finished yet; returns the ids shown and the
@@ -832,17 +988,17 @@ export class RoomView {
     if (this.incoming && fdt > 0) {
       this.mix = Math.min(this.mix + fdt / FADE_SECONDS, 1);
       this.setFade(this.models[this.incoming].root, this.mix);
-      if (this.mix >= 1 && this.wanted === this.incoming) this.swap(this.incoming);
+      // A forward request may still be loading when its backdrop finishes fading.
+      const waitingForNext = !this.quiet && this.wanted && this.wanted !== this.current
+        && this.models[this.wanted] && !this.models[this.wanted].root;
+      if (this.mix >= 1 && (this.wanted === this.incoming || waitingForNext)) this.swap(this.incoming);
     }
     // Held objects take shape once the camera has arrived (or the user moves it, or it takes too long).
-    if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || this.time - this.heldSince > MAX_WAIT)) this.forming.release();
-    this.forming.update(fdt);
+    const frozenRoot = this.current !== this.wanted ? this.models[this.current]?.root : null;
+    if (this.forming.waiting() && (!this.aimTo || this.aimTo.at || this.userHeld || this.time - this.heldSince > MAX_WAIT)) this.forming.release(frozenRoot);
     if (this.wantPhysical && !this.rig && this.current && this.wanted === this.current && !this.incoming) {
       this.enablePhysical(this.models[this.current].root);
     }
-    const tris = this.forming.triangles();
-    this.formTag.hidden = tris == null;
-    if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.autoRotate = false;
     if (!this.orbitStart && !this.userHeld && dt > 0) {
       const tgt = this.controls.target, v = this.vel, a = this.aimTo;
@@ -881,19 +1037,12 @@ export class RoomView {
       const d = new THREE.Vector2(w.c.x - tgt.x, w.c.z - tgt.z).normalize();
       const goal = 1 - 0.88 * THREE.MathUtils.smoothstep(d.dot(view), 0.05, 0.6);
       w.a = this.paused ? goal : w.a + (goal - w.a) * (1 - Math.exp(-dt * 5));
-      const f = w.root.userData.fade ?? 1;
-      const shown = w.a > 0.97 && f === 1;
-      if (w.receivers && shown !== w.receiving) {
-        for (const mesh of w.receivers) mesh.receiveShadow = shown;
-        w.receiving = shown;
-      }
-      w.mats.forEach((m) => {
-        const transparent = m.userData.transparent || !shown;
-        if (m.transparent !== transparent) {m.transparent = transparent; m.needsUpdate = true;}
-        m.opacity = m.userData.base * w.a * f;
-        m.depthWrite = shown && m.userData.depthWrite && m.userData.base > 0.9;
-      });
+      this.fadeWall(w);
     }
+    this.forming.update(fdt, frozenRoot, this.windowHandoff?.hidden);
+    const tris = this.forming.triangles();
+    this.formTag.hidden = tris == null;
+    if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.update();
     // The near plane follows the distance: from the overview a fixed 5 cm left about 1 mm of depth precision,
     // and a window's photo backdrop 1 mm before its backing broke into grey blocks as the camera turned.
@@ -907,6 +1056,7 @@ export class RoomView {
     this.disposed = true;
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect(); this.scaffoldController.abort();
+    this.restoreWindows();
     if (this.rig) this.physical(false);
     for (const key of Object.keys(this.models)) this.drop(key);
     if (this.points) disposeModel(this.points);
