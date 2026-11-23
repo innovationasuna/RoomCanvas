@@ -29,28 +29,3 @@ gesture/docs/DEV_HISTORY.md
 
 # Local room list removals
 .roomcanvas/
-
-# Local build, validation and delivery artifacts
-/tmp/
-/output/
-/docs/latex/**/.build/
-/docs/latex/**/*.aux
-/docs/latex/**/*.log
-/docs/latex/**/*.out
-/docs/latex/**/*.toc
-/docs/latex/**/*.pdf
-/docs/latex/**/*.synctex*
-/docs/latex/**/*.fdb_latexmk
-/docs/latex/**/*.fls
-/docs/latex/**/*.xdv
-
-# Personal reports and their screenshots stay local.
-/.vscode/settings.json
-/docs/GESTURE_REPORT.md
-/docs/UI_OPERATION_REPORT.md
-/docs/images/gesture-report/
-/docs/images/ui-operation-report/
-/docs/latex/gesture-report/
-/docs/latex/ui-operation-report/
-/scripts/build_gesture_report.py
-/scripts/build_ui_report.py

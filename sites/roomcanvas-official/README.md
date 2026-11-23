@@ -22,6 +22,5 @@ python3 -m http.server 7890 --bind 127.0.0.1 --directory sites/roomcanvas-offici
 - `dist/style.css`：现有品牌配色、响应式布局、键盘焦点和减弱动效。
 - `dist/main.js`：样例切换、日夜对比、复制命令和手机导航。
 - `dist/assets/`：项目实际图像、本地字体与许可证。
-- `.openai/hosting.json`：独立 Sites 静态站点配置。
 
 本页仅介绍产品。模型编辑、重建服务、摄像头识别仍在现有应用中；文档和源码链接需要项目仓库访问权限。

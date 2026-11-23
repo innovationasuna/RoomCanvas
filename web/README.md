@@ -261,7 +261,7 @@ python3 web/scripts/cache_manage.py resume
 单元测试和模型检查不需要安装依赖（Node 24、Python 3），CI 全部运行。模型检查读示例房间的 `Room.glb`，先取回模型（见 [示例房间的模型](#示例房间的模型)；CI 按 `samples/models.json` 缓存）：
 
 ```bash
-node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
+node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs' 'web/mobile/tests/*.mjs'
 python3 -m unittest discover -s web/scripts
 python3 scripts/fetch_samples.py
 node web/scripts/check_room.mjs --scene-dir samples/room3

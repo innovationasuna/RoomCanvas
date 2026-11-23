@@ -48,10 +48,10 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
-from mobile_share import SnapshotStore, lan_addresses, start_share_server, MAX_MODEL
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
+from mobile_share import SnapshotStore, lan_addresses, start_share_server, MAX_MODEL  # noqa: E402
 import service_auth  # noqa: E402
 import room_cache  # noqa: E402
 from cache_manage import CacheBusy, CacheManager  # noqa: E402

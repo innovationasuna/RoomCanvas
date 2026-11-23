@@ -6,7 +6,7 @@
 2. 提交前运行与 CI 相同的检查（只需运行改动涉及的部分）：
    ```bash
    # 网页（Node 24、Python 3，不用装依赖）
-   node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
+   node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs' 'web/mobile/tests/*.mjs'
    python3 -m unittest discover -s web/scripts
    python3 scripts/fetch_samples.py   # 示例房间的模型在 sample-rooms release，已有的不重复下载；私有仓库先 gh auth login
    node web/scripts/check_room.mjs --scene-dir samples/room3

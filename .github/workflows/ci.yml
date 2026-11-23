@@ -56,7 +56,7 @@ jobs:
         with:
           node-version: 24
       - run: for f in web/editor/*.js web/editor/*.mjs web/scripts/*.mjs web/replay/*.mjs web/*.mjs; do node --check "$f"; done
-      - run: node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs'
+      - run: node --test 'web/editor/tests/*.mjs' 'web/scripts/test_*.mjs' 'web/mobile/tests/*.mjs'
       - run: python3 -m unittest discover -s web/scripts -v
       # The models are assets of the sample-rooms release, not files in git (samples/models.json);
       # the cache keeps their ~460 MB from being downloaded on every run.
