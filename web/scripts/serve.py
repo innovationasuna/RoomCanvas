@@ -25,7 +25,8 @@ replays (GitHub is usually faster than the tunnel). A file whose content is alre
 also a finished job's room, a replay's last version that is also the room) is linked, not downloaded again.
 Missing samples are also fetched from the room service when opened, even with --no-download.
 Only the requested model is fetched, verified against samples/models.json, and kept beside its metadata.
-Nothing else is forwarded, POSTs only from this page, and the server only listens on this computer.
+Nothing else is forwarded; POSTs only come from this page and editor writes stay on this computer. A separate allowlisted read-only
+phone server listens on --share-host/--share-port (default 0.0.0.0:7881).
 """
 import argparse
 from contextlib import nullcontext
@@ -47,6 +48,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
+from mobile_share import SnapshotStore, lan_addresses, start_share_server, MAX_MODEL
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[2] / 'scripts')]
 import fetch_samples  # noqa: E402
@@ -122,6 +124,9 @@ class Handler(SimpleHTTPRequestHandler):
     def open_backend(self, request, timeout=60):
         return service_auth.urlopen(request, token=self.backend_token, timeout=timeout)
 
+    snapshots = SnapshotStore(ROOT / '.roomcanvas/shares')
+    share_port = None
+    share_host = '0.0.0.0'
     viewforge = 'http://127.0.0.1:7865'
     room_backend = 'http://127.0.0.1:7866'
     deletions = RoomDeletions(ROOT / '.roomcanvas/deleted-rooms.json')
@@ -259,6 +264,9 @@ class Handler(SimpleHTTPRequestHandler):
         sample = self.missing_sample(path)
         if sample:
             return self.sample_get(*sample)
+        if path == '/web/mobile-shares/config':
+            return self.room_json(200, {'port': self.share_port, 'addresses': lan_addresses(),
+                                        'enabled': self.share_port is not None})
         if path in {'/web/rooms.json', '/web/rooms/trash'}:
             data = json.loads((ROOT / 'web/rooms.json').read_text())
             status, body, _, stale = self.room_answer('/room-reconstruction/catalog', 2)
@@ -389,6 +397,24 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if urlsplit(self.path).path == '/web/cache/clear':
             return self.cache_clear()
+        if urlsplit(self.path).path == '/web/mobile-shares':
+            origin = self.headers.get('Origin')
+            if not origin or urlsplit(origin).netloc != self.headers.get('Host'):
+                return self.room_json(403, {'error': '请从本机编辑器生成分享'})
+            if self.share_port is None:
+                return self.room_json(503, {'error': '手机分享服务未启动，请重启网页服务'})
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 20 <= length <= MAX_MODEL:
+                    return self.room_json(413, {'error': '房间文件须小于 512 MB'})
+                self.connection.settimeout(120)
+                manifest = self.snapshots.create(self.rfile, length)
+                return self.room_json(201, {'manifest': manifest, 'port': self.share_port,
+                                            'addresses': lan_addresses(), 'path': f"/s/{manifest['id']}/"})
+            except (ValueError, KeyError, TypeError) as error:
+                return self.room_json(400, {'error': str(error)})
+            except OSError:
+                return self.room_json(500, {'error': '分享未保存，请检查磁盘空间并重试'})
         restore = re.fullmatch(r'/web/rooms/([A-Za-z0-9_-]{1,100})/restore', urlsplit(self.path).path)
         if restore:
             origin = self.headers.get('Origin')
@@ -589,6 +615,9 @@ with os.fdopen(fd) as f:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=7880)
+    parser.add_argument('--share-port', type=int, default=7881, help='read-only phone sharing port (default: 7881)')
+    parser.add_argument('--share-host', default='0.0.0.0', help='phone sharing bind address; editor stays on loopback')
+    parser.add_argument('--no-mobile-share', action='store_true', help='disable the phone sharing port')
     parser.add_argument('--viewforge', default=Handler.viewforge, help='ViewForge server (default: the SSH tunnel)')
     parser.add_argument('--room-backend', default=Handler.room_backend, help='Room reconstruction API (default: http://127.0.0.1:7866)')
     parser.add_argument('--ssh', metavar='HOST', help='open the SSH tunnels to the object and room services on HOST')
@@ -658,6 +687,13 @@ def main():
     # Seed the shared files from samples before starting room prefetch; both honor the cleanup pause.
     threading.Thread(target=fetch_sample_models, args=(not args.no_download, lambda line: print(line, flush=True)),
                      kwargs={'cache': Handler.cache, 'then': sync and sync.start, 'control': control}, daemon=True).start()
+    share_server = None
+    if not args.no_mobile_share:
+        try:
+            share_server = start_share_server(Handler.snapshots, args.share_host, args.share_port)
+            Handler.share_port = share_server.server_port
+        except OSError as error:
+            print(f'手机分享端口未启动：{error}；可用 --share-port 更换端口。', file=sys.stderr)
     print(f'http://127.0.0.1:{args.port}/web/  ·  ViewForge {Handler.viewforge}'
           + (f' (tunnel via {args.ssh} to {args.gateway or args.remote})' if tunnel else '')
           + f'  ·  rooms {Handler.room_backend}' + (f' (to {args.gateway or args.room_remote})' if tunnel else '')
@@ -674,6 +710,9 @@ def main():
         server.server_close()
         if sync:
             sync.stop()
+        if share_server:
+            share_server.shutdown()
+            share_server.server_close()
         if tunnel:
             tunnel.close()
 

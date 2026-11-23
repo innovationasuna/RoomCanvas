@@ -162,7 +162,7 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, queries,
     return {x: (event.clientX - rect.left) / rect.width * 2 - 1, y: -(event.clientY - rect.top) / rect.height * 2 + 1};
   };
   function pointerdown(event) {
-    if (event.button !== 0 || !event.isPrimary || drag) return;
+    if (event.button !== 0 || (event.pointerType !== 'touch' && !event.isPrimary) || drag) return;
     canvas.setPointerCapture?.(event.pointerId);
     drag = {id: event.pointerId, button: event.button, look: event.shiftKey || event.pointerType === 'touch',
       x: event.clientX, y: event.clientY, px: event.clientX, py: event.clientY, moved: false};
@@ -186,6 +186,13 @@ export function createWalk(THREE, {canvas, room, floorY, bounds, solid, queries,
   let start = null;
   return {
     camera,
+    hold(code, pressed) {
+      if (!active || !KEYS[code]) return;
+      if (pressed) held.add(code); else held.delete(code);
+      if (pressed && !frame) {last = performance.now(); frame = requestAnimationFrame(tick);}
+    },
+    stop() {blur();},
+    reset() {const wasActive = active; this.exit(); start = null; if (wasActive) this.enter();},
     get active() {return active;},
     // Walking or just turned: the settled lighting waits.
     moving: () => active && (frame !== 0 || (drag?.look && drag.moved) || performance.now() - lookedAt < 200),

@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-2f6b4f)](LICENSE) [![Three.js](https://img.shields.io/badge/Three.js-r180-1f2937)](https://threejs.org/) [![Python](https://img.shields.io/badge/Python-3-3776ab)](https://www.python.org/) [![Node.js](https://img.shields.io/badge/Node.js-22.12%2B-5fa04e)](https://nodejs.org/) [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-6b7280)](#快速开始)
 
-[功能](#功能) · [截图](#截图) · [快速开始](#快速开始) · [怎么用](#怎么用) · [工作原理](#工作原理) · [开发](#开发与测试) · [路线图](#路线图) · [文档](#文档)
+[官方介绍页](#官方介绍页) · [功能](#功能) · [截图](#截图) · [快速开始](#快速开始) · [怎么用](#怎么用) · [工作原理](#工作原理) · [开发](#开发与测试) · [路线图](#路线图) · [文档](#文档)
 
 </div>
 
@@ -41,7 +41,7 @@
 - 逐三角面的碰撞和支撑检测，重网格的检查在后台线程
 - 收起全部物品 / 恢复原始布置，撤销重做；布局保存在当前浏览器，可继续上次布置或导入导出 JSON
 - 近侧墙和挡视线的高家具（连同放在上面的东西）默认自动隐藏，也可以改成半透明或保持实心
-- “体验”内走进房间：中键拖动转头、WASD 走动、Q / E 升降视线，撞到墙和家具会停下
+- “体验”内走进房间：Shift＋左键拖动转头、WASD 走动、Q / E 升降视线，撞到墙和家具会停下
 - 鼠标指到门、柜门、抽屉、窗上提示是什么、点一下会怎样，点一下就开合
 
 </td></tr>
@@ -99,6 +99,12 @@
 </table>
 
 当前展示为 2026-11-16 更新的重建场景 `Room_3934`，五张截图保存在 [`docs/images/room-3934-2026-11-16/`](docs/images/room-3934-2026-11-16/)。旧版 `office` 场景展示保留在 [`docs/images/office-v1/`](docs/images/office-v1/)。
+
+## 官方介绍页
+
+官方介绍页沿用本地编辑器的深灰与金色风格，包含功能展示、日夜效果对比、快速开始和文档入口。源码位于 [`sites/roomcanvas-official/`](sites/roomcanvas-official/README.md)，无需构建。
+
+运行下方网页服务后，可打开 [本地官方介绍页](http://127.0.0.1:7880/sites/roomcanvas-official/dist/)。页面只使用官方办公室样例，不包含私人卧室素材。
 
 ## 快速开始
 
@@ -197,9 +203,10 @@ cd android-app
 
 | 操作 | 作用 |
 |---|---|
-| 中键拖动 / 右键拖动 / 滚轮 | 旋转镜头 / 平移 / 缩放；左键拖动空白处不转动镜头 |
+| Shift＋左键拖动 / 右键拖动 / 滚轮 | 旋转镜头 / 平移 / 缩放；左键拖动空白处不转动镜头 |
 | 单击场景中的物品 | 查看尺寸、偏移和旋转角度，不改变位置 |
 | 拖动已选物品 / 拖动属性面板控件 | 开始调整；左上摇杆移动、左下转盘旋转、右侧拉杆升降，松手后等待确认 |
+| 双击家具 | 聚焦家具 |
 | `R` | 摆放时旋转 |
 | 方向键、`PageUp` / `PageDown` | 选中的物品逐步挪动、升降 |
 | `Enter` / `Esc` | 放置并落下 / 取消 |
@@ -214,7 +221,7 @@ cd android-app
 
 | 操作 | 作用 |
 |---|---|
-| 中键拖动画面（触屏直接拖动） | 转头（上下左右） |
+| Shift＋左键拖动画面（触屏直接拖动） | 转头（上下左右） |
 | `W` `A` `S` `D` / 方向键，按住 `Shift` | 走动，快走 |
 | `Q` / `E` | 升高 / 降低视线（离地 0.5–2.2 米） |
 | 点门、柜门、抽屉、窗 | 开合 |
@@ -262,6 +269,7 @@ flowchart LR
 | [`room-reconstruction/`](room-reconstruction/) | 房间重建：扫描 → 房间结构与家具 → 小物件重建 → 可动部件识别 | Codex（GPT-6 Astra）、Blender、TRELLIS.2 |
 | [`object-reconstruction/`](object-reconstruction/) | 物体重建（ViewForge）：照片 → 抠图 → 多视角重建 → 尺寸标定，以 API 形式提供 | Starlette、BiRefNet、DA3、MV-SAM3D |
 | [`web/`](web/) | 房间选择、布置编辑器、本机代理与房间重建 API | Three.js r180、Python，无前端构建 |
+| [`sites/roomcanvas-official/`](sites/roomcanvas-official/) | 官方介绍页、功能展示与快速开始 | HTML、CSS、JavaScript，无构建 |
 | [`gesture/`](gesture/) | 浏览器手势识别，编辑器内置的识别代码从这里打包 | TypeScript、Vite、MediaPipe |
 | [`android-app/`](android-app/) | Android 房间漫游 | Kotlin、SceneView / Filament、华为 AR Engine |
 | [`samples/`](samples/) | 示例房间：`room3`（卧室）、`office`（办公室）、`room-3934`（上方截图里的 Room_3934）、`activity-classroom`（同一间活动室重新扫描后的重建）；模型在 `sample-rooms` release，清单是 `samples/models.json` | |

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#252623"><meta name="description" content="在手机上查看 RoomCanvas 房间布局，并走进房间漫游。">
+<title>手机体验 · RoomCanvas</title><link rel="icon" href="/web/icon.svg">
+<link rel="stylesheet" href="/web/theme.css"><link rel="stylesheet" href="/web/mobile/mobile.css">
+<script type="importmap">{"imports":{"three":"/web/vendor/build/three.module.js","three/addons/":"/web/vendor/examples/jsm/"}}</script>
+</head><body>
+<header><a class="brand" href="#entry"><img src="/web/icon.svg" alt="" width="28" height="28">RoomCanvas</a><span>手机体验</span></header>
+<main>
+  <section id="entry" aria-labelledby="room-name">
+    <p class="eyebrow">这一次布置，随身查看</p><h1 id="room-name">正在读取房间</h1>
+    <p id="version"></p><p>查看完整布局，或走进房间。选择适合你的打开方式。</p>
+    <div class="entry-actions"><button id="open-browser" class="primary" disabled>在浏览器中体验</button><a id="open-app" class="button" aria-disabled="true" aria-describedby="app-requirement">在 Android App 中打开</a></div>
+    <p id="app-requirement" class="note">需先在安卓手机安装 RoomCanvas 0.2.0 或更新版本。iPhone 请使用浏览器体验。</p>
+    <p class="note">同一 Wi-Fi 下可用，请保持电脑服务运行。Android App 下载完成后可离线重开。</p>
+    <p id="app-hint" class="note" role="status" hidden>如果没有打开 App，请先确认已安装新版 Android App；也可继续使用浏览器体验。</p>
+    <a id="download-model" hidden download>下载房间文件</a>
+  </section>
+  <section id="experience" hidden aria-label="房间三维体验">
+    <div id="viewport"></div>
+    <nav class="view-actions" aria-label="视角操作"><button id="back">返回</button><button id="walk" disabled>走进房间</button><button id="reset" disabled>视角复位</button></nav>
+    <p id="view-hint">单指旋转，双指缩放</p>
+    <div id="touch-pad" hidden aria-label="漫游移动控制"><button data-walk-key="KeyW" aria-label="向前">↑</button><button data-walk-key="KeyA" aria-label="向左">←</button><button data-walk-key="KeyS" aria-label="向后">↓</button><button data-walk-key="KeyD" aria-label="向右">→</button></div>
+  </section>
+  <div id="feedback"><p id="status" role="status" aria-live="polite">正在连接电脑…</p><progress id="progress" hidden max="1"></progress><button id="retry" hidden>重新加载</button><button id="cancel" hidden>取消加载</button></div>
+</main>
+<script type="module" src="/web/mobile/viewer.mjs"></script>
+</body></html>
