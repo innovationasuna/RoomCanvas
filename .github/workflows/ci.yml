@@ -11,7 +11,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # RoomCanvas: run each suite only when the files it reads change. A job skipped by `if:` reports
+  # success, so the required checks (check, web) still pass on unrelated PRs. Editing a workflow,
+  # or a push whose range cannot be read, runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      room: ${{ steps.filter.outputs.room }}
+      web: ${{ steps.filter.outputs.web }}
+      object: ${{ steps.filter.outputs.object }}
+      gesture: ${{ steps.filter.outputs.gesture }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the push range below may span several commits
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A PR is checked out as its merge into the current base, so HEAD^1..HEAD is exactly
+          # what it changes against today's main.
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+          elif [ -n "${BEFORE//0/}" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            files=$(git diff --name-only "$BEFORE" HEAD)
+          else
+            files=ALL
+          fi
+          printf '%s\n' "$files"
+          # Root scripts/ is imported by all three Python modules; room tests also load web/scripts
+          # and samples/.
+          for rule in \
+            'room=room-reconstruction/|web/scripts/|samples/|scripts/' \
+            'web=web/|samples/|scripts/' \
+            'object=object-reconstruction/|scripts/' \
+            'gesture=gesture/'; do
+            if [ "$files" = ALL ] || printf '%s\n' "$files" | grep -qE "^(\.github/workflows/|${rule#*=})"; then
+              echo "${rule%%=*}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${rule%%=*}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+          cat "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
     runs-on: ubuntu-latest
     # RoomCanvas: the LiteReality-based reconstruction module lives in room-reconstruction/.
     defaults:
@@ -34,21 +79,28 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git --redact --verbose .
 
+      # The secret scan above runs on every change; the room module's checks only when it is touched.
       - uses: astral-sh/setup-uv@v5
+        if: needs.changes.outputs.room == 'true'
         with:
           enable-cache: true
 
       # --locked: CI fails rather than silently resolving a different dependency set than uv.lock.
       - run: uv sync --all-groups --locked
+        if: needs.changes.outputs.room == 'true'
 
       - run: uv run ruff check .
+        if: needs.changes.outputs.room == 'true'
 
       # The default marker filter in pyproject already excludes anything needing Blender, a real
       # scan, or a paid model call, so this run is offline and needs no secrets.
       - run: uv run pytest -n auto
+        if: needs.changes.outputs.room == 'true'
 
   # RoomCanvas: the web editor in web/ (plain ES modules, no build step) on the sample rooms.
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +129,8 @@ jobs:
           node --max-old-space-size=5120 web/scripts/check_room.mjs --scene-dir samples/activity-classroom
 
   object-api:
+    needs: changes
+    if: needs.changes.outputs.object == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,6 +148,8 @@ jobs:
           done
 
   gesture:
+    needs: changes
+    if: needs.changes.outputs.gesture == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:

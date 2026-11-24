@@ -23,6 +23,7 @@
    ```
    改动网页界面时，在本地打开页面确认效果，见 [README](README.md#快速开始)。光照相关的浏览器检查见 [网页编辑器](web/README.md#测试)。
 3. 开 PR，写清改了什么、怎么验证的。CI 通过、仓库所有者确认后 squash 合并并删除分支。`main` 不接受直接推送。
+   CI 每次都扫描提交中的密钥，其余检查只在相关目录有改动时运行：房间重建看 `room-reconstruction/`、`web/scripts/`、`samples/`、`scripts/`；网页看 `web/`、`samples/`、`scripts/`；物体 API 看 `object-reconstruction/`、`scripts/`；手势看 `gesture/`。改动 `.github/workflows/` 时全部运行。被跳过的检查显示为通过。
 
 ## 约定
 
