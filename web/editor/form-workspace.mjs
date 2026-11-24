@@ -117,7 +117,7 @@ function createWorkspace() {
   // Source-model navigation belongs to the project menu, so settings has the same height in both modes.
   if (originalLink) {originalLink.classList.add('rc-full-only'); projectPanel.append(originalLink);}
   $('#close-settings').onclick = () => {$('#tools-menu').open = false; $('#tools-menu > summary').focus({preventScroll: true});};
-  $('#lighting-menu summary').textContent = '画面调色（实验）';
+  $('#lighting-menu summary').textContent = '画面调色';
   $('#lamp-angle').closest('label').classList.add('rc-full-only');
   $('#light-menu .rc-lighting-note').classList.add('rc-full-only');
   const mainTools = element('div', 'rc-rail-main'); mainTools.append($('#gesture-toggle'), $('#list-toggle'), historyTools);
@@ -243,18 +243,19 @@ function createWorkspace() {
           <div><dt>Shift＋左键拖动</dt><dd>旋转镜头</dd></div>
           <div><dt>右键拖动</dt><dd>平移视角</dd></div>
           <div><dt>滚轮</dt><dd>放大 / 缩小</dd></div>
-        </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局；双击家具聚焦。</p></section>
+        </dl><p class="rc-help-note">“整体”找回全景，“俯视”看清布局；双击物品可拉近查看。</p></section>
         <section><h3>调整物品</h3><p>单击选中物品后直接拖动；旋转和升降使用右侧控件，松手后预览。</p><dl class="rc-help-controls">
           <div><dt>左上摇杆</dt><dd>移动</dd></div>
           <div><dt>左下转盘</dt><dd>旋转</dd></div>
           <div><dt>右侧拉杆</dt><dd>升降</dd></div>
         </dl><p class="rc-help-note">松手即停，调整满意后确认放置。</p></section>
-        <section><h3>走进空间</h3><p>切换“体验”可开合门窗。进入漫游后：</p><dl class="rc-help-controls">
+        <section><h3>走进空间</h3><p>切换到“体验”可开合门窗。点“走进房间”开始漫游。</p><dl class="rc-help-controls">
           <div><dt><kbd>W A S D</kbd></dt><dd>走动</dd></div>
+          <div><dt><kbd>Q</kbd> / <kbd>E</kbd></dt><dd>升高 / 降低视线</dd></div>
           <div><dt>Shift＋左键拖动</dt><dd>转头</dd></div>
           <div><dt><kbd>Esc</kbd></dt><dd>退出漫游</dd></div>
-        </dl></section>
-        <section><h3>完整工具与手势</h3><p>左侧“设置”选择“完整”，展开精细参数。</p><p>点击左侧工具栏顶部的手势按钮开启手势：左手比 1 / 2 / 3 / 4 切换动作，右手捏合调整、竖拇指确认。</p></section>
+        </dl><p class="rc-help-note">点右上角“在手机中打开”，用连到同一 Wi-Fi 的手机扫码查看布置。</p></section>
+        <section><h3>完整工具与手势</h3><p>在左侧“设置”中选择“完整”，可以调整更多参数。</p><p>在左侧手势面板开启摄像头。左手比 1 / 2 / 3 / 4 切换动作，右手捏合调整物品。右手拇指向上保持约半秒确认，向下保持约半秒取消。</p></section>
       </div>
       <section class="rc-help-shortcuts"><h3>常用快捷键</h3><dl>
         <div><dt>撤销</dt><dd><kbd>⌘ / Ctrl</kbd><kbd>Z</kbd></dd></div>

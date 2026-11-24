@@ -11,9 +11,9 @@ test('object names are what the server accepts', () => {
 });
 
 test('progress reads as the reconstruction stages', () => {
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'queued'}), '排队等 GPU');
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'da3'}), '估计深度与相机');
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'unknown'}), '准备输入');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'queued'}), '排队等待处理');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'da3'}), '分析拍摄角度');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'unknown'}), '准备照片');
   assert.equal(stageLabel({kind: 'masks', status: 'running'}), '正在抠图');
   assert.equal(duration(185.7), '03:05');
 });

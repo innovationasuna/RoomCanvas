@@ -36,7 +36,7 @@ try {
   await page.locator('.cache-row').first().waitFor();
   assert.equal(await page.locator('#clear-cache-selected').isDisabled(), true);
   await page.locator('.cache-row input').first().check();
-  assert.match(await page.locator('#cache-selection').innerText(), /1 项.*580.0 MiB/);
+  assert.match(await page.locator('#cache-selection').innerText(), /1 项.*580\.0 MB/);
   assert.equal(await page.locator('#cache-select-all').evaluate(el => el.indeterminate), true);
   if (values.screenshot) await page.screenshot({path: values.screenshot});
   await page.setViewportSize({width: 390, height: 844});
@@ -56,7 +56,7 @@ try {
   await page.locator('#clear-cache-selected').click();
   await page.waitForFunction(() => document.querySelectorAll('.cache-row').length === 2);
   assert.deepEqual(clears.at(-1), {ids: ['scan:classroom']});
-  assert.match(await page.locator('#cache-message').innerText(), /释放 580.0 MiB/);
+  assert.match(await page.locator('#cache-message').innerText(), /释放 580\.0 MB/);
   assert.equal(await page.locator('#cache-paused').isVisible(), true);
   await page.locator('#cache-select-all').check();
   assert.equal(await page.locator('.cache-row input:checked').count(), 2);

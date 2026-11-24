@@ -37,7 +37,7 @@ MAX_UPLOAD = 2 * 1024**3
 MAX_EXPANDED = 8 * 1024**3
 MAX_ENTRIES = 50000
 ID = r'[0-9a-f]{32}'
-PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
+PREVIEW = '当前只能浏览房间、物品和回放。要提交重建，请连接支持重建的服务器。'
 DIGEST = 'X-RoomCanvas-SHA256'
 
 

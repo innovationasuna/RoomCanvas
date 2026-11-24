@@ -1,13 +1,13 @@
 // A persistent server queue owns the work; closing this page never cancels reconstruction.
 const API = '/room-reconstruction';
-const labels = {ingest: '读取扫描与提取素材', reconstruct: '重建场景物体', seed: '建立房间结构', author: '生成完整房间', publish: '导出房间模型', articulate: '生成可动部件'};
+const labels = {ingest: '读取扫描数据', reconstruct: '生成房间里的物品', seed: '建立房间结构', author: '生成完整房间', publish: '导出房间模型', articulate: '生成可开合部件'};
 // The scanner app exports a tar; a zipped scan folder works too (the service reads either).
 const SCAN_ARCHIVE = /\.(zip|tar|tar\.gz|tgz)$/i;
 const jointReasons = {
-  'no candidate objects': '没有需要新增关节的候选物品。',
-  'no new joints accepted; some candidate checks failed': '本次未新增关节，部分候选未通过检查。',
-  'candidates contain no additional openable parts': '候选物品没有需要补充的可动部件。',
-  'all proposed new parts were rejected by the check': '本次未新增关节，候选部件均未通过检查。',
+  'no candidate objects': '房间里没有需要额外制作可开合部件的物品。',
+  'no new joints accepted; some candidate checks failed': '部分可开合部件未通过检查，物品保留原样。',
+  'candidates contain no additional openable parts': '没有发现需要补充的门、抽屉或盖子。',
+  'all proposed new parts were rejected by the check': '新制作的可开合部件均未通过检查，物品保留原样。',
 };
 export function scanError(file, name) {
   if (!name.trim() || name.trim().length > 80) return '请填写房间名称（最多 80 个字符）。';
@@ -19,26 +19,28 @@ export function jobDescription(job) {
   if (job.status === 'failed') return job.error || '重建未完成，可以重试。';
   if (job.replay_only) return '已有的重建记录，可以回看过程。';
   if (job.status === 'completed') {
-    if (job.usable === false) return '执行已结束，房间产物暂不可用，请检查任务记录。';
+    if (job.usable === false) return '重建已结束，但房间模型暂时无法打开。请点“查看过程”了解详情。';
     const notes = ['重建完成，已加入房间列表。'];
-    if (job.quality?.status === 'warnings') notes.push('质量检查仍有待改善项。');
+    if (job.quality?.status === 'warnings') notes.push('有些地方还需要改进，可以进入房间查看。');
     if (job.warnings?.length) notes.push(job.warnings.join(' '));
-    if (Number.isInteger(job.enhancement?.added)) notes.push(`可动关节已有 ${job.enhancement.existing || 0} 个，本次新增 ${job.enhancement.added} 个。`);
+    if (Number.isInteger(job.enhancement?.added)) notes.push(`可开合部件原有 ${job.enhancement.existing || 0} 处，本次新增 ${job.enhancement.added} 处。`);
     if (job.enhancement?.added === 0 && job.enhancement.zero_added_reason) notes.push(jointReasons[job.enhancement.zero_added_reason] || job.enhancement.zero_added_reason);
     return notes.join(' ');
   }
   if (job.status === 'queued') return '已提交，等待服务器开始重建。';
   if (job.status === 'preparing') return '正在整理模型与可布置的物品。';
-  if (job.gpu_waiting) return '正在等待 GPU 空闲，轮到后自动开始重建。';
+  if (job.gpu_waiting) return '正在排队，轮到后会自动开始重建。';
   const stages = job.stages || [];
   const names = Object.keys(labels).filter(name => name !== 'articulate' || stages.some(stage => stage.name === name));
   const next = names.find(name => !stages.some(stage => stage.name === name && ['completed', 'reused'].includes(stage.status)));
   return next ? `正在${labels[next]}…` : '正在完成模型导出…';
 }
 async function request(path, options = {}) {
-  const response = await fetch(API + path, {...options, signal: AbortSignal.timeout(15000)});
+  const response = await fetch(API + path, {...options, signal: AbortSignal.timeout(15000)}).catch(() => {
+    throw new Error('暂时连不上房间重建服务。请确认电脑已连接服务器，再重试。');
+  });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || (response.status === 404 ? '网页服务尚未启用房间重建接口，请更新并重启网页服务。' : '暂时无法连接房间重建服务，请稍后重试。'));
+  if (!response.ok) throw new Error(data.error || (response.status === 404 ? '当前网页服务还不支持房间重建，请联系管理员更新服务后重试。' : '暂时无法连接房间重建服务，请稍后重试。'));
   // While the reconstruction service is unreachable the web service answers with the last kept state.
   return response.headers?.get('X-RoomCanvas-Cache') === 'stale' ? {...data, stale: true} : data;
 }
@@ -64,7 +66,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
     try {
       const health = await request('/health');
       connected = !health.preview;
-      $('reconstruction-service').textContent = health.preview ? '这台服务器没有 GPU，只能浏览房间和回放，暂不能重建。' : '房间重建服务已连接';
+      $('reconstruction-service').textContent = health.preview ? '当前只能浏览房间和回放。要重建新房间，请连接支持重建的服务器。' : '房间重建服务已连接';
     } catch (error) {
       connected = false;
       $('reconstruction-service').textContent = error.message;
@@ -73,7 +75,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
   function pick(file) {
     if (uploading) return;
     selected = file; uploadID = null;
-    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入扫描 ZIP / TAR';
+    $('scan-selected').textContent = file ? `${file.name} · ${(file.size / 1024 ** 2).toFixed(1)} MB` : '选择或拖入完整扫描包';
     report(file ? scanError(file, $('reconstruction-name').value || '房间') : '');
     controls();
   }
@@ -136,7 +138,7 @@ export function mountRoomReconstruction({onRoomsChanged, onJobsChanged = async (
       });
       dialog.close();
       form.reset(); selected = null; uploadID = null;
-      $('scan-selected').textContent = '选择或拖入扫描 ZIP / TAR';
+      $('scan-selected').textContent = '选择或拖入完整扫描包';
       await refresh();
       $('reconstruction-jobs').scrollIntoView({block: 'nearest'});
     } catch (error) { report(error.message); void refresh(); }

@@ -14,8 +14,8 @@ export function objectName(text) {
 }
 
 export const STAGES = [
-  ['queued', '排队等 GPU'], ['preparing', '准备输入'], ['da3', '估计深度与相机'],
-  ['reconstruction', '重建三维模型'], ['publishing', '准备完整物体资产'], ['cover', '计算补拍建议'],
+  ['queued', '排队等待处理'], ['preparing', '准备照片'], ['da3', '分析拍摄角度'],
+  ['reconstruction', '生成三维模型'], ['publishing', '整理模型文件'], ['cover', '寻找适合补拍的角度'],
 ];
 export function stageLabel(job) {
   if (job.status === 'queued') return STAGES[0][1];
@@ -30,7 +30,7 @@ export function duration(seconds) {
 
 async function reply(response) {
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `服务器出错（${response.status}）`);
+  if (!response.ok) throw new Error(data.error || `物品重建服务暂时无法处理请求，请稍后重试（${response.status}）`);
   return data;
 }
 const post = (path, body, fetcher = fetch) => fetcher(path, {
@@ -49,9 +49,9 @@ function upload(route, fields, files, onProgress) {
     request.onload = () => {
       let data = {};
       try {data = JSON.parse(request.responseText);} catch {}
-      if (request.status === 200) resolve(data); else reject(new Error(data.error || `上传失败（${request.status}）`));
+      if (request.status === 200) resolve(data); else reject(new Error(data.error || `照片上传失败，请重新上传（${request.status}）`));
     };
-    request.onerror = () => reject(new Error('上传失败：连不上 ViewForge（检查隧道）'));
+    request.onerror = () => reject(new Error('照片上传失败。请确认电脑已连上物品重建服务，再试一次。'));
     request.send(form);
   });
 }

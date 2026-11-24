@@ -61,7 +61,7 @@ async function readManifest() {
   manifest = value;
   $('room-name').textContent = manifest.name;
   document.title = `${manifest.name} · RoomCanvas`;
-  $('version').textContent = `版本 ${manifest.version.slice(0, 8)} · ${new Date(manifest.createdAt).toLocaleString()} · ${(manifest.model.bytes / 1048576).toFixed(1)} MB`;
+  $('version').textContent = `生成于 ${new Date(manifest.createdAt).toLocaleString('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'})} · ${(manifest.model.bytes / 1048576).toFixed(1)} MB`;
   $('open-browser').disabled = false;
   $('download-model').href = manifest.model.url; $('download-model').hidden = false;
   const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -95,7 +95,7 @@ async function loadRoom() {
     while (true) {
       const {done, value} = await reader.read(); if (done) break;
       received += value.byteLength;
-      if (received > manifest.model.bytes || received > 512 * 1048576) {await reader.cancel(); throw new Error('房间文件大小与分享信息不一致');}
+      if (received > manifest.model.bytes || received > 512 * 1048576) {await reader.cancel(); throw new Error('房间文件与分享信息不一致，请在电脑上重新生成二维码并扫码。');}
       chunks.push(value); $('progress').value = received / manifest.model.bytes;
       status(`正在下载房间 ${Math.round(received / manifest.model.bytes * 100)}%`);
     }

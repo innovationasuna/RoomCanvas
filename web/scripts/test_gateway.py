@@ -89,7 +89,7 @@ class Preview(Routing):
     def test_object_reconstruction_is_refused_with_a_reason(self):
         status, body = self.call('POST', '/viewforge/objects/create', b'{}', {'Content-Type': 'application/json'})
         self.assertEqual(status, 503)
-        self.assertIn('GPU', body['error'])
+        self.assertIn('请连接支持重建的服务器', body['error'])
 
     def test_reads_and_size_edits_still_pass(self):
         self.assertEqual(self.call('GET', '/viewforge/assets/catalog')[1]['service'], 'objects')

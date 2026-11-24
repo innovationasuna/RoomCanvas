@@ -37,7 +37,7 @@ export function mountLightingPanel({root, timeRoot, initialTime, initialIndoor, 
     timeRoot.querySelector('#lamp-status').textContent = indoor.power ? '已开启' : '已关闭';
     const name = timeRoot.querySelector('#lamp-name');
     if (name) name.textContent = lampName();
-    if (note) note.textContent = fixtures ? `房间里有 ${fixtures} 盏顶灯。夜间按灯具发光面的形状照明，角度只调节用于投影的聚光分量。角度与开关按房间保存。` : centralNote;
+    if (note) note.textContent = fixtures ? `房间里有 ${fixtures} 盏顶灯。调大角度会扩大投下阴影的照明范围。灯的开关和角度会按房间保存。` : centralNote;
     for (const input of ranges) {
       const key = input.dataset.grade; input.value = values[key];
       root.querySelector(`output[for="${input.id}"]`).textContent = format(key, values[key]);

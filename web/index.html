@@ -18,10 +18,15 @@
   <header class="home-header">
     <a class="brand" href="./" aria-label="RoomCanvas 房间选择"><svg aria-hidden="true"><use href="#icon-room"/></svg><span>RoomCanvas</span></a>
     <span class="header-context">空间布置工作台</span>
+    <a class="home-button replay-entry" href="./replay.html">重建记录</a>
   </header>
   <main id="main">
     <div class="page-heading">
-      <div><h1>选择房间</h1><p class="lead">从一个房间开始，试一试新的布置。</p></div>
+      <div><h1>选择房间</h1><p class="lead">从一个房间开始，试一试新的布置。</p>
+        <details class="scan-guide"><summary>使用帮助</summary>
+          <p>点房间卡片进入布置，选中物品就能移动它。想试试自己的房间？点“重建房间”上传完整扫描包。</p>
+        </details>
+      </div>
       <div class="heading-actions"><p id="room-count" class="room-count" hidden></p><button type="button" class="home-button primary" id="reconstruct-room">＋ 重建房间</button></div>
     </div>
     <section id="room-state" class="room-state" role="status">
@@ -55,7 +60,7 @@
     <p id="cache-status" class="cache-status" role="status" aria-live="polite"></p>
     <div class="cache-toolbar"><label><input id="cache-select-all" type="checkbox">全选</label><span id="cache-selection"></span><button type="button" class="home-button" id="refresh-cache">刷新</button></div>
     <div id="cache-list" class="cache-list" aria-busy="false"></div>
-    <p class="cache-note">不同房间可能共用文件，总占用已去重。共享文件的最后一个副本清理后才会释放空间。</p>
+    <p class="cache-note">多个房间共用的文件只算一次。清理所有用到它的缓存后，才会释放这部分空间。</p>
     <p id="cache-paused" class="cache-note" hidden>后台预下载已暂停。再次打开某个房间时，只会按需获取它缺少的模型。</p>
     <p id="cache-message" class="cache-status" role="status" aria-live="polite"></p>
     <p id="cache-error" class="error" role="alert" hidden></p>
@@ -77,8 +82,8 @@
       <label for="reconstruction-name">房间名称</label>
       <input id="reconstruction-name" name="name" maxlength="80" placeholder="例如：我的客厅" required autocomplete="off">
       <label for="reconstruction-file">房间扫描包</label>
-      <div class="scan-upload" id="scan-drop"><input id="reconstruction-file" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/x-tar,application/gzip,application/x-gzip" required aria-describedby="scan-help scan-selected"><div class="scan-selection"><p id="scan-selected">选择或拖入扫描 ZIP / TAR</p><button type="button" class="home-button" id="remove-scan" aria-label="移除已选扫描包" hidden>移除</button></div></div>
-      <p class="scan-help" id="scan-help">LiteReality Scanner 导出的完整扫描包，支持 ZIP、TAR、TAR.GZ 和 TGZ，最大 2 GB。需包含 room.usdz、图像、相机及深度数据；普通照片不适用于整屋重建。</p>
+      <div class="scan-upload" id="scan-drop"><input id="reconstruction-file" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/x-tar,application/gzip,application/x-gzip" required aria-describedby="scan-help scan-selected"><div class="scan-selection"><p id="scan-selected">选择或拖入完整扫描包</p><button type="button" class="home-button" id="remove-scan" aria-label="移除已选扫描包" hidden>移除</button></div></div>
+      <p class="scan-help" id="scan-help">请上传 LiteReality Scanner 导出的完整扫描包（ZIP / TAR / TAR.GZ / TGZ，最大 2 GB）。整屋重建需要扫描数据，单独上传照片或房间模型无法重建。</p>
       <details class="scan-guide"><summary>如何准备扫描包？</summary><ol><li>用 LiteReality Scanner 扫描整个房间，保留完整导出数据。</li><li>将单个房间的扫描文件夹打包为 ZIP 或 TAR（也支持 TAR.GZ / TGZ），不要只打包 room.usdz。</li><li>上传后开始重建，完成的新房间会出现在此页。</li></ol></details>
       <p class="scan-help">重建在服务器运行，可能需要较长时间。提交成功后可关闭窗口，返回此页查看进度。</p>
       <div id="scan-upload-progress" hidden><label for="scan-progress" id="scan-progress-label">正在上传…</label><progress id="scan-progress" max="100" value="0"></progress></div>

@@ -50,7 +50,7 @@ async function json(url, fetcher) {
   const response = await fetcher(url, {cache: 'no-store'});
   if (!response.ok) {
     const data = await response.json?.().catch(() => ({}));
-    const error = new Error(data?.error || `ViewForge 读取失败（${response.status}）`);
+    const error = new Error(data?.error || `未能读取物品模型，请稍后重试（${response.status}）`);
     error.status = response.status;
     error.state = data?.state;
     throw error;

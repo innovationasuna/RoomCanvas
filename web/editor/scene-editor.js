@@ -195,13 +195,13 @@ function validateAfterRender() {
     }, 0);
   });
 }
-function fail(error) {
+function fail(error, message) {
   ready = false; sceneFailed = true;
   updateInspector();
   console.error(error);
   $('#loading').hidden = true;
   $('#status').classList.remove('rc-sr-only');
-  $('#status').textContent = `加载失败：${error.message || error}。请刷新重试。`;
+  $('#status').textContent = message || `加载失败：${error.message || error}。请刷新重试。`;
   window.roomEditorError = String(error);
 }
 
@@ -465,7 +465,7 @@ function updateInspector() {
   const wall = placement?.isWall(selected);
   const changingWall = !!wallRelocation;
   $('#rotate-left').disabled = $('#rotate-right').disabled = !!wall;
-  $('#rotate-left').title = $('#rotate-right').title = wall ? '壁挂物件保持安装朝向' : '旋转 15°';
+  $('#rotate-left').title = $('#rotate-right').title = wall ? '壁挂物品会保持原来的朝向' : '旋转 15°';
   $('#direction-note').textContent = wall ? '上下左右沿墙移动 · 前后按当前视角换墙' : '按当前视角移动 · 可调整高度';
   $('.control-shortcut').textContent = wall ? '↑ ↓ ← → · W / S 换墙' : '↑ ↓ ← →';
   $('.direction-pad').setAttribute('aria-label', wall ? '沿墙上下左右移动选中物品' : '沿地面移动选中物品');
@@ -1719,7 +1719,7 @@ const gesturePort = {
     // A pinch on the preview, or on empty floor while there is one, keeps working on it.
     if (pending && (!id || id === pending.id)) id = pending.id;
     if (!id) {$('#status').textContent = '没有指到物品：指向物品或物品库卡片后再捏合'; return false;}
-    if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物件保持安装朝向'); return false;}
+    if (kind === 'rotate' && placement.isWall(id)) {showToast('壁挂物品会保持原来的朝向'); return false;}
     const placing = pending?.id === id;
     if (!placing && !canTakeAnotherPiece()) return false;
     if (!placing) beginSession(id);
@@ -1978,7 +1978,7 @@ async function chooseImport() {
   importAsset = null; $('#import-object').disabled = $('#import-capture').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
   const asset = await readAsset(run).catch(() => null);
   if ($('#import-run').value !== run) return;
-  if (!asset) {$('#import-note').textContent = '读取失败，请检查 ViewForge 隧道'; return;}
+  if (!asset) {$('#import-note').textContent = '未能读取物品尺寸。请确认电脑已连上物品重建服务，再刷新页面。'; return;}
   importAsset = {...asset, run};
   $('#import-capture').disabled = false;
   const saved = savedMeasurement(asset);
@@ -1990,7 +1990,7 @@ function describeImport() {
   if (!importAsset) return;
   let size;
   try {size = sizeInMeters(importAsset.base, metricScale(importAsset.base, $('#import-axis').value, Number($('#import-meters').value)));}
-  catch {$('#import-note').textContent = savedMeasurement(importAsset) ? '请输入实测长度' : 'ViewForge 里还没标定：填一条实测边长'; $('#import-object').disabled = true; return;}
+  catch {$('#import-note').textContent = savedMeasurement(importAsset) ? '请输入实测长度' : '请选一条边，填入它的实际长度（米）。'; $('#import-object').disabled = true; return;}
   $('#import-note').textContent = `${size[0].toFixed(2)} × ${size[2].toFixed(2)} × ${size[1].toFixed(2)} 米（宽 × 深 × 高）`;
   $('#import-object').disabled = false;
 }
@@ -2072,7 +2072,7 @@ async function load() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = lightProfile.exposure;
   renderMetrics = createRenderMetrics(renderer, {gpu: query.has('lightingLab'), limit: query.has('lightingLab') ? 2400 : 120});
-  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); geometryServices?.dispose(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停');});
+  renderer.domElement.addEventListener('webglcontextlost', (event) => {event.preventDefault(); geometryServices?.dispose(); cancelAnimationFrame(gradingFrame); staticLighting?.dispose(); environmentLighting?.dispose(); lightingRig?.dispose(); renderMetrics.dispose(); finishHold(); persist(); fail('图形上下文已暂停', '三维画面暂时中断，请刷新页面恢复。');});
   renderer.domElement.setAttribute('aria-label', '房间三维场景，点选物品或使用物品列表');
   host.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement);
@@ -2122,7 +2122,7 @@ async function load() {
       const detail = await error.response.json().catch(() => null);
       if (typeof detail?.error === 'string') throw new Error(detail.error);
     }
-    throw error.response?.status === 404 ? new Error('找不到房间模型 Room.glb；请使用更新后的 serve.py 打开房间，缺少的示例模型会按需下载（进度见终端）。') : error;
+    throw error.response?.status === 404 ? new Error('没有找到房间模型。请联系管理员更新网页服务并确认模型可用') : error;
   });
   if (sceneFailed) return;
   finishStage('initial', 'modelReadAndParse', modelStarted);
