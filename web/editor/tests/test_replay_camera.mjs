@@ -195,6 +195,26 @@ test('the replay picker links every available job through the oldest record', as
   assert.deepEqual(links, jobs.reverse().map(job => job.id));
 });
 
+test('the replay picker leaves out rooms in the recycle bin', async t => {
+  const jobs = ['a', 'b'].map((c, i) => ({id: c.repeat(32), created: i, status: 'completed'}));
+  const fetcher = async url => url === '/web/rooms.json' ? Response.json({rooms: [], deleted: ['scan-' + 'b'.repeat(32)]}) : Response.json({jobs});
+  const {node} = await page(t, false, {}, {search: '', fetcher});
+  const links = Array.from(node('loading').innerHTML.matchAll(/href="\?job=([a-f0-9]+)"/g), match => match[1]);
+  assert.deepEqual(links, ['a'.repeat(32)]);
+});
+
+for (const trash of ['error', 'timeout']) test(`the replay picker lists every job when the recycle bin answers with ${trash}`, async t => {
+  const jobs = [{id: 'a'.repeat(32), created: 0, status: 'completed'}];
+  const fetcher = async (url, options) => {
+    if (url !== '/web/rooms.json') return Response.json({jobs});
+    if (trash === 'error') return Response.json({error: '无法读取房间删除记录'}, {status: 500});
+    assert.ok(options.signal, 'the request gives up after a while');
+    throw new DOMException('The operation timed out.', 'TimeoutError');
+  };
+  const {node} = await page(t, false, {}, {search: '', fetcher});
+  assert.match(node('loading').innerHTML, new RegExp(`href="\\?job=${'a'.repeat(32)}"`));
+});
+
 for (const standalone of [false, true]) test(`all item pictures and original review zoom, standalone=${standalone}`, async t => {
   const items = Array.from({length: 24}, (_, i) => ({id: 'item' + i, kind: 'tool', stage: 'assemble', minute: i,
     ...(standalone ? {recorded_stage: 'small_objects'} : {}),
