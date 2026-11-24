@@ -393,6 +393,8 @@ function render(t, p, animate = p.playing) {
   // Once the room shell shows, a finished object takes shape in place: move in close to watch it (not to
   // one made again, which is already there and passes in a moment).
   if (p.playing && idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
+  // A photo item appears at its own record: move in on it, one after another.
+  if (p.playing && idx === prevIdx + 1 && e?.work === 'small' && scene.photoShow?.has(e.object_id) && view.aim([e.object_id], {close: true})) hold = WATCH;
   renderLog(idx);
 }
 

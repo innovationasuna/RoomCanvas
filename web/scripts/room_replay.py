@@ -666,7 +666,9 @@ def pipeline_events(scene, until=None):
         event = {'id': 'articulated', 't': save['t'], 'stage': 'articulate', 'kind': 'milestone',
                  **({'display_t': save['display_t']} if 'display_t' in save else {}),
                  **articulation_result(save, evidence)}
-        source = articulation_source(scene, event.get('artifact_digest'))
+        start = next((r for r in reversed(rows[:next(k for k, r in enumerate(rows) if r is save)])
+                      if r.get('kind') == 'articulate_start' and not inside(r)), None)
+        source = articulation_source(scene, event.get('artifact_digest'), start)
         if source:
             event['source_digest'] = source
         events.append(event)
@@ -681,24 +683,34 @@ def pipeline_events(scene, until=None):
     return events
 
 
-def articulation_source(scene, digest):
+def articulation_source(scene, digest, start=None):
     """The room an openable-parts room was cut from. Its bundle.json names the cut and the output; the
     key binds the pass's dependencies.json, which hashes the input room. A pass that kept no parts
-    copies its input."""
+    copies its input. Without those receipts, the pass's start record names another pass's room it
+    took (LR_ARTICULATE_SOURCE, recorded since that setting exists); else it took the author's room."""
+    if not digest:
+        return None
     folder = model_path(scene, ARTICULATED).parent
     made = _read_json(folder.parent / 'dependencies.json')
-    if not digest or not isinstance(made, dict):
+    if isinstance(made, dict):
+        source = ((made.get('dependencies') or {}).get('preview') or {}).get('Room.glb')
+        if source == digest:
+            return source
+        receipt = _read_json(folder / 'bundle.json')
+        outputs = receipt.get('outputs') if isinstance(receipt, dict) else None
+        cut = {'source': made.get('key'), 'plan': _read_json(folder / 'plan.json')}
+        key = hashlib.sha256(json.dumps(cut, sort_keys=True, default=str).encode()).hexdigest()
+        if isinstance(outputs, dict) and outputs.get('Room.glb') == digest and receipt.get('key') == key:
+            return source
+    if not start:
         return None
-    source = ((made.get('dependencies') or {}).get('preview') or {}).get('Room.glb')
-    if source == digest:
-        return source
-    receipt = _read_json(folder / 'bundle.json')
-    outputs = receipt.get('outputs') if isinstance(receipt, dict) else None
-    if not isinstance(outputs, dict) or outputs.get('Room.glb') != digest:
-        return None
-    cut = {'source': made.get('key'), 'plan': _read_json(folder / 'plan.json')}
-    key = hashlib.sha256(json.dumps(cut, sort_keys=True, default=str).encode()).hexdigest()
-    return source if receipt.get('key') == key else None
+    if not start.get('source'):
+        return picture_version(Path(scene) / FINAL)
+    # Recorded where the pass ran; a slim copy keeps the room at the same place in its run.
+    small = model_path(scene, SMALL_OBJECTS)
+    if Path(start['source']).parts[-2:] == small.parent.parts[-2:] and (_mtime(small) or float('inf')) <= start['t']:
+        return picture_version(small)
+    return None
 
 
 def small_overlay(scene, event, ids, until=None):
@@ -1592,13 +1604,13 @@ def project_standalone(events, revised):
         if overlay and phase == 'small_objects' and 'model' in e:
             e['overlay_model'] = e.pop('model')
         projected.append(e)
-    if not overlay and not revised:
-        # The passes' saved rooms keep their enhanced-room presentation, as before overlays.
-        for e in base[split:]:
-            if e.get('model') and e['minute'] <= latest_save:
-                e['recorded_model'] = e.pop('model')
-            if e['id'] == 'final' and e['minute'] <= last_pass:
-                e['say'] = '导出当时的房间'
+    for e in base[split:] if not revised else ():
+        # The passes' saved rooms keep their enhanced-room presentation, as before overlays. With an overlay the
+        # checks show the rooms they checked, and the replay still ends on the openable-parts room (timeline.mjs).
+        if not overlay and e.get('model') and e['minute'] <= latest_save:
+            e['recorded_model'] = e.pop('model')
+        if e['id'] == 'final' and e['minute'] <= last_pass:
+            e['say'] = '导出当时的房间'
     events[:] = base[:split] + sorted(projected, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
     if tail:
         events.extend(tail)
@@ -1825,6 +1837,12 @@ def slim(run, dest):
     # The later passes' rooms (the openable-parts one was published), beside the scene, and how each launcher
     # attempt ended (whether a later one was a retry).
     extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
+    # Their receipts: the room the openable parts were cut from, and the objects and merged items of the
+    # small-object room (articulation_source, small_overlay). Each is checked against its room's digest.
+    parts, room = model_path(scene, ARTICULATED).parent, model_path(scene, SMALL_OBJECTS).parent
+    extra += [(parts.parent / 'dependencies.json', dest / Path(ARTICULATED).parent.parent / 'dependencies.json')]
+    extra += [(parts / name, dest / Path(ARTICULATED).parent / name) for name in ('bundle.json', 'plan.json')]
+    extra += [(room / name, dest / Path(SMALL_OBJECTS).parent / name) for name in ('bundle.json', 'room_layout.json', 'apply.json')]
     small = small_folder(scene)
     extra.append((small / 'items.json', dest / 'small-objects/items.json'))
     for _, rel in set(saved_small_rooms(scene, trace_rows(scene)).values()):

@@ -802,7 +802,8 @@ test('standalone photo nodes keep their world transform, follow a moved marker a
   const layer = new SmallItemLayer(group('donor', lateTable), ids);
   assert.deepEqual(layer.root.children.map(p => p.name).sort(), ids);
 
-  const v = view(), photoItems = {model: 'small_objects', ids}, state = {photoItems, photoShow: 'stand-ins'};
+  // Only the first item's record has been reached.
+  const v = view(), photoItems = {model: 'small_objects', ids}, state = {photoItems, photoShow: new Set(['Cup0'])};
   t.mock.method(v, 'loadPhotoItems', () => {});
   v.photoSource = {source: photoItems, layer};
   v.scene.add(layer.root);
@@ -819,7 +820,7 @@ test('standalone photo nodes keep their world transform, follow a moved marker a
   revised.position.set(7, 1, 0);
   loaded(v, 'draft-1', revised);
   v.models['draft-1'].controller = new AbortController();
-  apply(v, 'draft-1', true, state);
+  apply(v, 'draft-1', true, {...state, photoShow: new Set(ids)});
   assert.equal(nextCup.visible, true);
   assert.equal(cup.matrix.elements[12], 7);
   assert.equal(revised.position.x, 7);
@@ -841,20 +842,26 @@ function photoLayer(v, ids, ...parts) {
 }
 const at = (x, node) => {node.position.x = x; return node;};
 
-test('from their card the photo items stand where a version has no stand-in, unshifted', () => {
+// An integrated small-object room from the build takes the overlay like a review room (see test_replay_passes).
+for (const key of ['round0', 'small_' + 'a'.repeat(64)]) test(`each photo item shows from its record, on its stand-in in ${key} or unshifted`, () => {
   const v = view(), ids = ['Cup0', 'Bottle0'];
   const cup = at(1, group('Cup0', mesh('PhotoCup'))), bottle = at(3, group('Bottle0', mesh('PhotoBottle')));
   bottle.position.y = 2;
   const layer = photoLayer(v, ids, cup, bottle), bottleWorld = bottle.matrix.clone();
   const block = mesh('Block'), photoItems = {ids};
-  loaded(v, 'round0', at(1.5, group('Cup0', block)));
-  apply(v, 'round0', true, {photoItems, photoShow: 'stand-ins'});
+  loaded(v, key, at(1.5, group('Cup0', block)));
+  // From the build the stand-in is gone before any record is reached.
+  apply(v, key, true, {photoItems, photoShow: new Set()});
+  assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, false, false]);
+  apply(v, key, true, {photoItems, photoShow: new Set(['Cup0'])});
   assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, true, false]);
   assert.equal(cup.matrix.elements[12], 1.5);
-  apply(v, 'round0', true, {photoItems, photoShow: 'all'});
+  apply(v, key, true, {photoItems, photoShow: new Set(ids)});
   assert.deepEqual([cup.visible, bottle.visible], [true, true]);
   assert.ok(bottle.matrix.equals(bottleWorld));
-  apply(v, 'round0', true, {photoItems, photoShow: null, hiddenNodes: ['Cup0']});
+  apply(v, key, true, {photoItems, photoShow: new Set(['Cup0'])});  // dragged back
+  assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, true, false]);
+  apply(v, key, true, {photoItems, photoShow: null, hiddenNodes: ['Cup0']});
   assert.equal(layer.root.visible, false);
 });
 
@@ -871,7 +878,7 @@ test('an openable-parts room cut from the photo room keeps its renamed, re-local
   // The timeline knows it holds the photo models (see test_replay_passes), so nothing is overlaid.
   apply(v, 'articulated', true, {photoItems, photoShow: null});
   assert.deepEqual([body.visible, flap.visible, layer.root.visible], [true, true, false]);
-  assert.equal(v.models.articulated.root.userData.photoSlots, null);
+  assert.equal(v.models.articulated.root.userData.photoPlaces, null);
 });
 
 test('a separate child without extras is neither cut into the photo item nor masked with its stand-in', () => {
@@ -888,7 +895,7 @@ test('a separate child without extras is neither cut into the photo item nor mas
   const old = mesh('OldBook'), mark = at(5, mesh('Bookmark0'));
   old.add(mark);
   loaded(v, 'round0', group('Book0', old));
-  apply(v, 'round0', true, {photoItems, photoShow: 'all'});
+  apply(v, 'round0', true, {photoItems, photoShow: new Set(ids)});
   assert.deepEqual([old.visible, mark.visible, book.visible], [false, true, true]);
   assert.ok(book.matrix.equals(world));  // the bookmark's mesh is not part of the anchor
 });
@@ -901,7 +908,7 @@ test('a merged item is anchored on its whole group, also when a member leaves or
   const world = book.matrix.clone();
   const first = mesh('First'), second = mesh('Second'), member = at(0.09, group('Book1', second));
   loaded(v, 'round0', group('Book0', first), member);
-  const state = {photoItems, photoShow: 'all', hiddenNodes: ['Book0', 'Book1']};
+  const state = {photoItems, photoShow: new Set(ids), hiddenNodes: ['Book0', 'Book1']};
   apply(v, 'round0', true, state);
   assert.deepEqual([first.visible, second.visible, book.visible], [false, false, true]);
   assert.ok(book.matrix.equals(world));
@@ -914,11 +921,12 @@ test('a merged item is anchored on its whole group, also when a member leaves or
 });
 
 test('the photo layer keeps the outgoing placement until the incoming room is the one shown', () => {
-  const v = view(), ids = ['Cup0'], photoItems = {ids}, state = {photoItems, photoShow: 'all'};
+  const v = view(), ids = ['Cup0'], photoItems = {ids}, state = {photoItems, photoShow: new Set(ids)};
   const cup = group('Cup0', mesh('Photo'));
   const layer = photoLayer(v, ids, cup);
   for (const [k, x] of [['round0', 0], ['round1', 1], ['round2', 2], ['final', 3]]) loaded(v, k, at(x, group('Cup0', mesh('Block'))));
-  loaded(v, 'articulated', group('Cup0', mesh('OwnPhoto')));
+  const own = mesh('OwnPhoto'), door = mesh('Door');
+  loaded(v, 'articulated', at(3, group('Cup0', own)), door);
   const x = () => cup.matrix.elements[12];
   apply(v, 'round0', true, state);
   // Playback: the next round fades in over the current one.
@@ -934,12 +942,51 @@ test('the photo layer keeps the outgoing placement until the incoming room is th
   // Rewinding mid-fade shows the destination at once.
   apply(v, 'round0', true, state);
   assert.deepEqual([v.current, v.incoming, x(), layer.root.visible], ['round0', null, 0, true]);
-  // A room holding its own photo models takes the layer away only once it is shown.
+  // A room holding its own photo models fades in with them held back: the overlay and they hand over at once.
+  const drawn = node => {for (let o = node; o; o = o.parent) if (!o.visible) return false; return true;};
+  const once = () => assert.equal([cup, own].filter(drawn).length, 1);
+  const parts = {photoItems, photoShow: null};
   apply(v, 'final', true, state);
-  apply(v, 'articulated', false, {photoItems, photoShow: null});
-  assert.deepEqual([v.incoming, layer.root.visible, cup.visible, x()], ['articulated', true, true, 3]);
-  while (v.incoming) {tick(v); apply(v, 'articulated', false, {photoItems, photoShow: null});}
-  assert.equal(layer.root.visible, false);
+  apply(v, 'articulated', false, parts);
+  assert.deepEqual([v.incoming, drawn(cup), drawn(own), drawn(door), x()], ['articulated', true, false, true, 3]);
+  tick(v);
+  assert.ok(v.mix > 0 && v.mix < 1);
+  once();
+  v.paused = true;  // paused mid-fade: the fade still finishes
+  apply(v, 'articulated', false, parts);
+  once();
+  v.paused = false;
+  apply(v, 'final', true, state);  // rewound mid-fade
+  assert.deepEqual([v.current, v.incoming, drawn(cup), drawn(own)], ['final', null, true, false]);
+  apply(v, 'articulated', false, parts);
+  while (v.incoming) {tick(v); once(); apply(v, 'articulated', false, parts); once();}
+  assert.deepEqual([layer.root.visible, drawn(own)], [false, true]);
+  apply(v, 'articulated', true, parts);
+  assert.deepEqual([drawn(cup), drawn(own)], [false, true]);
+});
+
+test('a photo item shows at its record while the room the card switches to fades in', () => {
+  const v = view(), ids = ['Cup0', 'Bottle0'], photoItems = {ids};
+  const cup = group('Cup0', mesh('PhotoCup')), bottle = group('Bottle0', mesh('PhotoBottle'));
+  photoLayer(v, ids, cup, bottle);
+  loaded(v, 'seed', at(1, group('Cup0', mesh('Block'))));
+  loaded(v, 'round0', at(2, group('Cup0', mesh('Block'))));
+  apply(v, 'seed', true, {photoItems, photoShow: new Set()});
+  assert.deepEqual([cup.visible, bottle.visible], [false, false]);
+  // Played across the card: the first record switches rooms; each item is there from its record, the cup on
+  // the outgoing room's stand-in until the handover, the bottle (no stand-in anywhere) where its GLB has it.
+  const reached = new Set(['Cup0']);
+  apply(v, 'round0', false, {photoItems, photoShow: reached});
+  assert.deepEqual([v.incoming, cup.visible, bottle.visible, cup.matrix.elements[12]], ['round0', true, false, 1]);
+  tick(v);
+  reached.add('Bottle0');
+  apply(v, 'round0', false, {photoItems, photoShow: new Set(reached)});
+  while (v.incoming) {
+    assert.deepEqual([cup.visible, bottle.visible, cup.matrix.elements[12]], [true, true, 1]);
+    tick(v);
+    apply(v, 'round0', false, {photoItems, photoShow: new Set(reached)});
+  }
+  assert.deepEqual([v.current, cup.visible, bottle.visible, cup.matrix.elements[12]], ['round0', true, true, 2]);
 });
 
 test('a withdrawn photo source cancels its download and frees what was parsed', async t => {
@@ -959,7 +1006,7 @@ test('a withdrawn photo source cancels its download and frees what was parsed', 
   const options = {modelUrl: key => key === 'small_objects' ? 'http://room.test/so.glb' : null};
   loaded(v, 'round0', group('Cup0', mesh('Block')));
   const children = v.scene.children.length;
-  apply(v, 'round0', true, {photoItems, photoShow: 'all'}, options);
+  apply(v, 'round0', true, {photoItems, photoShow: new Set(['Cup0'])}, options);
   const {signal} = requests.mock.calls[0].arguments[1];
   apply(v, 'round0', true, {photoItems, photoShow: null}, options);  // an ordinary rewind keeps it
   assert.deepEqual([signal.aborted, requests.mock.callCount()], [false, 1]);

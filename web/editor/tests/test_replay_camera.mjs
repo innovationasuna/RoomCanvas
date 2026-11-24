@@ -12,6 +12,7 @@ const imports = registerHooks({resolve(specifier, context, next) {
   return next(specifier, context);
 }});
 const {RoomView} = await import('../../replay/room-view.mjs');
+const {SmallItemLayer} = await import('../../replay/small-items.mjs');
 const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
 const {OrbitControls} = await import('three/addons/controls/OrbitControls.js');
 imports.deregister();
@@ -202,12 +203,22 @@ for (const standalone of [false, true]) test(`all item pictures and original rev
   const events = [...items, {id: 'r0', kind: 'review', stage: 'review', minute: 25, say: '检查房间没通过',
     img: views[0], media: views.map(src => ({role: 'review', src}))}];
   const {node, player} = await page(t, false, {events, stages: [{id: 'assemble'}, {id: 'review'}], models: {}});
+  // The card grows with each item's record (the 3D view shows each item then), also after a rewind.
+  const first = () => {
+    player.seek(0.01, {pause: true});
+    const card = node('log').children.findLast(el => el.innerHTML.includes('card objects')).innerHTML;
+    assert.match(card, /已按照片制作 1 件小物品/);
+    assert.equal((card.match(/class="cell"/g) || []).length, 1);
+  };
+  first();
   player.seek(player.duration, {pause: true});
   const [objects, review] = node('log').children.slice(-2).map(el => el.innerHTML);
   assert.match(objects, /已按照片制作 24 件小物品/);
   assert.equal((objects.match(/class="cell"/g) || []).length, 23);
   assert.match(objects, /class="bare">杯子 24</);
   assert.doesNotMatch(objects, /原始逐件记录|data-more|class="detail"/);
+  first();
+  player.seek(player.duration, {pause: true});
   const thumbs = [...review.matchAll(/class="wide" data-z="(\d+)" data-src="([^"]+)"/g)];
   assert.deepEqual(thumbs.map(m => m[2].split('/').pop()), views);
   const click = new Event('click');
@@ -215,6 +226,47 @@ for (const standalone of [false, true]) test(`all item pictures and original rev
     ? {dataset: {z: thumbs[1][1], src: thumbs[1][2]}} : null}});
   node('log').dispatchEvent(click);
   assert.ok(node('lb').innerHTML.includes(thumbs[1][2]));
+});
+
+test('the camera moves in on each photo item at its own record, and a rewind does not move it', async t => {
+  const ids = ['Cup0', 'Cup1', 'Cup2'];
+  const job = {stages: [{id: 'plan', name: 'plan'}, {id: 'assemble', name: 'assemble'}],
+    models: {seed: 'seed', final: 'final', small_objects: 'so'}, hidden_nodes: {},
+    events: [{id: 'seed', stage: 'plan', minute: 0, kind: 'milestone', model: 'seed'},
+      ...ids.map((id, i) => ({id: 'item' + i, kind: 'tool', stage: 'assemble', recorded_stage: 'small_objects', minute: 100 + i,
+        display_minute: 1, work: 'small', object_id: id, object_name: '杯子', say: '杯子的照片模型已就绪'})),
+      {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 1,
+        kind: 'milestone', overlay_model: 'small_objects'}]};
+  const times = buildTimeline(readReplay(job)).events.filter(e => e.object_id).map(e => e.at);
+  const {view, player} = await page(t, false, job);
+  // The photo models, where the source GLB has them (this room has no stand-in for them).
+  const parts = [[1.5, 0, 1], [-1.5, 0, -1], [0, 0, 1.5]].map(([x, y, z], i) => {
+    const part = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2));
+    part.name = ids[i];
+    part.position.set(x, y, z);
+    return part;
+  });
+  const layer = new SmallItemLayer(new THREE.Group().add(...parts), ids);
+  view.loadPhotoItems = () => {};
+  view.photoSource = {layer};
+  view.scene.add(layer.root);
+  const centre = k => new THREE.Box3().setFromObject(parts[k]).getCenter(new THREE.Vector3());
+  // Each item takes the time an object taking shape does, so the camera can reach it before the next.
+  assert.ok(times.every((at, k) => !k || at - times[k - 1] >= 4.5));
+  for (const [k, at] of times.entries()) {
+    player.seek(at + 0.01);
+    await loaded();
+    assert.deepEqual(ids.map(id => layer.items.get(id).part.visible), ids.map((_, j) => j <= k));
+    assert.ok(view.aimTo?.close && view.aimTo.target.distanceTo(centre(k)) < 1e-6, `camera on ${ids[k]}`);
+    frames(view, 120);
+    assert.ok(view.controls.target.distanceTo(centre(k)) < 0.005);
+  }
+  // Dragged back, the items go and the camera stays where it is.
+  const target = view.aimTo.target.clone();
+  player.seek(times[0] + 0.01);
+  await loaded();
+  assert.deepEqual(ids.map(id => layer.items.get(id).part.visible), [true, false, false]);
+  assert.ok(view.aimTo.target.equals(target));
 });
 
 function checkOverviewSpin(view) {

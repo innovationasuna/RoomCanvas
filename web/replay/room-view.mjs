@@ -808,6 +808,10 @@ export class RoomView {
     this.current = key;
     this.incoming = null;
     this.mix = 1;
+    // Its own photo models come in now, as the overlay over the outgoing room goes (see revealModel).
+    const root = this.models[key]?.root, hidden = root?.userData.replayHidden;
+    for (const node of root?.userData.photoHeld || []) {node.visible = hidden.get(node); hidden.delete(node);}
+    if (root) root.userData.photoHeld = null;
     this.syncPhotos();
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
     for (const k of Object.keys(this.models)) {
@@ -875,10 +879,20 @@ export class RoomView {
     this.photoSource = null;
   }
 
-  // The photo layer follows the room shown: during a fade, the outgoing one until the incoming takes over.
+  // The photo items shown and where (see revealModel): during a fade, as in the outgoing room until the incoming
+  // takes over. An item whose record is reached meanwhile shows at once, where the incoming room has it if the
+  // outgoing one does not; a fade into a room holding its own photo models keeps the outgoing room's items.
+  photoSlots() {
+    const outgoing = this.models[this.current]?.root, incoming = this.models[this.incoming]?.root;
+    let places = (outgoing || incoming)?.userData.photoPlaces;
+    const reached = this.state?.photoShow || (incoming && outgoing?.userData.photoShow);
+    if (!places || !reached) return null;
+    if (outgoing && incoming?.userData.photoPlaces) places = new Map([...incoming.userData.photoPlaces, ...places]);
+    return new Map([...places].filter(([id]) => reached.has(id)));
+  }
+
   syncPhotos() {
-    const root = this.models[this.current || this.incoming]?.root;
-    this.photoSource?.layer?.show(root?.userData.photoSlots ?? null);
+    this.photoSource?.layer?.show(this.photoSlots());
   }
 
   // The boundary between a masked or photo item and another room object below it (see separateObject).
@@ -979,10 +993,11 @@ export class RoomView {
         if (!separateObject(originalName(child), child.userData.room_id, child.isMesh, known)) mask(child, meshes);
       }
     };
-    // Each photo item replaces its whole group's stand-ins as shown in this version (generation fitted
-    // the group), and from its card also stands where this version has none.
+    // From the build every photo item's stand-ins give way: its whole group as shown in this version (generation
+    // fitted the group). Once its record is reached (photoShow) it stands there, or where its source GLB has it
+    // if this version has none.
     const show = this.state?.photoShow, photos = show && this.state.photoItems;
-    const slots = photos ? new Map() : null, anchors = root.userData.markerAnchors ??= new Map();
+    const places = photos ? new Map() : null, anchors = root.userData.markerAnchors ??= new Map();
     for (const id of photos ? photos.ids : []) {
       const names = new Set([id, ...(photos.members?.[id] || [])]);
       const nodes = [...names].map(name => namedNodes(root).get(name)).filter(Boolean);
@@ -995,14 +1010,24 @@ export class RoomView {
           for (const mesh of meshes) bounds.union(surfaceBox(THREE, mesh));
           anchors.set(group, bottomCenter(bounds));
         }
-        slots.set(id, anchors.get(group));
-      } else if (show === 'all' && (!nodes.length || standing)) slots.set(id, null);
+        places.set(id, anchors.get(group));
+      } else if (!nodes.length || standing) places.set(id, null);
     }
     for (const name of this.state?.hiddenNodes || []) {
       const node = namedNodes(root).get(name);
       if (node) mask(node);
     }
-    root.userData.photoSlots = slots;
+    Object.assign(root.userData, {photoPlaces: places, photoShow: show});
+    // A room fading in with its own photo models shows them at the handover, when the overlay over the outgoing
+    // room goes (swap): an item is never drawn twice. The rest of the room fades in as usual.
+    const overlaid = !show && this.incoming === key && this.photoSource?.layer && this.photoSlots();
+    root.userData.photoHeld = [];
+    for (const [id] of overlaid || []) {
+      for (const name of [id, ...(this.state.photoItems?.members?.[id] || [])]) {
+        const node = namedNodes(root).get(name);
+        if (node && shown(node)) {hide(node); root.userData.photoHeld.push(node);}
+      }
+    }
     if (hidden.size) result.appeared = result.appeared.filter(node => shown(node));
     return result;
   }
@@ -1099,6 +1124,9 @@ export class RoomView {
 
   boundsOf(key) {
     const box = new THREE.Box3();
+    // A photo item that has appeared; while its model loads, its stand-in or scan box below.
+    const photo = this.photoSource?.layer?.items.get(key)?.part;
+    if (photo?.visible && this.photoSource.layer.root.visible) return box.setFromObject(photo);
     const root = this.current && this.models[this.current]?.root;
     const nodes = partsOf(root, key);
     if (!nodes.length) nodes.push(...partsOf(this.models.final?.root, key));

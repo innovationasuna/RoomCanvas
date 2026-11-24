@@ -190,12 +190,21 @@ export function buildTimeline(data) {
   const firstReview = events.find(e => e.stage === 'review' && /^round\d+$/.test(e.model) && data.models?.[e.model]);
   const buildModel = build ? target : photoItems && firstReview ? firstReview.model : 'final';
   const model = (minute) => events.findLast((e) => e.model && displayMinute(e) <= minute)?.model;
+  // Checks after a projected pass show the rooms they checked. The replay still ends on the room published last:
+  // the pass's openable-parts room, if every room shown after it was saved before the passes' records.
+  const rooms = events.filter(e => e.model), passRoom = rooms.findLast(e => e.recorded_stage === 'articulate' && data.models?.[e.model]);
+  const passEnd = Math.max(...events.filter(e => standalonePass(e.recorded_stage)).map(e => e.minute));
+  const later = rooms.slice(rooms.indexOf(passRoom) + 1);
+  const ending = passRoom && later.length && later.every(e => e.minute <= passEnd) ? {event: passRoom, from: later.at(-1)} : null;
   // parts named at the same minute appear together
   const batches = new Map();
   if (build && data.models?.[buildModel]) for (const r of build.reveal) batches.set(r.minute, (batches.get(r.minute) || 0) + 1);
   // form: how many things take shape at this point (an event keeps its own count as e.forms)
+  // Each photo item appears at its own record, the camera moving in on it as on an object taking shape.
+  const placed = new Set(), appears = e => photoItems && made.includes(e) && !placed.has(e.object_id) && placed.add(e.object_id);
   const points = [
-    ...events.map((e, k) => ({e, minute: displayMinute(e), form: (e.forms = forms(e)), opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
+    ...events.map((e, k) => ({e, minute: displayMinute(e), form: (e.forms = forms(e)) || (appears(e) ? 1 : 0),
+      opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
     ...[...batches].filter(([minute]) => [undefined, 'seed'].includes(model(minute))).map(([minute, form]) => ({minute, form})),
   ].sort((a, b) => a.minute - b.minute);
   // Each point keeps only the time it takes to watch what it brings (a batch: its last object starts later);
@@ -220,11 +229,15 @@ export function buildTimeline(data) {
   if (stages.length) stages[0].replay[0] = 0;
   stages.forEach((s, k) => (s.replay[1] = k + 1 < stages.length ? stages[k + 1].replay[0] : duration));
   if (events.length) events[0].at = 0;
-  if (photoItems) photoItems.at = made[0].at;  // the photo items' card
+  if (photoItems) {
+    photoItems.at = made[0].at;  // the photo items' card
+    photoItems.times = new Map(made.toReversed().map(e => [e.object_id, e.at]));  // each item's own record
+  }
+  if (ending) ending.at = ending.from.at;
   const latest = data.latest_event && events.find(e => e.id === data.latest_event);
   return {
     latestAt: latest && latest !== events.at(-1) ? latest.at : duration,
-    duration, stages, events, build, buildModel, photoItems, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
+    duration, stages, events, build, buildModel, photoItems, ending, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
     // Real minutes -> minutes the reconstruction worked (the clock).
@@ -258,10 +271,13 @@ export function comparisonAt(event, tl, t) {
   return picture.minute <= tl.realAt(t) ? picture : null;
 }
 
-// An openable-parts room made from the photo pass's room already holds its models, perhaps split and renamed.
-// An older answer has no recorded source: that pass then ran on the latest room before it.
+// The photo pass's own room, or an openable-parts room made from it (perhaps split and renamed), already holds
+// the photo models. Every other room takes the overlay, an earlier integrated small-object room included.
+// An older answer has no recorded source: the openable-parts pass then ran on the latest room before it.
 function holdsPhotos(items, event) {
-  if (event?.model !== 'articulated') return false;
+  if (!event) return false;
+  if (event.model.startsWith('small_')) return !!items.digest && [event.model, `small_${event.artifact_digest}`].includes(`small_${items.digest}`);
+  if (event.model !== 'articulated') return false;
   return event.source_digest ? event.source_digest === items.digest : event.minute >= items.minute;
 }
 
@@ -272,7 +288,7 @@ export function sceneAt(tl, t) {
   const past = tl.events.filter((e) => e.at <= t);
   const built = new Set();
   past.forEach((e) => e.show?.forEach((x) => built.add(x)));
-  const modelEvent = past.findLast((e) => e.model);
+  const modelEvent = (tl.ending && t >= tl.ending.at && tl.ending.event) || past.findLast((e) => e.model);
   let model = modelEvent?.model || null;
   // While the modelling agent works no room model is saved: show the final model with the parts the agent
   // added appearing when its log first names them (build schedule from the room service).
@@ -289,8 +305,8 @@ export function sceneAt(tl, t) {
     }
   }
   const current = model === modelEvent?.model ? modelEvent : null;
-  const photos = tl.photoItems && by.assemble && t >= by.assemble.replay[0] &&
-    /^(seed|draft.*|round\d+|final|articulated)$/.test(model || '') && !holdsPhotos(tl.photoItems, current);
+  const photos = tl.photoItems && by.assemble && t >= by.assemble.replay[0] && !!model && !holdsPhotos(tl.photoItems, current);
+  const photoShow = photos ? new Set(tl.photoItems.ids.filter(id => tl.photoItems.times.get(id) <= t)) : null;
   const scan = by.scan?.replay, layout = by.layout?.replay;
   return {
     points: scan ? clamp((t - scan[0]) / Math.max(scan[1] - scan[0] - 0.5, 0.5)) : past.length ? 1 : 0,
@@ -304,8 +320,8 @@ export function sceneAt(tl, t) {
     model,
     buildModel: tl.buildModel,
     photoItems: tl.photoItems,  // the source, also while it is not shown (a rewind keeps it loaded)
-    // From the build the photo models replace their stand-ins; from their card also items the room lacks.
-    photoShow: photos ? (card ? 'all' : 'stand-ins') : null,
+    // From the build the stand-ins of the photo items are hidden; each photo model shows from its own record.
+    photoShow,
     hiddenNodes: added ? tl.hiddenDuringBuild : tl.hiddenNodes[model || 'seed'],
     modelEvent: current,
     added,  // null: the model as it is; a set: only these agent-added parts of the final model show

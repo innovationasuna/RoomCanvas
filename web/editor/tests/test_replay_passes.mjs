@@ -15,6 +15,8 @@ const data = {stages, events, models: {seed: 's', final: 'f', small_objects: 'so
   build: {base: 1, reveal: [{node: 'Table0', minute: 1}]},
   hidden_nodes: {seed: ['Cup0'], assembly: ['Cup0'], final: ['PowerLead0']}};
 const at = (tl, say) => sceneAt(tl, tl.events.find(e => e.say === say).at);
+// The photo items shown (from their own records), as a list.
+const shown = scene => scene.photoShow && [...scene.photoShow];
 
 test('assembly switches to the placed small items before the parts and check, including on rewind', () => {
   const tl = buildTimeline(data);
@@ -69,7 +71,7 @@ test('offline pass pictures, models and verdict use stage order and retain their
   // Without a revision the cached schedule belongs to the final room, which then stands for the build.
   assert.equal(sceneAt(tl, placed.at).model, 'final');
   assert.deepEqual(sceneAt(tl, placed.at).photoItems.ids, ['Cup0']);
-  assert.equal(sceneAt(tl, placed.at).photoShow, 'all');
+  assert.deepEqual(shown(sceneAt(tl, placed.at)), ['Cup0']);
   assert.equal(sceneAt(tl, check.at).model, 'round0');
   for (const [k, e] of tl.events.entries()) {
     assert.equal(tl.stageAt(e.at).id, e.stage);
@@ -103,7 +105,8 @@ test('offline cached saves close their pass even when the GLB predates the photo
   const tl = buildTimeline(data), photo = tl.events.find(e => e.id === 'photo');
   assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'open', 'joints', 'check', 'final']);
   assert.equal(comparisonAt(photo, tl, tl.duration)?.src, 'pair.jpg');
-  assert.equal(sceneAt(tl, tl.duration).model, 'final');
+  assert.equal(sceneAt(tl, tl.events.find(e => e.id === 'check').at).model, 'round0');
+  assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
   assert.deepEqual(sceneAt(tl, tl.duration).photoItems.ids, ['Cup0']);
 });
 
@@ -157,10 +160,10 @@ test('a #157 cache moves just the independent items and retains the follow targe
   assert.equal(sceneAt(tl, check.at).model, 'round0');
   // Its schedule came from the revised final room: the first review's room appears with the photo card.
   assert.equal(tl.build, null);
-  assert.deepEqual([sceneAt(tl, author.at).model, sceneAt(tl, author.at).photoShow], ['seed', 'stand-ins']);
-  assert.deepEqual([sceneAt(tl, photo.at).model, sceneAt(tl, photo.at).photoShow], ['round0', 'all']);
+  assert.deepEqual([sceneAt(tl, author.at).model, shown(sceneAt(tl, author.at))], ['seed', []]);
+  assert.deepEqual([sceneAt(tl, photo.at).model, shown(sceneAt(tl, photo.at))], ['round0', ['Cup0']]);
   assert.deepEqual(sceneAt(tl, author.at).photoItems.ids, ['Cup0']);
-  assert.equal(sceneAt(tl, seed.at).photoShow, null);
+  assert.equal(shown(sceneAt(tl, seed.at)), null);
   assert.equal(comparisonAt(photo, tl, placed.at)?.src, 'pair.jpg');
   assert.equal(comparisonAt(photo, tl, photo.at), null);
   assert.deepEqual(readReplay(data), data);
@@ -181,12 +184,12 @@ test('an old cache pairs its schedule with its room: build, first review and rev
   const at = id => sceneAt(tl, tl.events.find(e => e.id === id).at);
   assert.deepEqual([tl.build, tl.buildModel], [null, 'round0']);
   assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'check', 'move', 'final', 'joints']);
-  assert.deepEqual([at('author').model, at('author').added, at('author').photoShow], ['seed', null, 'stand-ins']);
-  assert.deepEqual([at('photo').model, at('photo').added, at('photo').photoShow], ['round0', null, 'all']);
+  assert.deepEqual([at('author').model, at('author').added, shown(at('author'))], ['seed', null, []]);
+  assert.deepEqual([at('photo').model, at('photo').added, shown(at('photo'))], ['round0', null, ['Cup0']]);
   assert.deepEqual(at('photo').hiddenNodes, ['Cup0']);
   assert.equal(at('check').model, 'round0');
   assert.deepEqual([at('final').model, at('final').added], ['final', null]);
-  assert.deepEqual([at('joints').model, at('joints').photoShow], ['articulated', null]);
+  assert.deepEqual([at('joints').model, shown(at('joints'))], ['articulated', null]);
   assert.equal(at('author').model, 'seed');
 });
 
@@ -199,7 +202,7 @@ test('a small-object step without a saved room or a photo item keeps the openabl
     assert.equal(tl.photoItems, null);
     assert.ok(!tl.events.some(e => e.overlay_model));
     assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
-    assert.equal(sceneAt(tl, tl.duration).photoShow, null);
+    assert.equal(shown(sceneAt(tl, tl.duration)), null);
   }
 });
 
@@ -212,8 +215,76 @@ test('an openable-parts room cut from the photo room keeps its own photo meshes'
       {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20,
         overlay_model: 'small_objects', artifact_digest: 'p'},
       {id: 'joints', stage: 'parts', recorded_stage: 'articulate', display_minute: 20, model: 'articulated', minute: 130, ...joints}]});
-  for (const [joints, show] of [[{source_digest: 'p'}, null], [{source_digest: 'q'}, 'all'], [{}, null], [{minute: 50}, 'all']]) {
+  for (const [joints, show] of [[{source_digest: 'p'}, null], [{source_digest: 'q'}, ['Cup0']], [{}, null], [{minute: 50}, ['Cup0']]]) {
     const tl = current(joints);
-    assert.deepEqual([sceneAt(tl, tl.duration).model, sceneAt(tl, tl.duration).photoShow], ['articulated', show]);
+    assert.deepEqual([sceneAt(tl, tl.duration).model, shown(sceneAt(tl, tl.duration))], ['articulated', show]);
   }
+});
+
+test('the published openable-parts room ends the replay, while each check shows the room it checked', () => {
+  const pass = [
+    {id: 'photo', stage: 'assemble', recorded_stage: 'small_objects', minute: 100, display_minute: 20, work: 'small', object_id: 'Cup0'},
+    {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20,
+      overlay_model: 'small_objects', artifact_digest: 'p'},
+    {id: 'joints', stage: 'parts', recorded_stage: 'articulate', minute: 130, display_minute: 20, model: 'articulated', source_digest: 'f'},
+    {id: 'articulated_published', stage: 'parts', recorded_stage: 'articulate', minute: 131, display_minute: 20,
+      model: 'articulated', source_digest: 'f', published: true}];
+  const served = {stages, presentation: 'by_stage', latest_event: 'articulated_published', models: oldRun.models,
+    events: [oldRun.events[0], {...oldRun.events[1]}, ...pass, ...oldRun.events.slice(2, 4)]};
+  const published = {...oldPass[2], id: 'articulated_published', minute: 131, published: true};
+  // The served one names the author's room as its source; the old answer has none (see holdsPhotos).
+  for (const [data, end] of [[served, ['Cup0']], [readReplay({...oldRun, events: [...oldRun.events, published]}), null]]) {
+    const tl = buildTimeline(data), at = id => tl.events.find(e => e.id === id).at;
+    assert.deepEqual([sceneAt(tl, at('check')).model, shown(sceneAt(tl, at('check')))], ['round0', ['Cup0']]);
+    // Played through, and dragged straight to the end.
+    const models = [];
+    for (let t = 0; t <= tl.duration; t += 0.05) if (models.at(-1) !== sceneAt(tl, t).model) models.push(sceneAt(tl, t).model);
+    assert.deepEqual(models.slice(-3), ['articulated', 'round0', 'articulated']);
+    assert.equal(sceneAt(tl, at('final')).modelEvent.id, 'articulated_published');
+    assert.deepEqual([sceneAt(tl, tl.duration).model, shown(sceneAt(tl, tl.duration))], ['articulated', end]);
+  }
+  // A room saved after the passes' records (a later run) still ends the replay.
+  const tl = buildTimeline({...served, events: served.events.map(e => e.id === 'final' ? {...e, minute: 140} : e)});
+  assert.equal(sceneAt(tl, tl.duration).model, 'final');
+});
+
+test("an integrated small-object room built before the separate pass takes its photo items from their card", () => {
+  const digest = 'a'.repeat(64);
+  for (const [saved, show] of [[digest, [[], ['Cup0']]], ['p', [null, null]]]) {
+    const data = {stages, presentation: 'by_stage', latest_event: 'placed',
+      models: {seed: 's', round0: 'r', final: 'f', small_objects: 'so', [`small_${saved}`]: 'i'},
+      hidden_nodes: {seed: ['Cup0'], round0: ['Cup0'], final: ['Cup0']},
+      events: [{id: 'seed', stage: 'plan', minute: 0, model: 'seed'}, {id: 'author', stage: 'assemble', minute: 10},
+        {id: 'lamp', stage: 'assemble', minute: 12, work: 'small', object_id: 'Lamp0'},
+        {id: 'small3', stage: 'assemble', minute: 13, kind: 'milestone', model: `small_${saved}`},
+        {id: 'photo', stage: 'assemble', recorded_stage: 'small_objects', minute: 100, display_minute: 20, work: 'small', object_id: 'Cup0'},
+        {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20,
+          overlay_model: 'small_objects', artifact_digest: 'p'},
+        {id: 'check', stage: 'review', minute: 20, model: 'round0', kind: 'review'}]};
+    const tl = buildTimeline(data), at = id => sceneAt(tl, tl.events.find(e => e.id === id).at);
+    assert.deepEqual([at('small3').model, shown(at('small3')), at('photo').model, shown(at('photo'))],
+      [`small_${saved}`, show[0], `small_${saved}`, show[1]]);
+    assert.deepEqual([at('check').model, shown(at('check'))], ['round0', ['Cup0']]);
+  }
+});
+
+test('from the build the photo items show one by one at their own records, also when dragged back', () => {
+  const ids = ['Cup0', 'Cup1', 'Cup2'];
+  const tl = buildTimeline({stages, presentation: 'by_stage', latest_event: 'placed',
+    models: {seed: 's', final: 'f', small_objects: 'so'}, hidden_nodes: {},
+    events: [{id: 'seed', stage: 'plan', minute: 0, model: 'seed'}, {id: 'author', stage: 'assemble', minute: 10},
+      ...ids.map((id, i) => ({id, stage: 'assemble', recorded_stage: 'small_objects', minute: 100 + i, display_minute: 20,
+        work: 'small', object_id: id})),
+      {id: 'again', stage: 'assemble', recorded_stage: 'small_objects', minute: 104, display_minute: 20, work: 'small', object_id: 'Cup0'},
+      {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20, overlay_model: 'small_objects'}]});
+  const at = id => tl.events.find(e => e.id === id).at;
+  assert.deepEqual(shown(sceneAt(tl, at('author'))), []);
+  for (const [k, id] of ids.entries()) {
+    assert.deepEqual(shown(sceneAt(tl, at(id))), ids.slice(0, k + 1));
+    assert.deepEqual(shown(sceneAt(tl, at(id) - 0.01)), ids.slice(0, k));
+    if (k) assert.ok(at(id) - at(ids[k - 1]) >= 4.5);  // time for the camera to move in on each
+  }
+  // An item made again appears at its first record and takes no extra time.
+  assert.ok(at('placed') - at('again') < 1);
+  assert.deepEqual(shown(sceneAt(tl, at('author'))), []);
 });
