@@ -1,5 +1,9 @@
 # Room reconstruction
 
+用 iPhone LiDAR 与 RoomPlan 扫描一个房间，可以重建按实际尺寸摆放的物品、材质、门和抽屉。按[房间重建指南](../docs/ROOM_RECONSTRUCTION.md)上传扫描包或从命令行发布房间，按[服务器部署指南](../docs/SERVER_DEPLOYMENT.md)准备环境。
+
+下文介绍 LiteReality 模块的安装、运行与输出。执行英文示例前，请把 `<scene>` 等占位符替换为实际名称或路径。要了解一次建模如何续跑、检查并还原为网页回放，见[回放与流水线](../docs/architecture/replay-and-pipeline.md)。
+
 This module turns an iPhone LiDAR/RoomPlan capture into an editable room for
 RoomCanvas: room structure, reconstructed furniture, materials, small objects
 and articulated parts. It exports Blender and GLB assets for

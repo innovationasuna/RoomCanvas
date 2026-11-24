@@ -12,8 +12,8 @@
 
 ## 我想部署和维护服务
 
-- **准备服务器。** 核对 GPU 和系统依赖，安装重建环境，再启动服务。[房间重建安装](ROOM_RECONSTRUCTION.md#安装) · [物品服务部署、更新与重启](OBJECT_RECONSTRUCTION.md#部署)
-- **从电脑连接。** 连接已有服务器，读取服务凭证；已完成的房间和回放可缓存到本机。[连接方式](../README.md#快速开始) · [服务凭证](../web/README.md#共享服务器的服务凭证) · [缓存管理](../web/README.md#清理本地缓存)
+- **首次部署。** 安装房间和物品重建环境、分配 GPU，再启动两项服务和网关。[服务器部署与运维](SERVER_DEPLOYMENT.md)
+- **从电脑连接。** 选择网关或单独转发后端，配置本机访问并核对缓存用量。[连接方式](SERVER_DEPLOYMENT.md#从电脑连接) · [服务凭证](SERVER_DEPLOYMENT.md#服务凭证) · [示例模型与缓存](SERVER_DEPLOYMENT.md#示例模型与本机缓存)
 - **用命令行处理数据。** 运行房间重建或物品重建，核对输入与输出目录。[房间重建命令](ROOM_RECONSTRUCTION.md#运行) · [物品重建运行说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md)
 
 ## 我想参与开发
@@ -21,14 +21,16 @@
 | 关注点 | 入口 |
 | --- | --- |
 | 分支、测试与合并 | [贡献指南](../CONTRIBUTING.md) · [项目约定](../AGENTS.md) |
-| 网页与手势 | [编辑器代码结构](../web/README.md#代码结构) · [手势模块](../gesture/README.md) |
-| 重建流程与数据契约 | [房间模块](../room-reconstruction/README.md) · [物品模块](../object-reconstruction/README.md) · [物品重建流水线](OBJECT_RECONSTRUCTION_PIPELINE.md) |
+| 网页与手势 | [编辑器光照、几何与渲染](architecture/web-editor-internals.md) · [手势模块](../gesture/README.md) |
+| 房间重建与回放 | [房间模块](../room-reconstruction/README.md) · [阶段、续跑与回放事件](architecture/replay-and-pipeline.md) |
+| 物品重建与模型契约 | [物品模块](../object-reconstruction/README.md) · [物品重建流水线](OBJECT_RECONSTRUCTION_PIPELINE.md) |
 | 配置优先级、GPU 锁与兼容边界 | [配置与维护契约](refactor/contracts.md) |
-| 手机客户端 | [Android 构建与模拟器](../android-app/README.md) |
+| 手机客户端 | [快照导出与分享协议](architecture/mobile-handoff.md) · [Android 构建与模拟器](../android-app/README.md) |
 
 ## 我想查历史记录
 
 - [项目交接记录（2026-11-03）](history/PROJECT_HANDOFF_2026-11-03.md) · [服务连接与下载用量记录](history/README_DEPLOYMENT_NOTES.md)
 - [物品重建性能实验](history/OBJECT_RECONSTRUCTION_PERFORMANCE.md) · [PR 96 服务器验证](history/PR96_SERVER_VALIDATION.md)
-- [手机分享阶段计划与验证](history/MOBILE_HANDOFF_PLAN.md) · [重构实施与验收记录](refactor/README.md)
+- [房间安装与验证记录](history/ROOM_RECONSTRUCTION_VALIDATION.md) · [手机分享阶段计划](history/MOBILE_HANDOFF_PLAN.md) · [手机分享验证记录](history/MOBILE_HANDOFF_VALIDATION.md)
+- [网页交互耗时记录](history/WEB_EDITOR_VALIDATION.md) · [重构实施与验收记录](refactor/README.md)
 - [Git 历史改写说明](history/README.md) · [完整提交哈希对照](history/commit-map-2026-11-19.txt)
