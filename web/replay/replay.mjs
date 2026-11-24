@@ -48,11 +48,22 @@ async function replayJSON(path, missing) {
   if (!data) throw new Error('无法读取重建记录，请联系管理员检查记录。');
   return data;
 }
+// A room moved to the recycle bin takes its record off the list too (the web page's server keeps the bin;
+// without one, nothing is hidden).
+async function roomsInTrash() {
+  try {
+    const response = await fetch('/web/rooms.json', {cache: 'no-store'});
+    return new Set(response.ok ? (await response.json()).deleted || [] : []);
+  } catch {
+    return new Set();
+  }
+}
+
 async function choose() {
   let jobs;
   try {
-    const data = await replayJSON('/room-reconstruction/jobs');
-    jobs = data.jobs.filter((j) => j.status !== 'queued').sort((a, b) => b.created - a.created);
+    const [data, deleted] = await Promise.all([replayJSON('/room-reconstruction/jobs'), roomsInTrash()]);
+    jobs = data.jobs.filter((j) => j.status !== 'queued' && !deleted.has(`scan-${j.id}`)).sort((a, b) => b.created - a.created);
   } catch (error) {
     return fail(error.message);
   }
