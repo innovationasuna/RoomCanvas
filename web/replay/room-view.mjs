@@ -304,8 +304,6 @@ export class RoomView {
     this.boxes = {};
     this.forming = new Materializer(scene);
     this.calm = matchMedia('(prefers-reduced-motion: reduce)');
-    this.formTag = Object.assign(document.createElement('div'), {className: 'forming', hidden: true});
-    container.appendChild(this.formTag);
     this.versionTag = container.querySelector('.room-version');
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -1231,9 +1229,6 @@ export class RoomView {
       const label = this.versionLabel();
       if (this.versionTag.textContent !== label) this.versionTag.textContent = label;
     }
-    const tris = this.forming.triangles();
-    this.formTag.hidden = tris == null;
-    if (tris != null) this.formTag.textContent = `正在成形 · 三角面 ${tris.toLocaleString('en-US')}`;
     this.controls.update();
     // The near plane follows the distance: from the overview a fixed 5 cm left about 1 mm of depth precision,
     // and a window's photo backdrop 1 mm before its backing broke into grey blocks as the camera turned.
@@ -1261,7 +1256,7 @@ export class RoomView {
     Object.values(this.boxes).forEach(disposeModel);
     this.boxes = {}; this.wallFades = []; this.retryAt = {}; this.revealPlan = null;
     this.controls.dispose();
-    this.renderer.domElement.remove(); this.formTag.remove();
+    this.renderer.domElement.remove();
     this.disposal = Promise.allSettled([...this.retiring]).then(() => {
       this.forming.dispose(); this.environmentTarget.dispose();
       Object.values(this.lights).forEach(light => light.dispose?.());

@@ -36,7 +36,7 @@ function fixture(nested = true, windowNames = ['Window0']) {
   const view = Object.assign(Object.create(RoomView.prototype), {
     scene, lights, camera: new THREE.PerspectiveCamera(), controls: {target: new THREE.Vector3(), update() {}},
     renderer: {capabilities: {getMaxAnisotropy: () => 1}, shadowMap: {needsUpdate: false}, render() {}},
-    forming: {finishAll() {}, finishModel() {}, waiting: () => false, update() {}, triangles: () => null}, formTag: {},
+    forming: {finishAll() {}, finishModel() {}, waiting: () => false, update() {}},
     current: 'final', wanted: 'final', models: {final: {root}}, rig: null, wallFades: [], boxes: {},
     wallFaces: [{name: 'Wall2', n: [0, 0, -1], d: -2, tangent: [1, 0, 0], bounds: [[-2, 0], [2, 3]]}],
     userHeld: true, speed: 1, time: 1,
