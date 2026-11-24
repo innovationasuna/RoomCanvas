@@ -14,7 +14,7 @@ import kotlin.math.sqrt
 /**
  * 手持漫游的状态式相机控制器。
  *
- * 相机不再由 AR 位姿直驱，而是每帧从一组虚拟状态重新合成：
+ * 相机不把 AR 矩阵直接连乘到场景上，而是每帧从一组虚拟状态重新合成：
  *
  * ```
  * B_pos, B_yaw   基准位姿（进入 / 重新居中 / 回起点 / 跟踪重建时确定）
@@ -32,9 +32,8 @@ import kotlin.math.sqrt
  * 关键点：**先求朝向、再按朝向积分位移**，所以“边转边走”会沿当前视线前进；
  * 而位移本身不会被后续转身带着转（旧版 `C_start · ΔAR` 连乘会出现这种跳变）。
  *
- * AR 位姿默认**不参与**相机合成（见 [AR_POSE_DRIVES_CAMERA]）：P40 Pro 实测 VIO 会
- * 在静止时平滑发散到几十米，任何速度判据都无法把它与真实走动区分开。`t_ar`/`ψ_ar`
- * 仍然逐帧计算，但只用于日志观测；相机的平移只来自方向键（`p`），偏航只来自滑屏（φ）。
+ * AR 位姿恢复参与相机合成，但平移和偏航分别需要线性加速度计与陀螺仪确认。
+ * 两个通道都按帧增量累积，静止时冻结而不是回退到参考点；AR 原始值仍保留用于日志。
  *
  * @param startPosition 房间起点（人眼高度）
  * @param startYawDegrees 房间初始朝向（度，绕 +Y）
@@ -105,20 +104,14 @@ class VrCameraController(
          */
         const val AR_MAX_STEP_SPEED_MPS = 3f
 
-        /**
-         * AR 位姿是否参与相机合成（位移 + 偏航）。
-         *
-         * 2026-10-23 真机实测（P40 Pro，站立不动、全程未触屏）：AR Engine 的原始位置在 27 s 内
-         * 从 0.2 m **平滑**漂到 70 m，偏航在 1.5 s 内转了 54°，期间跟踪反复丢失/恢复。
-         * 这段假运动方向一致、速度 0.3~2 m/s，与真实走动的数学特征完全重合——
-         * 速度闸门、窗口位移闸门都无法区分（上一版正是这样失效的）。
-         *
-         * 偏航同理：54°/s 是持续的慢转，不是可以靠角速度门限剔除的单帧尖峰。
-         *
-         * 因此默认关闭：漫游完全由方向键 + 右半屏滑屏驱动，AR 位姿只作为观测输入
-         * 保留在日志里。只有在目标机型/环境下证明 VIO 质量可靠时才重新打开。
-         */
-        const val AR_POSE_DRIVES_CAMERA = false
+        /** 单帧偏航角速度上限，过滤重定位造成的朝向跳变 */
+        const val AR_MAX_YAW_SPEED_DPS = 240f
+
+        /** 位姿间隔异常时重建参考，不把卡顿期间的累计位移一次性应用给相机 */
+        const val MAX_AR_POSE_INTERVAL_S = 0.2f
+
+        /** AR 位姿在独立 IMU 确认对应运动后参与相机合成 */
+        const val AR_POSE_DRIVES_CAMERA = true
 
         private const val DEG_TO_RAD = (Math.PI / 180.0).toFloat()
         private const val RAD_TO_DEG = (180.0 / Math.PI).toFloat()
@@ -149,10 +142,14 @@ class VrCameraController(
 
     /** AR 位姿相对参考位姿的位移，已换到参考相机坐标系（只保留 x、z） */
     private var arTranslation: Float3 = Float3(0f, 0f, 0f)
+
+    /** 原始 AR 偏航仅用于观测；实际合成使用经陀螺仪确认后逐帧累积的偏航 */
     private var arYawDeltaDegrees: Float = 0f
+    private var appliedArYawDeltaDegrees: Float = 0f
 
     /** 上一帧 AR 原始位置（AR 世界系），用于求帧间位移 */
     private var lastArPosition: Float3 = Float3(0f, 0f, 0f)
+    private var lastArPoseTimestampNs: Long = 0L
 
     /** 平滑后的 AR 位移速度（AR 世界系，m/s），用于区分真实走动与静止漂移 */
     private var arVelocitySmoothedX: Float = 0f
@@ -190,7 +187,7 @@ class VrCameraController(
     var debugRawArZ: Float = 0f
         private set
 
-    /** 最近一帧被采纳的 AR 水平位移（米）与对应帧时间（秒） */
+    /** 最近一帧通过跳变检查的 AR 水平位移（米）与对应 AR 帧时间（秒） */
     private var lastStepX: Float = 0f
     private var lastStepZ: Float = 0f
     private var lastStepDt: Float = 0f
@@ -201,17 +198,17 @@ class VrCameraController(
     val debugMoveOffset: Float3 get() = moveOffset
     /** 基准位姿（房间坐标系，米） */
     val debugBasePosition: Float3 get() = basePosition
-    /** AR 贡献的偏航（度） */
+    /** AR 报告的原始偏航与实际应用的偏航（度） */
     val debugArYawDeltaDegrees: Float get() = arYawDeltaDegrees
+    val debugAppliedArYawDegrees: Float get() = appliedArYawDeltaDegrees
     /** 滑动累计偏航（度） */
     val debugLookYawDegrees: Float get() = lookYawDegrees
     /** 低速已持续时间（秒） */
     val debugArStillSeconds: Float get() = arStillSeconds
-    /** 最近一帧采纳的 AR 位移 x（米） */
+    /** 最近一帧通过跳变检查的 AR 位移 x/z（米） */
     val debugLastStepX: Float get() = lastStepX
-    /** 最近一帧采纳的 AR 位移 z（米） */
     val debugLastStepZ: Float get() = lastStepZ
-    /** 最近一帧的帧时间（秒） */
+    /** 最近一帧的 AR 帧时间（秒） */
     val debugLastDt: Float get() = lastStepDt
 
     var hasArReference: Boolean = false
@@ -256,11 +253,11 @@ class VrCameraController(
     /** 菜单里的速度倍率：0.5× / 1× / 2× */
     var speedScale: Float = 1f
 
-    /** 当前虚拟朝向（度），= B_yaw + ψ_ar + φ；AR 关闭时 ψ_ar 不参与 */
+    /** 当前虚拟朝向（度），= B_yaw + 经 IMU 确认的 ψ_ar + φ */
     val headingDegrees: Float
         get() = baseYawDegrees + appliedArYawDegrees + lookYawDegrees
 
-    /** AR 位姿是否真的在驱动相机（false = 只观测，画面完全由按键/滑屏决定） */
+    /** AR 位姿通道是否启用；每帧是否采纳仍由对应 IMU 通道决定 */
     val isArPoseApplied: Boolean
         get() = AR_POSE_DRIVES_CAMERA
 
@@ -270,23 +267,36 @@ class VrCameraController(
     // ---------------- AR 位姿 ----------------
 
     /**
-     * 每帧（仅跟踪有效时）调用：更新连续偏航、t_ar、ψ_ar。
+     * 每个新的 AR 位姿调用一次。时间戳同时用于去重和计算真实帧间隔，避免渲染帧率
+     * 与 AR 帧率不同时把同一个位姿反复消费、或把位移速度放大。
      *
-     * 帧间位移按速度判定是否跟随：判定为走动时累加进 `t_ar`；判定为静止时丢弃，
-     * 从而吸收 VIO 在手机静止时的缓慢漂移（否则虚拟相机会自己蹭到墙边）。
-     *
-     * @param dt 帧时间（秒），用于区分「真实走动」和静止时的 VIO 漂移
+     * AR 速度只作为二级闸门；是否真有平移/旋转必须由独立 IMU 分别确认。
+     * 未确认的增量直接丢弃，且不会在恢复运动后补算，因此静止漂移不会积累或突然回放。
      */
-    fun updateArPose(pose: Mat4, dt: Float) {
+    fun updateArPose(pose: Mat4, timestampNs: Long, motion: DeviceMotionState) {
+        if (timestampNs <= 0L || (hasArReference && timestampNs <= lastArPoseTimestampNs)) return
+
+        val dt = if (hasArReference && lastArPoseTimestampNs > 0L) {
+            (timestampNs - lastArPoseTimestampNs) / 1_000_000_000f
+        } else {
+            0f
+        }
+        if (hasArReference && (dt <= 0f || dt > MAX_AR_POSE_INTERVAL_S)) {
+            reanchorKeepingView(pose, timestampNs)
+            return
+        }
+
+        val previousContinuousYaw = continuousYawDegrees
         val rawYaw = extractYawDegrees(pose)
         accumulateYaw(rawYaw)
+        val yawStep = continuousYawDegrees - previousContinuousYaw
         val position = pose.translation
         debugRawArX = position.x
         debugRawArZ = position.z
         lastStepDt = dt
 
         if (!hasArReference) {
-            rebuildArReference(position, rawYaw)
+            rebuildArReference(position, rawYaw, timestampNs)
             lastStepX = 0f
             lastStepZ = 0f
             return
@@ -296,19 +306,19 @@ class VrCameraController(
         val rawStepX = position.x - lastArPosition.x
         val rawStepZ = position.z - lastArPosition.z
         lastArPosition = position
+        lastArPoseTimestampNs = timestampNs
 
-        // 重定位跳变保护：单帧位移超过物理上限时整帧丢弃（也不喂给速度估计），
-        // 否则虚拟相机会跟着瞬移。dt 为 0 时按 120 Hz 保守估算上限。
-        val maxStep = AR_MAX_STEP_SPEED_MPS * dt.coerceAtLeast(1f / 120f)
+        // 重定位跳变保护：单帧位移超过物理上限时整帧丢弃（也不喂给速度估计）。
+        val maxStep = AR_MAX_STEP_SPEED_MPS * dt
         val plausible = rawStepX * rawStepX + rawStepZ * rawStepZ <= maxStep * maxStep
         val stepX = if (plausible) rawStepX else 0f
         val stepZ = if (plausible) rawStepZ else 0f
         lastStepX = stepX
         lastStepZ = stepZ
 
-        updateWalkState(stepX, stepZ, dt)
+        updateWalkState(stepX, stepZ, dt, motion.translationActive)
 
-        if (AR_POSE_DRIVES_CAMERA && arFollowingWalk) {
+        if (AR_POSE_DRIVES_CAMERA && motion.translationActive && arFollowingWalk) {
             // 真实位移先在参考相机坐标系中表达（只取水平分量），
             // 合成相机时再用 R_y(B_yaw) 映射进房间坐标系。
             val inReferenceFrame = rotateY(Float3(stepX, 0f, stepZ), -arReferenceRawYawDegrees)
@@ -318,18 +328,27 @@ class VrCameraController(
                 arTranslation.z + inReferenceFrame.z * moveGain
             )
         }
-        // 静止时的位移视为 VIO 漂移，直接丢弃：t_ar 保持不变。
-        // AR_POSE_DRIVES_CAMERA = false 时整段位移都不采纳（见常量注释）。
 
         arYawDeltaDegrees = continuousYawDegrees - arReferenceContinuousYawDegrees
+        val yawPlausible = abs(yawStep) <= AR_MAX_YAW_SPEED_DPS * dt
+        if (AR_POSE_DRIVES_CAMERA && motion.rotationActive && yawPlausible) {
+            appliedArYawDeltaDegrees += yawStep
+        }
     }
 
-    /** 实际参与合成的 AR 偏航：AR 未启用为 0（ψ_ar 仍保留给日志） */
+    /** 实际参与合成的 AR 偏航；未启用 AR 时为 0 */
     private val appliedArYawDegrees: Float
-        get() = if (AR_POSE_DRIVES_CAMERA) arYawDeltaDegrees else 0f
+        get() = if (AR_POSE_DRIVES_CAMERA) appliedArYawDeltaDegrees else 0f
 
-    /** 用速度矢量低通 + 滞回阈值判断当前是否在真实走动 */
-    private fun updateWalkState(dx: Float, dz: Float, dt: Float) {
+    /** IMU 确认平移后，再用 AR 速度矢量低通 + 滞回阈值过滤步行中的停顿 */
+    private fun updateWalkState(dx: Float, dz: Float, dt: Float, translationActive: Boolean) {
+        if (!translationActive) {
+            arVelocitySmoothedX = 0f
+            arVelocitySmoothedZ = 0f
+            arStillSeconds = 0f
+            arFollowingWalk = false
+            return
+        }
         if (dt <= 1e-4f) return
 
         val alpha = 1f - exp(-AR_SPEED_SMOOTH * dt)
@@ -354,10 +373,10 @@ class VrCameraController(
     }
 
     /** 进入漫游时建立参考位姿（不改变虚拟位姿） */
-    fun attachArReference(pose: Mat4) {
+    fun attachArReference(pose: Mat4, timestampNs: Long = 0L) {
         val rawYaw = extractYawDegrees(pose)
         accumulateYaw(rawYaw)
-        rebuildArReference(pose.translation, rawYaw)
+        rebuildArReference(pose.translation, rawYaw, timestampNs)
     }
 
     /**
@@ -369,17 +388,17 @@ class VrCameraController(
     }
 
     /** 重新居中：保持当前画面不跳变，清零俯仰与累计位移 */
-    fun recenter(arPose: Mat4?) {
+    fun recenter(arPose: Mat4?, timestampNs: Long = 0L) {
         foldCurrentIntoBase(keepPitch = false)
         if (arPose != null) {
-            attachArReference(arPose)
+            attachArReference(arPose, timestampNs)
         } else {
             clearArReference()
         }
     }
 
     /** 回到房间起点 */
-    fun resetToStart(arPose: Mat4?) {
+    fun resetToStart(arPose: Mat4?, timestampNs: Long = 0L) {
         basePosition = startPosition
         baseYawDegrees = startYawDegrees
         moveOffset = Float3(0f, 0f, 0f)
@@ -392,7 +411,7 @@ class VrCameraController(
         lastVerticalDirection = 1f
 
         if (arPose != null) {
-            attachArReference(arPose)
+            attachArReference(arPose, timestampNs)
         } else {
             clearArReference()
         }
@@ -402,9 +421,9 @@ class VrCameraController(
      * 跟踪丢失后恢复 / 屏幕方向变化：AR 可能重定位到新原点。
      * 保持当前虚拟视角，只把参考位姿换成新位姿。
      */
-    fun reanchorKeepingView(arPose: Mat4) {
+    fun reanchorKeepingView(arPose: Mat4, timestampNs: Long = 0L) {
         foldCurrentIntoBase(keepPitch = true)
-        attachArReference(arPose)
+        attachArReference(arPose, timestampNs)
     }
 
     // ---------------- 输入 ----------------
@@ -536,12 +555,14 @@ class VrCameraController(
         smoothedVerticalSpeed = 0f
     }
 
-    private fun rebuildArReference(position: Float3, rawYawDegrees: Float) {
+    private fun rebuildArReference(position: Float3, rawYawDegrees: Float, timestampNs: Long) {
         lastArPosition = position
+        lastArPoseTimestampNs = timestampNs
         arReferenceRawYawDegrees = rawYawDegrees
         arReferenceContinuousYawDegrees = continuousYawDegrees
         arTranslation = Float3(0f, 0f, 0f)
         arYawDeltaDegrees = 0f
+        appliedArYawDeltaDegrees = 0f
         arVelocitySmoothedX = 0f
         arVelocitySmoothedZ = 0f
         arStillSeconds = 0f
@@ -551,8 +572,10 @@ class VrCameraController(
 
     private fun clearArReference() {
         hasArReference = false
+        lastArPoseTimestampNs = 0L
         arTranslation = Float3(0f, 0f, 0f)
         arYawDeltaDegrees = 0f
+        appliedArYawDeltaDegrees = 0f
         arVelocitySmoothedX = 0f
         arVelocitySmoothedZ = 0f
         arStillSeconds = 0f

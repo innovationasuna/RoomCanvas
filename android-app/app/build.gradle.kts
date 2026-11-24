@@ -12,8 +12,8 @@ android {
         applicationId = "com.hausen3d.arviewer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -21,6 +21,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     buildTypes {
@@ -51,5 +52,6 @@ dependencies {
 
     // VrCameraController 是纯 Kotlin 数学，可在 JVM 上直接测真实走动/漂移判定
     testImplementation("junit:junit:4.13.2")
+    // RoomShareImport 在 JVM 单测里需要真正的 org.json 实现（Android 上由系统提供）
     testImplementation("org.json:json:20240303")
 }

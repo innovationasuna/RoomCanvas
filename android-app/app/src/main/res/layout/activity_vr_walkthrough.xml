@@ -8,8 +8,8 @@
     <!-- AR Engine 泵帧用：位于 SceneView 下方，只取位姿，不显示相机画面 -->
     <android.opengl.GLSurfaceView
         android:id="@+id/arPoseView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_width="16px"
+        android:layout_height="16px" />
 
     <!-- 房间渲染层：不透明，第一人称相机由虚拟状态每帧合成 -->
     <io.github.sceneview.SceneView
@@ -231,6 +231,12 @@
                     style="@style/Widget.ARViewer.MenuItem"
                     android:text="速度 1.0×"
                     app:icon="@drawable/ic_speed" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRenderPerf"
+                    style="@style/Widget.ARViewer.MenuItem"
+                    android:text="阶段 0 · 渲染诊断"
+                    android:visibility="gone" />
 
                 <View
                     android:layout_width="match_parent"

@@ -16,6 +16,12 @@ import android.view.KeyEvent
 import android.view.Surface
 import android.view.View
 import android.view.WindowManager
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,10 +31,16 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.hausen3d.arviewer.ar.ArDisplayGeometry
+import com.hausen3d.arviewer.ar.ArPoseFrameCache
 import com.hausen3d.arviewer.ar.ArPoseRenderer
-import com.hausen3d.arviewer.ar.toMat4
 import com.hausen3d.arviewer.databinding.ActivityVrWalkthroughBinding
+import com.hausen3d.arviewer.rendering.DebugCameraTrack
+import com.hausen3d.arviewer.rendering.PhysicalRoomLighting
+import com.hausen3d.arviewer.rendering.RenderExperiment
+import com.hausen3d.arviewer.rendering.RenderPerfMonitor
 import com.hausen3d.arviewer.vr.ArticulationController
+import com.hausen3d.arviewer.vr.DeviceMotionMonitor
 import com.hausen3d.arviewer.vr.GlbAnimationTargets
 import com.hausen3d.arviewer.vr.VrCameraController
 import com.hausen3d.arviewer.vr.VrTouchControlsView
@@ -41,8 +53,8 @@ import dev.romainguy.kotlin.math.Float3
 import dev.romainguy.kotlin.math.Mat4
 import io.github.sceneview.model.ModelInstance
 import io.github.sceneview.node.ModelNode
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -68,6 +80,12 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
         const val EXTRA_MODEL_PATH = "model_path"
         const val EXTRA_MODEL_ASSET = "model_asset"
+        const val DEBUG_ACTION_RUN_EXPERIMENT =
+            "com.hausen3d.arviewer.action.DEBUG_RUN_EXPERIMENT"
+        const val DEBUG_ACTION_CAPTURE_VIEW =
+            "com.hausen3d.arviewer.action.DEBUG_CAPTURE_VIEW"
+        const val DEBUG_EXTRA_EXPERIMENT = "experiment"
+        const val DEBUG_EXTRA_VIEW = "view"
 
         /** 人眼高度（米） */
         private const val EYE_HEIGHT_M = 1.6f
@@ -96,6 +114,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
     private lateinit var binding: ActivityVrWalkthroughBinding
 
     private lateinit var poseRenderer: ArPoseRenderer
+    private lateinit var motionMonitor: DeviceMotionMonitor
+    private val roomLighting by lazy { PhysicalRoomLighting(binding.sceneView) }
     private var arSession: ARSession? = null
     private var sessionResumed = false
 
@@ -107,10 +127,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     /** 正在从文件选择器拷贝/加载模型：期间禁止开始漫游与重复导入 */
     private var importing = false
-    private var shareJob: Job? = null
-    private var shareGeneration = 0L
-    private var shareDialog: AlertDialog? = null
-    private var importProgress: String? = null
 
     /** 启动时异步加载上次的模型：期间禁用“开始漫游”并显示加载提示 */
     private var loadingInitialModel = false
@@ -118,12 +134,27 @@ class VrWalkthroughActivity : AppCompatActivity() {
     /** 导入失败提示：在开始页常驻，避免被每 500ms 的状态刷新覆盖 */
     private var importError: String? = null
 
+    /** 网页分享链接导入：同一时刻只跑一个下载任务，新链接取消旧任务 */
+    private var shareJob: Job? = null
+    private var shareGeneration = 0L
+    private var shareDialog: AlertDialog? = null
+    private var importProgress: String? = null
+    private var shareSource: String? = null
+
     /** 真实走动（AR 位姿跟踪）是否启用；菜单可切换 */
     private var trackingEnabled = true
 
     private var started = false
     private var lastFrameMs = 0L
-    private var latestArPose: Mat4? = null
+    private val arPoseCache = ArPoseFrameCache()
+
+    private lateinit var perfMonitor: RenderPerfMonitor
+    private val debugCameraTrack = DebugCameraTrack()
+    private var debugCameraTrackRunning = false
+    private var debugFreezeArPose = false
+    private var currentExperiment = RenderExperiment.A0
+    private var renderPerfDialog: AlertDialog? = null
+    private var debugIntentGeneration = 0
 
     /**
      * 下一次有效位姿到来时重建 AR 参考：跟踪丢失恢复、屏幕方向变化、重新开启跟踪。
@@ -193,6 +224,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
         binding = ActivityVrWalkthroughBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        motionMonitor = DeviceMotionMonitor(this)
 
         binding.sceneView.setZOrderMediaOverlay(true)
         // 漫游期间不使用 SceneView 自带的轨道相机手势
@@ -222,17 +254,21 @@ class VrWalkthroughActivity : AppCompatActivity() {
         }
         binding.vrTouchControls.inputEnabled = false
         updateStartHint(force = true)
+        if (BuildConfig.DEBUG) handleDebugIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleShareIntent(intent)
+        if (BuildConfig.DEBUG) handleDebugIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         if (!::binding.isInitialized) return
+        motionMonitor.start()
+        if (BuildConfig.DEBUG) perfMonitor.resetFrameClock()
 
         if (!started) {
             // 从后台回来重新进入“开始漫游”状态，避免用过期参考位姿
@@ -246,7 +282,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
             binding.vrTouchControls.inputEnabled = false
         }
 
-        if (!trackingEnabled) {
+        if (!trackingEnabled || !roomLighting.quality.arEnabled) {
             updateStartHint()
             return
         }
@@ -260,6 +296,13 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     override fun onPause() {
         if (::binding.isInitialized) {
+            if (BuildConfig.DEBUG) {
+                debugIntentGeneration++
+                debugCameraTrackRunning = false
+                debugFreezeArPose = false
+                perfMonitor.cancelRun()
+            }
+            renderPerfDialog?.dismiss()
             started = false
             lastFrameMs = 0L
             binding.vrTouchControls.clearTouches()
@@ -270,6 +313,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
             binding.tvVrStatus.visibility = View.GONE
             handler.removeCallbacks(menuHideRunnable)
         }
+        motionMonitor.stop()
         pauseArPump()
         super.onPause()
     }
@@ -279,6 +323,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
         shareJob?.cancel()
         shareDialog?.dismiss()
         handler.removeCallbacksAndMessages(null)
+        renderPerfDialog?.dismiss()
+        if (BuildConfig.DEBUG) perfMonitor.cancelRun()
         poseRenderer.session = null
         arSession?.stop()
         arSession = null
@@ -397,10 +443,11 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 不自动播放：SceneView 默认会对每条动画 playAnimation(loop = true)，
         // 正是柜门/窗户不停开合的来源。开关改由 ArticulationController 驱动。
         val node = ModelNode(modelInstance = instance, autoAnimate = false)
-        // Construct first: a failed new model must not destroy the old usable room.
+        // 先构造新节点：新模型构造失败时不能销毁旧的可用房间
         modelNode?.let { releaseModelNode(it) }
         binding.sceneView.addChildNode(node)
         modelNode = node
+        roomLighting.applyTo(node)
         articulation = ArticulationController(
             sceneView = binding.sceneView,
             modelNode = node,
@@ -413,8 +460,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
         // 用模型包围盒自动定地面与人眼高度。重建模型的 y=0 不一定在地面，
         // 例如 Room-nonagent.glb 的地面在 y=-1.595m，所以不能假设原点即地面。
         val box = node.boundingBox
-        val minY = animation.floorY?.takeIf { it >= box.center[1] - box.halfExtent[1] - .1f && it < box.center[1] + box.halfExtent[1] }
-            ?: (box.center[1] - box.halfExtent[1])
+        val minY = animation.floorY?.takeIf {
+            it >= box.center[1] - box.halfExtent[1] - .1f && it < box.center[1] + box.halfExtent[1]
+        } ?: (box.center[1] - box.halfExtent[1])
         val centerX = box.center[0]
         val centerZ = box.center[2]
         val sizeX = box.halfExtent[0] * 2f
@@ -589,11 +637,12 @@ class VrWalkthroughActivity : AppCompatActivity() {
         }
     }
 
-    /** A browser click explicitly imports one immutable snapshot; newer links cancel older tasks. */
+    /** 浏览器点击一次只导入一份不可变快照；更新的链接会取消旧任务 */
     private fun handleShareIntent(incoming: Intent): Boolean {
         if (incoming.action != Intent.ACTION_VIEW || incoming.data?.scheme != "roomcanvas") return false
-        val source = try { RoomShareImport.manifestUrl(incoming.data.toString()) }
-        catch (e: Exception) {
+        val source = try {
+            RoomShareImport.manifestUrl(incoming.data.toString())
+        } catch (e: Exception) {
             importError = e.message ?: "分享链接无效"
             updateStartHint(force = true)
             return false
@@ -636,7 +685,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
                     RoomShareImport.download(source, destination) { message ->
                         runOnUiThread {
                             if (generation == shareGeneration) {
-                                importProgress = message; shareDialog?.setMessage(message); updateStartHint(force = true)
+                                importProgress = message
+                                shareDialog?.setMessage(message)
+                                updateStartHint(force = true)
                             }
                         }
                     }
@@ -656,14 +707,14 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 prefs.edit().putString(PREF_MODEL_PATH, result.file.absolutePath)
                     .putString(PREF_MODEL_NAME, label).putString("last_share_version", result.version)
                     .putString("last_share_manifest", source.toString()).apply()
-                // Only the former committed file, never another in-flight download.
+                // 只清理上一份已提交的文件，绝不碰另一个正在下载的任务
                 if (previous != null && previous != result.file.absolutePath) {
                     val old = File(previous)
                     if (old.canonicalPath.startsWith(File(filesDir, "models").canonicalPath + File.separator)) old.delete()
                 }
                 Toast.makeText(this@VrWalkthroughActivity, "房间已导入，可离线打开", Toast.LENGTH_LONG).show()
             } catch (_: CancellationException) {
-                // Cancellation and a new link deliberately leave the last usable room untouched.
+                // 取消或新链接：保持上一个可用房间不受影响
             } catch (e: Exception) {
                 if (generation == shareGeneration) {
                     importError = "导入失败：${e.message ?: "请确认同一 Wi-Fi 且电脑服务仍在运行"}"
@@ -688,8 +739,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
         return true
     }
 
-    private var shareSource: String? = null
-
     private fun displayName(uri: Uri): String {
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
@@ -702,21 +751,44 @@ class VrWalkthroughActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val environment = binding.sceneView.environmentLoader
                 .loadHDREnvironment("environments/studio_small_09_2k.hdr")
+            environment?.indirectLight?.intensity = PhysicalRoomLighting.ENVIRONMENT_INTENSITY
             binding.sceneView.indirectLight = environment?.indirectLight
             binding.sceneView.skybox = environment?.skybox
         }
     }
 
     private fun initPoseRenderer() {
-        poseRenderer = ArPoseRenderer { currentDisplayRotation() }
+        poseRenderer = ArPoseRenderer {
+            ArDisplayGeometry(
+                rotation = currentDisplayRotation(),
+                width = binding.sceneView.width,
+                height = binding.sceneView.height
+            )
+        }
+        binding.sceneView.addOnLayoutChangeListener { _, left, top, right, bottom,
+            oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                poseRenderer.displayGeometryDirty = true
+            }
+        }
         binding.arPoseView.apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            setEGLConfigChooser(8, 8, 8, 8, 0, 0)
             setRenderer(poseRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
-        binding.sceneView.onFrame = { onSceneFrame() }
+        if (BuildConfig.DEBUG) {
+            perfMonitor = RenderPerfMonitor(
+                context = this,
+                filamentView = binding.sceneView.view,
+                qualitySummary = {
+                    "${currentExperiment.quality.summary()} ${roomLighting.debugLightSummary}"
+                },
+                poseRenderer = { poseRenderer }
+            )
+        }
+        binding.sceneView.onFrame = { frameTimeNanos -> onSceneFrame(frameTimeNanos) }
     }
 
     private fun initControls() {
@@ -756,6 +828,200 @@ class VrWalkthroughActivity : AppCompatActivity() {
             cycleSpeed()
             resetMenuTimer()
         }
+        binding.btnRenderPerf.visibility = if (BuildConfig.DEBUG) View.VISIBLE else View.GONE
+        binding.btnRenderPerf.setOnClickListener { showRenderPerfDialog() }
+    }
+
+    private fun showRenderPerfDialog() {
+        if (!BuildConfig.DEBUG) return
+        setMenuOpen(false)
+        val experiments = RenderExperiment.values()
+        val spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@VrWalkthroughActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                experiments.map { it.displayName }
+            )
+            setSelection(experiments.indexOf(currentExperiment).coerceAtLeast(0))
+        }
+        val status = TextView(this).apply {
+            text = "每次只改一个变量。流程：20 秒预热 → 60 秒采样；日志标签 RenderPerf。"
+        }
+        val startButton = Button(this).apply { text = "应用实验并开始固定轨迹" }
+        val stopButton = Button(this).apply { text = "停止实验并恢复 A0" }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding / 2, padding, 0)
+            addView(status)
+            addView(spinner)
+            addView(startButton)
+            addView(stopButton)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("阶段 0 · 视觉与性能基准")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setNegativeButton("关闭（实验继续）", null)
+            .create()
+        renderPerfDialog?.dismiss()
+        renderPerfDialog = dialog
+        dialog.show()
+
+        startButton.setOnClickListener {
+            val experiment = experiments[spinner.selectedItemPosition]
+            if (!experiment.isSupported) {
+                status.text = "A8 需要独立的低模阴影代理资产；当前不能用关闭阴影或减面主模型代替。"
+                return@setOnClickListener
+            }
+            applyRenderExperiment(experiment)
+            if (!started) startWalkthrough()
+            if (!started || cameraController == null) {
+                status.text = "请先等待房间模型加载完成。"
+                return@setOnClickListener
+            }
+            debugFreezeArPose = true
+            debugCameraTrack.start(System.nanoTime())
+            debugCameraTrackRunning = true
+            binding.vrTouchControls.inputEnabled = false
+            perfMonitor.startRun(experiment.name)
+            status.text = "${experiment.displayName}\n正在预热 20 秒，随后采样 60 秒。关闭对话框不会中断。"
+            showStatus("诊断 ${experiment.name}：固定轨迹运行中")
+        }
+        stopButton.setOnClickListener {
+            stopRenderExperiment(restoreBaseline = true)
+            status.text = "已停止固定轨迹，恢复当前视觉基准 A0。"
+        }
+    }
+
+    private fun handleDebugIntent(intent: Intent) {
+        if (intent.action == DEBUG_ACTION_CAPTURE_VIEW) {
+            handleDebugCaptureIntent(intent)
+            return
+        }
+        if (intent.action != DEBUG_ACTION_RUN_EXPERIMENT) return
+        val name = intent.getStringExtra(DEBUG_EXTRA_EXPERIMENT)
+        val experiment = RenderExperiment.values().find { it.name == name }
+        if (experiment == null || !experiment.isSupported) {
+            Log.w(TAG, "拒绝未知或未支持的诊断实验：$name")
+            return
+        }
+
+        debugFreezeArPose = true
+        val generation = ++debugIntentGeneration
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        renderPerfDialog?.dismiss()
+        handler.post(object : Runnable {
+            override fun run() {
+                if (generation != debugIntentGeneration || isDestroyed || isFinishing) return
+                if (importing || loadingInitialModel || cameraController == null) {
+                    if (SystemClock.elapsedRealtime() < deadline) {
+                        handler.postDelayed(this, 250L)
+                    } else {
+                        Log.w(TAG, "诊断实验等待模型加载超时：${experiment.name}")
+                    }
+                    return
+                }
+
+                applyRenderExperiment(experiment)
+                if (currentExperiment != experiment) {
+                    Log.w(TAG, "诊断实验未启用：${experiment.name}")
+                    return
+                }
+                if (!started) startWalkthrough()
+                if (!started) {
+                    Log.w(TAG, "诊断实验无法进入漫游：${experiment.name}")
+                    return
+                }
+                renderPerfDialog?.dismiss()
+                debugCameraTrack.start(System.nanoTime())
+                debugCameraTrackRunning = true
+                binding.vrTouchControls.inputEnabled = false
+                perfMonitor.startRun(experiment.name)
+                showStatus("诊断 ${experiment.name}：固定轨迹运行中")
+            }
+        })
+    }
+
+    private fun handleDebugCaptureIntent(intent: Intent) {
+        val name = intent.getStringExtra(DEBUG_EXTRA_EXPERIMENT)
+        val experiment = RenderExperiment.values().find { it.name == name }
+        val view = intent.getStringExtra(DEBUG_EXTRA_VIEW) ?: "entry"
+        if (experiment == null || !experiment.isSupported || view !in setOf("entry", "piano")) {
+            Log.w(TAG, "拒绝未知视觉对照请求：$name view=$view")
+            return
+        }
+
+        val generation = ++debugIntentGeneration
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        renderPerfDialog?.dismiss()
+        handler.post(object : Runnable {
+            override fun run() {
+                if (generation != debugIntentGeneration || isDestroyed || isFinishing) return
+                if (importing || loadingInitialModel || cameraController == null) {
+                    if (SystemClock.elapsedRealtime() < deadline) {
+                        handler.postDelayed(this, 250L)
+                    } else {
+                        Log.w(TAG, "视觉对照等待模型加载超时：${experiment.name}")
+                    }
+                    return
+                }
+
+                applyRenderExperiment(experiment)
+                if (currentExperiment != experiment) {
+                    Log.w(TAG, "视觉对照实验未启用：${experiment.name}")
+                    return
+                }
+                perfMonitor.cancelRun()
+                debugCameraTrackRunning = false
+                debugFreezeArPose = true
+                needsReanchor = false
+                val controller = cameraController ?: return
+                controller.resetToStart(null)
+                if (view == "piano") controller.applyLookDelta(-1200f, 0f)
+
+                started = true
+                lastFrameMs = 0L
+                binding.startOverlay.visibility = View.GONE
+                binding.menuRoot.visibility = View.VISIBLE
+                binding.menuPanel.visibility = View.GONE
+                binding.vrTouchControls.clearTouches()
+                binding.vrTouchControls.inputEnabled = false
+                binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
+                Log.i(TAG, "VisualCapture experiment=${experiment.name} view=$view")
+            }
+        })
+    }
+
+    private fun applyRenderExperiment(experiment: RenderExperiment) {
+        val wasArEnabled = roomLighting.quality.arEnabled
+        currentExperiment = experiment
+        roomLighting.applyQuality(experiment.quality)
+        modelNode?.let { roomLighting.applyTo(it) }
+        if (BuildConfig.DEBUG) perfMonitor.setExperiment(experiment.name)
+
+        if (wasArEnabled && !experiment.quality.arEnabled) {
+            pauseArPump()
+            cameraController?.detachAr()
+            needsReanchor = false
+        } else if (!wasArEnabled && experiment.quality.arEnabled) {
+            needsReanchor = trackingEnabled
+            if (trackingEnabled &&
+                checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            ) {
+                startArSessionIfPossible(resumeAfterCreate = false)
+            }
+        }
+    }
+
+    private fun stopRenderExperiment(restoreBaseline: Boolean) {
+        debugCameraTrackRunning = false
+        debugFreezeArPose = false
+        if (BuildConfig.DEBUG) perfMonitor.cancelRun()
+        binding.vrTouchControls.inputEnabled = started && binding.menuPanel.visibility != View.VISIBLE
+        if (restoreBaseline && currentExperiment != RenderExperiment.A0) {
+            applyRenderExperiment(RenderExperiment.A0)
+        }
+        showStatus("已停止诊断${if (restoreBaseline) "，恢复 A0" else ""}")
     }
 
     // ---------------- 开始 / 菜单 ----------------
@@ -772,15 +1038,13 @@ class VrWalkthroughActivity : AppCompatActivity() {
         controller.resetToStart(null)
         controller.speedScale = speedScales[speedIndex]
 
-        val snapshot = poseRenderer.poseSnapshot.get()
-        if (trackingEnabled && snapshot.isTracking) {
-            val arPose = snapshot.viewToWorld.toMat4()
-            controller.attachArReference(arPose)
-            latestArPose = arPose
+        val trackingPose = currentTrackingPose()
+        if (trackingPose != null) {
+            controller.attachArReference(trackingPose.first, trackingPose.second)
             needsReanchor = false
         } else {
             // 等第一帧有效位姿到来时再建立参考（保持当前视角）
-            needsReanchor = trackingEnabled
+            needsReanchor = trackingEnabled && roomLighting.quality.arEnabled
         }
 
         started = true
@@ -791,9 +1055,16 @@ class VrWalkthroughActivity : AppCompatActivity() {
         binding.vrTouchControls.inputEnabled = true
         binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
 
-        if (trackingEnabled && controller.isArPoseApplied && !realWalkHintShown) {
+        if (trackingEnabled && roomLighting.quality.arEnabled &&
+            controller.isArPoseApplied && !realWalkHintShown
+        ) {
             realWalkHintShown = true
-            Toast.makeText(this, "走动时请留意现实环境", Toast.LENGTH_LONG).show()
+            val hint = if (motionMonitor.hasRequiredSensors) {
+                "走动时请留意现实环境"
+            } else {
+                "设备缺少运动传感器：AR 位姿已冻结，可继续用方向键和滑屏"
+            }
+            Toast.makeText(this, hint, Toast.LENGTH_LONG).show()
         }
         showStatus("左下方向键移动，左上「升/降」调高度，右半屏滑动转向，右上角菜单")
     }
@@ -806,6 +1077,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
      */
     private fun exitRoaming() {
         val controller = cameraController
+        if (BuildConfig.DEBUG && (debugCameraTrackRunning || currentExperiment != RenderExperiment.A0)) {
+            stopRenderExperiment(restoreBaseline = true)
+        }
         started = false
         lastFrameMs = 0L
         needsReanchor = false
@@ -828,7 +1102,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private fun setMenuOpen(open: Boolean) {
         binding.menuPanel.visibility = if (open) View.VISIBLE else View.GONE
-        binding.vrTouchControls.inputEnabled = started && !open
+        binding.vrTouchControls.inputEnabled = started && !open && !debugCameraTrackRunning
         if (open) {
             resetMenuTimer()
         } else {
@@ -857,6 +1131,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
      *                          需要在这里补做 resume + GLSurfaceView.onResume。
      */
     private fun startArSessionIfPossible(resumeAfterCreate: Boolean) {
+        if (!roomLighting.quality.arEnabled) return
         if (!AREnginesApk.isAREngineApkReady(this)) {
             onArEngineMissing()
             return
@@ -904,6 +1179,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     private fun pauseArPump() {
+        arPoseCache.reset()
         if (!sessionResumed) return
         displayManager.unregisterDisplayListener(displayListener)
         // 先停 GL 线程（阻塞至空闲），再停会话，避免跨线程访问
@@ -947,72 +1223,134 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     // ---------------- 每帧：输入 + 位姿 → 相机 ----------------
 
-    private fun onSceneFrame() {
-        updateProjectionIfNeeded()
+    private fun onSceneFrame(frameTimeNanos: Long) {
+        val callbackStartedAt = System.nanoTime()
+        var inputCpuNanos = 0L
+        var arControllerCpuNanos = 0L
+        var animationCpuNanos = 0L
+        var cameraCpuNanos = 0L
+        try {
+            updateProjectionIfNeeded()
 
-        val now = SystemClock.elapsedRealtime()
-        val dt = if (lastFrameMs == 0L) {
-            0f
-        } else {
-            ((now - lastFrameMs) / 1000f).coerceIn(0f, MAX_FRAME_DT_S)
-        }
-        lastFrameMs = now
-
-        // 开关动画与是否开始漫游无关：开始页也能看到柜门缓慢合上
-        articulation?.step(dt)
-
-        if (!started) {
-            updateStartHint()
-            return
-        }
-
-        val controller = cameraController ?: return
-
-        // 方向键：每帧读取当前按压状态（多指并集）
-        controller.applyMoveInput(
-            binding.vrTouchControls.moveForward,
-            binding.vrTouchControls.moveStrafe,
-            binding.vrTouchControls.moveVertical,
-            dt
-        )
-
-        val snapshot = poseRenderer.poseSnapshot.get()
-        if (trackingEnabled) {
-            if (snapshot.isTracking) {
-                val arPose = snapshot.viewToWorld.toMat4()
-                when {
-                    // 跟踪恢复 / 重新开启 / 屏幕旋转：保持当前视角，重建参考
-                    needsReanchor -> {
-                        controller.reanchorKeepingView(arPose)
-                        needsReanchor = false
-                    }
-
-                    !controller.hasArReference -> controller.attachArReference(arPose)
-                    else -> controller.updateArPose(arPose, dt)
-                }
-                latestArPose = arPose
-                hideStatusIfNeeded()
+            val now = SystemClock.elapsedRealtime()
+            val dt = if (lastFrameMs == 0L) {
+                0f
             } else {
-                // 只冻结 AR 增量（t_ar、ψ_ar 保持上一帧），按键与滑动照常更新
-                needsReanchor = true
-                // AR 不参与相机合成时，跟踪丢失对画面毫无影响，不必提示
-                if (controller.isArPoseApplied) {
-                    showStatusThrottled(
-                        if (controller.hasArReference) {
-                            "跟踪丢失：可继续用方向键和滑动移动"
-                        } else {
-                            "等待 AR 跟踪…可先用方向键移动"
+                ((now - lastFrameMs) / 1000f).coerceIn(0f, MAX_FRAME_DT_S)
+            }
+            lastFrameMs = now
+
+            val animationStartedAt = System.nanoTime()
+            // 开关动画与是否开始漫游无关：开始页也能看到柜门缓慢合上
+            articulation?.step(dt)
+            animationCpuNanos = System.nanoTime() - animationStartedAt
+
+            if (!started) {
+                updateStartHint()
+                return
+            }
+
+            val controller = cameraController ?: return
+            val inputStartedAt = System.nanoTime()
+            if (BuildConfig.DEBUG && debugCameraTrackRunning) {
+                debugCameraTrack.advance(frameTimeNanos)
+                if (debugCameraTrack.resetRequested) {
+                    val pose = currentTrackingPose()
+                    controller.resetToStart(pose?.first, pose?.second ?: 0L)
+                }
+                controller.applyMoveInput(
+                    debugCameraTrack.forwardAxis,
+                    0f,
+                    0f,
+                    debugCameraTrack.movementDeltaSeconds
+                )
+                controller.applyLookDelta(debugCameraTrack.lookDeltaXPixels, 0f)
+                if (debugCameraTrack.toggleAnimationIndex >= 0) {
+                    articulation?.toggleAnimationForDebug(debugCameraTrack.toggleAnimationIndex)
+                }
+            } else {
+                // 方向键：每帧读取当前按压状态（多指并集）
+                controller.applyMoveInput(
+                    binding.vrTouchControls.moveForward,
+                    binding.vrTouchControls.moveStrafe,
+                    binding.vrTouchControls.moveVertical,
+                    dt
+                )
+            }
+            inputCpuNanos = System.nanoTime() - inputStartedAt
+
+            val arStartedAt = System.nanoTime()
+            if (trackingEnabled && roomLighting.quality.arEnabled && !debugFreezeArPose) {
+                var isNewArFrame = false
+                val arPose = poseRenderer.withPoseSnapshot { snapshot ->
+                    if (!snapshot.isTracking) {
+                        null
+                    } else {
+                        isNewArFrame = arPoseCache.isNew(snapshot)
+                        arPoseCache.get(snapshot)
+                    }
+                }
+                if (arPose != null) {
+                    val timestampNs = arPoseCache.timestampNs
+                    when {
+                        // 跟踪恢复 / 重新开启 / 屏幕旋转：保持当前视角，重建参考
+                        needsReanchor -> {
+                            controller.reanchorKeepingView(arPose, timestampNs)
+                            needsReanchor = false
                         }
-                    )
+
+                        !controller.hasArReference -> {
+                            controller.attachArReference(arPose, timestampNs)
+                        }
+
+                        isNewArFrame -> controller.updateArPose(
+                            arPose,
+                            timestampNs,
+                            motionMonitor.snapshot()
+                        )
+                    }
+                    hideStatusIfNeeded()
+                } else {
+                    // 只冻结 AR 增量（t_ar、ψ_ar 保持上一帧），按键与滑动照常更新
+                    needsReanchor = true
+                    if (controller.isArPoseApplied) {
+                        showStatusThrottled(
+                            if (controller.hasArReference) {
+                                "跟踪丢失（可能是后置摄像头被遮挡）：可继续用方向键和滑动移动"
+                            } else {
+                                "等待 AR 跟踪…请勿遮挡后置摄像头，可先用方向键移动"
+                            }
+                        )
+                    }
+                }
+            } else {
+                hideStatusIfNeeded()
+            }
+            arControllerCpuNanos = System.nanoTime() - arStartedAt
+
+            val cameraStartedAt = System.nanoTime()
+            val cameraPose = controller.cameraPose()
+            binding.sceneView.cameraNode.worldTransform = cameraPose
+            logPoseThrottled(cameraPose, controller)
+            cameraCpuNanos = System.nanoTime() - cameraStartedAt
+        } finally {
+            if (BuildConfig.DEBUG) {
+                perfMonitor.recordFrame(
+                    frameTimeNanos = frameTimeNanos,
+                    callbackCpuNanos = System.nanoTime() - callbackStartedAt,
+                    inputCpuNanos = inputCpuNanos,
+                    arControllerCpuNanos = arControllerCpuNanos,
+                    animationCpuNanos = animationCpuNanos,
+                    cameraCpuNanos = cameraCpuNanos
+                )
+                if (debugCameraTrackRunning && !perfMonitor.isRunActive) {
+                    debugCameraTrackRunning = false
+                    binding.vrTouchControls.inputEnabled =
+                        started && binding.menuPanel.visibility != View.VISIBLE
+                    showStatus("${currentExperiment.name} 采样完成，画质保持；可在诊断面板恢复 A0")
                 }
             }
-        } else {
-            hideStatusIfNeeded()
         }
-
-        val cameraPose = controller.cameraPose()
-        binding.sceneView.cameraNode.worldTransform = cameraPose
-        logPoseThrottled(cameraPose, controller)
     }
 
     private fun updateProjectionIfNeeded() {
@@ -1038,24 +1376,26 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private fun recenter() {
         val controller = cameraController ?: return
-        controller.recenter(currentTrackingPose())
+        val pose = currentTrackingPose()
+        controller.recenter(pose?.first, pose?.second ?: 0L)
         binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
         showStatus("已重新居中")
     }
 
     private fun resetToStart() {
         val controller = cameraController ?: return
-        val arPose = currentTrackingPose()
-        controller.resetToStart(arPose)
-        latestArPose = arPose
+        val pose = currentTrackingPose()
+        controller.resetToStart(pose?.first, pose?.second ?: 0L)
         binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
         showStatus("已回到房间起点")
     }
 
-    private fun currentTrackingPose(): Mat4? {
-        if (!trackingEnabled) return null
-        val snapshot = poseRenderer.poseSnapshot.get()
-        return if (snapshot.isTracking) snapshot.viewToWorld.toMat4() else null
+    private fun currentTrackingPose(): Pair<Mat4, Long>? = poseRenderer.withPoseSnapshot { snapshot ->
+        if (trackingEnabled && roomLighting.quality.arEnabled && snapshot.isTracking) {
+            arPoseCache.get(snapshot) to snapshot.timestampNs
+        } else {
+            null
+        }
     }
 
     // ---------------- 音量键（调试快捷键） ----------------
@@ -1111,10 +1451,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
         lastStartHintAt = now
         binding.tvStartHint.text = when {
             modelNode == null -> "尚未选择房间模型，请点击「选择房间模型」导入 .glb 文件"
-            // AR 只做观测时，跟踪状态与能否开始无关，不再提示「等待跟踪」
             cameraController?.isArPoseApplied != true -> "点击开始漫游：方向键移动，滑屏转向"
             !trackingEnabled -> "相机/AR 不可用：可用方向键与滑动漫游"
-            poseRenderer.poseSnapshot.get().isTracking -> "AR 跟踪就绪，点击开始漫游"
+            poseRenderer.withPoseSnapshot { it.isTracking } -> "AR 跟踪就绪，点击开始漫游"
             else -> "等待 AR 跟踪…（也可直接开始，仅用方向键移动）"
         }
     }
@@ -1148,7 +1487,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
         val base = controller.debugBasePosition
         val tAr = controller.debugArTranslation
         val mOff = controller.debugMoveOffset
-        val snapshot = poseRenderer.poseSnapshot.get()
+        val arTracking = poseRenderer.withPoseSnapshot { it.isTracking }
+        val motion = motionMonitor.snapshot()
         // 带自增 seq，华为 EMUI 不会把行去重掉；关键是要能分辨
         // 「AR 正常但判定静止」与「AR 位姿根本没更新」。
         Log.i(
@@ -1161,13 +1501,17 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 "rawAr=(${"%.3f".format(controller.debugRawArX)}, ${"%.3f".format(controller.debugRawArZ)}) " +
                 "head=${"%.1f".format(controller.headingDegrees)} " +
                 "arYaw=${"%.1f".format(controller.debugArYawDeltaDegrees)} " +
+                "arYawApplied=${"%.1f".format(controller.debugAppliedArYawDegrees)} " +
                 "lookYaw=${"%.1f".format(controller.debugLookYawDegrees)} " +
                 "arWalk=${"%.2f".format(controller.arWalkSpeedMps)} " +
                 "follow=${controller.isFollowingArWalk} " +
+                "moveIMU=${motion.translationActive} turnIMU=${motion.rotationActive} " +
+                "lin=${"%.3f".format(motion.linearAccelerationMps2)} " +
+                "gyro=${"%.3f".format(motion.angularVelocityRadS)} " +
                 "still=${"%.2f".format(controller.debugArStillSeconds)} " +
                 "step=(${"%.4f".format(controller.debugLastStepX)}, ${"%.4f".format(controller.debugLastStepZ)}) " +
                 "dt=${"%.4f".format(controller.debugLastDt)} " +
-                "arTrack=${snapshot.isTracking} " +
+                "arTrack=$arTracking " +
                 "poseFrames=${poseRenderer.poseCounter.get()} " +
                 "glFrames=${poseRenderer.frameCounter.get()} " +
                 "arUpdates=${controller.arPoseUpdateCount} " +
