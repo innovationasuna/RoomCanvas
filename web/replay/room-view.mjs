@@ -172,6 +172,22 @@ function blendedPane(mesh, material, windowRoots) {
   return false;
 }
 
+// A mesh can carry another object's transform. Give its geometry and its children separate visibility.
+function splitMeshFrame(root, node, children) {
+  const frame = new THREE.Group();
+  frame.name = node.name;
+  frame.userData.name = originalName(node);
+  namedNodes(root).set(frame.userData.name, frame);
+  delete node.userData.name;
+  if (node.matrixAutoUpdate) node.updateMatrix();
+  frame.applyMatrix4(node.matrix);
+  frame.matrixAutoUpdate = node.matrixAutoUpdate;
+  node.parent.add(frame);
+  frame.add(node, ...children);
+  node.name = '';
+  node.position.set(0, 0, 0); node.quaternion.identity(); node.scale.setScalar(1); node.updateMatrix();
+}
+
 // A new mount can surround an object already present in the seed. Only the mount's new branches
 // follow its reveal time; the transform chain to the old object must stay visible throughout.
 function revealParts(root, names, seedNames) {
@@ -187,19 +203,7 @@ function revealParts(root, names, seedNames) {
     node.visible = true;
     const children = node.children.filter(o => !o.userData.mask);
     if (!node.isMesh) return children.flatMap(parts);
-    // Keep the mesh's local frame for its children. Only its geometry (and depth mask) forms.
-    const frame = new THREE.Group();
-    frame.name = node.name;
-    frame.userData.name = originalName(node);
-    namedNodes(root).set(frame.userData.name, frame);
-    delete node.userData.name;
-    if (node.matrixAutoUpdate) node.updateMatrix();
-    frame.applyMatrix4(node.matrix);
-    frame.matrixAutoUpdate = node.matrixAutoUpdate;
-    node.parent.add(frame);
-    frame.add(node, ...children);
-    node.name = '';
-    node.position.set(0, 0, 0); node.quaternion.identity(); node.scale.setScalar(1); node.updateMatrix();
+    splitMeshFrame(root, node, children);
     return [node, ...children.flatMap(parts)];
   }
   return names.map(name => {
@@ -225,7 +229,7 @@ function versionName(key, {interpolated: partial, modelEvent}) {
   if (key === 'seed') return partial ? '第一版房间 · 按记录推算' : '第一版房间';
   if (key === 'final') return partial ? '组装中的房间 · 按记录推算' : '最终房间';
   if (/^round\d+$/.test(key)) return modelEvent?.round ? `检查第 ${modelEvent.round} 轮` : '检查时的房间';
-  if (key === 'small_objects') return '小物品重建后';
+  if (key === 'small_objects' || key.startsWith('small_')) return '小物品处理后';
   if (key === 'articulated' || key.startsWith('articulated:')) {
     if (modelEvent?.joints > 0) return modelEvent.published ? '发布版（可开合）' : '已装配可开合部件';
     return modelEvent?.published ? '发布版' : '开合处理后';
@@ -803,7 +807,7 @@ export class RoomView {
     this.mix = 1;
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
     for (const k of Object.keys(this.models)) {
-      const replaced = key?.startsWith('articulated:') && k.startsWith('articulated:');
+      const replaced = key?.includes(':') && k.split(':')[0] === key.split(':')[0];
       if (k !== key && k !== this.wanted && (k.startsWith('draft') || replaced)) this.drop(k);
     }
   }
@@ -843,7 +847,7 @@ export class RoomView {
     this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
     const model = state.model || (state.shell && seedUrl ? 'seed' : null);
-    const digest = model === 'articulated' && state.modelEvent?.artifact_digest;
+    const digest = (model === 'articulated' || model === 'small_objects') && state.modelEvent?.artifact_digest;
     // Reparented seed meshes need their original names before the final room can be masked.
     const waitingForSeed = model === 'final' && state.added && seedUrl && !this.models.seed?.root;
     if (!waitingForSeed && this.seedRetry != null) {
@@ -893,12 +897,43 @@ export class RoomView {
   }
 
   revealModel(key) {
+    const root = this.models[key].root;
+    // Restore the previous frame's baseline before the ordinary build/seed schedule runs.
+    // A rewind can reuse this very GLB with a different mask.
+    const hidden = root.userData.replayHidden ??= new Map();
+    for (const [node, visible] of hidden) node.visible = visible;
+    hidden.clear();
+    let result = {appeared: []};
     if (this.state && key === 'seed') {
-      const result = this.revealed(!this.state.model, this.state.built);
+      result = this.revealed(!this.state.model, this.state.built);
       if (result.appeared.length > MAX_GROUP) result.appeared = [];
-      return result;
+    } else if (this.state && key === 'final') {
+      result.appeared = this.reveal(this.state.added);
     }
-    return {appeared: this.state && key === 'final' ? this.reveal(this.state.added) : []};
+    const hide = node => {
+      if (hidden.has(node)) return;
+      hidden.set(node, node.visible);
+      node.visible = false;
+    };
+    const mask = node => {
+      const children = node.children.filter(child => !child.userData.mask);
+      if (node.isMesh) {
+        if (children.length) splitMeshFrame(root, node, children);
+        hide(node);
+      }
+      for (const child of children) {
+        const id = originalName(child);
+        const handle = child.userData.room_id || this.objectIds?.has(id) || this.boxes[id];
+        if (handle || (!child.isMesh && /^[A-Z][A-Za-z]*\d+$/.test(id))) continue;
+        mask(child);
+      }
+    };
+    for (const name of this.state?.hiddenNodes || []) {
+      const node = namedNodes(root).get(name);
+      if (node) mask(node);
+    }
+    if (hidden.size) result.appeared = result.appeared.filter(node => shown(node));
+    return result;
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears

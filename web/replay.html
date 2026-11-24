@@ -58,13 +58,14 @@
   .objects .lead, .work .text > .line:first-child:not(:last-child) {position: sticky; top: 0; z-index: 1; background: var(--rc-field);}
   .log button.fold {display: block; border: 0; background: none; padding: 2px 0; font-size: 12px; color: var(--rc-muted);}
   .log button.fold:is(:hover, :focus-visible) {color: var(--rc-green); background: none;}
-  .card .detail {margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rc-line);}
   .th {flex: none; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--rc-line); background: var(--rc-raised); cursor: zoom-in;}
   .th img {display: block; width: 100%; height: 100%; object-fit: cover;}
   .pics {flex: none; display: grid; gap: 4px;}
   .pics.n2 .th {width: 56px; height: 56px;}
-  .wide {display: block; width: fit-content; max-width: 100%; height: 96px; margin: -4px 0 10px; cursor: zoom-in;}
-  .wide img {display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
+  .review-pics {display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 6px; margin: -4px 0 10px;}
+  .wide {display: block; min-width: 0; cursor: zoom-in;}
+  .wide img {display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--rc-line);}
+  .wide:only-child img {width: auto; max-width: 100%; max-height: 96px;}
   .grid {display: grid; grid-template-columns: repeat(3, minmax(0, 96px)); gap: 6px; margin: 8px 0 2px;}
   .cell {display: grid; gap: 2px; min-width: 0; cursor: zoom-in;}
   .cell img {display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; border: 1px solid var(--rc-line); background: var(--rc-raised);}
@@ -75,7 +76,6 @@
   .cell .nm {font-size: 11px; color: var(--rc-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
   .cell.now img {border-color: var(--rc-green);}
   .cell.now .nm {color: var(--rc-green);}
-  .log button.more {aspect-ratio: 1; place-items: center; padding: 0; border: 1px dashed var(--rc-line); border-radius: 6px; background: none; color: var(--rc-muted); font-size: 14px; cursor: pointer;}
   .card .bare {margin: 6px 0 0; font-size: 12px; color: var(--rc-muted);}
   .stage-h {font-size: 12px; color: var(--rc-muted); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px;}
   .stage-h::after {content: ''; flex: 1; border-top: 1px solid var(--rc-line);}
@@ -84,7 +84,7 @@
   @container (max-width: 240px) {
     .th {width: 56px; height: 56px;}
     .pics.n2 .th {width: 48px; height: 48px;}
-    .wide {height: 80px;}
+    .wide:only-child img {max-height: 80px;}
   }
   .plan {border-top: 1px solid var(--rc-line); padding: 12px 18px 14px;}
   .plan .top {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--rc-muted);}

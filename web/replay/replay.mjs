@@ -1,11 +1,11 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
-import {buildTimeline, clock, sceneAt, outcome, withoutScores, readReplay, DURATION} from './timeline.mjs';
+import {buildTimeline, clock, comparisonAt, sceneAt, outcome, withoutScores, readReplay, DURATION} from './timeline.mjs';
 
 // Playback length: set by the timeline (longer when many objects take shape).
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
-import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, cropOf, isStrip, CardImages, keepReading, appendedEvents, nearEnd, cardScroll, WORK} from './log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, reviewPictures, lines, pictures, cropOf, isStrip, CardImages, keepReading, appendedEvents, nearEnd, cardScroll, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
 const job = new URLSearchParams(location.search).get('job') || '';
@@ -75,7 +75,6 @@ async function start() {
     return fail(error.message);
   }
   document.title = `${data.name || '房间'} · 重建过程`;
-  $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (data.start ? ` · ${new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3)}` : '');
   view = window.view = new RoomView($('view'), {files, scaffold: {points: `${api}/scaffold/points.bin`, layout: `${api}/scaffold/layout.json`, colors: `${api}/scaffold/colors.bin`}});
   setRate();
   rebuild(data.live);
@@ -92,10 +91,12 @@ async function poll() {
   try {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
-    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)
-        || JSON.stringify(next.chair_clusters) !== JSON.stringify(data.chair_clusters)) {
+    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || next.latest_event !== data.latest_event
+        || JSON.stringify(next.models) !== JSON.stringify(data.models)
+        || JSON.stringify(next.chair_clusters) !== JSON.stringify(data.chair_clusters)
+        || JSON.stringify(next.hidden_nodes) !== JSON.stringify(data.hidden_nodes)) {
       // New records only pull a reader down while the replay follows the live end, not while one looks back.
-      const wasEnd = player.t >= span() - 0.01, follow = following || wasEnd;
+      const follow = following || player.t === tl.latestAt;
       const restore = keepReading($('log'), tl.events, follow && appendedEvents(data.events, next.events));
       data = next;
       rebuild(follow);
@@ -112,7 +113,11 @@ async function poll() {
 // ---------- rebuild everything that depends on the event list ----------
 let addedAll;
 function rebuild(followLatest) {
+  const previous = tl?.events[tl.indexAt(player.t)];
+  const offset = previous ? player.t - previous.at : 0;
   tl = buildTimeline(data);
+  const date = data.start && new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3);
+  $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (date ? ` · ${date}` : '');
   addedAll = tl.build?.reveal.map((r) => r.node);
   view.objectIds = new Set(tl.events.flatMap(e => e.show || []));
   view.chairClusters = data.chair_clusters;
@@ -135,8 +140,12 @@ function rebuild(followLatest) {
     '<div class="head" id="head"></div>';
   fitLabels();
   $('live').hidden = !data.live;
-  if (followLatest) player.seek(span(), {animate: data.live});
-  else render(player.t, player);
+  if (followLatest) player.seek(data.live ? tl.latestAt : span(), {animate: data.live});
+  else {
+    const record = previous?.id && tl.events.find(e => e.id === previous.id);
+    const end = record && (tl.events[record.i + 1]?.at ?? span());
+    player.seek(record ? Math.min(record.at + offset, end - 0.001) : player.t);
+  }
 }
 
 // ---------- left: the record, newest at the bottom ----------
@@ -161,26 +170,19 @@ function single(ks) {
   const k = ks.at(-1), e = tl.events[k];
   // A check's verdict keeps its photo / model pair whole, low and wide under the words.
   const src = !cardImages.strips.has(e.img) && e.img;
-  if (e.kind === 'review') return line(k) + (src ? `<span class="wide" data-z="${k}" data-src="${esc(src)}">${image(src)}</span>` : '');
+  if (e.kind === 'review') {
+    const shots = reviewPictures(e).filter(url => !cardImages.strips.has(url));
+    return line(k) + (shots.length ? '<div class="review-pics">' + shots.map(url =>
+      `<span class="wide" data-z="${k}" data-src="${esc(url)}">${image(url)}</span>`).join('') + '</div>' : '');
+  }
   return `<div class="row">${line(k, ks.length)}${src ? pic(k, src, cropOf(e)) : ''}</div>`;
 }
-// Names without a picture, each once with how many: 椅子 ×3、门.
-function named(items) {
-  const count = new Map();
-  items.forEach((o) => count.set(o.name, (count.get(o.name) || 0) + 1));
-  return [...count].map(([name, n]) => esc(name) + (n > 1 ? ` ×${n}` : '')).join('、');
-}
-function objectCard(ks, opened) {
+function objectCard(ks) {
   const items = objects(tl.events, ks, names), shown = items.filter((o) => o.img), bare = items.filter((o) => !o.img);
-  // Two rows of three at most; the last place says how many more until opened.
-  const fits = opened || shown.length <= 6 ? shown.length : 5;
-  const cells = shown.slice(0, fits).map((o) => `<span class="cell" data-z="${o.k}" data-src="${esc(o.img)}" data-i="${o.k}">` +
-    `${image(o.img, o.crop)}<span class="nm" title="${esc(o.label)}">${esc(o.label)}</span></span>`).join('') +
-    (fits < shown.length ? `<button type="button" class="cell more" data-more>+${shown.length - fits}</button>` : '');
+  const cells = shown.map((o) => `<span class="cell" data-z="${o.k}" data-src="${esc(o.img)}" data-i="${o.k}">` +
+    `${image(o.img, o.crop)}<span class="nm" title="${esc(o.label)}">${esc(o.label)}</span></span>`).join('');
   return `<div class="card objects"><p class="line lead" data-i="${ks.at(-1)}">${WORK[tl.events[ks[0]].work].replace('{n}', items.length)}</p>` +
-    (cells ? `<div class="grid">${cells}</div>` : '') + (bare.length ? `<p class="bare">另有 ${named(bare)}</p>` : '') +
-    (opened ? `<div class="detail">${lines(tl.events, ks).map((l) => line(l.k, l.n)).join('')}</div>` : '') +
-    fold(opened ? '收起' : `展开 ${ks.length} 条记录`) + '</div>';
+    (cells ? `<div class="grid">${cells}</div>` : '') + (bare.length ? `<p class="bare">${bare.map(o => esc(o.label)).join('、')}</p>` : '') + '</div>';
 }
 function workCard(ks, opened) {
   const all = lines(tl.events, ks), shots = pictures(tl.events, ks, 2, (src) => !cardImages.strips.has(src));
@@ -192,7 +194,7 @@ function workCard(ks, opened) {
 function draw(c, idx) {
   const card = deck[c], ks = upTo(card, idx), stage = card.stage !== deck[c - 1]?.stage;
   const opened = open.has(card.key);
-  const body = ks.length > 1 && card.type === 'objects' ? objectCard(ks, opened)
+  const body = card.type === 'objects' ? objectCard(ks)
     : ks.length > 1 && card.type === 'work' ? workCard(ks, opened) : single(ks);
   const holder = document.createElement('div');
   holder.innerHTML = `<div data-c="${c}" data-key="${esc(card.key)}">` +
@@ -223,7 +225,7 @@ function revealCard() {
   const log = $('log'), card = log.querySelector(`[data-c="${shownCard}"]`);
   if (!card) return;
   const box = log.getBoundingClientRect(), r = card.getBoundingClientRect();
-  const active = card.querySelector('.detail .now') || card.querySelector('.cell.now') || card.querySelector('.now:not(.lead)');
+  const active = card.querySelector('.cell.now') || card.querySelector('.now:not(.lead)');
   const first = card.querySelector('.lead, .work .text > .line');
   const heading = first && getComputedStyle(first).position === 'sticky' ? first : null;
   const row = active && active !== heading ? active.getBoundingClientRect() : {top: r.top, bottom: r.top};
@@ -237,7 +239,7 @@ function mark(idx) {
 function zoom(k, src) {
   const e = tl.events[k];
   // A rebuilt small object: once the room was rendered with it, the photo beside the rebuilt model.
-  const later = (e.media || []).findLast((m) => m.role === 'comparison' && m.minute <= tl.realAt(player.t));
+  const later = comparisonAt(e, tl, player.t);
   player.pause();
   $('lb').innerHTML = `<div><img src="${esc(later?.src || src || e.img)}" alt=""><div class="cap">${say(e)}</div></div>`;
   $('lb').classList.add('on');
@@ -265,7 +267,7 @@ $('dots').onclick = (ev) => {
 
 // ---------- timeline ----------
 function seekTo(t) {
-  following = t >= span() - 0.01;
+  following = data.live && Math.abs(t - tl.latestAt) < 0.01;
   reveal = true;  // the record moved to is brought into view (seek renders at once)
   player.seek(t, {pause: true});
   revealCard();
@@ -308,7 +310,7 @@ const step = (d) => {
 $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 $('play').onclick = () => {following = false; player.toggle();};
-$('latest').onclick = () => seekTo(span());
+$('latest').onclick = () => seekTo(tl.latestAt);
 // Playback speed. The view decides the speed of the moment: sped up, it still plays what is worth watching
 // (the camera moving in, an object taking shape) at normal speed, and render() passes that on to the clock.
 function setRate() {
@@ -350,9 +352,10 @@ function render(t, p, animate = p.playing) {
   // The room is finished: light it as the room preview does (物理光照).
   view.physical(done);
   $('head') && ($('head').style.left = `${t / span() * 100}%`);
-  $('clock').textContent = clock(tl.workAt(tl.realAt(t)));
-  $('total').textContent = '/ ' + clock(tl.workAt(tl.events.at(-1)?.minute || 0));
-  $('latest').hidden = !data.live || following || atEnd;
+  const projected = data.presentation === 'by_stage';
+  $('clock').textContent = projected ? '回放 ' + clock(t / 60) : clock(tl.workAt(tl.realAt(t)));
+  $('total').textContent = '/ ' + clock(projected ? span() / 60 : tl.workAt(tl.realAt(span())));
+  $('latest').hidden = !data.live || following || t === tl.latestAt;
   const st = tl.stageAt(t), si = st ? data.stages.findIndex((s) => s.id === st.id) : -1;
   tl.stages.forEach((s) => {
     const f = atEnd || s.replay[1] <= t ? 1 : s === st ? (t - s.replay[0]) / (s.replay[1] - s.replay[0]) : 0;
@@ -371,10 +374,10 @@ function render(t, p, animate = p.playing) {
     // A job that stopped after an acceptance review ends with that verdict, not as a crash.
     const failed = data.status === 'failed' && done && !result;
     $('planN').textContent = data.live ? `进行中 · 第 ${si + 1} 步 / 共 ${data.stages.length} 步` : done ? '重建结束' : `第 ${si + 1} 步 / 共 ${data.stages.length} 步`;
-    $('planName').textContent = failed ? '重建还没完成' : result ? (result.repaired ? '已修复' : result.passed ? '检查通过' : '没有通过检查') : st?.name || '等待开始';
+    $('planName').textContent = failed ? '重建还没完成' : result ? (result.repaired ? '修改流程结束' : result.passed ? '检查通过' : '没有通过检查') : st?.name || '等待开始';
     $('planName').classList.toggle('fail', !!(result && !result.passed));
     $('planDesc').textContent = failed ? '这次停在了中途，在任务列表里点“重试”，会接着已做好的部分继续。' : result ? result.text : st?.desc || '';
-    $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.repaired ? '已修复' : result.passed ? '检查通过' : '没通过检查 · 没有发布'}</span>` : '';
+    $('result').innerHTML = result ? `<span class="tag ${result.passed ? 'ok' : 'warn'}">${result.repaired ? '修改流程结束' : result.passed ? '检查通过' : '没通过检查'}</span>` : '';
   }
   const scene = sceneAt(tl, t);
   view.apply(scene, {quiet: !animate, modelUrl: (k) => data.models[k] && files(data.models[k]), addedAll});

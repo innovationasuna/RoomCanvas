@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {buildTimeline, readReplay} from '../../replay/timeline.mjs';
 import {registerHooks} from 'node:module';
 import * as THREE from '../../vendor/build/three.module.js';
 
@@ -151,9 +152,9 @@ async function page(t, live, data = {}, {search = '?job=' + '0'.repeat(32), fetc
   view.ensureScaffold = () => {};
   const element = () => Object.defineProperty(Object.assign(new EventTarget(), {
     value: '1', children: [], dataset: {}, style: {}, classList: {toggle() {}, add() {}},
-    append() {}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
+    append(el) {this.children.push(el);}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({left: 0, width: 100}),
-  }), 'firstChild', {get: element});  // a card is parsed into a holder and its first child moved into the log
+  }), 'firstChild', {get() {return Object.assign(element(), {innerHTML: this.innerHTML});}});  // a card is parsed into a holder and its first child moved into the log
   function node(id) {
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
@@ -191,6 +192,28 @@ test('the replay picker links every available job through the oldest record', as
   const {node} = await page(t, false, {}, {search: '', fetcher: async () => Response.json({jobs})});
   const links = Array.from(node('loading').innerHTML.matchAll(/href="\?job=([a-f0-9]+)"/g), match => match[1]);
   assert.deepEqual(links, jobs.reverse().map(job => job.id));
+});
+
+test('object cards list every item without a detail toggle and review zoom uses the clicked view', async t => {
+  const items = Array.from({length: 24}, (_, i) => ({id: 'item' + i, kind: 'tool', stage: 'assemble', minute: i,
+    work: 'small', object_id: 'Cup' + i, object_name: '杯子', say: '原始逐件记录', img: i < 23 ? i + '.png' : null}));
+  const views = ['pair_00037.png', 'pair_00183.png'];
+  const events = [...items, {id: 'r0', kind: 'review', stage: 'review', minute: 25, say: '检查房间没通过',
+    img: views[0], media: views.map(src => ({role: 'review', src}))}];
+  const {node, player} = await page(t, false, {events, stages: [{id: 'assemble'}, {id: 'review'}], models: {}});
+  player.seek(player.duration, {pause: true});
+  const [objects, review] = node('log').children.slice(-2).map(el => el.innerHTML);
+  assert.match(objects, /已准备 24 件小物品的照片模型/);
+  assert.equal((objects.match(/class="cell"/g) || []).length, 23);
+  assert.match(objects, /class="bare">杯子 24</);
+  assert.doesNotMatch(objects, /原始逐件记录|data-more|class="detail"/);
+  const thumbs = [...review.matchAll(/class="wide" data-z="(\d+)" data-src="([^"]+)"/g)];
+  assert.deepEqual(thumbs.map(m => m[2].split('/').pop()), views);
+  const click = new Event('click');
+  Object.defineProperty(click, 'target', {value: {closest: sel => sel === '[data-z]'
+    ? {dataset: {z: thumbs[1][1], src: thumbs[1][2]}} : null}});
+  node('log').dispatchEvent(click);
+  assert.ok(node('lb').innerHTML.includes(thumbs[1][2]));
 });
 
 function checkOverviewSpin(view) {
@@ -443,3 +466,40 @@ for (const framing of ['placeholder', 'model', 'click', 'drag']) {
     }
   });
 }
+
+test('live follow, paused review and return to latest survive inserted pass records', async t => {
+  const stages = ['assemble', 'review', 'small_objects'].map(id => ({id, name: id, desc: ''}));
+  const events = [{id: 'build', stage: 'assemble', minute: 0},
+    {id: 'review', stage: 'review', minute: 4, kind: 'review', round: 1},
+    {id: 'final', stage: 'review', minute: 5, model: 'final'},
+    {id: 'cup', stage: 'small_objects', minute: 9, work: 'small', object_id: 'Cup0'}];
+  const {job, player, node, view, poll, scrub} = await page(t, true, {stages, events});
+  const timeline = () => buildTimeline(readReplay(job));
+  const record = () => {const tl = timeline(); return tl.events[tl.indexAt(player.t)];};
+  assert.equal(record().id, 'cup');
+  job.events.push({...events.at(-1), id: 'bottle', minute: 10, object_id: 'Bottle0'});
+  await poll();
+  assert.equal(record().id, 'bottle');
+  const tl = timeline(), review = tl.events.find(e => e.id === 'review');
+  scrub(100 * (review.at + 0.05) / tl.duration);
+  assert.equal(record().id, 'review');
+  job.events.push({...events.at(-1), id: 'saucer', minute: 11, object_id: 'Saucer0'});
+  await poll();
+  assert.equal(record().id, 'review');
+  assert.ok(Math.abs(player.t - record().at - 0.05) < 1e-8);
+  node('latest').onclick();
+  assert.equal(record().id, 'saucer');
+  assert.equal(view.state.model, null);
+  job.events.push({...events.at(-1), id: 'plate', minute: 12, object_id: 'Plate0'});
+  await poll();
+  assert.equal(record().id, 'plate');
+});
+
+test('a live cached save ends both work clocks at completion', async t => {
+  const {node} = await page(t, true, {events: [
+    {id: 'start', stage: 'assemble', minute: 0},
+    {id: 'save', stage: 'assemble', minute: 3, display_minute: 13, kind: 'milestone'},
+  ]});
+  assert.equal(node('clock').textContent, '0:13:00');
+  assert.equal(node('total').textContent, '/ 0:13:00');
+});

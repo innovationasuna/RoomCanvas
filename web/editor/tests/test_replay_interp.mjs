@@ -198,7 +198,7 @@ test('the version label follows visible models through loads, fades and interpol
   assert.equal(view.versionLabel(), '组装中的房间 · 按记录推算');
   applyFinal(view, null, true);
   assert.equal(view.versionLabel(), '最终房间');
-  for (const [key, label] of [['draft42', '搭建中的房间'], ['small_objects', '小物品重建后'], ['articulated', '开合处理后'], [null, '']]) {
+  for (const [key, label] of [['draft42', '搭建中的房间'], ['small_objects', '小物品处理后'], ['articulated', '开合处理后'], [null, '']]) {
     view.current = key;
     assert.equal(view.versionLabel(), label);
   }
@@ -312,12 +312,12 @@ test('version labels use the reached publication and the round recorded within e
     ['已装配可开合部件', '检查第 1 轮', '检查第 1 轮', '发布版（可开合）', '开合处理后', '发布版', '发布版', '开合处理后', '已装配可开合部件']);
 });
 
-test('a resaved articulated room changes the visible scene; its late receipt reuses that scene', async t => {
+for (const model of ['articulated', 'small_objects']) test(`a resaved ${model} room replaces its cached scene`, async t => {
   const view = Object.assign(viewOf({}), {current: null, wanted: null, scene: group('scene'), retiring: new Set(),
     retryAt: {}, wallFades: [], scaffoldReady: true, warm: async () => {}, setFade() {}});
   view.prepare = root => root;
   view.forming.releaseModel = () => {};
-  const options = {quiet: true, modelUrl: k => k === 'articulated' && '/files/Room.glb'};
+  const options = {quiet: true, modelUrl: k => k === model && '/files/Room.glb'};
   const requests = [], fetchData = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', (url, options) => {
     const response = Promise.withResolvers();
@@ -328,7 +328,7 @@ test('a resaved articulated room changes the visible scene; its late receipt reu
   const old = file('BeforeRepair'), next = file('AfterRepair');
   const apply = (bytes, evidence) => {
     const artifact_digest = createHash('sha256').update(bytes).digest('hex');
-    view.apply({model: 'articulated', modelEvent: {artifact_digest, ...evidence}}, options);
+    view.apply({model, modelEvent: {artifact_digest, ...evidence}}, options);
   };
   async function finish(request, bytes) {
     const loaded = view.models[view.wanted].promise;
@@ -341,24 +341,25 @@ test('a resaved articulated room changes the visible scene; its late receipt reu
   const before = view.models[view.current].root;
   assert.ok(before.visible && before.getObjectByName('BeforeRepair'));
   apply(next, {joints: 2});
-  assert.equal(view.versionLabel(), '开合处理后');
+  assert.equal(view.versionLabel(), model === 'articulated' ? '开合处理后' : '小物品处理后');
   assert.equal(before.userData.modelEvent.joints, 0);
   assert.notEqual(requests[0].url, requests[1].url);
 
   // The path still serves old bytes while the file is being replaced.
   await assert.rejects(finish(requests[1], old));
   assert.equal(view.models[view.current].root, before);
-  assert.equal(view.versionLabel(), '开合处理后');
+  assert.equal(view.versionLabel(), model === 'articulated' ? '开合处理后' : '小物品处理后');
   view.retryAt = {};
   apply(next, {joints: 2});
   await finish(requests[2], next);
   const after = view.models[view.current].root;
   assert.notEqual(before, after);
+  assert.ok(!Object.values(view.models).some(entry => entry.root === before));
   assert.ok(after.visible && after.getObjectByName('AfterRepair'));
-  assert.equal(view.versionLabel(), '已装配可开合部件');
+  assert.equal(view.versionLabel(), model === 'articulated' ? '已装配可开合部件' : '小物品处理后');
   apply(next, {joints: 2, published: true});
   assert.equal(view.models[view.current].root, after);
-  assert.equal(view.versionLabel(), '发布版（可开合）');
+  assert.equal(view.versionLabel(), model === 'articulated' ? '发布版（可开合）' : '小物品处理后');
   assert.equal(requests.length, 3);
 });
 

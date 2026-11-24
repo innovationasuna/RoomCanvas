@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cards, upTo, objects, objectNames, pictureUrls, lines, pictures, isStrip, CardImages, keepReading, appendedEvents, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
+import {cards, upTo, objects, objectNames, pictureUrls, reviewPictures, lines, pictures, isStrip, CardImages, keepReading, appendedEvents, cardScroll, GROUP_MAX} from '../../replay/log.mjs';
 
 const made = (id, name, minute, img) => ({stage: 'plan', minute, kind: 'tool', say: `做好${name}的模型`, object_id: id, object_name: name, work: 'model', img});
 const agent = (minute, say, extra = {}) => ({stage: 'assemble', minute, kind: 'tool', say, session: 'a0', ...extra});
@@ -318,4 +318,11 @@ test('seeking an oversized row clears the sticky heading and still fits shorter 
   const scroll = cardScroll(-300, 270, {top: -50, bottom: 230}, height, heading);
   assert.equal(-50 - scroll, heading + 12);
   assert.equal(cardScroll(-300, 270, {top: 180, bottom: 230}, height, heading), 42);
+});
+
+test('each review thumbnail opens its own versioned pair, including legacy single images', () => {
+  const pair = {img: '2.png', media: [{role: 'review', src: '2.png', version: 'a'}, {role: 'review', src: '6.png', version: 'b'}]};
+  assert.deepEqual(reviewPictures(pictureUrls(pair, src => '/' + src)), ['/2.png?v=a', '/6.png?v=b']);
+  assert.deepEqual(reviewPictures({img: 'old.png'}), ['old.png']);
+  assert.deepEqual(reviewPictures({}), []);
 });

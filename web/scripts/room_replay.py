@@ -31,17 +31,15 @@ STAGES = [
     {'id': 'layout', 'name': '整理房间布局', 'desc': '确定墙面、门窗和物品的位置与大小。'},
     {'id': 'photos', 'name': '整理物品图片', 'desc': '从照片中裁出物品，生成便于看清外形的图片。'},
     {'id': 'plan', 'name': '制作物品模型', 'desc': '选择合适的做法，制作物品并检查摆放和开合。'},
-    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭好房间，核对尺寸、补充陈设，再对照照片自查修改，最后把纸巾盒、瓶子、绿植这类小物品按照片做成模型放好。'},
+    {'id': 'assemble', 'name': '搭建完整房间', 'desc': '对照照片搭建房间、核对尺寸与陈设，有照片模型的小物品在这里放入。'},
     {'id': 'parts', 'name': '处理可开合部件', 'desc': '检查柜门和抽屉，按需添加转轴或滑轨，再检查房间。'},
     {'id': 'review', 'name': '检查房间', 'desc': '对照照片检查一次房间，看摆放和外观有没有问题。'},
-    {'id': 'review2', 'name': '按检查修改', 'desc': '没通过检查时，按检查出的问题修改一次，再做好小物品和可开合部件，修改后的房间就是结果。'},
-    # Only listed for a run whose room was revised after it was published, or (older runs) that went through
-    # the small-object pass or the openable parts after publishing (see stages_of).
+    {'id': 'review2', 'name': '按检查修改', 'desc': '查看检查提出的问题，以及随后记录的修改和处理结果。'},
     {'id': 'revise', 'name': '按意见修改', 'desc': '对照修改意见逐项调整房间，并检查修改效果。'},
-    {'id': 'small_objects', 'name': '重做小物品', 'desc': '把纸巾盒、瓶子、绿植这类小物品按照片重新做成模型，放回原处。'},
-    {'id': 'articulate', 'name': '处理可开合部件', 'desc': '检查柜门和抽屉，按需添加转轴或滑轨。'},
 ]
-STAGE_IDS = [s['id'] for s in STAGES]
+# The two extra IDs distinguish historical standalone passes until the timeline groups their records.
+STANDALONE = {'small_objects': 'assemble', 'articulate': 'parts'}
+STAGE_IDS = [s['id'] for s in STAGES] + list(STANDALONE)
 # Finer stages the records still name, shown as one: the modelling agent's own adjusting and self-checking are
 # part of building the room; an older flow's check after the repair belongs to the repair.
 STAGE_ALIASES = {'adjust': 'assemble', 'check': 'assemble', 'review3': 'review2'}
@@ -79,7 +77,10 @@ SMALL_OBJECTS = 'small-objects/room_preview/Room.glb'
 SMALL_PICTURES = re.compile(r'^small-objects/evidence/[\w.-]+/(?:view0|pair_before|pair_after)\.jpg$')
 # The reference picture of the premade model an item took (see small_reference), named by the item.
 SMALL_REFERENCE = re.compile(r'^small-objects/reference/([\w.-]+)\.png$')
+SMALL_HISTORY = re.compile(r'^small-objects/history/([0-9a-f]{64})\.glb$')
 PASSES = ('small_objects', 'articulated')  # room models of those passes: timed by their records only
+PASS_STEPS = {'small_objects_start': 'small_objects', 'small_object_done': 'small_objects', 'small_objects_done': 'small_objects',
+              'articulate_start': 'articulated', 'articulate_done': 'articulated'}
 
 
 def find_scene(job_dir):
@@ -114,17 +115,69 @@ def model_path(scene, rel):
     if rel not in (ARTICULATED, SMALL_OBJECTS):
         return scene / rel
     model = 'articulated' if rel == ARTICULATED else 'small_objects'
-    saved = [r.get('path') for r in trace_rows(scene) if r.get('kind') == 'model_saved' and r.get('model') == model]
-    if saved and isinstance(saved[-1], str) and saved[-1].endswith('room_preview/Room.glb'):
-        recorded = (scene / saved[-1]).resolve()  # absolute, or relative to the scene
-        if scene.parent.parent.resolve() in recorded.parents and recorded.is_file():
-            return recorded
-    return scene.parent.parent / rel
+    save = latest_save(trace_rows(scene), model)
+    recorded = recorded_pass_path(scene, save)
+    return recorded if recorded and recorded.is_file() else scene.parents[1] / rel
+
+
+def recorded_pass_path(scene, save):
+    rel = (save or {}).get('path')
+    if isinstance(rel, str) and rel.endswith('room_preview/Room.glb'):
+        path = (Path(scene) / rel).resolve()
+        if Path(scene).parents[1].resolve() in path.parents:
+            return path
+    return None
 
 
 def small_folder(scene):
     """The small-object pass's folder: the one its room is in."""
-    return model_path(scene, SMALL_OBJECTS).parent.parent
+    path = model_path(scene, SMALL_OBJECTS)
+    building = Path(scene) / 'realism_authoring/small_objects'
+    if not path.is_file() and building.is_dir():
+        start = next((r for r in reversed(trace_rows(scene)) if r.get('kind') == 'small_objects_start'), None)
+        if not start or inside(start):
+            return building  # evidence and item records can exist before the first saved room
+    return path.parent.parent
+
+
+def saved_small_rooms(scene, rows):
+    """Resolve integrated saves by content when repair reused or replaced the pass's room_preview."""
+    saves = [k for k, r in enumerate(rows) if inside(r) and r.get('model') == 'small_objects' and r['kind'] == 'model_saved']
+    rooms = {}
+    if not saves:
+        return rooms
+    current = model_path(scene, SMALL_OBJECTS)
+    latest = latest_save(trace_rows(scene), 'small_objects')
+    for k in saves:
+        digest = rows[k].get('artifact_digest')
+        if not digest:
+            # Older writers have no content identity. Only the last save can use today's file.
+            if rows[k] == latest and (actual := picture_version(current)):
+                rooms[k] = ('small_objects', f'small-objects/history/{actual}.glb')
+            continue
+        if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            continue
+        if small_history_file(scene, digest, [rows[k]]):
+            # Keep the URL and viewer cache key stable if a future repair overwrites this room.
+            rooms[k] = (f'small_{digest}', f'small-objects/history/{digest}.glb')
+    return rooms
+
+
+def small_history_file(scene, digest, saves):
+    """Find the matching save in its own pass directory, or in the slim export."""
+    run = Path(scene).parents[1].resolve()
+    for save in saves:
+        if not (save.get('kind') == 'model_saved' and save.get('model') == 'small_objects'
+                and save.get('artifact_digest') == digest):
+            continue
+        current = recorded_pass_path(scene, save) or run / SMALL_OBJECTS
+        folder = current.parent.parent
+        for path in (current, folder / 'history' / f'{digest}.glb', *folder.glob('.stale/cache-*/room_preview/Room.glb'),
+                     run / SMALL_OBJECTS, run / 'small-objects/history' / f'{digest}.glb'):
+            path = path.resolve()
+            if run in path.parents and path.is_file() and picture_version(path) == digest:
+                return path
+    return None
 
 
 def scene_file(scene, rel):
@@ -132,6 +185,15 @@ def scene_file(scene, rel):
     if rel in (ARTICULATED, SMALL_OBJECTS):
         path = model_path(scene, rel)
         return path.resolve() if path.is_file() else None
+    history = SMALL_HISTORY.fullmatch(rel or '')
+    if history:
+        rows = trace_rows(scene)
+        latest = latest_save(rows, 'small_objects')
+        if latest and not latest.get('artifact_digest'):
+            current = model_path(scene, SMALL_OBJECTS).resolve()
+            if Path(scene).parents[1].resolve() in current.parents and picture_version(current) == history[1]:
+                return current
+        return small_history_file(scene, history[1], rows)
     reference = SMALL_REFERENCE.fullmatch(rel or '')
     if reference:
         path = small_reference(scene, reference[1])
@@ -352,16 +414,36 @@ def trace_rows(scene, until=None):
         elif 'sequence' in row:
             sequence = last + .5  # not a number, which the writer skips too: keep it where it was written
         else:
-            sequence = row['t']
+            sequence = len(keyed)  # old writers have only append order for pairing a pass with its save
         # Equal keys (damaged or repeated numbers, equal times) keep the order rows were written in.
         keyed.append(((row.get('schema_version', 1) >= 2, sequence, len(keyed)), row))
     rows = [row for _, row in sorted(keyed, key=lambda item: item[0])]
-    return [r for r in rows if r['t'] <= until] if until else rows
+    progress = {}
+    for row in rows:
+        kind = row.get('kind')
+        model = row.get('model') if kind == 'model_saved' else PASS_STEPS.get(kind)
+        if model not in PASSES:
+            continue
+        key = inside(row), row.get('run'), model
+        if kind == 'model_saved':
+            # A cached GLB's mtime can precede this pass by hours.
+            if progress.get(key, row['t']) > row['t']:
+                row['display_t'] = progress[key]
+        else:
+            progress[key] = row['t']
+    legacy = sorted((r for r in rows if r.get('schema_version', 1) < 2), key=lambda r: r.get('display_t', r['t']))
+    rows = legacy + [r for r in rows if r.get('schema_version', 1) >= 2]
+    return [r for r in rows if r.get('display_t', r['t']) <= until] if until is not None else rows
+
+
+def latest_save(rows, model):
+    return next((r for r in reversed(rows) if r.get('kind') == 'model_saved' and r.get('model') == model), None)
 
 
 def saved_at(rows, model):
     """When the pipeline recorded writing a room model (seed / final), or None for runs without the record."""
-    return next((r['t'] for r in reversed(rows) if r.get('kind') == 'model_saved' and r.get('model') == model), None)
+    save = latest_save(rows, model)
+    return save and save['t']
 
 
 def pipeline_events(scene, until=None):
@@ -410,7 +492,8 @@ def pipeline_events(scene, until=None):
         """One line per rebuilt item, with its photo (and its premade model's reference)."""
         media = small_media(scene, r['name'], until, closeups.get(r['name']), rows, r['t'])
         item = small_items.get(r['name']) or small_name(r['name'])
-        add(r, stage, f'{item}换成了按照片重建的模型', once=once,
+        say = f'{item}采用已有的照片模型' if r.get('source') else f'{item}的照片模型已就绪'
+        add(r, stage, say, once=once,
             img=next((m['src'] for m in media if m['role'] in ('reference', 'photo')), None), media=media,
             object_id=r['name'], object_name=item, work='small')
 
@@ -484,7 +567,7 @@ def pipeline_events(scene, until=None):
         elif kind == 'repair_start':
             add(r, 'review2', '按检查出的问题开始修复房间', 'think')
         elif kind == 'small_objects_start' and inside(r):
-            add(r, phase(k, 'assemble'), '逐个看房间里的小物品，挑出需要按照片重做的', 'think')
+            add(r, phase(k, 'assemble'), '整理小物品的照片和模型', 'think')
         elif kind == 'small_object_done' and inside(r):
             # After the repair only what it made the pass do again; the rest was said with the room built.
             if (r.get('method') == 'trellis' and status == 'ok' and r.get('name')
@@ -504,7 +587,7 @@ def pipeline_events(scene, until=None):
         elif kind == 'articulate_done' and r.get('status') != 'ok' and not later[k]:
             add(r, 'articulate', '可开合部件没有装成，使用检查后的房间', 'error')
         elif kind == 'small_objects_start' and k == small_from:
-            add(r, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', 'think')
+            add(r, 'small_objects', '整理小物品的照片和模型', 'think')
         elif (kind == 'small_object_done' and k > small_from and r.get('method') == 'trellis' and status == 'ok'
               and r.get('name')):
             # One line per rebuilt item (recorded once per run), with its photo; kept and dropped ones only count below.
@@ -525,16 +608,24 @@ def pipeline_events(scene, until=None):
     if final:
         events.append({'id': 'final', 't': final, 'stage': last_review_stage(scene, until), 'kind': 'milestone',
                        'say': '导出最终房间', 'model': 'final'})
-    # The author stage's passes close with their rooms; only the last of each shows its model (a repair's
-    # passes write the same files again).
-    saves = [k for k, r in enumerate(rows) if inside(r) and r.get('kind') == 'model_saved'
-             and r.get('model') in ('small_objects', 'articulated')]
+    # A repair may overwrite the first pass. Select the room belonging to each completed pass.
+    saved_rooms = saved_small_rooms(scene, rows)
     for k, r in closing:
-        save = next((j for j in saves if j > k and rows[j]['model'] == 'small_objects' and rows[j].get('run') == r.get('run')), None)
-        last = save is not None and save == max(j for j in saves if rows[j]['model'] == 'small_objects')
-        shown = last and _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
+        save = None
+        for j in range(k + 1, len(rows)):
+            other = rows[j]
+            if other.get('kind') in ('small_objects_start', 'articulate_start', 'repair_start'):
+                break
+            if (inside(other) and other.get('kind') == 'model_saved' and other.get('model') == 'small_objects'
+                    and other.get('run') == r.get('run')):
+                save = j
+                break
+        snapshot = saved_rooms.get(save)
         events.append({'id': f'small{k}', 't': rows[save]['t'] if save is not None else r['t'], 'stage': phase(k, 'assemble'),
-                       'kind': 'milestone', 'say': small_summary(r), **({'model': 'small_objects'} if shown else {})})
+                       'kind': 'milestone', 'say': small_summary(r), **({'model': snapshot[0]} if snapshot else {}),
+                       **({'artifact_digest': SMALL_HISTORY.fullmatch(snapshot[1])[1]}
+                          if snapshot and snapshot[0] == 'small_objects' else {}),
+                       **({'display_t': r['t']} if save is not None and rows[save]['t'] < r['t'] else {})})
     def articulation_result(save, evidence):
         joints = save.get('joints')
         counted = type(joints) is int and joints >= 0
@@ -545,31 +636,54 @@ def pipeline_events(scene, until=None):
             result['joints'] = joints
         return result
 
-    part_saves = [k for k in saves if rows[k]['model'] == 'articulated']
-    for k in part_saves:
-        evidence = model_evidence(scene, [rows[k]], 'articulated', ARTICULATED) if k == part_saves[-1] else {}
-        events.append({'id': f'parts{k}', 't': rows[k]['t'], 'stage': phase(k, 'parts'), 'kind': 'milestone',
-                       **articulation_result(rows[k], evidence)})
-    # An older run's small-object pass closes with its room, said with what it did to the items.
-    small = (_model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until)
-             if saved_at([r for r in rows[small_from + 1:] if not inside(r)], 'small_objects') else None)
-    if small or small_done:
-        events.append({'id': 'small_objects', 't': small or small_done['t'], 'stage': 'small_objects', 'kind': 'milestone',
-                       'say': small_summary(small_done), **({'model': 'small_objects'} if small else {})})
+    for k, row in enumerate(rows):
+        if not (inside(row) and row.get('kind') == 'model_saved' and row.get('model') == 'articulated'):
+            continue
+        evidence = integrated_articulation(scene, row)
+        events.append({'id': f'parts{k}', 't': row['t'], 'stage': phase(k, 'parts'), 'kind': 'milestone',
+                       **({'display_t': row['display_t']} if 'display_t' in row else {}),
+                       **articulation_result(row, evidence)})
+    small_save = next((r for r in reversed(rows[small_from + 1:]) if not inside(r)
+                       and r.get('kind') == 'model_saved' and r.get('model') == 'small_objects'), None)
+    snapshot = current_small_digest(scene, small_save)
+    if small_save or small_done:
+        row = small_save or small_done
+        events.append({'id': 'small_objects', 't': row['t'], 'stage': 'small_objects', 'kind': 'milestone',
+                       **({'display_t': row['display_t']} if 'display_t' in row else {}),
+                       'say': small_summary(small_done), **({'model': 'small_objects', 'artifact_digest': snapshot}
+                                                            if snapshot else {})})
     save, receipt = standalone_articulation(rows)
     evidence = model_evidence(scene, [save], 'articulated', ARTICULATED) if save else {}
     if evidence.get('time'):
         event = {'id': 'articulated', 't': save['t'], 'stage': 'articulate', 'kind': 'milestone',
+                 **({'display_t': save['display_t']} if 'display_t' in save else {}),
                  **articulation_result(save, evidence)}
         events.append(event)
-        if receipt and final and final <= save['t']:
+        if receipt and final and final <= save.get('display_t', save['t']):
             if receipt > save['t']:
                 event = {**event, 'id': 'articulated_published', 't': receipt}
+                event.pop('display_t', None)
                 events.append(event)
             event['say'] += '，已发布这版房间'
             if evidence['source'] == 'event':
                 event['published'] = True
     return events
+
+
+def integrated_articulation(scene, row):
+    if not row.get('artifact_digest') and row != latest_save(trace_rows(scene), 'articulated'):
+        return {}
+    evidence = model_evidence(scene, [row], 'articulated', ARTICULATED)
+    return {} if evidence['source'] == 'external_change' else evidence
+
+
+def current_small_digest(scene, row):
+    if not row:
+        return None
+    actual = picture_version(model_path(scene, SMALL_OBJECTS))
+    if row.get('artifact_digest'):
+        return actual if actual == row['artifact_digest'] else None
+    return actual if row == latest_save(trace_rows(scene), 'small_objects') else None
 
 
 def standalone_articulation(rows):
@@ -598,10 +712,10 @@ def small_summary(row):
     def n(key):
         value = (row or {}).get(key)
         return len(value) if isinstance(value, list) else value if isinstance(value, int) else 0
-    parts = [text.format(n(key)) for key, text in (('rebuilt', '按照片重做 {} 件'), ('dropped', '去掉 {} 件'),
+    parts = [text.format(n(key)) for key, text in (('rebuilt', '采用照片模型 {} 件'), ('dropped', '去掉 {} 件'),
                                                    ('kept', '{} 件保持原样'), ('undone', '{} 件没处理成，仍是原来的样子'))
              if n(key)]
-    return '小物品处理好了' + ('：' + '，'.join(parts) if parts else '')
+    return '小物品处理完成' + ('：' + '，'.join(parts) if parts else '')
 
 
 # The room the agent is editing is rebuilt into FINAL many times and is ~100 MB, so a live page takes a
@@ -653,9 +767,9 @@ def records_models(rows):
 
 def model_evidence(scene, rows, model, rel):
     import replay_history
-    recorded = [r for r in rows if r.get('kind') == 'model_saved' and r.get('model') == model]
+    recorded = latest_save(rows, model)
     legacy = model not in PASSES and not records_models(rows)
-    return replay_history.artifact_evidence(model_path(scene, rel), recorded[-1] if recorded else None, legacy=legacy)
+    return replay_history.artifact_evidence(model_path(scene, rel), recorded, legacy=legacy)
 
 
 def _rounds(scene, until=None):
@@ -695,6 +809,63 @@ def last_review_stage(scene, until=None):
     return ['review', 'review2', 'review3'][min(sum(1 for r in rounds if r[3] == run) - 1, 2)]
 
 
+def review_views(folder, issues, passed):
+    """Use the same sorted, one-based image positions the reviewer's vision prompt labels."""
+    pairs = sorted(folder.glob('compare/pairs/pair_*.png'))
+    if passed or not pairs:
+        return pairs[:1]
+    # A slim or partially restored run may lack a PNG. The renderer's movie list preserves
+    # the original file names; never shift a later photo into a missing image's slot.
+    names = set()
+    try:
+        listing = (folder / 'compare/_pairs.txt').read_text()
+        names.update(re.findall(r"^file '(?:[^\n]*/)?(pair_\d+\.png)'$", listing, re.M))
+    except (OSError, ValueError):
+        pass
+    slots = {name: n for n, name in enumerate(sorted(names), 1)}
+    available = {slots[p.name]: p for p in pairs if p.name in slots}
+    views, objects = {}, {}
+    for index, issue in enumerate(issues):
+        if not isinstance(issue, dict) or not isinstance(issue.get('images'), list):
+            continue
+        refs = {n for n in issue['images'] if type(n) is int and n in available}
+        if refs:
+            views[index] = refs
+            ids = issue.get('object_ids')
+            objects[index] = {s for s in ids if isinstance(s, str)} if isinstance(ids, list) else set()
+    if not views:
+        cited = any(isinstance(i, dict) and i.get('images') for i in issues)
+        return [] if cited else pairs[:1]
+
+    # Choose shared views first, then cover subjects absent from the chosen pictures.
+    by_view = {n: {i for i in views if n in views[i]} for n in sorted(set.union(*views.values()))}
+    remaining = set(views)
+    selected = []
+    while remaining and len(selected) < 3:
+        def coverage(n):
+            hits = by_view[n] & remaining
+            return len(hits), len(set().union(*(objects[i] for i in hits))), sum(1 / len(views[i]) for i in hits)
+        best = max(by_view, key=coverage)
+        selected.append(best)
+        remaining -= by_view[best]
+
+    # One issue can describe two different surfaces (e.g. the wall AND the ceiling).
+    # Keep one complementary angle if the report cites a pair of views or a dedicated detail view.
+    def complement(n):
+        hits = by_view[n]
+        dual = sum(len(views[i]) == 2 and len(views[i].intersection(selected)) == 1 for i in hits)
+        detail = len(objects[next(iter(hits))]) if len(hits) == 1 else 0
+        return dual, detail, len(hits)
+
+    other = [n for n in by_view if n not in selected]
+    if len(selected) < 3 and other:
+        extra = max(other, key=complement)
+        dual, detail, _ = complement(extra)
+        if dual or detail > 1:
+            selected.append(extra)
+    return [available[n] for n in selected]
+
+
 def review_events(scene, until=None):
     events, runs = [], []
     for k, (t, path, _, run) in enumerate(_rounds(scene, until)):
@@ -705,16 +876,25 @@ def review_events(scene, until=None):
         except (OSError, ValueError):
             continue
         folder = path.parent
-        pair = _first(folder.glob('compare/pairs/pair_*.png'))
         passed = review.get('pass')
         # One check now; older runs checked again after each repair.
         say = ('检查房间' if n == 1 else f'第 {n} 次检查') + ('：通过' if passed else '没通过')
         # Rounds name the text differently (description / defect); plain strings occur too.
-        issues = [(i.get('description') or i.get('defect') or i.get('issue') or i.get('text') or '') if isinstance(i, dict) else str(i)
-                  for i in review.get('issues', [])]
-        issues = [i.strip() for i in issues if str(i).strip()]
+        issues, descriptions = [], []
+        for issue in review.get('issues', []):
+            description = (issue.get('description') or issue.get('defect') or issue.get('issue') or issue.get('text')
+                           if isinstance(issue, dict) else issue)
+            if isinstance(description, str) and description.strip():
+                descriptions.append(description.strip())
+                issues.append(issue)
+            if len(issues) == 4:
+                break
+        pictures = [_rel(scene, p) for p in review_views(folder, issues, passed)]
         event = {'id': f'r{k}', 't': t, 'stage': ['review', 'review2', 'review3'][min(n - 1, 2)], 'kind': 'review',
-                 'round': n, 'say': say, 'passed': bool(passed), 'issues': issues[:4], 'img': _rel(scene, pair)}
+                 'round': n, 'say': say, 'passed': bool(passed), 'issues': descriptions,
+                 'img': pictures[0] if pictures else None}
+        if len(pictures) > 1:
+            event['media'] = [{'role': 'review', 'src': src} for src in pictures]
         if (folder / 'Room.glb').is_file():
             event['model'] = f'round{k}'
         events.append(event)
@@ -722,7 +902,7 @@ def review_events(scene, until=None):
         fixed = r.get('status') == 'repaired'
         # Newer runs record whether the repair changed the room; older ones (no `changed`) read as before.
         say = ('按检查意见尝试修改，房间没有变化' if fixed and r.get('changed') is False
-               else '按检查出的问题修好了房间' if fixed else '修复后的房间生成失败，退回检查时的版本')
+               else '已完成本轮修改' if fixed else '修复后的房间生成失败，退回检查时的版本')
         events.append({'id': f'fix{k}', 't': r['t'], 'stage': 'review2', 'kind': 'result' if fixed else 'error',
                        'say': say})
     return events
@@ -744,10 +924,17 @@ def models(scene, until=None):
         out[draft_key(draft)] = FINAL
     if _model_time(scene, rows, 'final', FINAL, until):
         out['final'] = FINAL
-    if _model_time(scene, rows, 'small_objects', SMALL_OBJECTS, until):
-        out['small_objects'] = SMALL_OBJECTS
-    if _model_time(scene, rows, 'articulated', ARTICULATED, until):
-        out['articulated'] = ARTICULATED
+    last_small = latest_save(rows, 'small_objects')
+    if last_small and not inside(last_small) and (digest := current_small_digest(scene, last_small)):
+        out['small_objects'] = f'small-objects/history/{digest}.glb'
+    out.update(saved_small_rooms(scene, rows).values())
+    for row in reversed(rows):
+        if row.get('kind') == 'model_saved' and row.get('model') == 'articulated':
+            evidence = (integrated_articulation(scene, row) if inside(row) else
+                        model_evidence(scene, [row], 'articulated', ARTICULATED))
+            if evidence.get('time'):
+                out['articulated'] = ARTICULATED
+                break
     return out
 
 
@@ -801,7 +988,7 @@ def chair_clusters(scene):
         return None
 
 
-def build_schedule(scene, until=None):
+def build_schedule(scene, until=None, hidden=()):
     """When the modelling agent added each new part of the room.
 
     No room model is saved while the agent works, so the replay shows the final model with the parts the
@@ -813,7 +1000,7 @@ def build_schedule(scene, until=None):
     if not (_model_time(scene, trace, 'seed', SEED, until) and _model_time(scene, trace, 'final', FINAL, until)):
         return None
     before, after = glb_tree(seed), glb_tree(final)
-    added = [n for n, p in after.items() if n not in before and (p is None or p in before)]
+    added = [n for n, p in after.items() if n not in before and n not in hidden and (p is None or p in before)]
     # Runs that record each build of the authored room: a part shows from the first build that has it.
     built = {}
     for r in trace:
@@ -1205,7 +1392,7 @@ def timeline(job_dir, status='completed', until=None):
             event['stage'] = 'revise'
     # The passes before it were made from the room being revised; they run again afterwards.
     if revised:
-        events = [e for e in events if e['stage'] not in ('small_objects', 'articulate') or e['t'] >= revised]
+        events = [e for e in events if e['stage'] not in ('small_objects', 'articulate') or e.get('display_t', e['t']) >= revised]
     for event in events:
         event.setdefault('source', 'legacy_projection')
         event.setdefault('confidence', 'inferred')
@@ -1213,10 +1400,12 @@ def timeline(job_dir, status='completed', until=None):
             said = summary.data['reviews'].get(event['id'])
             if said:
                 event['say'] += '：' + said
-    events.sort(key=lambda e: (e['t'], STAGE_IDS.index(e['stage'])))
-    # Stages never step back on the timeline (a late-written record keeps the stage it belongs to).
+    events.sort(key=lambda e: (e.get('display_t', e['t']), STAGE_IDS.index(e['stage'])))
+    # Retries can write earlier-stage records late. Standalone passes are positioned separately below.
     order = 0
     for event in events:
+        if event['stage'] in STANDALONE:
+            continue
         order = max(order, STAGE_IDS.index(event['stage']))
         event['stage'] = STAGE_IDS[order]
     start = events[0]['t'] if events else None
@@ -1227,6 +1416,8 @@ def timeline(job_dir, status='completed', until=None):
 
     for event in events:
         event['minute'] = round((event['t'] - start) / 60, 3)
+        if 'display_t' in event:
+            event['display_minute'] = round((event.pop('display_t') - start) / 60, 3)
         event.pop('issues', None)
         pictures = event.get('media') or []
         img = event.get('img')
@@ -1237,16 +1428,21 @@ def timeline(job_dir, status='completed', until=None):
                 media['version'] = v
             if 't' in media:
                 media['minute'] = round((media.pop('t') - start) / 60, 3)
-    build = build_schedule(scene, until) if start else None
+    available = models(scene, until)
+    latest_event = next((e['id'] for e in reversed(events) if e['kind'] != 'error'), None)
+    projected = project_standalone(events, revised)
+    hidden = small_node_masks(scene, rows, available, revised, until)
+    build = build_schedule(scene, until, hidden.get('assembly', ())) if start else None
     if build:
         build = {'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
                                if not until or a <= until], start) if start else []
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,
-            'stages': stages_of(events, published_passes(rows)), 'events': events, 'models': models(scene, until),
+            'stages': stages_of(events), 'events': events, 'models': available,
+            'hidden_nodes': hidden, **({'presentation': 'by_stage', 'latest_event': latest_event} if projected else {}),
             'build': build, 'idle': idle, 'chair_clusters': chair_clusters(scene),
-            'model_evidence': {model: model_evidence(scene, trace_rows(scene, until), model, rel)
+            'model_evidence': {model: model_evidence(scene, rows, model, rel)
                                for model, rel in [('seed', SEED), ('final', FINAL), ('small_objects', SMALL_OBJECTS),
                                                   ('articulated', ARTICULATED)]}}
 
@@ -1293,17 +1489,88 @@ def idle_spans(events, spans, start):
             for (_, b0), (a1, _) in zip(merged, merged[1:]) if a1 - b0 > IDLE_MINUTES * 60]
 
 
-def stages_of(events, late=False):
-    """The stages to list: all, but the revision and the small-object pass only for a run that went through them,
-    and the openable parts once: before the check, or after publishing for an older run that made them there
-    (`late`, see published_passes)."""
-    return [s for s in STAGES if (s['id'] not in ('revise', 'small_objects') or any(e['stage'] == s['id'] for e in events))
-            and s['id'] != ('parts' if late else 'articulate')]
+def stages_of(events):
+    return [s for s in STAGES if s['id'] != 'revise' or any(e['stage'] == 'revise' for e in events)]
 
 
-def published_passes(rows):
-    """Whether an older run ran its passes after publishing, on their own (not in the author stage)."""
-    return any(r.get('kind') in ('small_objects_start', 'articulate_start') and not inside(r) for r in rows)
+def project_standalone(events, revised):
+    """Present later independent passes beside the work they illustrate. Keep the source clock and snapshots."""
+    late = [e for e in events if e['stage'] in STANDALONE]
+    if not late:
+        return False
+    if revised:
+        # Earlier passes have been superseded. These were run on the revised room.
+        for e in late:
+            e['recorded_stage'], e['stage'] = e['stage'], 'revise'
+            e.setdefault('display_minute', e['minute'])
+        return True
+    base = [e for e in events if e['stage'] not in STANDALONE]
+    split = next((i for i, e in enumerate(base) if STAGE_IDS.index(e['stage']) >= STAGE_IDS.index('parts')), len(base))
+    boundary = base[min(split, len(base) - 1)] if base else {'minute': 0}
+    anchor = boundary.get('display_minute', boundary['minute'])
+    latest_save = max((e.get('display_minute', e['minute']) for e in late if e.get('model')), default=-float('inf'))
+    last_pass = max(e.get('display_minute', e['minute']) for e in late)
+    for e in late:
+        e['recorded_stage'] = e['stage']
+        e['stage'] = STANDALONE[e['stage']]
+        e['display_minute'] = anchor
+    # An earlier review is evidence about its original room. Keep its images and file available,
+    # while the 3D presentation keeps the enhanced room which the viewer has just seen.
+    for e in base[split:]:
+        if e.get('model') and e['minute'] <= latest_save:
+            e['recorded_model'] = e.pop('model')
+        if e['id'] == 'final' and e['minute'] <= last_pass:
+            e['say'] = '导出当时的房间'
+    events[:] = base[:split] + sorted(late, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
+    return True
+
+
+def small_node_masks(scene, rows, available, revised, until):
+    """Group roots to omit when showing the room before the small-object pass placed its models."""
+    last_start = max((k for k, r in enumerate(rows) if r.get('kind') == 'small_objects_start' and not inside(r)), default=-1)
+    authored, standalone = set(), set()
+    for k, r in enumerate(rows):
+        if r.get('kind') != 'small_object_done' or not r.get('name'):
+            continue
+        if not (r.get('marker') or (r.get('status') == 'ok' and r.get('method') in ('trellis', 'dropped'))):
+            continue
+        if inside(r):
+            authored.add(r['name'])
+        elif k > last_start and (not revised or r['t'] >= revised):
+            standalone.add(r['name'])
+
+    # A marker box exists in live authoring drafts before there is a per-item result.
+    def markers(layout):
+        try:
+            if until is None or layout.stat().st_mtime <= until:
+                return {o['id'] for o in json.loads(layout.read_text())['objects'] if o.get('small_marker')}
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return set()
+
+    draft_markers = markers(Path(scene) / 'realism_authoring/room_preview/room_layout.json')
+    seed_markers = markers(Path(scene) / SEED_LAYOUT)
+    items = small_folder(scene) / 'items.json'
+    if (authored or standalone) and (not until or (_mtime(items) or 0) <= until):
+        try:
+            for item in json.loads(items.read_text()):
+                for roots in (authored, standalone):
+                    if item['id'] in roots:
+                        roots.update(item.get('members') or [])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    pending = sorted(authored | standalone | draft_markers)
+    if not pending and not seed_markers:
+        return {}
+    masks = {'assembly': pending}
+    for key in available:
+        if key == 'seed':
+            masks[key] = sorted(authored | standalone | seed_markers)
+        elif key.startswith('draft'):
+            masks[key] = pending
+        elif standalone and (key == 'final' or key.startswith('round')):
+            masks[key] = sorted(standalone)
+    return masks
 
 
 # ---------- 3D scaffold: point cloud and layout boxes ----------
@@ -1450,7 +1717,8 @@ def _scaffold(job_dir):
 READS = ('scene_init/obj_stage/traces/trace.jsonl', 'scene_init/obj_stage/traces/authoring_trace.*.jsonl',
          *map(str, CHAIR_MANIFESTS), str(SEED_LAYOUT), STAGED_MANIFEST, CLUSTER_FILE,
          'scene_init/obj_stage/traces/history/authoring_trace.*.run_*.jsonl',  # earlier sessions (not their raw logs)
-         'realism_authoring/acceptance/*/round_*/visual_review.json',
+         'realism_authoring/acceptance/*/round_*/visual_review.json', 'realism_authoring/acceptance/*/round_*/compare/_pairs.txt',
+         'realism_authoring/room_preview/room_layout.json',
          'scene_init/obj_stage/object_init/input/scan_geometry/*/scene_points.obj',
          'scene_init/obj_stage/object_init/input/scene_data/*/layout_shell.json',
          'scene_init/obj_stage/object_init/input/scene_data/*/layout_baseline.json')
@@ -1477,6 +1745,12 @@ def slim(run, dest):
     # attempt ended (whether a later one was a retry).
     extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
     small = small_folder(scene)
+    extra.append((small / 'items.json', dest / 'small-objects/items.json'))
+    for _, rel in set(saved_small_rooms(scene, trace_rows(scene)).values()):
+        if SMALL_HISTORY.fullmatch(rel):
+            path = scene_file(scene, rel)
+            if path and path != model_path(scene, SMALL_OBJECTS).resolve():
+                extra.append((path, dest / rel))
     extra += [(path, dest / 'small-objects' / path.relative_to(small)) for path in small.glob('evidence/*/*.jpg')
               if SMALL_PICTURES.fullmatch('small-objects/' + str(path.relative_to(small)))]
     items = {r['name'] for r in trace_rows(scene) if r.get('kind') == 'small_object_done' and r.get('name')}
@@ -1507,6 +1781,7 @@ def register(data_dir, run, name, until=None):
                                                   ('articulated', ARTICULATED))]
         _, receipt = standalone_articulation(rows)
         ends.append(receipt)
+        ends.extend(r['display_t'] for r in rows if 'display_t' in r)
         until = max(t for t in ends if t) + 120
     identifier = uuid.uuid4().hex
     folder = Path(data_dir) / identifier
