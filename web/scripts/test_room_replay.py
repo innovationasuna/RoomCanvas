@@ -1,5 +1,6 @@
 """Reconstruction replay: run directory -> timeline, condensation cache, file allowlist, service routes.
 Synthetic runs only; no GPU, model or codex calls."""
+import hashlib
 import json
 from io import BytesIO
 import os
@@ -143,16 +144,22 @@ class Events(unittest.TestCase):
         def event(passed, issues):
             write(folder / 'visual_review.json', json.dumps({'pass': passed, 'issues': issues}), T0 + 1000)
             return replay.review_events(self.scene, self.until)[0]
+        write(folder / 'compare/_pairs.txt', "".join(f"file '/source/{n}'\n" for n in names))
         e = event(False, issues)
         self.assertEqual(e['issues'], ['floor', 'box', 'picture', 'window'])
         self.assertEqual([Path(m['src']).name for m in e['media']], names[1:3])
         self.assertEqual(e['img'], e['media'][0]['src'])
         self.assertEqual(Path(event(True, issues)['img']).name, names[0])
         self.assertEqual(Path(event(False, ['old issue'])['img']).name, names[0])
-        write(folder / 'compare/_pairs.txt', "".join(f"file '/source/{n}'\n" for n in names))
         (folder / 'compare/pairs' / names[1]).unlink()
         self.assertIsNone(event(False, [{'defect': 'box', 'images': [0, True, 2, 9]}])['img'])
         self.assertEqual(Path(event(False, [{'defect': 'window', 'images': [3]}])['img']).name, names[2])
+
+    def test_missing_review_manifest_does_not_renumber_remaining_views(self):
+        folder = self.scene / 'realism_authoring/acceptance/attempt-x/round_00'
+        write(folder / 'compare/pairs/pair_00073.png')
+        self.assertEqual(replay.review_views(folder, [{'images': [2]}], False), [])
+        self.assertEqual([p.name for p in replay.review_views(folder, ['legacy issue'], False)], ['pair_00000.png'])
 
     def test_a_later_pass_on_an_older_run_keeps_its_models(self):
         rows = [{'t': T0 + 5000, 'kind': 'pipeline_stage', 'stage': 'ingest', 'schema_version': 2, 'event_id': 'e1'},
@@ -564,7 +571,8 @@ class PhasedRun(unittest.TestCase):
                           '小物品处理完成：采用照片模型 2 件，去掉 1 件，1 件保持原样'])
         self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'small_objects', 'articulated'])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
-        self.assertEqual(data['models']['small_objects'], replay.SMALL_OBJECTS)
+        self.assertEqual(data['models']['small_objects'], f'small-objects/history/{hashlib.sha256(b"small").hexdigest()}.glb')
+        self.assertEqual(replay.scene_file(self.scene, data['models']['small_objects']).read_bytes(), b'small')
         self.assertIn('做好柜子2的模型', [e['say'] for e in events])
         self.assertEqual(data['model_evidence']['small_objects']['time'], T0 + 2510)
 
@@ -600,6 +608,26 @@ class PhasedRun(unittest.TestCase):
         self.assertNotIn('small_objects', data['models'])
         summary = next(e for e in replay.timeline(self.root, 'running', T0 + 2505)['events'] if e['id'] == 'small_objects')  # counted, the room not saved yet
         self.assertEqual((summary['t'], summary.get('model')), (T0 + 2500, None))
+
+    def test_reused_standalone_files_close_after_their_own_pass(self):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        for row in rows:
+            if row.get('model') in replay.PASSES:
+                row['t'] = T0 + 15
+        write(trace, ''.join(json.dumps(row) + '\n' for row in rows))
+        for cutoff, last in [(2400, '瓶子的照片模型已就绪'), (2501, 'small_objects'), (3301, 'articulated')]:
+            data = replay.timeline(self.root, 'running', T0 + cutoff)
+            events = data['events']
+            latest = next(e for e in events if e['id'] == data['latest_event'])
+            if cutoff == 2400:
+                self.assertEqual(latest['say'], last)
+                self.assertNotIn('small_objects', data['models'])
+            else:
+                self.assertEqual((latest['model'], latest['t']), (last, T0 + 15))
+                own = [e for e in events if e.get('recorded_stage') == latest['recorded_stage']]
+                self.assertIs(own[-1], latest)
+                self.assertTrue(all('model' not in e for e in events if e['id'] == 'final'))
 
     def test_published_label_waits_for_the_matching_room_receipt(self):
         import hashlib
@@ -977,6 +1005,69 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertNotIn('small_objects', complete['hidden_nodes'])
         self.assertNotIn('final', complete['hidden_nodes'])
 
+    def test_future_marker_layout_keeps_the_earlier_book_visible(self):
+        write(self.scene / 'realism_authoring/room_preview/room_layout.json',
+              json.dumps({'objects': [{'id': 'Book0', 'small_marker': True}]}), T0 + 1000)
+        glb(self.scene / replay.SEED, {'@roots': ['Book0']}, T0 + 100)
+        data = replay.timeline(self.root, 'running', T0 + 650)
+        self.assertNotIn('Book0', data['hidden_nodes'].get('seed', []))
+        self.assertNotIn('Book0', data['hidden_nodes'].get('assembly', []))
+
+    def test_reused_articulation_is_cut_at_its_own_completion_and_verified(self):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        parts = [r for r in rows if r.get('model') == 'articulated']
+        path = self.scene / parts[0]['path']
+        for k, row in enumerate(rows):
+            row.update(schema_version=2, sequence=k)
+        for row in parts:
+            row.update(t=T0 + 15, artifact_digest=hashlib.sha256(path.read_bytes()).hexdigest())
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows))
+        def saved(cutoff):
+            return [(e['stage'], e.get('model')) for e in replay.timeline(self.root, until=T0 + cutoff)['events']
+                    if re.fullmatch(r'parts\d+', e['id'])]
+        self.assertEqual(saved(850), [])
+        self.assertEqual(saved(1070), [('parts', 'articulated')])
+        self.assertEqual(saved(1125), [('parts', 'articulated'), ('review2', 'articulated')])
+        write(path, b'repair')
+        parts[-1]['artifact_digest'] = hashlib.sha256(b'repair').hexdigest()
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows))
+        self.assertEqual(saved(1070), [('parts', None)])
+        self.assertNotIn('articulated', replay.models(self.scene, T0 + 1070))
+        self.assertEqual(saved(1125), [('parts', None), ('review2', 'articulated')])
+
+    def test_digestless_live_room_changes_its_request_path_on_the_same_job(self):
+        def snapshot():
+            data = replay.timeline(self.root, 'running')
+            event = next(e for e in data['events'] if e.get('model') == 'small_objects')
+            return data['models'][event['model']], event['artifact_digest']
+        before, old = snapshot()
+        path = replay.scene_file(self.scene, before)
+        write(path, b'changed')
+        after, new = snapshot()
+        self.assertNotEqual(before, after)
+        self.assertNotEqual(old, new)
+        self.assertIsNone(replay.scene_file(self.scene, before))
+        self.assertEqual(replay.scene_file(self.scene, after).read_bytes(), b'changed')
+
+    def test_standalone_save_in_another_folder_keeps_the_integrated_room_in_slim(self):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        save = next(r for r in reversed(rows) if r.get('model') == 'small_objects')
+        digest = save['artifact_digest'] = hashlib.sha256(b'small').hexdigest()
+        path = write(self.root / 'run' / replay.SMALL_OBJECTS, b'new', T0 + 1290)
+        rows += [{'t': T0 + 1250, 'kind': 'small_objects_start'},
+                 {'t': T0 + 1290, 'kind': 'model_saved', 'model': 'small_objects', 'path': str(path)}]
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows))
+        replay.slim(self.root / 'run', self.root / 'slim/run')
+        for job in (self.root, self.root / 'slim'):
+            scene = replay.find_scene(job)
+            data = replay.timeline(job, until=T0 + 1200)
+            rel = data['models'][f'small_{digest}']
+            self.assertEqual(replay.scene_file(scene, rel).read_bytes(), b'small')
+            new = next(e for e in replay.timeline(job)['events'] if e.get('model') == 'small_objects')
+            self.assertEqual(new['artifact_digest'], hashlib.sha256(b'new').hexdigest())
+
     def test_replay_reader_keeps_each_integrated_save_joint_count(self):
         trace = self.scene / replay.TRACES / 'trace.jsonl'
         rows = [json.loads(line) for line in trace.read_text().splitlines()]
@@ -1334,12 +1425,12 @@ class Sessions(unittest.TestCase):
         self.assertEqual([s['id'] for s in data['stages']], EIGHT + ['revise'])
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
-            (2300, 'assemble', '整理小物品的照片和模型', None),
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
             (1020, 'review2', '按检查意见修改房间', None), (1100, 'review2', '已完成本轮修改', None),
             (2020, 'revise', '第 2 段', None), (2100, 'revise', '检查房间：通过', 'round1'),
             (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '按检查意见修改房间', None),
-            (2150, 'revise', '已完成本轮修改', None), (2200, 'revise', '导出当时的房间', 'final')])
+            (2150, 'revise', '已完成本轮修改', None), (2200, 'revise', '导出最终房间', 'final'),
+            (2300, 'revise', '整理小物品的照片和模型', None)])
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
         self.assertEqual([(e['model'], e['round']) for e in data['events'] if e['kind'] == 'review'],
                          [('round0', 1), ('round1', 1)])
@@ -1370,7 +1461,7 @@ class Sessions(unittest.TestCase):
                      {'t': T0 + 2500, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-02'}])
         data = replay.timeline(self.job, 'completed', T0 + 3000)
         self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140],
-                         [(T0 + 2300, 'assemble'), (T0 + 2400, 'parts'), (T0 + 2500, 'parts'), (T0 + 2020, 'revise')])
+                         [(T0 + t, 'revise') for t in (2020, 2300, 2400, 2500)])
 
     def old_cache(self, batches):
         """summary.json as the code before the sessions were numbered on wrote it (no 'numbering')."""

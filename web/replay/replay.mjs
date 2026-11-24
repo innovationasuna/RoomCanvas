@@ -91,11 +91,12 @@ async function poll() {
   try {
     const next = await fetchData();
     // Also when only a line's wording or picture changed (a batch condensed), not just when records were added.
-    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || JSON.stringify(next.models) !== JSON.stringify(data.models)
+    if (JSON.stringify(next.events) !== JSON.stringify(data.events) || next.live !== data.live || next.latest_event !== data.latest_event
+        || JSON.stringify(next.models) !== JSON.stringify(data.models)
         || JSON.stringify(next.chair_clusters) !== JSON.stringify(data.chair_clusters)
         || JSON.stringify(next.hidden_nodes) !== JSON.stringify(data.hidden_nodes)) {
       // New records only pull a reader down while the replay follows the live end, not while one looks back.
-      const wasEnd = player.t >= span() - 0.01, follow = following || wasEnd;
+      const follow = following || player.t === tl.latestAt;
       const restore = keepReading($('log'), tl.events, follow && appendedEvents(data.events, next.events));
       data = next;
       rebuild(follow);
@@ -112,11 +113,11 @@ async function poll() {
 // ---------- rebuild everything that depends on the event list ----------
 let addedAll;
 function rebuild(followLatest) {
+  const previous = tl?.events[tl.indexAt(player.t)];
+  const offset = previous ? player.t - previous.at : 0;
   tl = buildTimeline(data);
-  const projected = data.presentation === 'by_stage';
   const date = data.start && new Date(data.start * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3);
-  $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>` + (projected ? '历史任务 · 按当前流程展示' : '重建过程') +
-    (date ? ` · ${date}` : '');
+  $('context').innerHTML = `<b>${esc(data.name || '房间')}</b>重建过程` + (date ? ` · ${date}` : '');
   addedAll = tl.build?.reveal.map((r) => r.node);
   view.objectIds = new Set(tl.events.flatMap(e => e.show || []));
   view.chairClusters = data.chair_clusters;
@@ -128,8 +129,6 @@ function rebuild(followLatest) {
   $('log').querySelectorAll('[data-key]').forEach((el) => cardImages.collect(el));
   cardImages.prune(deck, tl.events);
   $('log').innerHTML = `<div class="user">帮我把「${esc(data.name || '这个房间')}」的扫描重建成能在网页里编辑的 3D 房间。</div><div class="who"><i>R</i>RoomCanvas</div>`;
-  if (projected) $('log').insertAdjacentHTML('beforeend',
-    '<p class="pending">后续单独处理的成果归入搭建或开合阶段。三维画面会保留处理后的模型，检查图和结论来自当时检查的版本。</p>');
   shownTo = -1;
   shownCard = -1;
   if (!tl.events.length) $('log').insertAdjacentHTML('beforeend', '<p class="pending">任务排队中，开始重建后这里会实时显示过程。</p>');
@@ -141,8 +140,12 @@ function rebuild(followLatest) {
     '<div class="head" id="head"></div>';
   fitLabels();
   $('live').hidden = !data.live;
-  if (followLatest) player.seek(span(), {animate: data.live});
-  else render(player.t, player);
+  if (followLatest) player.seek(data.live ? tl.latestAt : span(), {animate: data.live});
+  else {
+    const record = previous?.id && tl.events.find(e => e.id === previous.id);
+    const end = record && (tl.events[record.i + 1]?.at ?? span());
+    player.seek(record ? Math.min(record.at + offset, end - 0.001) : player.t);
+  }
 }
 
 // ---------- left: the record, newest at the bottom ----------
@@ -264,7 +267,7 @@ $('dots').onclick = (ev) => {
 
 // ---------- timeline ----------
 function seekTo(t) {
-  following = t >= span() - 0.01;
+  following = data.live && Math.abs(t - tl.latestAt) < 0.01;
   reveal = true;  // the record moved to is brought into view (seek renders at once)
   player.seek(t, {pause: true});
   revealCard();
@@ -307,7 +310,7 @@ const step = (d) => {
 $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 $('play').onclick = () => {following = false; player.toggle();};
-$('latest').onclick = () => seekTo(span());
+$('latest').onclick = () => seekTo(tl.latestAt);
 // Playback speed. The view decides the speed of the moment: sped up, it still plays what is worth watching
 // (the camera moving in, an object taking shape) at normal speed, and render() passes that on to the clock.
 function setRate() {
@@ -351,8 +354,8 @@ function render(t, p, animate = p.playing) {
   $('head') && ($('head').style.left = `${t / span() * 100}%`);
   const projected = data.presentation === 'by_stage';
   $('clock').textContent = projected ? '回放 ' + clock(t / 60) : clock(tl.workAt(tl.realAt(t)));
-  $('total').textContent = '/ ' + clock(projected ? span() / 60 : tl.workAt(tl.events.at(-1)?.minute || 0));
-  $('latest').hidden = !data.live || following || atEnd;
+  $('total').textContent = '/ ' + clock(projected ? span() / 60 : tl.workAt(tl.realAt(span())));
+  $('latest').hidden = !data.live || following || t === tl.latestAt;
   const st = tl.stageAt(t), si = st ? data.stages.findIndex((s) => s.id === st.id) : -1;
   tl.stages.forEach((s) => {
     const f = atEnd || s.replay[1] <= t ? 1 : s === st ? (t - s.replay[0]) / (s.replay[1] - s.replay[0]) : 0;

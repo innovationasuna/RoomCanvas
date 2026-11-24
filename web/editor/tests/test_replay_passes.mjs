@@ -92,3 +92,47 @@ test('an old room with only an openable-parts pass has no small-object events', 
   assert.deepEqual(tl.hiddenNodes, {});
   assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
 });
+
+test('offline cached saves close their pass even when the GLB predates the photos and review', () => {
+  const events = oldRun.events.map(e => e.id === 'placed' || e.id === 'joints' ? {...e, minute: 1} : e);
+  events.push({id: 'open', stage: 'articulate', kind: 'think', minute: 120});
+  const data = readReplay({...oldRun, events: events.sort((a, b) => a.minute - b.minute)});
+  const tl = buildTimeline(data), photo = tl.events.find(e => e.id === 'photo');
+  assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'open', 'joints', 'check', 'final']);
+  assert.equal(comparisonAt(photo, tl, tl.duration)?.src, 'pair.jpg');
+  assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
+});
+
+test('offline passes on a revised room keep the original review model and follow the revision', () => {
+  const revise = {id: 'revise', name: '修改', desc: ''};
+  const before = oldRun.events.slice(0, 4);
+  const data = readReplay({...oldRun, stages: [...oldStages, revise],
+    events: [...before, {id: 'move', stage: 'revise', minute: 50}, ...oldPass]});
+  const tl = buildTimeline(data);
+  assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'check', 'final', 'move', 'photo', 'placed', 'joints']);
+  assert.equal(sceneAt(tl, tl.events.find(e => e.id === 'check').at).model, 'round0');
+  assert.equal(tl.stageAt(tl.duration).id, 'revise');
+  assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
+  const cached = {...oldRun, presentation: 'by_stage', stages: data.stages, events: [
+    ...oldPass.map(e => ({...e, recorded_stage: e.stage, stage: e.stage === 'articulate' ? 'parts' : 'assemble', display_minute: 20})),
+    ...before.map(e => e.stage === 'review' ? {...e, recorded_model: e.model, model: undefined} : e),
+    {id: 'move', stage: 'revise', minute: 50}]};
+  assert.deepEqual(readReplay(cached).events, data.events);
+});
+
+test('an empty old pass and mixed item sources keep integrated objects in review models', () => {
+  const integrated = {stage: 'assemble', minute: 12, work: 'small', object_id: 'Lamp0'};
+  for (const pass of [[], oldPass]) {
+    const data = readReplay({...oldRun, events: [
+      ...oldRun.events.slice(0, 2), integrated, ...oldRun.events.slice(2, 4), ...pass]});
+    assert.ok(data.hidden_nodes.seed.includes('Lamp0'));
+    if (!pass.length) {
+      assert.equal(data.presentation, undefined);
+      assert.equal(data.hidden_nodes.final, undefined);
+      assert.equal(sceneAt(buildTimeline(data), buildTimeline(data).duration).model, 'final');
+    } else {
+      assert.deepEqual(data.hidden_nodes.round0, ['Cup0']);
+      assert.deepEqual(data.hidden_nodes.final, ['Cup0']);
+    }
+  }
+});

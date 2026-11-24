@@ -95,6 +95,23 @@ test('assembly hides the old item even while its support forms, and seeking back
   assert.equal(visibleMesh(authored, 'OldBlock'), false);
 });
 
+test('masking a support preserves a separate child object through seeks', () => {
+  const v = view(), support = mesh('Stand0'), lamp = group('Lamp0', mesh('Bulb'));
+  lamp.userData.room_id = 'Lamp0';
+  support.position.set(2, 3, 4);
+  support.add(lamp, group('StandFoot', mesh('Foot')));
+  const root = loaded(v, 'round0', support);
+  const position = lamp.getWorldPosition(new THREE.Vector3());
+  for (const [hiddenNodes, expected] of [[['Stand0'], ['Bulb']], [[], ['stand', 'Bulb', 'Foot']],
+    [['Stand0', 'Lamp0'], []], [['Stand0'], ['Bulb']]]) {
+    apply(v, 'round0', true, {hiddenNodes});
+    const visible = [];
+    root.traverseVisible(node => {if (node.isMesh && !node.userData.mask) visible.push(node === support ? 'stand' : node.name);});
+    assert.deepEqual(visible.sort(), expected.sort());
+    assert.ok(lamp.getWorldPosition(new THREE.Vector3()).equals(position));
+  }
+});
+
 for (const action of ['wait', 'seek', 'dispose']) test(`a paused assembly retries a disconnected seed only while waiting: ${action}`, async t => {
   t.mock.timers.enable({apis: ['setTimeout', 'Date']});
   t.mock.method(performance, 'now', () => Date.now());

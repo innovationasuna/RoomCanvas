@@ -33,29 +33,47 @@ function projectCachedPasses(data) {
 
   const main = events.filter(e => !standalonePass(e.stage));
   const cut = main.findIndex(e => afterBuild(e.stage));
-  const anchor = (cut >= 0 ? main[cut] : main.at(-1))?.minute ?? 0;
-  const passes = [];
+  const anchor = displayMinute((cut >= 0 ? main[cut] : main.at(-1)) || {minute: 0});
+  const revision = main.find(e => e.stage === 'revise')?.minute ?? Infinity;
+  const passes = [], revised = [];
+  const rank = e => {
+    if (e.id === 'articulated_published') return 2;
+    return e.model || e.kind === 'milestone' ? 1 : 0;
+  };
+  let latest = main.at(-1), latestMinute = latest ? displayMinute(latest) : -Infinity;
+  let lastSave = -Infinity, lastPass = -Infinity;
   for (const [from, stage] of [['small_objects', 'assemble'], ['articulate', 'parts']]) {
-    for (const e of events.filter(e => e.stage === from)) {
-      passes.push({...e, recorded_stage: from, stage, display_minute: anchor});
+    const batch = events.filter(e => e.stage === from);
+    // Old responses ordered cached saves by file mtime. They close the pass after its item records.
+    batch.sort((a, b) => rank(a) - rank(b));
+    let minute = -Infinity;
+    for (const e of batch) {
+      minute = Math.max(minute, e.minute);
+      if (minute >= latestMinute) {latest = e; latestMinute = minute;}
+      if (minute >= revision) {
+        revised.push({...e, stage: 'revise', recorded_stage: from, display_minute: minute});
+      } else {
+        passes.push({...e, stage, recorded_stage: from, display_minute: anchor});
+        lastPass = Math.max(lastPass, minute);
+        if (data.models?.[e.model]) lastSave = Math.max(lastSave, minute);
+      }
     }
   }
   const before = cut < 0 ? main : main.slice(0, cut);
   const after = cut < 0 ? [] : main.slice(cut);
   // Review images and verdicts describe their original snapshots. An older room must not
   // replace the enhanced room on screen just because its review now follows the pass.
-  const lastSave = Math.max(-Infinity, ...passes.filter(e => e.model && data.models?.[e.model]).map(e => e.minute));
-  const lastPass = Math.max(-Infinity, ...passes.map(e => e.minute));
   const reviews = after.map(e => {
     const record = {...e};
-    if (e.model && e.minute <= lastSave) {
+    if (e.stage !== 'revise' && e.model && e.minute <= lastSave) {
       record.recorded_model = e.model;
       delete record.model;
     }
     if (e.id === 'final' && e.minute <= lastPass) record.say = '导出当时的房间';
     return record;
   });
-  return {...data, presentation: 'by_stage', stages: ordered, events: [...before, ...passes, ...reviews]};
+  const projected = [...before, ...passes, ...reviews, ...revised].sort((a, b) => displayMinute(a) - displayMinute(b));
+  return {...data, presentation: 'by_stage', latest_event: latest?.id, stages: ordered, events: projected};
 }
 
 // Old offline answers used fixed success text before saves recorded joints and publication.
@@ -89,17 +107,32 @@ export function readReplay(data) {
     return {...e, say};
   });
   let answer = {...data, stages, events};
-  if (stages.some(s => standalonePass(s.id))) answer = projectCachedPasses(answer);
+  if (data.presentation === 'by_stage' && !('latest_event' in data) && events.some(e => standalonePass(e.recorded_stage))) {
+    // An already projected cache still has the source stage, model and clock.
+    answer.events = events.map(e => {
+      if (standalonePass(e.recorded_stage)) {
+        const {recorded_stage, display_minute, ...record} = e;
+        return {...record, stage: recorded_stage};
+      }
+      if (!e.recorded_model) return e;
+      const {recorded_model, ...record} = e;
+      return {...record, model: recorded_model};
+    }).sort((a, b) => displayMinute(a) - displayMinute(b));
+  }
+  if (answer.events.some(e => standalonePass(e.stage))) answer = projectCachedPasses(answer);
+  else if (stages.some(s => standalonePass(s.id))) answer.stages = stages.filter(s => !standalonePass(s.id));
   if (answer.hidden_nodes) return answer;
   // A cached timeline only identifies the items with a successful per-object record.
   // On integrated runs, full review/final rooms already include those models.
   const nodes = new Set(events.filter(e => e.work === 'small' && e.object_id).map(e => e.object_id));
   if (!nodes.size) return answer;
+  const standalone = [...new Set(answer.events.filter(e => e.recorded_stage === 'small_objects' && e.object_id)
+    .map(e => e.object_id))];
   const hidden = {assembly: [...nodes]};
   for (const key of Object.keys(data.models || {})) {
-    if (key === 'seed' || key.startsWith('draft') || (answer.presentation === 'by_stage' && /^(final|round\d+)$/.test(key))) {
+    if (key === 'seed' || key.startsWith('draft')) {
       hidden[key] = hidden.assembly;
-    }
+    } else if (standalone.length && /^(final|round\d+)$/.test(key)) hidden[key] = standalone;
   }
   const reveal = data.build?.reveal.filter(r => !nodes.has(r.node));
   return {...answer, hidden_nodes: hidden, build: reveal?.length ? {reveal, base: reveal[0].minute} : null};
@@ -156,7 +189,9 @@ export function buildTimeline(data) {
   if (stages.length) stages[0].replay[0] = 0;
   stages.forEach((s, k) => (s.replay[1] = k + 1 < stages.length ? stages[k + 1].replay[0] : duration));
   if (events.length) events[0].at = 0;
+  const latest = data.latest_event && events.find(e => e.id === data.latest_event);
   return {
+    latestAt: latest && latest !== events.at(-1) ? latest.at : duration,
     duration, stages, events, build, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),

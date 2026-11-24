@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {buildTimeline, readReplay} from '../../replay/timeline.mjs';
 import {registerHooks} from 'node:module';
 import * as THREE from '../../vendor/build/three.module.js';
 
@@ -465,3 +466,40 @@ for (const framing of ['placeholder', 'model', 'click', 'drag']) {
     }
   });
 }
+
+test('live follow, paused review and return to latest survive inserted pass records', async t => {
+  const stages = ['assemble', 'review', 'small_objects'].map(id => ({id, name: id, desc: ''}));
+  const events = [{id: 'build', stage: 'assemble', minute: 0},
+    {id: 'review', stage: 'review', minute: 4, kind: 'review', round: 1},
+    {id: 'final', stage: 'review', minute: 5, model: 'final'},
+    {id: 'cup', stage: 'small_objects', minute: 9, work: 'small', object_id: 'Cup0'}];
+  const {job, player, node, view, poll, scrub} = await page(t, true, {stages, events});
+  const timeline = () => buildTimeline(readReplay(job));
+  const record = () => {const tl = timeline(); return tl.events[tl.indexAt(player.t)];};
+  assert.equal(record().id, 'cup');
+  job.events.push({...events.at(-1), id: 'bottle', minute: 10, object_id: 'Bottle0'});
+  await poll();
+  assert.equal(record().id, 'bottle');
+  const tl = timeline(), review = tl.events.find(e => e.id === 'review');
+  scrub(100 * (review.at + 0.05) / tl.duration);
+  assert.equal(record().id, 'review');
+  job.events.push({...events.at(-1), id: 'saucer', minute: 11, object_id: 'Saucer0'});
+  await poll();
+  assert.equal(record().id, 'review');
+  assert.ok(Math.abs(player.t - record().at - 0.05) < 1e-8);
+  node('latest').onclick();
+  assert.equal(record().id, 'saucer');
+  assert.equal(view.state.model, null);
+  job.events.push({...events.at(-1), id: 'plate', minute: 12, object_id: 'Plate0'});
+  await poll();
+  assert.equal(record().id, 'plate');
+});
+
+test('a live cached save ends both work clocks at completion', async t => {
+  const {node} = await page(t, true, {events: [
+    {id: 'start', stage: 'assemble', minute: 0},
+    {id: 'save', stage: 'assemble', minute: 3, display_minute: 13, kind: 'milestone'},
+  ]});
+  assert.equal(node('clock').textContent, '0:13:00');
+  assert.equal(node('total').textContent, '/ 0:13:00');
+});
