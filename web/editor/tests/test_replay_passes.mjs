@@ -66,8 +66,10 @@ test('offline pass pictures, models and verdict use stage order and retain their
   assert.deepEqual(tl.build.reveal.map(r => r.node), ['Lamp0']);
   assert.equal(comparisonAt(photo, tl, photo.at), null);
   assert.equal(comparisonAt(photo, tl, placed.at)?.src, 'pair.jpg');
-  assert.equal(sceneAt(tl, placed.at).model, 'round0');
+  // Without a revision the cached schedule belongs to the final room, which then stands for the build.
+  assert.equal(sceneAt(tl, placed.at).model, 'final');
   assert.deepEqual(sceneAt(tl, placed.at).photoItems.ids, ['Cup0']);
+  assert.equal(sceneAt(tl, placed.at).photoShow, 'all');
   assert.equal(sceneAt(tl, check.at).model, 'round0');
   for (const [k, e] of tl.events.entries()) {
     assert.equal(tl.stageAt(e.at).id, e.stage);
@@ -153,10 +155,65 @@ test('a #157 cache moves just the independent items and retains the follow targe
   assert.equal(sceneAt(tl, joints.at).model, 'articulated');
   assert.equal(sceneAt(tl, final.at).model, 'final');
   assert.equal(sceneAt(tl, check.at).model, 'round0');
-  assert.equal(sceneAt(tl, author.at).model, 'round0');
+  // Its schedule came from the revised final room: the first review's room appears with the photo card.
+  assert.equal(tl.build, null);
+  assert.deepEqual([sceneAt(tl, author.at).model, sceneAt(tl, author.at).photoShow], ['seed', 'stand-ins']);
+  assert.deepEqual([sceneAt(tl, photo.at).model, sceneAt(tl, photo.at).photoShow], ['round0', 'all']);
   assert.deepEqual(sceneAt(tl, author.at).photoItems.ids, ['Cup0']);
-  assert.equal(sceneAt(tl, seed.at).photoItems, null);
+  assert.equal(sceneAt(tl, seed.at).photoShow, null);
   assert.equal(comparisonAt(photo, tl, placed.at)?.src, 'pair.jpg');
   assert.equal(comparisonAt(photo, tl, photo.at), null);
   assert.deepEqual(readReplay(data), data);
+});
+
+test('an old cache pairs its schedule with its room: build, first review and revision at minutes 10/20/55', () => {
+  const cached = {presentation: 'by_stage', latest_event: 'joints', stages: [...stages, {id: 'revise'}],
+    models: {seed: 's', round0: 'r', final: 'f', small_objects: 'so', articulated: 'a'},
+    hidden_nodes: {seed: ['Cup0'], round0: ['Cup0'], final: ['Cup0']},
+    build: {base: 55, reveal: [{node: 'Poster0', minute: 55}]},  // from the revised final room
+    events: [{id: 'seed', stage: 'plan', minute: 5, model: 'seed'}, {id: 'author', stage: 'assemble', minute: 10},
+      {id: 'check', stage: 'review', minute: 20, model: 'round0', kind: 'review'}, {id: 'move', stage: 'revise', minute: 50},
+      {id: 'final', stage: 'revise', minute: 55, model: 'final'},
+      {id: 'photo', stage: 'revise', recorded_stage: 'small_objects', minute: 60, display_minute: 60, work: 'small', object_id: 'Cup0'},
+      {id: 'placed', stage: 'revise', recorded_stage: 'small_objects', minute: 61, display_minute: 61, model: 'small_objects'},
+      {id: 'joints', stage: 'revise', recorded_stage: 'articulate', minute: 70, display_minute: 70, model: 'articulated'}]};
+  const tl = buildTimeline(readReplay(cached));
+  const at = id => sceneAt(tl, tl.events.find(e => e.id === id).at);
+  assert.deepEqual([tl.build, tl.buildModel], [null, 'round0']);
+  assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'check', 'move', 'final', 'joints']);
+  assert.deepEqual([at('author').model, at('author').added, at('author').photoShow], ['seed', null, 'stand-ins']);
+  assert.deepEqual([at('photo').model, at('photo').added, at('photo').photoShow], ['round0', null, 'all']);
+  assert.deepEqual(at('photo').hiddenNodes, ['Cup0']);
+  assert.equal(at('check').model, 'round0');
+  assert.deepEqual([at('final').model, at('final').added], ['final', null]);
+  assert.deepEqual([at('joints').model, at('joints').photoShow], ['articulated', null]);
+  assert.equal(at('author').model, 'seed');
+});
+
+test('a small-object step without a saved room or a photo item keeps the openable-parts room at the end', () => {
+  const start = {id: 'start', stage: 'small_objects', minute: 100, kind: 'think'};
+  const saved = {id: 'placed', stage: 'small_objects', minute: 109, model: 'small_objects'};
+  for (const pass of [[start], [start, saved]]) {
+    const data = readReplay({...oldRun, events: [...oldRun.events.slice(0, 4), ...pass, oldPass[2]]});
+    const tl = buildTimeline(data);
+    assert.equal(tl.photoItems, null);
+    assert.ok(!tl.events.some(e => e.overlay_model));
+    assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
+    assert.equal(sceneAt(tl, tl.duration).photoShow, null);
+  }
+});
+
+test('an openable-parts room cut from the photo room keeps its own photo meshes', () => {
+  const current = joints => buildTimeline({stages, presentation: 'by_stage', latest_event: 'joints',
+    models: {seed: 's', round0: 'r', final: 'f', small_objects: 'so', articulated: 'a'},
+    hidden_nodes: {seed: ['Cup0'], round0: ['Cup0'], final: ['Cup0']},
+    events: [{id: 'seed', stage: 'plan', minute: 0, model: 'seed'}, {id: 'author', stage: 'assemble', minute: 10},
+      {id: 'photo', stage: 'assemble', recorded_stage: 'small_objects', minute: 100, display_minute: 20, work: 'small', object_id: 'Cup0'},
+      {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20,
+        overlay_model: 'small_objects', artifact_digest: 'p'},
+      {id: 'joints', stage: 'parts', recorded_stage: 'articulate', display_minute: 20, model: 'articulated', minute: 130, ...joints}]});
+  for (const [joints, show] of [[{source_digest: 'p'}, null], [{source_digest: 'q'}, 'all'], [{}, null], [{minute: 50}, 'all']]) {
+    const tl = current(joints);
+    assert.deepEqual([sceneAt(tl, tl.duration).model, sceneAt(tl, tl.duration).photoShow], ['articulated', show]);
+  }
 });

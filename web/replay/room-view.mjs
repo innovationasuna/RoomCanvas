@@ -4,7 +4,7 @@
 // camera follows smoothly; near walls fade so the room stays readable.
 import * as THREE from 'three';
 import {Materializer, prefetch, shown} from './materialize.mjs';
-import {bottomCenter, selectPhotoItems, SmallItemLayer} from './small-items.mjs';
+import {bottomCenter, selectPhotoItems, separateObject, SmallItemLayer} from './small-items.mjs';
 import {disposeModel} from './resources.mjs';
 import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {surfaceBox} from '../editor/physical-lighting.mjs';
@@ -808,6 +808,7 @@ export class RoomView {
     this.current = key;
     this.incoming = null;
     this.mix = 1;
+    this.syncPhotos();
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
     for (const k of Object.keys(this.models)) {
       const replaced = key?.includes(':') && k.split(':')[0] === key.split(':')[0];
@@ -848,11 +849,9 @@ export class RoomView {
     const previous = this.photoSource;
     if (previous?.url === url && (previous.source === source || (previous.source.digest === source.digest &&
         previous.source.ids.length === source.ids.length && source.ids.every((id, i) => id === previous.source.ids[i])))) return;
-    previous?.controller.abort();
-    previous?.layer?.dispose();
-    clearTimeout(this.photoRetry);
+    this.dropPhotoItems();
     const entry = this.photoSource = {source, url, controller: new AbortController()};
-    loadModel(url, source.digest, entry.controller.signal, json => selectPhotoItems(json, source.ids, this.objectIds))
+    loadModel(url, source.digest, entry.controller.signal, json => selectPhotoItems(json, source.ids, {has: id => this.knownObject(id, source)}))
       .then(({scene}) => {
         if (entry.controller.signal.aborted) {disposeModel(scene); return;}
         entry.layer = new SmallItemLayer(scene, source.ids);
@@ -861,10 +860,30 @@ export class RoomView {
       }).catch(() => {
         if (entry.controller.signal.aborted) return;
         this.photoRetry = setTimeout(() => {
-          this.photoSource = null;
+          if (this.photoSource === entry) this.photoSource = null;
           this.apply(this.state, this.lastOptions);
         }, 5000);
       });
+  }
+
+  // The live timeline withdrew the source (a newer pass has no saved room yet): nothing of it stays.
+  dropPhotoItems() {
+    clearTimeout(this.photoRetry);
+    this.photoRetry = null;
+    this.photoSource?.controller.abort();
+    this.photoSource?.layer?.dispose();
+    this.photoSource = null;
+  }
+
+  // The photo layer follows the room shown: during a fade, the outgoing one until the incoming takes over.
+  syncPhotos() {
+    const root = this.models[this.current || this.incoming]?.root;
+    this.photoSource?.layer?.show(root?.userData.photoSlots ?? null);
+  }
+
+  // The boundary between a masked or photo item and another room object below it (see separateObject).
+  knownObject(id, items = this.state?.photoItems) {
+    return !!(this.objectIds?.has(id) || this.boxes[id] || items?.objects?.has(id) || items?.ids.includes(id));
   }
 
   // partial: show the room as it is being built (shell + finished objects of the assembled room);
@@ -884,8 +903,8 @@ export class RoomView {
     }
     const key = waitingForSeed ? this.current || this.incoming || null : digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
-    if (state.photoItems) this.loadPhotoItems(state.photoItems, modelUrl?.(state.photoItems.model));
-    else this.photoSource?.layer?.show(null);
+    if (!state.photoItems) this.dropPhotoItems();
+    else if (state.photoShow) this.loadPhotoItems(state.photoItems, modelUrl?.(state.photoItems.model));
     if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
     const inRoom = !waitingForSeed && !!key && (this.current === key || this.incoming === key);
     const hasRoom = !!(this.current || this.incoming);
@@ -926,6 +945,7 @@ export class RoomView {
         }, Math.ceil(delay));
       }
     }
+    this.syncPhotos();
   }
 
   revealModel(key) {
@@ -947,6 +967,7 @@ export class RoomView {
       hidden.set(node, node.visible);
       node.visible = false;
     };
+    const known = {has: id => this.knownObject(id)};
     const mask = (node, meshes) => {
       const children = node.children.filter(child => !child.userData.mask);
       if (node.isMesh) {
@@ -955,45 +976,33 @@ export class RoomView {
         hide(node);
       }
       for (const child of children) {
-        const id = originalName(child);
-        const handle = child.userData.room_id || this.objectIds?.has(id) || this.boxes[id];
-        if (handle || (!child.isMesh && /^[A-Z][A-Za-z]*\d+$/.test(id))) continue;
-        mask(child, meshes);
+        if (!separateObject(originalName(child), child.userData.room_id, child.isMesh, known)) mask(child, meshes);
       }
     };
-    const photos = this.state?.photoItems, slots = photos ? new Map() : null;
-    const anchors = root.userData.markerAnchors ??= new Map();
-    const layer = this.photoSource?.layer;
-    const articulated = this.state?.model === 'articulated' && photos && layer;
-    const native = root.userData.nativePhotos;
-    if (articulated && native?.source !== this.photoSource.source) {
-      const ids = photos.ids.filter(id => {
-        const part = namedNodes(root).get(id);
-        return part && !layer.isNative(id, part);
-      });
-      root.userData.nativePhotos = {source: this.photoSource.source, ids};
-    }
-    const masked = new Set(this.state?.hiddenNodes);
-    if (photos && this.state.model !== 'articulated') {
-      for (const id of photos.ids) masked.add(id);
-    } else if (articulated) {
-      for (const id of root.userData.nativePhotos.ids) masked.add(id);
-    }
-    for (const name of masked) {
-      const node = namedNodes(root).get(name);
-      if (!node) continue;
-      const meshes = photos?.ids.includes(name) ? [] : null;
-      mask(node, meshes);
-      if (meshes?.length) {
-        if (!anchors.has(name)) {
+    // Each photo item replaces its whole group's stand-ins as shown in this version (generation fitted
+    // the group), and from its card also stands where this version has none.
+    const show = this.state?.photoShow, photos = show && this.state.photoItems;
+    const slots = photos ? new Map() : null, anchors = root.userData.markerAnchors ??= new Map();
+    for (const id of photos ? photos.ids : []) {
+      const names = new Set([id, ...(photos.members?.[id] || [])]);
+      const nodes = [...names].map(name => namedNodes(root).get(name)).filter(Boolean);
+      const standing = nodes.some(node => shown(node)), meshes = [];
+      for (const node of nodes) mask(node, meshes);
+      if (meshes.length) {
+        const group = meshes.map(mesh => mesh.id).join();
+        if (!anchors.has(group)) {
           const bounds = new THREE.Box3();
           for (const mesh of meshes) bounds.union(surfaceBox(THREE, mesh));
-          anchors.set(name, bottomCenter(bounds));
+          anchors.set(group, bottomCenter(bounds));
         }
-        slots.set(name, anchors.get(name));
-      }
+        slots.set(id, anchors.get(group));
+      } else if (show === 'all' && (!nodes.length || standing)) slots.set(id, null);
     }
-    layer?.show(slots);
+    for (const name of this.state?.hiddenNodes || []) {
+      const node = namedNodes(root).get(name);
+      if (node) mask(node);
+    }
+    root.userData.photoSlots = slots;
     if (hidden.size) result.appeared = result.appeared.filter(node => shown(node));
     return result;
   }
@@ -1343,9 +1352,7 @@ export class RoomView {
     if (this.disposed) return this.disposal;
     this.disposed = true;
     clearTimeout(this.seedRetry);
-    clearTimeout(this.photoRetry);
-    this.photoSource?.controller.abort();
-    this.photoSource?.layer?.dispose();
+    this.dropPhotoItems();
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect(); this.scaffoldController.abort();
     this.restoreWindows();

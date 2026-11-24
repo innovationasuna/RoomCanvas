@@ -2,13 +2,20 @@
 import * as THREE from 'three';
 import {disposeModel} from './resources.mjs';
 
-export function selectPhotoItems(gltf, ids, roomIds) {
+const OBJECT_NAME = /^[A-Z][A-Za-z]*\d+$/;
+
+// Where another room object starts below an item. Cutting the photo model and masking a version
+// use this same boundary, so a separate child is neither carried along nor hidden twice.
+export function separateObject(name, roomId, isMesh, objects) {
+  return !!roomId || !!objects?.has(name) || (!isMesh && OBJECT_NAME.test(name));
+}
+
+export function selectPhotoItems(gltf, ids, objects) {
   const wanted = new Set(ids), nodes = gltf.nodes;
   function keep(index, inside) {
     const node = nodes[index];
     const item = wanted.has(node.name);
-    const separate = node.extras?.room_id || roomIds?.has(node.name);
-    const own = item || (inside && !separate);
+    const own = item || (inside && !separateObject(node.name, node.extras?.room_id, node.mesh != null, objects));
     node.children = (node.children || []).filter(child => keep(child, own));
     if (!own) {
       delete node.mesh;
@@ -22,16 +29,6 @@ export function selectPhotoItems(gltf, ids, roomIds) {
   gltf.scenes = [{nodes: roots.filter(i => keep(i, false))}];
   gltf.scene = 0;
   gltf.animations = [];
-}
-
-// Articulation may split an existing textured mesh into a body and moving panels.
-function vertexKey(positions, index) {
-  return [positions.getX(index), positions.getY(index), positions.getZ(index)].join(',');
-}
-
-function meshKey(mesh) {
-  return JSON.stringify([mesh.userData.name || mesh.name, mesh.geometry.name,
-    [mesh.material].flat().map(m => [m.name, m.map?.name])]);
 }
 
 export function bottomCenter(box) {
@@ -58,53 +55,24 @@ export class SmallItemLayer {
       part.matrix.copy(world);
       part.matrixWorldNeedsUpdate = true;
       part.visible = false;
-      const meshes = [];
-      part.traverse(o => {
-        if (!o.isMesh) return;
-        const positions = o.geometry.attributes.position, samples = new Set();
-        const count = Math.min(12, positions.count);
-        for (let i = 0; i < count; i++) {
-          samples.add(vertexKey(positions, Math.floor(i * positions.count / count)));
-        }
-        meshes.push({key: meshKey(o), samples});
-      });
-      this.items.set(part.userData.name || part.name, {part, world, anchor, meshes});
+      this.items.set(part.userData.name || part.name, {part, world, anchor});
     }
     this.root.traverse(o => {if (o.isMesh) o.castShadow = o.receiveShadow = true;});
   }
 
-  isNative(name, node) {
-    const photo = this.items.get(name);
-    if (!photo?.meshes.length) return false;
-    const candidates = new Map();
-    node.traverse(o => {
-      if (!o.isMesh || o.userData.mask) return;
-      const key = meshKey(o);
-      if (!candidates.has(key)) candidates.set(key, []);
-      candidates.get(key).push(o.geometry.attributes.position);
-    });
-    return photo.meshes.every(({key, samples}) => candidates.get(key)?.some(positions => {
-      const matched = new Set();
-      for (let i = 0; i < positions.count; i++) {
-        const vertex = vertexKey(positions, i);
-        if (samples.has(vertex)) matched.add(vertex);
-        if (matched.size >= Math.min(3, samples.size)) return true;
-      }
-      return false;
-    }));
-  }
-
+  // slots: item -> its stand-in's bottom centre in the shown room, or null for an item that room
+  // has no stand-in for (it keeps the photo model's own world transform).
   show(slots) {
     this.root.visible = !!slots;
     if (!slots) return;
     for (const [name, {part, world, anchor}] of this.items) {
       const marker = slots.get(name);
-      part.visible = !!(marker && anchor);
+      part.visible = slots.has(name) && !!anchor;
       if (!part.visible) continue;
       part.matrix.copy(world);
       // Independently fitted geometry can differ by centimetres. A displaced stand-in
       // supplies a confirmed contact point in this version, even when the GLB baked its transform.
-      if (anchor.distanceTo(marker) > 0.03) {
+      if (marker && anchor.distanceTo(marker) > 0.03) {
         const e = part.matrix.elements;
         e[12] += marker.x - anchor.x;
         e[13] += marker.y - anchor.y;

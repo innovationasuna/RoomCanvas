@@ -605,6 +605,52 @@ class PhasedRun(unittest.TestCase):
         self.assertEqual([part['node'] for part in data['build']['reveal']], ['Book0'])
         self.assertNotIn('small_objects', data['hidden_nodes'])
 
+    def keep_rows(self, keep):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows if keep(r)))
+
+    def test_a_pass_without_photo_items_keeps_the_openable_room_at_the_end(self):
+        for empty in ('start only', 'nothing rebuilt'):
+            with self.subTest(empty):
+                self.tearDown()
+                self.setUp()
+                self.keep_rows(lambda r: r.get('kind') not in ('small_object_done', 'small_objects_done') and (
+                    empty == 'nothing rebuilt' or r.get('model') != 'small_objects'))
+                data = replay.timeline(self.root)
+                events = data['events']
+                self.assertFalse([e for e in events if 'overlay_model' in e])
+                self.assertEqual([e['model'] for e in events if e.get('model')][-1], 'articulated')
+                self.assertEqual(next(e for e in events if e['id'] == 'final')['recorded_model'], 'final')
+                self.assertNotIn('model', data['build'] or {})
+
+    def test_openable_room_names_the_room_it_was_cut_from(self):
+        small, articulated = (hashlib.sha256(b).hexdigest() for b in (b'small', b'articulated'))
+        folder = self.run / 'articulate/room_preview'
+        write(self.run / 'articulate/dependencies.json', json.dumps({'key': 'k', 'dependencies': {'preview': {'Room.glb': small}}}))
+        write(folder / 'plan.json', json.dumps([{'id': 'Storage1', 'parts': [{'name': 'Door'}]}]))
+        cut = hashlib.sha256(json.dumps({'source': 'k', 'plan': [{'id': 'Storage1', 'parts': [{'name': 'Door'}]}]},
+                                        sort_keys=True).encode()).hexdigest()
+        for key, expected in [('stale', None), (cut, small)]:
+            write(folder / 'bundle.json', json.dumps({'key': key, 'outputs': {'Room.glb': articulated}}))
+            event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+            self.assertEqual(event.get('source_digest'), expected)
+
+    def test_overlay_bounds_come_from_the_saved_room_receipt(self):
+        folder = self.run / 'small-objects/room_preview'
+        layout = write(folder / 'room_layout.json', json.dumps({'objects': [
+            {'id': 'TissueBox0', 'handle': 'TissueBox0'}, {'id': 'Bookmark0', 'handle': 'Bookmark0'}, {'id': 'Floor0'}]}))
+        write(folder / 'apply.json', json.dumps({'placed': [{'id': 'TissueBox0', 'members': ['TissueBox0', 'TissueStack1']},
+                                                            {'id': 'WaterBottle1', 'members': ['WaterBottle1']}]}))
+        write(self.run / 'small-objects/items.json', json.dumps([{'id': 'TissueBox0', 'members': ['TissueBox0', 'Old1']}]))
+        for room, objects, members in [(b'small', ['Bookmark0', 'Floor0', 'TissueBox0'], ['TissueBox0', 'TissueStack1']),
+                                       (b'other', None, ['TissueBox0', 'Old1'])]:
+            write(folder / 'bundle.json', json.dumps({'outputs': {
+                'Room.glb': hashlib.sha256(room).hexdigest(), 'room_layout.json': hashlib.sha256(layout.read_bytes()).hexdigest()}}))
+            placed = next(e for e in replay.timeline(self.root)['events'] if e.get('overlay_model'))
+            self.assertEqual(placed.get('overlay_objects'), objects)
+            self.assertEqual(placed['overlay_members'], {'TissueBox0': members})
+
     def test_a_live_view_shows_the_pass_as_it_goes(self):
         data = replay.timeline(self.root, 'running', T0 + 2400)  # <root>/run/pipeline/demo
         self.assertEqual([s['id'] for s in data['stages']], EIGHT)
@@ -1069,7 +1115,8 @@ class PassesBeforeTheCheck(unittest.TestCase):
             data = replay.timeline(job, until=T0 + 1200)
             rel = data['models'][f'small_{digest}']
             self.assertEqual(replay.scene_file(scene, rel).read_bytes(), b'small')
-            new = next(e for e in replay.timeline(job)['events'] if e.get('overlay_model') == 'small_objects')
+            # No item was made from photos: the saved room itself shows, as before overlays.
+            new = next(e for e in replay.timeline(job)['events'] if e.get('model') == 'small_objects')
             self.assertEqual(new['artifact_digest'], hashlib.sha256(b'new').hexdigest())
 
     def test_replay_reader_keeps_each_integrated_save_joint_count(self):
@@ -1429,12 +1476,12 @@ class Sessions(unittest.TestCase):
         self.assertEqual([s['id'] for s in data['stages']], EIGHT + ['revise'])
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
-            (2300, 'assemble', '整理小物品的照片和模型', None),
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
             (1020, 'review2', '按检查意见修改房间', None), (1100, 'review2', '已完成本轮修改', None),
             (2020, 'revise', '第 2 段', None), (2100, 'revise', '检查房间：通过', 'round1'),
             (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '按检查意见修改房间', None),
-            (2150, 'revise', '已完成本轮修改', None), (2200, 'revise', '导出最终房间', 'final')])
+            (2150, 'revise', '已完成本轮修改', None), (2200, 'revise', '导出最终房间', 'final'),
+            (2300, 'revise', '整理小物品的照片和模型', None)])
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
         self.assertEqual([(e['model'], e['round']) for e in data['events'] if e['kind'] == 'review'],
                          [('round0', 1), ('round1', 1)])
@@ -1465,7 +1512,7 @@ class Sessions(unittest.TestCase):
                      {'t': T0 + 2500, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-02'}])
         data = replay.timeline(self.job, 'completed', T0 + 3000)
         self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140],
-                         [(T0 + 2300, 'assemble')] + [(T0 + t, 'revise') for t in (2020, 2400, 2500)])
+                         [(T0 + t, 'revise') for t in (2020, 2300, 2400, 2500)])
 
     def old_cache(self, batches):
         """summary.json as the code before the sessions were numbered on wrote it (no 'numbering')."""

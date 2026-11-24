@@ -76,10 +76,12 @@ function projectCachedPasses(data) {
   return {...data, presentation: 'by_stage', latest_event: latest?.id, stages: ordered, events: projected};
 }
 
-// Upgrade cached responses that projected an entire post-pass room (including #157 caches).
+// Upgrade cached responses that projected an entire post-pass room (including #157 caches). A pass
+// without a saved room or without an item made from photos keeps the old presentation.
 function projectSmallItems(data) {
   const small = data.events.filter(e => e.recorded_stage === 'small_objects');
-  if (!small.length || small.every(e => e.stage === 'assemble' && !e.model)
+  const usable = small.some(e => data.models?.[e.model || e.overlay_model]) && small.some(e => e.work === 'small' && e.object_id);
+  if (!usable || small.every(e => e.stage === 'assemble' && !e.model)
       && !data.events.some(e => e.recorded_model)) return data;
   const base = data.events.filter(e => e.recorded_stage !== 'small_objects').map(e => {
     if (!e.recorded_model) return e;
@@ -177,13 +179,16 @@ export function buildTimeline(data) {
   const forms = (e) => (plan >= 0 && order.indexOf(e.stage) >= plan && e.show || [])
     .filter((k) => k !== '@boxes' && !seen.has(k) && seen.add(k)).length;
   const pass = events.find(e => e.overlay_model && data.models?.[e.overlay_model]);
-  const ids = [...new Set(events.filter(e => e.recorded_stage === 'small_objects' && e.work === 'small' && e.object_id)
-    .map(e => e.object_id))];
-  const photoItems = pass && ids.length ? {ids, model: pass.overlay_model, digest: pass.artifact_digest} : null;
-  // An older cache inferred assembly from the final GLB even if it belonged to a much later revision.
+  const made = events.filter(e => e.recorded_stage === 'small_objects' && e.work === 'small' && e.object_id);
+  const ids = [...new Set(made.map(e => e.object_id))];
+  const photoItems = pass && ids.length ? {ids, model: pass.overlay_model, digest: pass.artifact_digest, minute: pass.minute,
+    members: pass.overlay_members || {}, objects: pass.overlay_objects ? new Set(pass.overlay_objects) : null} : null;
+  // A schedule only describes its own snapshot. An older cache inferred it from the final GLB, which after a
+  // revision holds just the revision's additions: then the first review's room stands for the build.
+  const target = data.build && (data.build.model || 'final');
+  const build = photoItems && target === 'final' && events.some(e => e.stage === 'revise') ? null : data.build || null;
   const firstReview = events.find(e => e.stage === 'review' && /^round\d+$/.test(e.model) && data.models?.[e.model]);
-  const buildModel = data.build?.model || (ids.length && firstReview ? firstReview.model : 'final');
-  const build = ids.length && buildModel === 'final' && events.some(e => e.stage === 'revise') ? null : data.build;
+  const buildModel = build ? target : photoItems && firstReview ? firstReview.model : 'final';
   const model = (minute) => events.findLast((e) => e.model && displayMinute(e) <= minute)?.model;
   // parts named at the same minute appear together
   const batches = new Map();
@@ -215,6 +220,7 @@ export function buildTimeline(data) {
   if (stages.length) stages[0].replay[0] = 0;
   stages.forEach((s, k) => (s.replay[1] = k + 1 < stages.length ? stages[k + 1].replay[0] : duration));
   if (events.length) events[0].at = 0;
+  if (photoItems) photoItems.at = made[0].at;  // the photo items' card
   const latest = data.latest_event && events.find(e => e.id === data.latest_event);
   return {
     latestAt: latest && latest !== events.at(-1) ? latest.at : duration,
@@ -252,6 +258,13 @@ export function comparisonAt(event, tl, t) {
   return picture.minute <= tl.realAt(t) ? picture : null;
 }
 
+// An openable-parts room made from the photo pass's room already holds its models, perhaps split and renamed.
+// An older answer has no recorded source: that pass then ran on the latest room before it.
+function holdsPhotos(items, event) {
+  if (event?.model !== 'articulated') return false;
+  return event.source_digest ? event.source_digest === items.digest : event.minute >= items.minute;
+}
+
 // What the 3D view shows at playback time t.
 export function sceneAt(tl, t) {
   const by = Object.fromEntries(tl.stages.map((s) => [s.id, s]));
@@ -266,12 +279,18 @@ export function sceneAt(tl, t) {
   let added = null;
   const real = tl.realAt(t);
   const reviewBuild = /^round\d+$/.test(tl.buildModel);
-  if (tl.build && tl.models[tl.buildModel] && (!model || model === 'seed') && real >= tl.build.base
-      && (!reviewBuild || t >= by.assemble?.replay[0])) {
-    model = tl.buildModel;
-    const complete = reviewBuild && past.some(e => e.recorded_stage === 'small_objects');
-    added = new Set(tl.build.reveal.filter(r => complete || r.minute <= real).map(r => r.node));
+  const card = !!tl.photoItems && t >= tl.photoItems.at;
+  if (tl.models[tl.buildModel] && (!model || model === 'seed')) {
+    if (tl.build && real >= tl.build.base && (!reviewBuild || t >= by.assemble?.replay[0])) {
+      model = tl.buildModel;
+      added = new Set(tl.build.reveal.filter(r => (reviewBuild && card) || r.minute <= real).map(r => r.node));
+    } else if (!tl.build && reviewBuild && card) {
+      model = tl.buildModel;  // no schedule for it: the built room as it was first reviewed, from the end of the build
+    }
   }
+  const current = model === modelEvent?.model ? modelEvent : null;
+  const photos = tl.photoItems && by.assemble && t >= by.assemble.replay[0] &&
+    /^(seed|draft.*|round\d+|final|articulated)$/.test(model || '') && !holdsPhotos(tl.photoItems, current);
   const scan = by.scan?.replay, layout = by.layout?.replay;
   return {
     points: scan ? clamp((t - scan[0]) / Math.max(scan[1] - scan[0] - 0.5, 0.5)) : past.length ? 1 : 0,
@@ -284,10 +303,11 @@ export function sceneAt(tl, t) {
     built,
     model,
     buildModel: tl.buildModel,
-    photoItems: tl.photoItems && by.assemble && t >= by.assemble.replay[0] &&
-      /^(seed|draft.*|round\d+|final|articulated)$/.test(model || '') ? tl.photoItems : null,
+    photoItems: tl.photoItems,  // the source, also while it is not shown (a rewind keeps it loaded)
+    // From the build the photo models replace their stand-ins; from their card also items the room lacks.
+    photoShow: photos ? (card ? 'all' : 'stand-ins') : null,
     hiddenNodes: added ? tl.hiddenDuringBuild : tl.hiddenNodes[model || 'seed'],
-    modelEvent: model === modelEvent?.model ? modelEvent : null,
+    modelEvent: current,
     added,  // null: the model as it is; a set: only these agent-added parts of the final model show
   };
 }
