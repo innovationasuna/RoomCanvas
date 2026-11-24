@@ -49,10 +49,10 @@ async function replayJSON(path, missing) {
   return data;
 }
 // A room moved to the recycle bin takes its record off the list too (the web page's server keeps the bin;
-// without one, nothing is hidden).
+// without one, or when it is slow to answer, nothing is hidden).
 async function roomsInTrash() {
   try {
-    const response = await fetch('/web/rooms.json', {cache: 'no-store'});
+    const response = await fetch('/web/rooms.json', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
     return new Set(response.ok ? (await response.json()).deleted || [] : []);
   } catch {
     return new Set();
