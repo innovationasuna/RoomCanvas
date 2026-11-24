@@ -5,13 +5,73 @@ on:
   push:
     branches: [main]
 
-# A new push to a PR makes the in-flight run irrelevant.
+# A new push to a PR makes the in-flight run irrelevant. Pushes to main each get their own group:
+# a later push only diffs its own range, so cancelling the earlier run would drop its checks.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # RoomCanvas: run each suite only when the files it reads change. A job skipped by `if:` reports
+  # success, so the required checks (check, web) still pass on unrelated PRs. Editing a workflow, a
+  # push whose range cannot be read, or a failure here runs everything (each job tests `!= 'false'`,
+  # and an output that was never written is empty).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      room: ${{ steps.filter.outputs.room }}
+      web: ${{ steps.filter.outputs.web }}
+      object: ${{ steps.filter.outputs.object }}
+      gesture: ${{ steps.filter.outputs.gesture }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the push range below may span several commits
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A PR is checked out as its test merge into the base, so HEAD^1 is that base.
+          if [ "$EVENT" = pull_request ]; then
+            base=HEAD^1
+          elif [ -n "${BEFORE//0/}" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=$BEFORE
+          else
+            base=
+          fi
+          if [ -n "$base" ]; then
+            git -c core.quotePath=false diff --name-only --no-renames "$base" HEAD || true
+          else
+            echo "no readable base: running everything"
+          fi
+          # Git matches the pathspecs itself (both sides of a rename, any file name). `diff --quiet`
+          # exits 0 when nothing matched; 1 (changed) or an error both run the suite.
+          verdict() {
+            local name=$1 rc=0
+            shift
+            if [ -n "$base" ]; then
+              git diff --quiet --no-renames "$base" HEAD -- .github/workflows "$@" || rc=$?
+            else
+              rc=1
+            fi
+            if [ "$rc" -eq 0 ]; then echo "$name=false"; else echo "$name=true"; fi >> "$GITHUB_OUTPUT"
+          }
+          # Root scripts/ is imported by all three Python modules. Room tests load web/scripts and
+          # samples/, and Ruff reads the root .gitignore. Web's scan import uses the room module's
+          # capture parser, and its publish test copies the hand tracker model from gesture/.
+          # Gesture's integration test imports the editor's receiving end.
+          verdict room room-reconstruction web/scripts samples scripts .gitignore
+          verdict web web samples scripts gesture/public/vision \
+            room-reconstruction/src/litereality_agent/__init__.py \
+            room-reconstruction/src/litereality_agent/capture.py
+          verdict object object-reconstruction scripts
+          verdict gesture gesture web/editor/gesture-bridge.mjs
+          cat "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
+    if: ${{ !cancelled() }}  # the secret scan runs even if `changes` failed
     runs-on: ubuntu-latest
     # RoomCanvas: the LiteReality-based reconstruction module lives in room-reconstruction/.
     defaults:
@@ -34,21 +94,29 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git --redact --verbose .
 
+      # The secret scan above runs on every change; the room module's checks only when it is touched.
       - uses: astral-sh/setup-uv@v5
+        if: needs.changes.outputs.room != 'false'
         with:
           enable-cache: true
+          cache-dependency-glob: room-reconstruction/uv.lock
 
       # --locked: CI fails rather than silently resolving a different dependency set than uv.lock.
       - run: uv sync --all-groups --locked
+        if: needs.changes.outputs.room != 'false'
 
       - run: uv run ruff check .
+        if: needs.changes.outputs.room != 'false'
 
       # The default marker filter in pyproject already excludes anything needing Blender, a real
       # scan, or a paid model call, so this run is offline and needs no secrets.
       - run: uv run pytest -n auto
+        if: needs.changes.outputs.room != 'false'
 
   # RoomCanvas: the web editor in web/ (plain ES modules, no build step) on the sample rooms.
   web:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.web != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +145,8 @@ jobs:
           node --max-old-space-size=5120 web/scripts/check_room.mjs --scene-dir samples/activity-classroom
 
   object-api:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.object != 'false' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,6 +164,8 @@ jobs:
           done
 
   gesture:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.gesture != 'false' }}
     runs-on: ubuntu-latest
     defaults:
       run:
