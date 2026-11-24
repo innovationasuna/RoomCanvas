@@ -104,7 +104,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
     private var cameraController: VrCameraController? = null
 
     /** 房间实时照明：IBL + 顶灯 + 窗入光；不使用日光与实时阴影 */
-    private val roomLighting by lazy { PhysicalRoomLighting(binding.sceneView) }
+    private val roomLightingDelegate = lazy { PhysicalRoomLighting(binding.sceneView) }
+    private val roomLighting by roomLightingDelegate
 
     /** 驱动柜门/窗扇/推拉门的点击开关；模型没有动画时内部条目为空，点击无副作用 */
     private var articulation: ArticulationController? = null
@@ -289,6 +290,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
         articulation?.release()
         articulation = null
         if (::binding.isInitialized) {
+            if (roomLightingDelegate.isInitialized()) {
+                roomLighting.release()
+            }
             binding.sceneView.destroy()
         }
         super.onDestroy()

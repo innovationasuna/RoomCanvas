@@ -39,7 +39,6 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         sceneView.view.apply {
             // 产品不使用实时阴影：全局关闭，材质与灯光均不参与阴影 pass。
             setShadowingEnabled(false)
-            toneMapping = View.ToneMapping.ACES
             setAmbientOcclusion(View.AmbientOcclusion.SSAO)
             ambientOcclusionOptions = ambientOcclusionOptions.apply {
                 enabled = value.ssaoEnabled
@@ -83,7 +82,7 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         Log.i(
             TAG,
             "物理光影：局部灯 ${localLights.size} 盏，$debugLightSummary，" +
-                "ACES + SSAO=${quality.ssaoEnabled}"
+                "SSAO=${quality.ssaoEnabled}"
         )
     }
 
@@ -91,6 +90,20 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         lightEntities.forEach { entity ->
             sceneView.scene.removeEntity(entity)
             sceneView.engine.lightManager.destroy(entity)
+            EntityManager.get().destroy(entity)
+        }
+        lightEntities.clear()
+    }
+
+    /** Release our entity IDs even if SceneView has already destroyed its engine. */
+    fun release() {
+        // SceneView also destroys itself through its lifecycle observer and window detach.
+        // Its Scene may already be gone when Activity.onDestroy reaches us.
+        val engine = sceneView.engine
+        lightEntities.forEach { entity ->
+            if (engine.isValid) {
+                engine.lightManager.destroy(entity)
+            }
             EntityManager.get().destroy(entity)
         }
         lightEntities.clear()
