@@ -194,8 +194,9 @@ test('the replay picker links every available job through the oldest record', as
   assert.deepEqual(links, jobs.reverse().map(job => job.id));
 });
 
-test('object cards list every item without a detail toggle and review zoom uses the clicked view', async t => {
+for (const standalone of [false, true]) test(`all item pictures and original review zoom, standalone=${standalone}`, async t => {
   const items = Array.from({length: 24}, (_, i) => ({id: 'item' + i, kind: 'tool', stage: 'assemble', minute: i,
+    ...(standalone ? {recorded_stage: 'small_objects'} : {}),
     work: 'small', object_id: 'Cup' + i, object_name: '杯子', say: '原始逐件记录', img: i < 23 ? i + '.png' : null}));
   const views = ['pair_00037.png', 'pair_00183.png'];
   const events = [...items, {id: 'r0', kind: 'review', stage: 'review', minute: 25, say: '检查房间没通过',
@@ -203,7 +204,7 @@ test('object cards list every item without a detail toggle and review zoom uses 
   const {node, player} = await page(t, false, {events, stages: [{id: 'assemble'}, {id: 'review'}], models: {}});
   player.seek(player.duration, {pause: true});
   const [objects, review] = node('log').children.slice(-2).map(el => el.innerHTML);
-  assert.match(objects, /已准备 24 件小物品的照片模型/);
+  assert.match(objects, /已按照片制作 24 件小物品/);
   assert.equal((objects.match(/class="cell"/g) || []).length, 23);
   assert.match(objects, /class="bare">杯子 24</);
   assert.doesNotMatch(objects, /原始逐件记录|data-more|class="detail"/);

@@ -988,16 +988,14 @@ def chair_clusters(scene):
         return None
 
 
-def build_schedule(scene, until=None, hidden=()):
-    """When the modelling agent added each new part of the room.
-
-    No room model is saved while the agent works, so the replay shows the final model with the parts the
-    agent added appearing at the time its log first names them (the rest of the room switches to the
-    final look when the first of them appears). Parts never named appear when the agent's session ends."""
+def build_schedule(scene, until=None, hidden=(), target=FINAL):
+    """Reconstruct additions to the selected room from the build records available by its cutoff."""
     scene = Path(scene)
-    seed, final = scene / SEED, scene / FINAL
+    seed, final = scene / SEED, scene / target
     trace = trace_rows(scene, until)
-    if not (_model_time(scene, trace, 'seed', SEED, until) and _model_time(scene, trace, 'final', FINAL, until)):
+    if not _model_time(scene, trace, 'seed', SEED, until):
+        return None
+    if target == FINAL and not _model_time(scene, trace, 'final', FINAL, until):
         return None
     before, after = glb_tree(seed), glb_tree(final)
     added = [n for n, p in after.items() if n not in before and n not in hidden and (p is None or p in before)]
@@ -1432,9 +1430,19 @@ def timeline(job_dir, status='completed', until=None):
     latest_event = next((e['id'] for e in reversed(events) if e['kind'] != 'error'), None)
     projected = project_standalone(events, revised)
     hidden = small_node_masks(scene, rows, available, revised, until)
-    build = build_schedule(scene, until, hidden.get('assembly', ())) if start else None
+    build_model = 'final'
+    build_until = until
+    if any(e.get('recorded_stage') == 'small_objects' and e.get('work') == 'small' for e in events):
+        review = next((e for e in events if e['stage'] == 'review' and e.get('model', '').startswith('round')
+                       and e['model'] in available), None)
+        if review:
+            build_model, build_until = review['model'], review['t']
+        elif revised:
+            build_model = None
+    build = (build_schedule(scene, build_until, hidden.get('assembly', ()), available[build_model])
+             if start and build_model in available else None)
     if build:
-        build = {'base': round((build['base'] - start) / 60, 3),
+        build = {**({'model': build_model} if build_model != 'final' else {}), 'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
                                if not until or a <= until], start) if start else []
@@ -1498,30 +1506,37 @@ def project_standalone(events, revised):
     late = [e for e in events if e['stage'] in STANDALONE]
     if not late:
         return False
-    if revised:
-        # Earlier passes have been superseded. These were run on the revised room.
-        for e in late:
-            e['recorded_stage'], e['stage'] = e['stage'], 'revise'
-            e.setdefault('display_minute', e['minute'])
-        return True
     base = [e for e in events if e['stage'] not in STANDALONE]
     split = next((i for i, e in enumerate(base) if STAGE_IDS.index(e['stage']) >= STAGE_IDS.index('parts')), len(base))
     boundary = base[min(split, len(base) - 1)] if base else {'minute': 0}
     anchor = boundary.get('display_minute', boundary['minute'])
-    latest_save = max((e.get('display_minute', e['minute']) for e in late if e.get('model')), default=-float('inf'))
+    projected, tail = [], []
+    has_small = any(e['stage'] == 'small_objects' for e in late)
     last_pass = max(e.get('display_minute', e['minute']) for e in late)
+    latest_save = max((e.get('display_minute', e['minute']) for e in late if e.get('model')), default=-float('inf'))
     for e in late:
-        e['recorded_stage'] = e['stage']
-        e['stage'] = STANDALONE[e['stage']]
+        phase = e['recorded_stage'] = e['stage']
+        if phase == 'articulate' and revised:
+            e['stage'] = 'revise'
+            e.setdefault('display_minute', e['minute'])
+            tail.append(e)
+            continue
+        e['stage'] = STANDALONE[phase]
         e['display_minute'] = anchor
-    # An earlier review is evidence about its original room. Keep its images and file available,
-    # while the 3D presentation keeps the enhanced room which the viewer has just seen.
-    for e in base[split:]:
-        if e.get('model') and e['minute'] <= latest_save:
-            e['recorded_model'] = e.pop('model')
-        if e['id'] == 'final' and e['minute'] <= last_pass:
-            e['say'] = '导出当时的房间'
-    events[:] = base[:split] + sorted(late, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
+        if phase == 'small_objects' and 'model' in e:
+            e['overlay_model'] = e.pop('model')
+        projected.append(e)
+    if not has_small and not revised:
+        # A standalone articulation-only replay keeps its existing enhanced-room presentation.
+        for e in base[split:]:
+            if e.get('model') and e['minute'] <= latest_save:
+                e['recorded_model'] = e.pop('model')
+            if e['id'] == 'final' and e['minute'] <= last_pass:
+                e['say'] = '导出当时的房间'
+    events[:] = base[:split] + sorted(projected, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
+    if tail:
+        events.extend(tail)
+        events.sort(key=lambda e: e.get('display_minute', e['minute']))
     return True
 
 

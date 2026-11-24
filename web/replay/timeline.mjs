@@ -76,6 +76,24 @@ function projectCachedPasses(data) {
   return {...data, presentation: 'by_stage', latest_event: latest?.id, stages: ordered, events: projected};
 }
 
+// Upgrade cached responses that projected an entire post-pass room (including #157 caches).
+function projectSmallItems(data) {
+  const small = data.events.filter(e => e.recorded_stage === 'small_objects');
+  if (!small.length || small.every(e => e.stage === 'assemble' && !e.model)
+      && !data.events.some(e => e.recorded_model)) return data;
+  const base = data.events.filter(e => e.recorded_stage !== 'small_objects').map(e => {
+    if (!e.recorded_model) return e;
+    const {recorded_model, ...record} = e;
+    return {...record, model: recorded_model};
+  });
+  const cut = base.findIndex(e => ['parts', 'review', 'review2', 'revise'].includes(e.stage));
+  const split = cut < 0 ? base.length : cut;
+  const anchor = displayMinute(base[split] || base.at(-1) || {minute: 0});
+  const placed = small.map(({model, ...e}) => ({...e, stage: 'assemble', display_minute: anchor,
+    ...(model ? {overlay_model: model} : {})}));
+  return {...data, events: [...base.slice(0, split), ...placed, ...base.slice(split)]};
+}
+
 // Old offline answers used fixed success text before saves recorded joints and publication.
 export function readReplay(data) {
   const stages = data.stages.map(s => {
@@ -121,6 +139,7 @@ export function readReplay(data) {
   }
   if (answer.events.some(e => standalonePass(e.stage))) answer = projectCachedPasses(answer);
   else if (stages.some(s => standalonePass(s.id))) answer.stages = stages.filter(s => !standalonePass(s.id));
+  answer = projectSmallItems(answer);
   if (answer.hidden_nodes) return answer;
   // A cached timeline only identifies the items with a successful per-object record.
   // On integrated runs, full review/final rooms already include those models.
@@ -157,11 +176,18 @@ export function buildTimeline(data) {
   const order = (data.stages || []).map((s) => s.id), plan = order.indexOf('plan'), seen = new Set();
   const forms = (e) => (plan >= 0 && order.indexOf(e.stage) >= plan && e.show || [])
     .filter((k) => k !== '@boxes' && !seen.has(k) && seen.add(k)).length;
-  const build = data.build || null;
+  const pass = events.find(e => e.overlay_model && data.models?.[e.overlay_model]);
+  const ids = [...new Set(events.filter(e => e.recorded_stage === 'small_objects' && e.work === 'small' && e.object_id)
+    .map(e => e.object_id))];
+  const photoItems = pass && ids.length ? {ids, model: pass.overlay_model, digest: pass.artifact_digest} : null;
+  // An older cache inferred assembly from the final GLB even if it belonged to a much later revision.
+  const firstReview = events.find(e => e.stage === 'review' && /^round\d+$/.test(e.model) && data.models?.[e.model]);
+  const buildModel = data.build?.model || (ids.length && firstReview ? firstReview.model : 'final');
+  const build = ids.length && buildModel === 'final' && events.some(e => e.stage === 'revise') ? null : data.build;
   const model = (minute) => events.findLast((e) => e.model && displayMinute(e) <= minute)?.model;
   // parts named at the same minute appear together
   const batches = new Map();
-  if (build && data.models?.final) for (const r of build.reveal) batches.set(r.minute, (batches.get(r.minute) || 0) + 1);
+  if (build && data.models?.[buildModel]) for (const r of build.reveal) batches.set(r.minute, (batches.get(r.minute) || 0) + 1);
   // form: how many things take shape at this point (an event keeps its own count as e.forms)
   const points = [
     ...events.map((e, k) => ({e, minute: displayMinute(e), form: (e.forms = forms(e)), opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
@@ -192,7 +218,7 @@ export function buildTimeline(data) {
   const latest = data.latest_event && events.find(e => e.id === data.latest_event);
   return {
     latestAt: latest && latest !== events.at(-1) ? latest.at : duration,
-    duration, stages, events, build, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
+    duration, stages, events, build, buildModel, photoItems, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
     // Real minutes -> minutes the reconstruction worked (the clock).
@@ -219,7 +245,8 @@ export function comparisonAt(event, tl, t) {
   const picture = event.media?.findLast(m => m.role === 'comparison');
   if (!picture) return null;
   if (event.work === 'small' && event.display_minute != null) {
-    return tl.events.some(e => e.at >= event.at && e.at <= t && ['small_objects', 'articulated'].includes(e.model))
+    return tl.events.some(e => e.at >= event.at && e.at <= t && (event.recorded_stage === 'small_objects'
+      ? e.overlay_model && tl.models[e.overlay_model] : ['small_objects', 'articulated'].includes(e.model)))
       ? picture : null;
   }
   return picture.minute <= tl.realAt(t) ? picture : null;
@@ -238,9 +265,12 @@ export function sceneAt(tl, t) {
   // added appearing when its log first names them (build schedule from the room service).
   let added = null;
   const real = tl.realAt(t);
-  if (tl.build && tl.models.final && (!model || model === 'seed') && real >= tl.build.base) {
-    model = 'final';
-    added = new Set(tl.build.reveal.filter((r) => r.minute <= real).map((r) => r.node));
+  const reviewBuild = /^round\d+$/.test(tl.buildModel);
+  if (tl.build && tl.models[tl.buildModel] && (!model || model === 'seed') && real >= tl.build.base
+      && (!reviewBuild || t >= by.assemble?.replay[0])) {
+    model = tl.buildModel;
+    const complete = reviewBuild && past.some(e => e.recorded_stage === 'small_objects');
+    added = new Set(tl.build.reveal.filter(r => complete || r.minute <= real).map(r => r.node));
   }
   const scan = by.scan?.replay, layout = by.layout?.replay;
   return {
@@ -253,6 +283,9 @@ export function sceneAt(tl, t) {
     shell: by.plan ? t >= by.plan.replay[0] : !!model,
     built,
     model,
+    buildModel: tl.buildModel,
+    photoItems: tl.photoItems && by.assemble && t >= by.assemble.replay[0] &&
+      /^(seed|draft.*|round\d+|final|articulated)$/.test(model || '') ? tl.photoItems : null,
     hiddenNodes: added ? tl.hiddenDuringBuild : tl.hiddenNodes[model || 'seed'],
     modelEvent: model === modelEvent?.model ? modelEvent : null,
     added,  // null: the model as it is; a set: only these agent-added parts of the final model show

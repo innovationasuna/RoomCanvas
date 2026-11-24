@@ -4,6 +4,7 @@
 // camera follows smoothly; near walls fade so the room stays readable.
 import * as THREE from 'three';
 import {Materializer, prefetch, shown} from './materialize.mjs';
+import {bottomCenter, selectPhotoItems, SmallItemLayer} from './small-items.mjs';
 import {disposeModel} from './resources.mjs';
 import {createTimeLighting} from '../editor/time-lighting.mjs';
 import {surfaceBox} from '../editor/physical-lighting.mjs';
@@ -214,12 +215,13 @@ function revealParts(root, names, seedNames) {
   });
 }
 
-async function loadModel(url, digest, signal) {
+async function loadModel(url, digest, signal, select) {
   const loader = new GLTFLoader();
-  if (!digest) return loader.loadAsync(url);
+  if (select) loader.register(parser => ({name: 'ReplayPhotoItems', beforeRoot: () => select(parser.json)}));
+  if (!digest && !select) return loader.loadAsync(url);
   // The file may have changed again between the timeline poll and this GET.
-  const hash = btoa(String.fromCharCode(...digest.match(/../g).map(byte => parseInt(byte, 16))));
-  const response = await fetch(`${url}?sha256=${digest}`, {integrity: `sha256-${hash}`, signal});
+  const hash = digest && btoa(String.fromCharCode(...digest.match(/../g).map(byte => parseInt(byte, 16))));
+  const response = await fetch(digest ? `${url}?sha256=${digest}` : url, {integrity: hash ? `sha256-${hash}` : '', signal});
   if (!response.ok) throw new Error(`model HTTP ${response.status}`);
   return loader.parseAsync(await response.arrayBuffer(), THREE.LoaderUtils.extractUrlBase(url));
 }
@@ -227,7 +229,8 @@ async function loadModel(url, digest, signal) {
 function versionName(key, {interpolated: partial, modelEvent}) {
   if (!key) return '';
   if (key === 'seed') return partial ? '第一版房间 · 按记录推算' : '第一版房间';
-  if (key === 'final') return partial ? '组装中的房间 · 按记录推算' : '最终房间';
+  if (partial) return '组装中的房间 · 按记录推算';
+  if (key === 'final') return '最终房间';
   if (/^round\d+$/.test(key)) return modelEvent?.round ? `检查第 ${modelEvent.round} 轮` : '检查时的房间';
   if (key === 'small_objects' || key.startsWith('small_')) return '小物品处理后';
   if (key === 'articulated' || key.startsWith('articulated:')) {
@@ -474,7 +477,7 @@ export class RoomView {
       if (!this.modelsFramed && !this.scaffoldReady) {this.frame(new THREE.Box3().setFromObject(root)); this.modelsFramed = true;}
       return entry;
     }).finally(() => {
-      if (!this.disposed && key === 'seed' && this.state?.model === 'final' && this.state.added) this.apply(this.state, this.lastOptions);
+      if (!this.disposed && key === 'seed' && this.state?.added) this.apply(this.state, this.lastOptions);
     });
     return entry.promise;
   }
@@ -840,22 +843,49 @@ export class RoomView {
     return retiring;
   }
 
+  loadPhotoItems(source, url) {
+    if (!source || !url) return;
+    const previous = this.photoSource;
+    if (previous?.url === url && (previous.source === source || (previous.source.digest === source.digest &&
+        previous.source.ids.length === source.ids.length && source.ids.every((id, i) => id === previous.source.ids[i])))) return;
+    previous?.controller.abort();
+    previous?.layer?.dispose();
+    clearTimeout(this.photoRetry);
+    const entry = this.photoSource = {source, url, controller: new AbortController()};
+    loadModel(url, source.digest, entry.controller.signal, json => selectPhotoItems(json, source.ids, this.objectIds))
+      .then(({scene}) => {
+        if (entry.controller.signal.aborted) {disposeModel(scene); return;}
+        entry.layer = new SmallItemLayer(scene, source.ids);
+        this.scene.add(entry.layer.root);
+        this.apply(this.state, this.lastOptions);
+      }).catch(() => {
+        if (entry.controller.signal.aborted) return;
+        this.photoRetry = setTimeout(() => {
+          this.photoSource = null;
+          this.apply(this.state, this.lastOptions);
+        }, 5000);
+      });
+  }
+
   // partial: show the room as it is being built (shell + finished objects of the assembled room);
   // full: show the reached model as it is.
   apply(state, {quiet = false, modelUrl, openings, addedAll} = this.lastOptions || {}) {
     this.state = state;
     this.lastOptions = {quiet, modelUrl, openings, addedAll};
     const seedUrl = modelUrl?.('seed');
+    const buildModel = state.buildModel || 'final';
     const model = state.model || (state.shell && seedUrl ? 'seed' : null);
     const digest = (model === 'articulated' || model === 'small_objects') && state.modelEvent?.artifact_digest;
     // Reparented seed meshes need their original names before the final room can be masked.
-    const waitingForSeed = model === 'final' && state.added && seedUrl && !this.models.seed?.root;
+    const waitingForSeed = state.added && seedUrl && !this.models.seed?.root;
     if (!waitingForSeed && this.seedRetry != null) {
       clearTimeout(this.seedRetry);
       this.seedRetry = null;
     }
     const key = waitingForSeed ? this.current || this.incoming || null : digest ? `${model}:${digest}` : model;
     const partial = !state.model && key === 'seed';
+    if (state.photoItems) this.loadPhotoItems(state.photoItems, modelUrl?.(state.photoItems.model));
+    else this.photoSource?.layer?.show(null);
     if (key !== this.wanted || quiet !== this.quiet || (key && !this.models[key])) this.show(key, key && modelUrl?.(model), quiet, digest);
     const inRoom = !waitingForSeed && !!key && (this.current === key || this.incoming === key);
     const hasRoom = !!(this.current || this.incoming);
@@ -881,7 +911,9 @@ export class RoomView {
     }
     this.updateChairBoxes();
     // Load the final model alongside the seed so the switch starts on time.
-    if ((key === 'seed' || waitingForSeed) && modelUrl?.('final') && !this.models.final) this.model('final', modelUrl('final')).catch(() => {});
+    if ((key === 'seed' || waitingForSeed) && modelUrl?.(buildModel) && !this.models[buildModel]) {
+      this.model(buildModel, modelUrl(buildModel)).catch(() => {});
+    }
     // Fetch the first room model from the start (it is tens of MB), so the modelling stage never waits on it.
     if (seedUrl && !this.models.seed) {
       const delay = (this.retryAt.seed || 0) - performance.now();
@@ -907,39 +939,69 @@ export class RoomView {
     if (this.state && key === 'seed') {
       result = this.revealed(!this.state.model, this.state.built);
       if (result.appeared.length > MAX_GROUP) result.appeared = [];
-    } else if (this.state && key === 'final') {
-      result.appeared = this.reveal(this.state.added);
+    } else if (this.state && (this.revealPlan?.root === root || key === (this.state.buildModel || 'final'))) {
+      result.appeared = this.reveal(this.state.added, key);
     }
     const hide = node => {
       if (hidden.has(node)) return;
       hidden.set(node, node.visible);
       node.visible = false;
     };
-    const mask = node => {
+    const mask = (node, meshes) => {
       const children = node.children.filter(child => !child.userData.mask);
       if (node.isMesh) {
         if (children.length) splitMeshFrame(root, node, children);
+        if (meshes && shown(node)) meshes.push(node);
         hide(node);
       }
       for (const child of children) {
         const id = originalName(child);
         const handle = child.userData.room_id || this.objectIds?.has(id) || this.boxes[id];
         if (handle || (!child.isMesh && /^[A-Z][A-Za-z]*\d+$/.test(id))) continue;
-        mask(child);
+        mask(child, meshes);
       }
     };
-    for (const name of this.state?.hiddenNodes || []) {
-      const node = namedNodes(root).get(name);
-      if (node) mask(node);
+    const photos = this.state?.photoItems, slots = photos ? new Map() : null;
+    const anchors = root.userData.markerAnchors ??= new Map();
+    const layer = this.photoSource?.layer;
+    const articulated = this.state?.model === 'articulated' && photos && layer;
+    const native = root.userData.nativePhotos;
+    if (articulated && native?.source !== this.photoSource.source) {
+      const ids = photos.ids.filter(id => {
+        const part = namedNodes(root).get(id);
+        return part && !layer.isNative(id, part);
+      });
+      root.userData.nativePhotos = {source: this.photoSource.source, ids};
     }
+    const masked = new Set(this.state?.hiddenNodes);
+    if (photos && this.state.model !== 'articulated') {
+      for (const id of photos.ids) masked.add(id);
+    } else if (articulated) {
+      for (const id of root.userData.nativePhotos.ids) masked.add(id);
+    }
+    for (const name of masked) {
+      const node = namedNodes(root).get(name);
+      if (!node) continue;
+      const meshes = photos?.ids.includes(name) ? [] : null;
+      mask(node, meshes);
+      if (meshes?.length) {
+        if (!anchors.has(name)) {
+          const bounds = new THREE.Box3();
+          for (const mesh of meshes) bounds.union(surfaceBox(THREE, mesh));
+          anchors.set(name, bottomCenter(bounds));
+        }
+        slots.set(name, anchors.get(name));
+      }
+    }
+    layer?.show(slots);
     if (hidden.size) result.appeared = result.appeared.filter(node => shown(node));
     return result;
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears
   // while playing fades in; after a seek it is simply there.
-  reveal(added) {
-    const root = this.models.final?.root, appeared = [];
+  reveal(added, key = 'final') {
+    const root = this.models[key]?.root, appeared = [];
     const all = this.lastOptions?.addedAll ?? (this.revealPlan?.root === root ? this.revealPlan?.all : null);
     if (!root || !all) return appeared;
     root.userData.interpolated = !!added;
@@ -958,7 +1020,7 @@ export class RoomView {
       }
       this.revealPlan = {root, seed, all, parts: revealParts(root, all, known)};
     }
-    const inView = this.current === 'final' || this.incoming === 'final';
+    const inView = this.current === key || this.incoming === key;
     // The parts already there when the final model comes in take shape too, rather than fade in with it.
     const fresh = added && inView && this.partsShown !== root;
     if (inView) this.partsShown = added ? root : null;
@@ -1281,6 +1343,9 @@ export class RoomView {
     if (this.disposed) return this.disposal;
     this.disposed = true;
     clearTimeout(this.seedRetry);
+    clearTimeout(this.photoRetry);
+    this.photoSource?.controller.abort();
+    this.photoSource?.layer?.dispose();
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect(); this.scaffoldController.abort();
     this.restoreWindows();

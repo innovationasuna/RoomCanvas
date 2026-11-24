@@ -14,6 +14,7 @@ const hooks = registerHooks({resolve(name, context, next) {
 const {RoomView} = await import('../../replay/room-view.mjs');
 const {Materializer} = await import('../../replay/materialize.mjs');
 const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
+const {SmallItemLayer, selectPhotoItems} = await import('../../replay/small-items.mjs');
 hooks.deregister();
 
 function view() {
@@ -777,4 +778,63 @@ test('a picture with a plain slot gets a depth mask per slot', () => {
   const root = loaded(v, 'room', sheet);
   const masks = root.userData.mask.find((m) => m.parent === sheet).material;
   assert.deepEqual(masks.map((m) => [m.polygonOffsetFactor, m.polygonOffsetUnits]), [[-2, -8], [-1, -4]]);
+});
+
+test('standalone photo nodes keep their world transform, follow a moved marker and never bring its furniture', async t => {
+  const json = {scenes: [{nodes: [0]}], nodes: [
+    {name: 'Table0', mesh: 0, translation: [4, 0, 0], children: [1, 2, 3]},
+    {name: 'Cup0', mesh: 1, children: [4]}, {name: 'Lamp0', mesh: 2}, {name: 'Cup1', mesh: 1},
+    {name: 'Storage0', mesh: 3, extras: {room_id: 'Storage0'}},
+  ]};
+  const ids = ['Cup0', 'Cup1'];
+  selectPhotoItems(json, ids);
+  assert.deepEqual(json.nodes[0].children, [1, 3]);
+  assert.equal(json.nodes[0].mesh, undefined);
+  assert.deepEqual(json.nodes[1].children, []);
+
+  const photo = mesh('Photo'), cup = group('Cup0', photo), nextCup = group('Cup1', mesh('Second'));
+  const lateTable = group('Table0', cup, nextCup);
+  lateTable.position.set(4, 1, 0);
+  lateTable.rotation.y = 0.5;
+  cup.scale.set(1, 2, 1);
+  lateTable.updateMatrixWorld(true);
+  const world = cup.matrixWorld.clone();
+  const layer = new SmallItemLayer(group('donor', lateTable), ids);
+  assert.deepEqual(layer.root.children.map(p => p.name).sort(), ids);
+
+  const v = view(), photoItems = {model: 'small_objects', ids}, state = {photoItems};
+  t.mock.method(v, 'loadPhotoItems', () => {});
+  v.photoSource = {source: photoItems, layer};
+  v.scene.add(layer.root);
+  const old = mesh('Block'), marker = group('Cup0', old), table = group('Table0', marker);
+  table.position.copy(lateTable.position);
+  marker.scale.copy(cup.scale);
+  loaded(v, 'seed', table);
+  apply(v, 'seed', true, state);
+  assert.equal(old.visible, false);
+  assert.equal(cup.visible, true);
+  assert.ok(cup.matrix.equals(world));
+  assert.equal(nextCup.visible, false);
+  const revised = group('Table0', group('Cup0', mesh('Block')), group('Cup1', mesh('Block')));
+  revised.position.set(7, 1, 0);
+  loaded(v, 'draft-1', revised);
+  v.models['draft-1'].controller = new AbortController();
+  apply(v, 'draft-1', true, state);
+  assert.equal(nextCup.visible, true);
+  assert.equal(cup.matrix.elements[12], 7);
+  assert.equal(revised.position.x, 7);
+  apply(v, 'seed', true, state);
+  assert.ok(cup.matrix.equals(world));
+  assert.equal(nextCup.visible, false);
+  apply(v, 'seed', true, {hiddenNodes: ids});
+  assert.equal(layer.root.visible, false);
+  assert.equal(old.visible, false);
+
+  const native = group('Cup0', mesh('Photo')), stale = mesh('OldStandIn');
+  loaded(v, 'articulated', native, group('Cup1', stale));
+  apply(v, 'articulated', true, {photoItems});
+  assert.equal(cup.visible, false);
+  assert.equal(native.visible, true);
+  assert.equal(stale.visible, false);
+  assert.equal(nextCup.visible, true);
 });

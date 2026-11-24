@@ -61,13 +61,14 @@ test('offline pass pictures, models and verdict use stage order and retain their
   const [, , photo, placed, , check] = tl.events;
   assert.equal(photo.say, '杯子的照片模型已就绪');
   assert.deepEqual([photo.stage, photo.minute, photo.display_minute, tl.realAt(photo.at)], ['assemble', 100, 20, 20]);
-  assert.deepEqual([check.recorded_model, check.img, check.passed], ['round0', 'original.png', false]);
+  assert.deepEqual([check.model, check.img, check.passed], ['round0', 'original.png', false]);
   assert.deepEqual(projected.hidden_nodes.final, ['Cup0']);
   assert.deepEqual(tl.build.reveal.map(r => r.node), ['Lamp0']);
   assert.equal(comparisonAt(photo, tl, photo.at), null);
   assert.equal(comparisonAt(photo, tl, placed.at)?.src, 'pair.jpg');
-  assert.equal(sceneAt(tl, placed.at).model, 'small_objects');
-  assert.equal(sceneAt(tl, check.at).model, 'articulated');
+  assert.equal(sceneAt(tl, placed.at).model, 'round0');
+  assert.deepEqual(sceneAt(tl, placed.at).photoItems.ids, ['Cup0']);
+  assert.equal(sceneAt(tl, check.at).model, 'round0');
   for (const [k, e] of tl.events.entries()) {
     assert.equal(tl.stageAt(e.at).id, e.stage);
     assert.equal(tl.indexAt(e.at), k);
@@ -100,7 +101,8 @@ test('offline cached saves close their pass even when the GLB predates the photo
   const tl = buildTimeline(data), photo = tl.events.find(e => e.id === 'photo');
   assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'open', 'joints', 'check', 'final']);
   assert.equal(comparisonAt(photo, tl, tl.duration)?.src, 'pair.jpg');
-  assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
+  assert.equal(sceneAt(tl, tl.duration).model, 'final');
+  assert.deepEqual(sceneAt(tl, tl.duration).photoItems.ids, ['Cup0']);
 });
 
 test('offline passes on a revised room keep the original review model and follow the revision', () => {
@@ -109,7 +111,7 @@ test('offline passes on a revised room keep the original review model and follow
   const data = readReplay({...oldRun, stages: [...oldStages, revise],
     events: [...before, {id: 'move', stage: 'revise', minute: 50}, ...oldPass]});
   const tl = buildTimeline(data);
-  assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'check', 'final', 'move', 'photo', 'placed', 'joints']);
+  assert.deepEqual(tl.events.map(e => e.id), ['seed', 'author', 'photo', 'placed', 'check', 'final', 'move', 'joints']);
   assert.equal(sceneAt(tl, tl.events.find(e => e.id === 'check').at).model, 'round0');
   assert.equal(tl.stageAt(tl.duration).id, 'revise');
   assert.equal(sceneAt(tl, tl.duration).model, 'articulated');
@@ -135,4 +137,26 @@ test('an empty old pass and mixed item sources keep integrated objects in review
       assert.deepEqual(data.hidden_nodes.final, ['Cup0']);
     }
   }
+});
+
+test('a #157 cache moves just the independent items and retains the follow target and evidence on rewind', () => {
+  const cached = {...oldRun, presentation: 'by_stage', latest_event: 'placed',
+    stages: [...stages, {id: 'revise'}], hidden_nodes: {seed: ['Cup0'], round0: ['Cup0'], final: ['Cup0']},
+    events: [...oldRun.events.slice(0, 4), {id: 'move', stage: 'revise', minute: 50},
+      ...oldPass.map(e => ({...e, stage: 'revise', recorded_stage: e.stage, display_minute: e.minute}))]};
+  const data = readReplay(cached), tl = buildTimeline(data);
+  const [seed, author, photo, placed, check, final, , joints] = tl.events;
+  assert.equal(photo.stage, 'assemble');
+  assert.equal(placed.overlay_model, 'small_objects');
+  assert.equal(placed.model, undefined);
+  assert.equal(tl.latestAt, placed.at);
+  assert.equal(sceneAt(tl, joints.at).model, 'articulated');
+  assert.equal(sceneAt(tl, final.at).model, 'final');
+  assert.equal(sceneAt(tl, check.at).model, 'round0');
+  assert.equal(sceneAt(tl, author.at).model, 'round0');
+  assert.deepEqual(sceneAt(tl, author.at).photoItems.ids, ['Cup0']);
+  assert.equal(sceneAt(tl, seed.at).photoItems, null);
+  assert.equal(comparisonAt(photo, tl, placed.at)?.src, 'pair.jpg');
+  assert.equal(comparisonAt(photo, tl, photo.at), null);
+  assert.deepEqual(readReplay(data), data);
 });
