@@ -7,6 +7,7 @@ import com.google.android.filament.EntityManager
 import com.google.android.filament.LightManager
 import com.google.android.filament.View
 import io.github.sceneview.SceneView
+import io.github.sceneview.environment.Environment
 import io.github.sceneview.node.ModelNode
 
 /**
@@ -20,6 +21,22 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
     }
 
     private val lightEntities = mutableListOf<Int>()
+    // Keep the actual scene bindings: SceneView.environment can be stale after
+    // assigning indirectLight or skybox directly. The loaders own these objects.
+    private val originalMainLight = sceneView.mainLightNode
+    private val originalIndirectLight = sceneView.indirectLight
+    private val originalEnvironmentIntensity = originalIndirectLight?.intensity
+    private val originalSkybox = sceneView.skybox
+    private val originalAperture = sceneView.cameraNode.aperture
+    private val originalShutterSpeed = sceneView.cameraNode.shutterSpeed
+    private val originalSensitivity = sceneView.cameraNode.sensitivity
+    private var roomEnvironment: Environment? = Environment(
+        indirectLight = originalIndirectLight,
+        skybox = originalSkybox,
+        sphericalHarmonics = null
+    )
+    private var localLightPlan = emptyList<RoomLightSpec>()
+    private var authoredLightCount = 0
 
     var quality = RoomRenderQuality.BASELINE
         private set
@@ -28,10 +45,14 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         private set
 
     init {
-        // 不使用 SceneView 默认主光；房间照明由局部灯 + IBL 提供。
-        sceneView.mainLightNode = null
-        sceneView.cameraNode.setExposure(0.7f, 1.0f / 125.0f, 100.0f)
         applyQuality(RoomRenderQuality.BASELINE)
+    }
+
+    /** A missing or failed HDR keeps the original illumination until usable. */
+    fun setEnvironment(environment: Environment?) {
+        if (roomEnvironment === environment) return
+        roomEnvironment = environment
+        applyLighting()
     }
 
     fun applyQuality(value: RoomRenderQuality) {
@@ -61,25 +82,52 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
     }
 
     fun applyTo(modelNode: ModelNode) {
-        clearLights()
         modelNode.isShadowCaster = false
         modelNode.isShadowReceiver = false
 
         // glTF 自带灯具时优先使用，不再叠加自动灯光。
-        if (modelNode.lightNodes.isNotEmpty()) {
+        authoredLightCount = modelNode.lightNodes.size
+        localLightPlan = if (authoredLightCount > 0) {
             modelNode.lightNodes.forEach { it.isShadowCaster = false }
-            debugLightSummary = "lights=${modelNode.lightNodes.size} gltfLights=true"
-            Log.i(TAG, "物理光影：使用模型自带的 ${modelNode.lightNodes.size} 盏灯（无实时阴影）")
+            emptyList()
+        } else {
+            val parts = collectNamedBounds(modelNode)
+            val room = RoomLightLayout.shellBounds(parts, modelNode.boundingBox.toRoomBounds())
+            RoomLightLayout.plan(room, parts)
+        }
+        applyLighting()
+    }
+
+    private fun applyLighting() {
+        clearLights()
+        val environment = roomEnvironment
+        val indirectLight = environment?.indirectLight
+        if (indirectLight == null || (localLightPlan.isEmpty() && authoredLightCount == 0)) {
+            originalEnvironmentIntensity?.let { originalIndirectLight?.intensity = it }
+            sceneView.indirectLight = originalIndirectLight
+            sceneView.skybox = originalSkybox
+            sceneView.mainLightNode = originalMainLight
+            sceneView.cameraNode.setExposure(originalAperture, originalShutterSpeed, originalSensitivity)
+            val reason = if (indirectLight == null) "environment-unavailable" else "unrecognized-room"
+            debugLightSummary = "lights=$authoredLightCount ceiling=0 window=0 " +
+                "gltfLights=${authoredLightCount > 0} fallback=$reason"
+            Log.i(TAG, "房间照明：保留原有照明，$debugLightSummary")
             return
         }
 
-        val parts = collectNamedBounds(modelNode)
-        val room = RoomLightLayout.shellBounds(parts, modelNode.boundingBox.toRoomBounds())
-        val localLights = RoomLightLayout.plan(room, parts)
+        // Switch exposure, environment and local lights together; a failed HDR
+        // or unrecognized room must not be left with only the dim physical IBL.
+        sceneView.mainLightNode = null
+        sceneView.cameraNode.setExposure(0.7f, 1.0f / 125.0f, 100.0f)
+        indirectLight.intensity = ENVIRONMENT_INTENSITY
+        sceneView.indirectLight = indirectLight
+        sceneView.skybox = environment.skybox
+        val localLights = localLightPlan
         localLights.forEach(::createLocalLight)
-        debugLightSummary = "lights=${lightEntities.size} " +
+        debugLightSummary = "lights=${lightEntities.size + authoredLightCount} " +
             "ceiling=${localLights.count { it.kind == RoomLightKind.CEILING }} " +
-            "window=${localLights.count { it.kind == RoomLightKind.WINDOW }} gltfLights=false"
+            "window=${localLights.count { it.kind == RoomLightKind.WINDOW }} " +
+            "gltfLights=${authoredLightCount > 0}"
         Log.i(
             TAG,
             "物理光影：局部灯 ${localLights.size} 盏，$debugLightSummary，" +
@@ -133,16 +181,27 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         val asset = modelNode.model
         val renderableManager = sceneView.engine.renderableManager
         val transformManager = sceneView.engine.transformManager
+        val names = asset.entities.associateWith { asset.getName(it).orEmpty() }
+        fun ancestors(entity: Int): List<String> {
+            val path = mutableListOf<String>()
+            var parent = transformManager.getParent(transformManager.getInstance(entity))
+            while (parent in names) {
+                names[parent]?.takeIf { it.isNotEmpty() }?.let(path::add)
+                if (!transformManager.hasComponent(parent)) break
+                parent = transformManager.getParent(transformManager.getInstance(parent))
+            }
+            return path.asReversed()
+        }
         return asset.renderableEntities.toList().mapNotNull { entity ->
             val name = asset.getName(entity).orEmpty()
-            if (name.isEmpty() || !transformManager.hasComponent(entity)) return@mapNotNull null
+            if (!transformManager.hasComponent(entity)) return@mapNotNull null
             val renderable = renderableManager.getInstance(entity)
             val box = renderableManager.getAxisAlignedBoundingBox(renderable, Box())
             val transform = transformManager.getWorldTransform(
                 transformManager.getInstance(entity),
                 FloatArray(16)
             )
-            NamedRoomBounds(name, box.transform(transform))
+            NamedRoomBounds(name, box.transform(transform), ancestors(entity))
         }
     }
 

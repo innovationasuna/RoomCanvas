@@ -65,6 +65,156 @@ class RoomLightLayoutTest {
     }
 
     @Test
+    fun `office composite frame keeps its light despite the blind suffix`() {
+        val frame = NamedRoomBounds(
+            "Window_Frame_Fixed_Lights_Sill_Blind",
+            bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f)
+        )
+
+        for (part in listOf(frame, frame.copy(ancestors = listOf("Window0")))) {
+            val light = RoomLightLayout.plan(room, listOf(part)).single()
+            assertEquals(RoomLightKind.WINDOW, light.kind)
+            assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+            assertEquals(220f, light.watts, 0f)
+            assertEquals(6500f, light.temperatureKelvin, 0f)
+        }
+    }
+
+    @Test
+    fun `composite frame root groups anonymous and named mesh descendants`() {
+        val root = "Window_Frame_Fixed_Lights_Sill_Blind"
+        val parts = listOf(
+            NamedRoomBounds("", bounds(-4f, -0.5f, -1f, -3.9f, 0f, 0f), listOf(root)),
+            NamedRoomBounds("Glass", bounds(-4f, 0f, 0f, -3.9f, 1f, 1f), listOf(root)),
+            NamedRoomBounds("", bounds(-10f, -5f, -10f, -5f, 5f, 10f), listOf(root, "Blind"))
+        )
+
+        val light = RoomLightLayout.plan(room, parts).single()
+
+        assertEquals(RoomLightKind.WINDOW, light.kind)
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+        val frame = NamedRoomBounds(root, bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f))
+        assertEquals(light, RoomLightLayout.plan(room, parts + frame).single())
+    }
+
+    @Test
+    fun `composite frame ancestor groups its numbered window leaves`() {
+        val root = "Window_Frame_Sill_Pelmet"
+        val parts = listOf(
+            NamedRoomBounds("Glass", bounds(-4f, -0.5f, -1f, -3.9f, 0f, 0f), listOf(root, "Window1")),
+            NamedRoomBounds("Glass", bounds(-4f, 0f, 0f, -3.9f, 1f, 1f), listOf(root, "Window2"))
+        )
+
+        val light = RoomLightLayout.plan(room, parts).single()
+
+        assertEquals(RoomLightKind.WINDOW, light.kind)
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+    }
+
+    @Test
+    fun `window ancestor names require a word boundary`() {
+        val plainMesh = NamedRoomBounds(
+            "Glass", bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f), listOf("Windowless_Room")
+        )
+
+        assertTrue(RoomLightLayout.plan(room, listOf(plainMesh)).isEmpty())
+        for (root in listOf("Window", "Window0", "Window_0", "Window-0", "Window_Frame")) {
+            val part = plainMesh.copy(ancestors = listOf("Windowless_Room", root))
+            assertVecEquals(Vec3(-3.87f, 0.25f, 0f), RoomLightLayout.plan(room, listOf(part)).single().position)
+        }
+    }
+
+    @Test
+    fun `classroom window leaves aggregate under the outer semantic window`() {
+        val frame = NamedRoomBounds(
+            "Window_Frame_Sill_Pelmet",
+            bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f),
+            ancestors = listOf("Wall2", "Window0")
+        )
+        val leaves = (1..8).map { index ->
+            NamedRoomBounds(
+                "Casement_${(index + 1) / 2}_${if (index % 2 == 1) "L" else "R"}",
+                bounds(-4f, -0.4f, -0.9f, -3.9f, 0.9f, 0.9f),
+                ancestors = listOf("Wall2", "Window0", "Window_Frame_Sill_Pelmet", "Window$index")
+            )
+        }
+        val curtain = NamedRoomBounds(
+            "Curtain_Center_FixedFrame", bounds(-5f, -1f, -3f, -3f, 2f, 3f),
+            ancestors = listOf("Wall2", "Window0", "Window_Frame_Sill_Pelmet")
+        )
+
+        val light = RoomLightLayout.plan(room, leaves + curtain + frame).single()
+
+        assertEquals(RoomLightKind.WINDOW, light.kind)
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+    }
+
+    @Test
+    fun `unnamed descendants contribute bounds to their window root`() {
+        val parts = listOf(
+            NamedRoomBounds("", bounds(-4f, -0.5f, -1f, -3.9f, 0f, 0f), listOf("Window0", "Glass")),
+            NamedRoomBounds("", bounds(-4f, 0f, 0f, -3.9f, 1f, 1f), listOf("Window0", "Window1"))
+        )
+
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), RoomLightLayout.plan(room, parts).single().position)
+    }
+
+    @Test
+    fun `separate coverings and helper subtrees cannot enlarge the window`() {
+        val frame = NamedRoomBounds(
+            "Window_Frame_Sill_Pelmet", bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f),
+            listOf("Window0")
+        )
+        val farAway = bounds(-20f, -5f, -10f, -10f, 5f, 10f)
+        val excluded = listOf(
+            "WindowDrapePiano", "WindowSheer", "Window_Curtain_Frame", "Window_Blind_Frame",
+            "WindowBench0", "WindowDaylightBackdrop0", "WindowExteriorBackdrop", "DaylightBackdrop"
+        )
+        val parts = excluded.flatMap { name ->
+            listOf(
+                NamedRoomBounds(name, farAway, listOf("Window0")),
+                NamedRoomBounds("", farAway, listOf("Window0", name)),
+                NamedRoomBounds("Window_Frame", farAway, listOf("Window0", name))
+            )
+        }
+
+        val light = RoomLightLayout.plan(room, parts + frame).single()
+
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+        assertTrue(RoomLightLayout.plan(room, parts).isEmpty())
+    }
+
+    @Test
+    fun `room3 separate curtain remains excluded even when its name starts with frame`() {
+        val ancestors = listOf("Window0", "Window_Frame_Sill_Pelmet")
+        val frame = NamedRoomBounds(
+            "Window_Frame_Sill_Pelmet", bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f),
+            listOf("Window0")
+        )
+        val curtain = NamedRoomBounds(
+            "FrameFixed_Static_Left_Pleated_Curtain", bounds(-6f, -1f, -2f, -3f, 2f, 2f), ancestors
+        )
+
+        val light = RoomLightLayout.plan(room, listOf(frame, curtain)).single()
+
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), light.position)
+    }
+
+    @Test
+    fun `separate window roots keep separate lights and stable ordering`() {
+        val left = NamedRoomBounds("Glass", bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f), listOf("Window0"))
+        val right = NamedRoomBounds("Glass", bounds(3.9f, -0.5f, -1f, 4f, 1f, 1f), listOf("Window1"))
+
+        val lights = RoomLightLayout.plan(room, listOf(right, left))
+
+        assertEquals(2, lights.size)
+        assertVecEquals(Vec3(-3.87f, 0.25f, 0f), lights[0].position)
+        assertVecEquals(Vec3(3.87f, 0.25f, 0f), lights[1].position)
+        assertTrue(requireNotNull(lights[0].direction).x > 0f)
+        assertTrue(requireNotNull(lights[1].direction).x < 0f)
+    }
+
+    @Test
     fun `shell bounds exclude daylight helpers outside the room`() {
         val shell = listOf(
             NamedRoomBounds("Wall0", bounds(-2f, -1.5f, -2f, -1.9f, 1.2f, 2f)),
@@ -86,6 +236,29 @@ class RoomLightLayoutTest {
 
         assertEquals(3, RoomLightLayout.plan(room, parts, maxLocalLights = 3).size)
         assertTrue(RoomLightLayout.plan(room, parts, maxLocalLights = 0).isEmpty())
+        assertTrue(RoomLightLayout.plan(room, parts, maxLocalLights = -1).isEmpty())
+    }
+
+    @Test
+    fun `window keeps one budget slot even when ceiling lights fill the budget`() {
+        val ceilings = (0 until 6).map {
+            NamedRoomBounds("Ceiling$it", bounds(it.toFloat(), 1.1f, 0f, it + 1f, 1.2f, 1f))
+        }
+        val window = NamedRoomBounds("Window0", bounds(-4f, -0.5f, -1f, -3.9f, 1f, 1f))
+
+        val lights = RoomLightLayout.plan(room, ceilings + window)
+
+        assertEquals(
+            listOf(RoomLightKind.CEILING, RoomLightKind.CEILING, RoomLightKind.CEILING, RoomLightKind.WINDOW),
+            lights.map { it.kind }
+        )
+        assertVecEquals(Vec3(0.5f, 0.8f, 0.5f), lights[0].position)
+        assertVecEquals(Vec3(1.5f, 0.8f, 0.5f), lights[1].position)
+        assertVecEquals(Vec3(2.5f, 0.8f, 0.5f), lights[2].position)
+        val onlyLight = RoomLightLayout.plan(room, ceilings + window, maxLocalLights = 1).single()
+        assertEquals(RoomLightKind.WINDOW, onlyLight.kind)
+        assertTrue(RoomLightLayout.plan(room, ceilings + window, maxLocalLights = 0).isEmpty())
+        assertTrue(RoomLightLayout.plan(room, ceilings + window, maxLocalLights = -1).isEmpty())
     }
 
     @Test

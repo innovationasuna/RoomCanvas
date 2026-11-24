@@ -34,7 +34,12 @@ data class RoomBounds(val min: Vec3, val max: Vec3) {
         }
 }
 
-data class NamedRoomBounds(val name: String, val bounds: RoomBounds)
+data class NamedRoomBounds(
+    val name: String,
+    val bounds: RoomBounds,
+    /** Outer-to-inner transform ancestors, excluding this renderable's own name. */
+    val ancestors: List<String> = emptyList()
+)
 
 enum class RoomLightKind { CEILING, WINDOW }
 
@@ -62,8 +67,35 @@ object RoomLightLayout {
     const val LIGHT_FALLOFF_MULTIPLIER = 2.0f
 
     private val windowGroup = Regex("^window(?:[_-]?\\d+)?", RegexOption.IGNORE_CASE)
+    private val windowAncestor = Regex("^window(?:[_-]?\\d+)?(?:$|[_ .-])", RegexOption.IGNORE_CASE)
+    private val windowCovering = Regex("drape|sheer|curtain|blind", RegexOption.IGNORE_CASE)
+    private val windowHelper = Regex("bench|daylight|backdrop", RegexOption.IGNORE_CASE)
     private val ceilingPanel = Regex("^ceiling\\d+$", RegexOption.IGNORE_CASE)
     private val linearFixture = Regex("^linear light housing(?:\\.\\d+)?$", RegexOption.IGNORE_CASE)
+
+    private fun excludedWindowPart(name: String): Boolean {
+        if (windowHelper.containsMatchIn(name)) return true
+        val covering = windowCovering.find(name) ?: return false
+        // A complete window can include its blind in the same mesh. A separate
+        // curtain/blind (including its own frame) must not enlarge the aperture.
+        val frame = name.indexOf("frame", ignoreCase = true)
+        return !(name.startsWith("window", ignoreCase = true) &&
+            frame >= 0 && frame < covering.range.first)
+    }
+
+    private fun windowKey(part: NamedRoomBounds): String? {
+        val path = part.ancestors + part.name
+        if (path.any(::excludedWindowPart)) return null
+        // Window1..8 can be leaves of Window0, rather than eight separate windows.
+        // The outermost semantic root also includes unnamed renderable children.
+        val root = part.ancestors.indexOfFirst { windowAncestor.containsMatchIn(it) }
+            .takeIf { it >= 0 } ?: part.ancestors.size
+        // A complete frame may itself be the named parent of anonymous meshes.
+        // Normalize its suffix just as the original flat-name grouping did.
+        val group = windowGroup.find(path[root])?.value ?: return null
+        val groupPath = path.take(root) + group
+        return groupPath.joinToString("\u0000") { it.lowercase() }
+    }
 
     fun shellBounds(parts: List<NamedRoomBounds>, fallback: RoomBounds): RoomBounds {
         return parts.filter {
@@ -93,12 +125,9 @@ object RoomLightLayout {
             )
         }
 
-        val windowLights = parts.filter {
-            it.name.startsWith("window", ignoreCase = true) &&
-                !it.name.contains("drape|sheer|curtain|blind|bench".toRegex(RegexOption.IGNORE_CASE))
-        }.groupBy {
-            windowGroup.find(it.name)?.value?.lowercase() ?: it.name.lowercase()
-        }.toSortedMap().values.map { windowParts ->
+        val windowGroups = parts.mapNotNull { part -> windowKey(part)?.let { it to part } }
+            .groupBy({ it.first }, { it.second }).toSortedMap()
+        val windowLights = windowGroups.values.map { windowParts ->
             val bounds = windowParts.map { it.bounds }.reduce(RoomBounds::union)
             val center = bounds.center
             val roomCenter = room.center
@@ -132,6 +161,7 @@ object RoomLightLayout {
             )
         }
 
-        return (ceilingLights + windowLights).take(maxLocalLights)
+        val ceilingBudget = if (windowLights.isEmpty()) maxLocalLights else maxLocalLights - 1
+        return (ceilingLights.take(ceilingBudget) + windowLights).take(maxLocalLights)
     }
 }
