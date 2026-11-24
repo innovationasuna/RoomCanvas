@@ -28,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.hausen3d.arviewer.ar.ArPoseRenderer
 import com.hausen3d.arviewer.ar.toMat4
 import com.hausen3d.arviewer.databinding.ActivityVrWalkthroughBinding
+import com.hausen3d.arviewer.rendering.PhysicalRoomLighting
 import com.hausen3d.arviewer.vr.ArticulationController
 import com.hausen3d.arviewer.vr.GlbAnimationTargets
 import com.hausen3d.arviewer.vr.VrCameraController
@@ -101,6 +102,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private var modelNode: ModelNode? = null
     private var cameraController: VrCameraController? = null
+
+    /** 房间实时照明：IBL + 顶灯 + 窗入光；不使用日光与实时阴影 */
+    private val roomLighting by lazy { PhysicalRoomLighting(binding.sceneView) }
 
     /** 驱动柜门/窗扇/推拉门的点击开关；模型没有动画时内部条目为空，点击无副作用 */
     private var articulation: ArticulationController? = null
@@ -401,6 +405,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         modelNode?.let { releaseModelNode(it) }
         binding.sceneView.addChildNode(node)
         modelNode = node
+        roomLighting.applyTo(node)
         articulation = ArticulationController(
             sceneView = binding.sceneView,
             modelNode = node,
@@ -702,6 +707,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val environment = binding.sceneView.environmentLoader
                 .loadHDREnvironment("environments/studio_small_09_2k.hdr")
+            environment?.indirectLight?.intensity = PhysicalRoomLighting.ENVIRONMENT_INTENSITY
             binding.sceneView.indirectLight = environment?.indirectLight
             binding.sceneView.skybox = environment?.skybox
         }

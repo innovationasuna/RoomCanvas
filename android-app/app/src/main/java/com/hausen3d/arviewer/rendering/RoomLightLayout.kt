@@ -1,0 +1,137 @@
+package com.hausen3d.arviewer.rendering
+
+import kotlin.math.sqrt
+
+data class Vec3(val x: Float, val y: Float, val z: Float)
+
+data class RoomBounds(val min: Vec3, val max: Vec3) {
+    val center: Vec3
+        get() = Vec3(
+            (min.x + max.x) * 0.5f,
+            (min.y + max.y) * 0.5f,
+            (min.z + max.z) * 0.5f
+        )
+
+    fun union(other: RoomBounds) = RoomBounds(
+        min = Vec3(
+            minOf(min.x, other.min.x),
+            minOf(min.y, other.min.y),
+            minOf(min.z, other.min.z)
+        ),
+        max = Vec3(
+            maxOf(max.x, other.max.x),
+            maxOf(max.y, other.max.y),
+            maxOf(max.z, other.max.z)
+        )
+    )
+
+    val diagonal: Float
+        get() {
+            val x = max.x - min.x
+            val y = max.y - min.y
+            val z = max.z - min.z
+            return sqrt(x * x + y * y + z * z)
+        }
+}
+
+data class NamedRoomBounds(val name: String, val bounds: RoomBounds)
+
+enum class RoomLightKind { CEILING, WINDOW }
+
+data class RoomLightSpec(
+    val kind: RoomLightKind,
+    val position: Vec3,
+    val direction: Vec3?,
+    val watts: Float,
+    val temperatureKelvin: Float,
+    val falloff: Float,
+    val bulbRadius: Float
+)
+
+/** 局部灯使用 glTF 的 Y-up 坐标，优先从实际灯具与窗框布光。 */
+object RoomLightLayout {
+    const val CEILING_WATTS = 65f
+    const val CEILING_TEMPERATURE_K = 4700f
+    const val CEILING_DROP_M = 0.30f
+    const val CEILING_BULB_RADIUS_M = 0.05f
+    const val WINDOW_WATTS = 220f
+    const val WINDOW_TEMPERATURE_K = 6500f
+    const val WINDOW_INSET_M = 0.08f
+    const val WINDOW_BULB_RADIUS_M = 0.20f
+    const val WINDOW_DOWN_TILT = 0.10f
+    const val LIGHT_FALLOFF_MULTIPLIER = 2.0f
+
+    private val windowGroup = Regex("^window(?:[_-]?\\d+)?", RegexOption.IGNORE_CASE)
+    private val ceilingPanel = Regex("^ceiling\\d+$", RegexOption.IGNORE_CASE)
+    private val linearFixture = Regex("^linear light housing(?:\\.\\d+)?$", RegexOption.IGNORE_CASE)
+
+    fun shellBounds(parts: List<NamedRoomBounds>, fallback: RoomBounds): RoomBounds {
+        return parts.filter {
+            it.name.startsWith("wall", ignoreCase = true) ||
+                it.name.startsWith("floor", ignoreCase = true) ||
+                ceilingPanel.matches(it.name)
+        }.map { it.bounds }.reduceOrNull(RoomBounds::union) ?: fallback
+    }
+
+    fun plan(room: RoomBounds, parts: List<NamedRoomBounds>, maxLocalLights: Int = 4): List<RoomLightSpec> {
+        if (maxLocalLights <= 0) return emptyList()
+        val falloff = (room.diagonal * LIGHT_FALLOFF_MULTIPLIER).coerceAtLeast(1f)
+
+        val ceilingParts = parts.filter { linearFixture.matches(it.name) }.ifEmpty {
+            parts.filter { ceilingPanel.matches(it.name) }
+        }
+        val ceilingLights = ceilingParts.sortedBy { it.name }.map { part ->
+            val center = part.bounds.center
+            RoomLightSpec(
+                kind = RoomLightKind.CEILING,
+                position = Vec3(center.x, part.bounds.min.y - CEILING_DROP_M, center.z),
+                direction = Vec3(0f, -1f, 0f),
+                watts = CEILING_WATTS,
+                temperatureKelvin = CEILING_TEMPERATURE_K,
+                falloff = falloff,
+                bulbRadius = CEILING_BULB_RADIUS_M
+            )
+        }
+
+        val windowLights = parts.filter {
+            it.name.startsWith("window", ignoreCase = true) &&
+                !it.name.contains("drape|sheer|curtain|blind|bench".toRegex(RegexOption.IGNORE_CASE))
+        }.groupBy {
+            windowGroup.find(it.name)?.value?.lowercase() ?: it.name.lowercase()
+        }.toSortedMap().values.map { windowParts ->
+            val bounds = windowParts.map { it.bounds }.reduce(RoomBounds::union)
+            val center = bounds.center
+            val roomCenter = room.center
+            var inwardX = roomCenter.x - center.x
+            var inwardZ = roomCenter.z - center.z
+            val length = sqrt(inwardX * inwardX + inwardZ * inwardZ)
+            if (length < 1e-6f) {
+                inwardX = 0f
+                inwardZ = 1f
+            } else {
+                inwardX /= length
+                inwardZ /= length
+            }
+            val directionLength = sqrt(1f + WINDOW_DOWN_TILT * WINDOW_DOWN_TILT)
+            RoomLightSpec(
+                kind = RoomLightKind.WINDOW,
+                position = Vec3(
+                    center.x + inwardX * WINDOW_INSET_M,
+                    center.y,
+                    center.z + inwardZ * WINDOW_INSET_M
+                ),
+                direction = Vec3(
+                    inwardX / directionLength,
+                    -WINDOW_DOWN_TILT / directionLength,
+                    inwardZ / directionLength
+                ),
+                watts = WINDOW_WATTS,
+                temperatureKelvin = WINDOW_TEMPERATURE_K,
+                falloff = falloff,
+                bulbRadius = WINDOW_BULB_RADIUS_M
+            )
+        }
+
+        return (ceilingLights + windowLights).take(maxLocalLights)
+    }
+}
