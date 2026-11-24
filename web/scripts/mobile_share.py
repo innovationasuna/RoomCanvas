@@ -168,6 +168,7 @@ STATIC_FILES = {
     '/web/editor/lighting-composite.mjs', '/web/editor/color-grading.mjs',
     '/web/editor/room-luminaires.mjs', '/web/editor/ray-queries.mjs', '/web/editor/collision.mjs',
     '/web/editor/entity-geometry.mjs', '/web/editor/geometry-bounds.mjs', '/web/editor/triangle-index.mjs',
+    '/web/editor/triangle-geometry.mjs',
     '/web/editor/walk.mjs', '/web/editor/touch-walk.mjs', '/web/theme.css', '/web/icon.svg',
     '/web/vendor/build/three.module.js', '/web/vendor/build/three.core.js',
     '/web/vendor/examples/jsm/loaders/GLTFLoader.js',

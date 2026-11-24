@@ -1,5 +1,6 @@
 import {entityGeometry, meshGeometry} from './entity-geometry.mjs';
 import {buildTriangleIndex, makeTriangleTree, nodeBox, nodeFaces, readFace} from './triangle-index.mjs';
+import {triangleCount, vertexAt, readVertex, vertexDot, readTriangle} from './triangle-geometry.mjs';
 // Surface collision uses authored triangles; bounds only prune the search.
 // Translation is swept continuously, so even a long step cannot jump a thin wall.
 import {carryPose} from './placement.mjs';
@@ -104,7 +105,7 @@ function trianglesCross(a, b) {
 }
 
 const centroid = (triangle) => [0, 1, 2].map((k) => (triangle[0][k] + triangle[1][k] + triangle[2][k]) / 3);
-const containsPoint = (box, p, margin = EPS) => [0, 1, 2].every((k) => p[k] >= box[k] - margin && p[k] <= box[k + 3] + margin);
+const containsPoint = (box, p, margin = EPS, offset = 0) => [0, 1, 2].every((k) => p[k] >= box[offset + k] - margin && p[k] <= box[offset + k + 3] + margin);
 
 // Closedness is determined from authored triangle edges, independent of normal
 // winding. Open sheets can obstruct a crossing but cannot invent a solid volume.
@@ -117,8 +118,9 @@ function isClosed(mesh) {
     if (!vertices.has(key)) vertices.set(key, vertices.size);
     return vertices.get(key);
   };
+  const scratch = mesh.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
   for (const id of mesh.faces) {
-    const ids = mesh.triangles[id].map(vertexId);
+    const ids = readTriangle(mesh, id, scratch).map(vertexId);
     for (let i = 0; i < 3; i++) {
       const a = ids[i], b = ids[(i + 1) % 3];
       if (a === b) continue;
@@ -129,9 +131,9 @@ function isClosed(mesh) {
   return mesh.closed = counts.size > 0 && [...counts.values()].every((count) => count === 2);
 }
 
-function pointOnTriangle(point, face) {
-  if (Math.abs(dot(point, face.plane) - face.d) > EPS) return false;
-  const v0 = subtract(face.triangle[1], face.triangle[0]), v1 = subtract(face.triangle[2], face.triangle[0]), v2 = subtract(point, face.triangle[0]);
+// Called only after the face's box and plane accept the point.
+function pointOnTriangle(point, triangle) {
+  const v0 = subtract(triangle[1], triangle[0]), v1 = subtract(triangle[2], triangle[0]), v2 = subtract(point, triangle[0]);
   const d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1), d20 = dot(v2, v0), d21 = dot(v2, v1);
   const determinant = d00 * d11 - d01 * d01;
   if (Math.abs(determinant) < 1e-22) return false;
@@ -150,10 +152,21 @@ function rayBox(point, direction, box) {
 }
 
 function pointOnMesh(mesh, point) {
+  const data = mesh.data;
+  let scratch = null;
   function onBoundary(node) {
     if (!containsPoint(nodeBox(mesh.tree, node), point)) return false;
     const faces = nodeFaces(mesh.tree, node);
-    return faces ? faces.some((id) => {const face = readFace(mesh, id); return containsPoint(face.box, point) && pointOnTriangle(point, face);})
+    return faces ? faces.some((id) => {
+      const offset = id * 10;
+      // Most faces fail these metadata-only checks. Decoding their coordinates
+      // first made a dense mesh's containment query slower in the Worker.
+      if (!containsPoint(data, point, EPS, offset)) return false;
+      const distance = point[0] * data[offset + 6] + point[1] * data[offset + 7] + point[2] * data[offset + 8];
+      if (Math.abs(distance - data[offset + 9]) > EPS) return false;
+      if (!mesh.triangles && !scratch) scratch = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      return pointOnTriangle(point, readTriangle(mesh, id, scratch));
+    })
       : onBoundary(mesh.tree.links[node * 4]) || onBoundary(mesh.tree.links[node * 4 + 1]);
   }
   return onBoundary(0);
@@ -164,6 +177,7 @@ function pointInside(mesh, point) {
   // Exact contact is not containment, regardless of the chosen ray direction.
   if (pointOnMesh(mesh, point)) return false;
   const directions = [[1, .371390676, .52917319], [.217341, 1, .618073], [.419517, .731931, 1]];
+  const {triangles, vertices, index} = mesh;
   let insideVotes = 0;
   for (const direction of directions) {
     const hits = []; let grazing = false;
@@ -175,12 +189,25 @@ function pointInside(mesh, point) {
       // without allocating arrays for every face of a large mesh.
       const [d0, d1, d2] = direction, [p0, p1, p2] = point;
       for (const id of faces) {
-        const [a, b, c] = mesh.triangles[id];
-        const e10 = b[0] - a[0], e11 = b[1] - a[1], e12 = b[2] - a[2], e20 = c[0] - a[0], e21 = c[1] - a[1], e22 = c[2] - a[2];
+        // Read packed scalars directly: copying nine coordinates into scratch
+        // arrays for every ray/face pair only to read them back is unnecessary.
+        let a0, a1, a2, b0, b1, b2, c0, c1, c2;
+        if (triangles) {
+          const [a, b, c] = triangles[id];
+          a0 = a[0]; a1 = a[1]; a2 = a[2];
+          b0 = b[0]; b1 = b[1]; b2 = b[2];
+          c0 = c[0]; c1 = c[1]; c2 = c[2];
+        } else {
+          const offset = id * 3, a = index[offset] * 3, b = index[offset + 1] * 3, c = index[offset + 2] * 3;
+          a0 = vertices[a]; a1 = vertices[a + 1]; a2 = vertices[a + 2];
+          b0 = vertices[b]; b1 = vertices[b + 1]; b2 = vertices[b + 2];
+          c0 = vertices[c]; c1 = vertices[c + 1]; c2 = vertices[c + 2];
+        }
+        const e10 = b0 - a0, e11 = b1 - a1, e12 = b2 - a2, e20 = c0 - a0, e21 = c1 - a1, e22 = c2 - a2;
         const h0 = d1 * e22 - d2 * e21, h1 = d2 * e20 - d0 * e22, h2 = d0 * e21 - d1 * e20;
         const determinant = e10 * h0 + e11 * h1 + e12 * h2;
         if (Math.abs(determinant) < 1e-14) continue;
-        const s0 = p0 - a[0], s1 = p1 - a[1], s2 = p2 - a[2], u = (s0 * h0 + s1 * h1 + s2 * h2) / determinant;
+        const s0 = p0 - a0, s1 = p1 - a1, s2 = p2 - a2, u = (s0 * h0 + s1 * h1 + s2 * h2) / determinant;
         const q0 = s1 * e12 - s2 * e11, q1 = s2 * e10 - s0 * e12, q2 = s0 * e11 - s1 * e10, v = (d0 * q0 + d1 * q1 + d2 * q2) / determinant;
         if (u < -EPS || v < -EPS || u + v > 1 + EPS) continue;
         const t = (e20 * q0 + e21 * q1 + e22 * q2) / determinant;
@@ -202,7 +229,8 @@ function pointInside(mesh, point) {
 // the returned extrema always come from real triangle vertices, including concave meshes.
 // Written out in scalars: a drag asks for hundreds of these on large meshes. With a floor, only
 // whether some vertex lies above it is wanted: below the floor the result is not exact. found, if
-// given, receives the vertex that reaches furthest.
+// given, receives the identity of the vertex that reaches furthest: a point on
+// the page, a numeric vertex ID in the Worker.
 function support(mesh, [x, y, z], floor = -Infinity, found = null) {
   let best = -Infinity, point = null;
   const ix = x >= 0 ? 3 : 0, iy = y >= 0 ? 4 : 1, iz = z >= 0 ? 5 : 2;
@@ -211,7 +239,16 @@ function support(mesh, [x, y, z], floor = -Infinity, found = null) {
     if (best > floor && floor > -Infinity || upper(node) <= Math.max(best, floor)) return;
     const faces = nodeFaces(mesh.tree, node);
     if (faces) {
-      for (const id of faces) for (const p of mesh.triangles[id]) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; point = p;}}
+      if (mesh.triangles) {
+        for (const id of faces) for (const p of mesh.triangles[id]) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; point = p;}}
+      } else {
+        const {vertices, index} = mesh;
+        for (const id of faces) for (let corner = 0; corner < 3; corner++) {
+          const vertex = index[id * 3 + corner], offset = vertex * 3;
+          const value = x * vertices[offset] + y * vertices[offset + 1] + z * vertices[offset + 2];
+          if (value > best) {best = value; point = vertex;}
+        }
+      }
     } else {
       const left = mesh.tree.links[node * 4], right = mesh.tree.links[node * 4 + 1];
       if (upper(left) >= upper(right)) {visit(left); visit(right);} else {visit(right); visit(left);}
@@ -230,50 +267,54 @@ const projection = (mesh, axis, offset = 0) => [-support(mesh, axis.map((v) => -
 const pieceCache = new WeakMap();
 function pieces(mesh) {
   if (!pieceCache.has(mesh.tree)) {
-    // Vertices at one position are one, whether or not the mesh shares their arrays. Triangles
-    // share a vertex array where the mesh does, so each array is numbered once.
+    // Keep authored vertex identities separate from the existing EPS position
+    // grouping. Packed meshes use numeric IDs throughout this adjacency work;
+    // numbers/around and the cached samples never retain expanded point arrays.
     const positions = new Map(), numbers = new Map(), parent = [];
-    const number = (p) => {
-      if (!numbers.has(p)) {
+    const scratchPoint = mesh.triangles ? null : [0, 0, 0], scratchTriangle = mesh.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const number = (vertex) => {
+      if (!numbers.has(vertex)) {
+        const p = readVertex(mesh, vertex, scratchPoint);
         const position = p.map((v) => Math.round(v / EPS)).join(',');
         if (!positions.has(position)) {positions.set(position, parent.length); parent.push(parent.length);}
-        numbers.set(p, positions.get(position));
+        numbers.set(vertex, positions.get(position));
       }
-      return numbers.get(p);
+      return numbers.get(vertex);
     };
     const find = (k) => {while (parent[k] !== k) k = parent[k] = parent[parent[k]]; return k;};
     // The corners of the faces around each vertex: most faces that are not on the hull have one
     // of them in front, which is cheaper to find than a search of the whole piece.
     const around = [];
     for (const id of mesh.faces) {
-      const triangle = mesh.triangles[id], [a, b, c] = triangle.map(number);
+      const triangle = [vertexAt(mesh, id, 0), vertexAt(mesh, id, 1), vertexAt(mesh, id, 2)], [a, b, c] = triangle.map(number);
       parent[find(b)] = find(a); parent[find(c)] = find(a);
       for (const k of [a, b, c]) (around[k] ||= []).push(...triangle);
     }
     const groups = new Map();
     for (const id of mesh.faces) {
-      const root = find(number(mesh.triangles[id][0]));
+      const root = find(number(vertexAt(mesh, id, 0)));
       if (!groups.has(root)) groups.set(root, []);
       groups.get(root).push(id);
     }
-    const found = groups.size === 1 ? [mesh] : [...groups.values()].map((faces) => ({triangles: mesh.triangles, data: mesh.data, tree: makeTriangleTree(mesh.data, faces.slice()), faces}));
+    const geometry = mesh.triangles ? {triangles: mesh.triangles} : {vertices: mesh.vertices, index: mesh.index};
+    const found = groups.size === 1 ? [mesh] : [...groups.values()].map((faces) => ({...geometry, data: mesh.data, tree: makeTriangleTree(mesh.data, faces.slice()), faces}));
     pieceCache.set(mesh.tree, found.map((piece) => {
       const planes = [0, 1, 2, 3, 4, 5].map((k) => ({n: [0, 1, 2].map((j) => j === k % 3 ? (k < 3 ? 1 : -1) : 0), d: k < 3 ? piece.tree.box[k + 3] : -piece.tree.box[k - 3]}));
       // Only faces parallel to within about a hundredth of a degree are merged, keeping the largest;
       // a real normal is never replaced by a nearby direction.
       const directions = new Set(), area = ([a, b, c]) => Math.hypot(...cross(subtract(b, a), subtract(c, a)));
-      const largest = Array.from(piece.faces, (id) => [area(piece.triangles[id]), id]).sort((f, g) => g[0] - f[0]).map(([, id]) => id);
+      const largest = Array.from(piece.faces, (id) => [area(readTriangle(piece, id, scratchTriangle)), id]).sort((f, g) => g[0] - f[0]).map(([, id]) => id);
       for (const id of largest) {
-        const face = readFace(piece, id);
+        const face = readFace(piece, id, scratchTriangle);
         for (const [n, e] of [[face.plane, face.d], [face.plane.map((v) => -v), -face.d]]) {
-          const direction = n.map((v) => Math.round(v * 1e4)).join(','), front = (p) => dot(n, p) > e + EPS;
-          if (directions.has(direction) || face.triangle.some((p) => around[number(p)].some(front))) continue;
+          const direction = n.map((v) => Math.round(v * 1e4)).join(','), front = (vertex) => vertexDot(piece, vertex, n[0], n[1], n[2]) > e + EPS;
+          if (directions.has(direction) || [0, 1, 2].some((corner) => around[number(vertexAt(piece, id, corner))].some(front))) continue;
           if (support(piece, n, e + EPS) <= e + EPS) {directions.add(direction); planes.push({n, d: e});}
         }
       }
       // A small piece (a wall, a box) is projected through its few vertices rather than its tree.
       // The vertices furthest out along the axes and diagonals are a first guess for any other.
-      const points = piece.faces.length <= 64 ? [...new Set(Array.from(piece.faces).flatMap((id) => piece.triangles[id]))] : null;
+      const points = piece.faces.length <= 64 ? [...new Set(Array.from(piece.faces).flatMap((id) => [vertexAt(piece, id, 0), vertexAt(piece, id, 1), vertexAt(piece, id, 2)]))] : null;
       const samples = points || [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => [x, y, z]))).filter((u) => u.some(Boolean)).map((u) => {
         const found = []; support(piece, u, -Infinity, found); return found[0];
       });
@@ -301,16 +342,19 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   const started = performance.now();
   let builtMeshes = 0, reusedMeshes = 0;
   const owners = input.map((owner) => ({...owner, origin: owner.origin || [0, 0, 0], meshes: owner.meshes.map((mesh) => {
-    if (meshIndexes.has(mesh.triangles)) {reusedMeshes++; return {...mesh, ...meshIndexes.get(mesh.triangles)};}
+    const source = mesh.triangles || mesh;
+    if (meshIndexes.has(source)) {reusedMeshes++; return {...mesh, ...meshIndexes.get(source)};}
     builtMeshes++;
-    const index = buildTriangleIndex(mesh.triangles);
-    meshIndexes.set(mesh.triangles, index);
+    const index = buildTriangleIndex(source);
+    meshIndexes.set(source, index);
     return {...mesh, ...index};
   }).filter((mesh) => mesh.tree)})).filter((owner) => !owner.queryOnly);
-  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.filter((o) => !o.queryOnly).reduce((n, o) => n + o.meshes.reduce((n, m) => n + m.triangles.length, 0), 0), buildMs: performance.now() - started, projections: 0};
+  const audit = {builtMeshes, reusedMeshes, objects: owners.length, meshes: owners.reduce((n, o) => n + o.meshes.length, 0), triangles: input.filter((o) => !o.queryOnly).reduce((n, o) => n + o.meshes.reduce((n, m) => n + triangleCount(m), 0), 0), buildMs: performance.now() - started, projections: 0};
 
   function fixedMesh(meshA, ownerA, poseA, meshB, ownerB, poseB) {
     const relative = (point) => localPoint(worldPoint(point, ownerA, poseA), ownerB, poseB);
+    const scratchA = meshA.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const scratchB = meshB.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     const transformedBoxes = new Map(), transformedFaces = new Map();
     const placedBox = (node) => {
       if (!transformedBoxes.has(node)) transformedBoxes.set(node, bounds(corners(nodeBox(meshA.tree, node)).map(relative)));
@@ -322,13 +366,14 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     };
     // A transformed face with its bounds and unit plane, computed once per check.
     const planes = new Map();
-    const placed = (face) => {
-      if (!planes.has(face.faceIndex)) {
+    const placed = (id) => {
+      if (!planes.has(id)) {
+        const face = readFace(meshA, id, scratchA);
         const t = triangle(face), raw = normal(t), length = Math.hypot(...raw);
         const n = length < 1e-12 ? null : raw.map((v) => v / length);
-        planes.set(face.faceIndex, {t, box: bounds(t), n, d: n ? dot(n, t[0]) : 0});
+        planes.set(id, {t, box: bounds(t), n, d: n ? dot(n, t[0]) : 0});
       }
-      return planes.get(face.faceIndex);
+      return planes.get(id);
     };
     // Signed distances of a triangle's corners to a plane, as [min, max].
     const span = (points, n, d) => {
@@ -341,10 +386,10 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       const facesA = nodeFaces(meshA.tree, nodeA), facesB = nodeFaces(meshB.tree, nodeB);
       if (facesA && facesB) {
         for (const idA of facesA) {
-          const a = placed(readFace(meshA, idA));
+          const a = placed(idA);
           if (!a.n) continue;
           for (const idB of facesB) {
-            const fb = readFace(meshB, idB);
+            const fb = readFace(meshB, idB, scratchB);
             if (!overlap(a.box, fb.box)) continue;
             // trianglesCross with both planes computed once: each triangle must straddle the other's.
             const [lowA, highA] = span(a.t, fb.plane, fb.d), [lowB, highB] = span(fb.triangle, a.n, a.d);
@@ -361,20 +406,23 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     function contained(source, sourceOwner, sourcePose, target, targetOwner, targetPose) {
       if (!isClosed(target)) return false;
       const toTarget = (point) => localPoint(worldPoint(point, sourceOwner, sourcePose), targetOwner, targetPose);
-      // A vertex is shared by about six faces, as one array; test it once.
+      // A vertex is shared by about six faces; cache by its stable identity,
+      // including numeric packed IDs, rather than retaining decoded points.
       const known = new Map();
-      const inside = (point) => {
-        if (!known.has(point)) known.set(point, pointInside(target, toTarget(point)));
-        return known.get(point);
+      const scratch = source.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      const inside = (vertex, point) => {
+        if (!known.has(vertex)) known.set(vertex, pointInside(target, toTarget(point)));
+        return known.get(vertex);
       };
       function visit(node) {
         if (!overlap(bounds(corners(nodeBox(source.tree, node)).map(toTarget)), target.tree.box)) return false;
         const faces = nodeFaces(source.tree, node);
         if (!faces) return visit(source.tree.links[node * 4]) || visit(source.tree.links[node * 4 + 1]);
         for (const id of faces) {
-          const face = readFace(source, id);
-          const center = centroid(face.triangle), points = [center, ...face.triangle];
-          for (const point of points) if (inside(point)) return true;
+          const face = readFace(source, id, scratch);
+          const center = centroid(face.triangle);
+          if (pointInside(target, toTarget(center))) return true;
+          for (let corner = 0; corner < 3; corner++) if (inside(vertexAt(source, id, corner), face.triangle[corner])) return true;
           // Fully coincident shells have no crossing and every boundary sample
           // is contact. Probe both sides but require the probe to be inside BOTH
           // closed meshes, so adjacent touching solids remain legal.
@@ -404,7 +452,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
   const extent = (piece, [x, y, z], found) => {
     if (!piece.points) return support(piece, [x, y, z], -Infinity, found);
     let best = -Infinity;
-    for (const p of piece.points) {const value = x * p[0] + y * p[1] + z * p[2]; if (value > best) {best = value; found[0] = p;}}
+    for (const vertex of piece.points) {const value = vertexDot(piece, vertex, x, y, z); if (value > best) {best = value; found[0] = vertex;}}
     return best;
   };
   function penetrations(a, ownerA, poseA, b, ownerB, poseB) {
@@ -421,11 +469,11 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       known = {turn, sides: [[b.planes, a], [a.planes, b]].map(([planes, piece], k) => {
         // Lower bounds of the penetrations at this pose, from the vertex that reached furthest before.
         // turned[k] written out, without an array per plane.
-        const near = pair.near[k], low = new Float64Array(planes.length), sign = k ? -1 : 1;
+        const near = pair.near[k], low = new Float64Array(planes.length), sign = k ? -1 : 1, scratch = [0, 0, 0];
         planes.forEach(({n: [x, y, z], d}, j) => {
           const u0 = sign * s * z - c * x, u2 = -sign * s * x - c * z;
-          if (!near[j]) {const u = [u0, -y, u2]; near[j] = piece.samples.reduce((best, p) => dot(u, p) > dot(u, best) ? p : best);}
-          const p = near[j], z0 = zeros[k];
+          if (near[j] === undefined) near[j] = piece.samples.reduce((best, vertex) => vertexDot(piece, vertex, u0, -y, u2) > vertexDot(piece, best, u0, -y, u2) ? vertex : best);
+          const p = readVertex(piece, near[j], scratch), z0 = zeros[k];
           low[j] = d - (x * z0[0] + y * z0[1] + z * z0[2]) + u0 * p[0] - y * p[1] + u2 * p[2];
         });
         return {planes, piece, turned: turned[k], zero: zeros[k], low, reach: []};
@@ -609,6 +657,8 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
     const angle = Math.abs(wrap(endA.yaw - poseA.yaw));
     const radius = Math.max(assemblyRadius, ...corners(meshA.tree.box).map((p) => Math.hypot(p[0], p[2])));
     const padding = changingYaw ? radius * (1 - Math.cos(angle / 2)) : 0;
+    const scratchA = meshA.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const scratchB = meshB.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     const nodeBoxes = new Map(), transformedFaces = new Map();
     function sweptBox(node) {
       if (!nodeBoxes.has(node)) {
@@ -626,7 +676,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       // cheaply reject entire chair BVH branches before reaching triangles.
       const faces = nodeFaces(meshB.tree, nodeB);
       if (faces && !faces.some((id) => {
-        const face = readFace(meshB, id);
+        const face = readFace(meshB, id, scratchB);
         const values = startPoints.map((p) => dot(p,face.plane)), shift = dot(delta,face.plane);
         const lo = Math.min(...values), hi = Math.max(...values);
         const end = endPoints ? endPoints.map((p) => dot(p,face.plane)) : [lo+shift,hi+shift];
@@ -658,7 +708,7 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
         const scan = (node) => {
           if (touching || !overlap(bounds(corners(nodeBox(meshA.tree, node)).map((p) => relative(p, poseA))), fb.box)) return;
           const faces = nodeFaces(meshA.tree, node);
-          if (faces) touching = faces.some((id) => trianglesIntersect(meshA.triangles[id].map((p) => relative(p, poseA)), fb.triangle));
+          if (faces) touching = faces.some((id) => trianglesIntersect(readTriangle(meshA, id, scratchA).map((p) => relative(p, poseA)), fb.triangle));
           else {scan(meshA.tree.links[node * 4]); scan(meshA.tree.links[node * 4 + 1]);}
         };
         scan(0);
@@ -673,13 +723,13 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
       if (facesA && facesB) {
         for (const idA of facesA) {
           if (!transformedFaces.has(idA)) {
-            const triangle = meshA.triangles[idA], a = triangle.map((p) => relative(p, poseA)), end = changingYaw ? triangle.map((p) => relative(p, endA)) : null;
+            const triangle = readTriangle(meshA, idA, scratchA), a = triangle.map((p) => relative(p, poseA)), end = changingYaw ? triangle.map((p) => relative(p, endA)) : null;
             const endBounds = end ? bounds(end) : bounds(a.map((p) => p.map((v, k) => v + delta[k])));
             transformedFaces.set(idA, {a,end,box:expand(union(bounds(a),endBounds),padding)});
           }
           const {a,end,box:sweptBounds} = transformedFaces.get(idA);
           for (const idB of facesB) {
-            const fb = readFace(meshB, idB);
+            const fb = readFace(meshB, idB, scratchB);
             if (!overlap(sweptBounds, fb.box)) continue;
             const contact = sweepTriangle(a, fb.triangle, delta, end, padding);
             if (contact !== null && contact < earliest && !recovering(fb)) earliest = contact;
@@ -766,16 +816,16 @@ export function buildCollision(input, {keepAuthoredOverlaps = false} = {}) {
 // The pieces and fixed parts of a room with their triangles, read from its meshes once.
 const ownerSnapshots = new WeakMap(), relativeMeshes = new WeakMap(), meshSources = new WeakMap();
 export const collisionMeshSource = (mesh) => meshSources.get(mesh);
-export function triangleIndex(triangles) {
-  if (!meshIndexes.has(triangles)) buildCollision([{id: 'query', meshes: [{triangles}]}]);
-  return meshIndexes.get(triangles);
+export function triangleIndex(source) {
+  if (!meshIndexes.has(source)) buildCollision([{id: 'query', meshes: [Array.isArray(source) ? {triangles: source} : source]}]);
+  return meshIndexes.get(source);
 }
 // Transfer only numeric index data, never the source triangles or a second object
 // tree. The Worker keeps its buffers; postMessage clones them for synchronous page
 // queries without requiring SharedArrayBuffer/cross-origin isolation.
 export function collisionIndexes(owners) {
-  return owners.map(({id, meshes}) => ({id, meshes: meshes.map(({triangles}) => {
-    const {data, faces, tree} = triangleIndex(triangles);
+  return owners.map(({id, meshes}) => ({id, meshes: meshes.map((mesh) => {
+    const {data, faces, tree} = triangleIndex(mesh.triangles || mesh);
     return {data, faces, tree};
   })}));
 }
