@@ -49,7 +49,9 @@ function upload(route, fields, files, onProgress) {
     request.onload = () => {
       let data = {};
       try {data = JSON.parse(request.responseText);} catch {}
-      if (request.status === 200) resolve(data); else reject(new Error(data.error || `照片上传失败，请重新上传（${request.status}）`));
+      if (request.status === 200) return resolve(data);
+      const hint = request.status === 413 ? '照片总大小超限，请减少照片数量或缩小照片后再上传。' : `照片上传失败，请重新上传（${request.status}）`;
+      reject(new Error(data?.error || hint));
     };
     request.onerror = () => reject(new Error('照片上传失败。请确认电脑已连上物品重建服务，再试一次。'));
     request.send(form);

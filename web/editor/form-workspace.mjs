@@ -254,7 +254,7 @@ function createWorkspace() {
           <div><dt><kbd>Q</kbd> / <kbd>E</kbd></dt><dd>升高 / 降低视线</dd></div>
           <div><dt>Shift＋左键拖动</dt><dd>转头</dd></div>
           <div><dt><kbd>Esc</kbd></dt><dd>退出漫游</dd></div>
-        </dl><p class="rc-help-note">点右上角“在手机中打开”，用连到同一 Wi-Fi 的手机扫码查看布置。</p></section>
+        </dl><p class="rc-help-note">点右上角“在手机中打开”，再点“生成二维码”，用连到同一 Wi-Fi 的手机扫码查看布置。</p></section>
         <section><h3>完整工具与手势</h3><p>在左侧“设置”中选择“完整”，可以调整更多参数。</p><p>在左侧手势面板开启摄像头。左手比 1 / 2 / 3 / 4 切换动作，右手捏合调整物品。右手拇指向上保持约半秒确认，向下保持约半秒取消。</p></section>
       </div>
       <section class="rc-help-shortcuts"><h3>常用快捷键</h3><dl>

@@ -239,7 +239,7 @@ class Handler(SimpleHTTPRequestHandler):
                         except (fetch_samples.FetchError, OSError, http.client.HTTPException):
                             failure = (503, {'error': '房间服务和 GitHub 均未能提供该模型，请检查连接后刷新重试。'})
                     else:
-                        failure = (503, {'error': '无法下载这个示例房间。请联系管理员确认房间重建服务备有该模型，或登录 GitHub 后重启网页服务。刷新只会重试当前房间。'})
+                        failure = (503, {'error': '无法下载这个示例房间。请管理员确认房间服务备有模型，或按 web/README.md 的“示例房间的模型”说明，在运行网页服务的电脑上配置 GitHub 下载权限。完成后刷新当前房间。'})
                 # Complete cleanup before the browser receives an error and can retry.
                 if failure:
                     return self.room_json(*failure)

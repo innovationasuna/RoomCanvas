@@ -35,14 +35,25 @@ function fail(message) {
 // Opened without ?job=: list the reconstruction jobs to pick from.
 const STATUS = {queued: '排队中', running: '重建中', preparing: '整理中', completed: '已完成', failed: '未完成'};
 const connectionHint = '暂时连不上房间重建服务。请确认电脑已连接服务器，再刷新页面。';
+async function replayJSON(path, missing) {
+  const response = await fetch(path, {cache: 'no-store'}).catch(() => {throw new Error(connectionHint);});
+  if (response.status === 401) throw new Error('房间重建服务未接受当前凭证。请联系管理员检查服务凭证后重试。');
+  if (response.status === 404 && missing) throw new Error(missing);
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const hint = [502, 503, 504].includes(response.status) ? connectionHint : `未能读取重建记录，请稍后重试（${response.status}）。`;
+    throw new Error(data?.error || hint);
+  }
+  if (!data) throw new Error('无法读取重建记录，请联系管理员检查记录。');
+  return data;
+}
 async function choose() {
   let jobs;
   try {
-    const response = await fetch('/room-reconstruction/jobs', {cache: 'no-store'});
-    if (!response.ok) throw new Error();
-    jobs = (await response.json()).jobs.filter((j) => j.status !== 'queued').sort((a, b) => b.created - a.created);
-  } catch {
-    return fail(connectionHint);
+    const data = await replayJSON('/room-reconstruction/jobs');
+    jobs = data.jobs.filter((j) => j.status !== 'queued').sort((a, b) => b.created - a.created);
+  } catch (error) {
+    return fail(error.message);
   }
   if (!jobs.length) return fail('暂时没有可回放的记录。可以返回房间列表开始重建，或等排队中的任务开始后再来。');
   const when = (t) => new Date(t * 1000).toLocaleString('zh-CN', {hour12: false}).slice(0, -3);
@@ -51,9 +62,7 @@ async function choose() {
 }
 
 async function fetchData() {
-  const response = await fetch(api, {cache: 'no-store'}).catch(() => {throw new Error(connectionHint);});
-  if (!response.ok) throw new Error(response.status === 404 ? '没有找到这条记录，请返回房间列表重新选择。' : connectionHint);
-  const data = readReplay(await response.json());
+  const data = readReplay(await replayJSON(api, '没有找到这条记录，请返回房间列表重新选择。'));
   data.events = data.events.map(e => pictureUrls(e, files));
   return data;
 }
@@ -93,7 +102,8 @@ async function poll() {
       restore(tl.events);
     }
     $('liveError').hidden = true;
-  } catch {
+  } catch (error) {
+    $('liveError').textContent = error.message;
     $('liveError').hidden = false;
   }
   if (data.live) setTimeout(poll, POLL);

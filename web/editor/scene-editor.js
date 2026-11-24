@@ -28,7 +28,7 @@ import {createGestureCamera} from './gesture-camera.mjs';
 import {mountGestureFeedback} from './gesture-feedback.mjs';
 import {canGestureActivate, isExplicitExport} from './gesture-target.mjs';
 import {Openings, openableOf, ridersOf} from './joints.mjs';
-import {readCatalog, readAsset, loadModels, objectLabel, metricScale, savedMeasurement, sizeInMeters} from './object-import.mjs';
+import {readCatalog, readAsset, loadModels, modelLoadError, objectLabel, metricScale, savedMeasurement, sizeInMeters} from './object-import.mjs';
 import {mountAddObject} from './add-object-dialog.mjs';
 import {shadowSettings} from './lighting-settings.mjs';
 import {lightingProfile} from './lighting-profiles.mjs';
@@ -1976,9 +1976,13 @@ async function openImports() {
 async function chooseImport() {
   const run = $('#import-run').value;
   importAsset = null; $('#import-object').disabled = $('#import-capture').disabled = true; $('#import-note').textContent = '正在读取尺寸…';
-  const asset = await readAsset(run).catch(() => null);
+  let asset;
+  try {asset = await readAsset(run);}
+  catch (error) {
+    if ($('#import-run').value === run) $('#import-note').textContent = `未能读取物品尺寸：${error.message}`;
+    return;
+  }
   if ($('#import-run').value !== run) return;
-  if (!asset) {$('#import-note').textContent = '未能读取物品尺寸。请确认电脑已连上物品重建服务，再刷新页面。'; return;}
   importAsset = {...asset, run};
   $('#import-capture').disabled = false;
   const saved = savedMeasurement(asset);
@@ -2116,14 +2120,8 @@ async function load() {
   Object.assign(placementSpecs, config.placement);
   const modelURL = await versionedModelURL();
   const modelStarted = startStage();
-  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80)).catch(async (error) => {
-    // Surface the local server's download/authentication errors without fetching the model again.
-    if (error.response?.headers.get('content-type')?.includes('application/json')) {
-      const detail = await error.response.json().catch(() => null);
-      if (typeof detail?.error === 'string') throw new Error(detail.error);
-    }
-    throw error.response?.status === 404 ? new Error('没有找到房间模型。请联系管理员更新网页服务并确认模型可用') : error;
-  });
+  const gltf = await new GLTFLoader().loadAsync(modelURL, reportProgress(0, 80)).catch(error =>
+    modelLoadError(error, '没有找到房间模型。请联系管理员更新网页服务并确认模型可用'));
   if (sceneFailed) return;
   finishStage('initial', 'modelReadAndParse', modelStarted);
   progress.value = 80;

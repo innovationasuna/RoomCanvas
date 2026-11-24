@@ -80,6 +80,15 @@ test('progress reflects real stages and keeps errors distinct from completion', 
   assert.match(jobDescription({status: 'preparing'}), /整理/);
   assert.match(jobDescription({status: 'running', gpu_waiting: true, stages: []}), /排队.*自动开始重建/);
   assert.equal(jobDescription({status: 'failed', error: '模型不可用'}), '模型不可用');
+  for (const [error, hint] of [
+    ['没有取得可用的 GPU，重建没有开始。请稍后重试；详情见服务器 task.log。', /尚未开始.*稍后重试/],
+    ['房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。', /重试.*联系管理员/],
+  ]) {
+    const note = jobDescription({status: 'failed', error});
+    assert.match(note, hint);
+    assert.doesNotMatch(note, /GPU|\.log/);
+  }
+  assert.match(jobDescription({status: 'failed', retryable: false}), /重新导出后再上传/);
   assert.match(jobDescription({status: 'completed'}), /已加入房间列表/);
   assert.match(jobDescription({status: 'completed', usable: false}), /房间模型暂时无法打开.*查看过程/);
   assert.match(jobDescription({status: 'completed', quality: {status: 'warnings'},

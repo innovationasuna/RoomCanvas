@@ -16,7 +16,12 @@ export function scanError(file, name) {
   return '';
 }
 export function jobDescription(job) {
-  if (job.status === 'failed') return job.error || '重建未完成，可以重试。';
+  if (job.status === 'failed') {
+    if (job.retryable === false) return '扫描数据无法用于重建。请检查扫描包，重新导出后再上传。';
+    if (job.error?.includes('没有取得可用的 GPU')) return '服务器暂时没有可用资源，重建尚未开始。请稍后重试。';
+    if (/\.log\b|服务器日志/.test(job.error)) return '房间重建未完成。请重试，若仍然失败，请联系管理员。';
+    return job.error || '重建未完成，可以重试。';
+  }
   if (job.replay_only) return '已有的重建记录，可以回看过程。';
   if (job.status === 'completed') {
     if (job.usable === false) return '重建已结束，但房间模型暂时无法打开。请点“查看过程”了解详情。';
