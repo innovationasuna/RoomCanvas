@@ -652,11 +652,18 @@ class PhasedRun(unittest.TestCase):
                                             else r) + '\n' for r in rows))
             event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
             self.assertEqual(event.get('source_digest'), expected)
+            # A named room whose digest is gone is told apart from no evidence (the page keeps the overlay for both).
+            self.assertEqual(event.get('source_known'), None if expected else True)
         # A small-object room written after the openable parts began is not the one they took.
         os.utime(self.run / replay.SMALL_OBJECTS, (T0 + 3100, T0 + 3100))
         write(trace, ''.join(json.dumps({**r, 'source': '/x/small-objects/room_preview'} if r.get('kind') == 'articulate_start'
                                         and r['t'] == T0 + 3010 else r) + '\n' for r in rows))
-        self.assertNotIn('source_digest', next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated'))
+        event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+        self.assertEqual((event.get('source_digest'), event.get('source_known')), (None, True))
+        # Without a start record nothing is known.
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows if not (r.get('kind') == 'articulate_start' and r['t'] == T0 + 3010)))
+        event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+        self.assertFalse({'source_digest', 'source_known'} & set(event))
 
     def test_a_slim_copy_keeps_the_pass_receipts_that_match_its_rooms(self):
         small, articulated = (hashlib.sha256(b).hexdigest() for b in (b'small', b'articulated'))

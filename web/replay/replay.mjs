@@ -19,6 +19,7 @@ const WATCH = 6000;
 
 let lastAdded = null;
 let data = null, tl = null, following = true, lastIdx = -2, shownTo = -1, lastKey = '', hold = 0, posed = false;
+let framing = null;  // a photo item reached in playback before anything of it could be framed: {idx, id}
 // The record's cards (log.mjs), the card of each event, the last card shown, the cards a reader opened (kept
 // across live updates), and whether the next update should bring the current record into view (a seek).
 let deck = [], cardOf = [], shownCard = -1, reveal = false;
@@ -125,7 +126,7 @@ function rebuild(followLatest) {
   deck = cards(tl.events);
   objectNames(tl.events, names);
   cardOf = deck.flatMap((card, c) => card.members.map(() => c));
-  lastIdx = -2; lastKey = '';
+  lastIdx = -2; lastKey = ''; framing = null;
   $('log').querySelectorAll('[data-key]').forEach((el) => cardImages.collect(el));
   cardImages.prune(deck, tl.events);
   $('log').innerHTML = `<div class="user">帮我把「${esc(data.name || '这个房间')}」的扫描重建成能在网页里编辑的 3D 房间。</div><div class="who"><i>R</i>RoomCanvas</div>`;
@@ -386,6 +387,12 @@ function render(t, p, animate = p.playing) {
   lastAdded = scene.added;
   if (p.playing && newly.length && view.aim(newly, {close: true})) hold = WATCH;
   const idx = tl.indexAt(t);
+  // Its model has arrived while its record still plays: move in on it now. A drag or the next record drops it.
+  if (framing && (!p.playing || idx !== framing.idx)) framing = null;
+  if (framing && !view.boundsOf(framing.id).isEmpty()) {
+    if (view.aim([framing.id], {close: true})) hold = WATCH;
+    framing = null;
+  }
   if (idx === lastIdx) return;
   const prevIdx = lastIdx;
   lastIdx = idx;
@@ -394,7 +401,10 @@ function render(t, p, animate = p.playing) {
   // one made again, which is already there and passes in a moment).
   if (p.playing && idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
   // A photo item appears at its own record: move in on it, one after another.
-  if (p.playing && idx === prevIdx + 1 && e?.work === 'small' && scene.photoShow?.has(e.object_id) && view.aim([e.object_id], {close: true})) hold = WATCH;
+  if (p.playing && idx === prevIdx + 1 && e?.work === 'small' && scene.photoShow?.has(e.object_id)) {
+    if (view.boundsOf(e.object_id).isEmpty()) framing = {idx, id: e.object_id};
+    else if (view.aim([e.object_id], {close: true})) hold = WATCH;
+  }
   renderLog(idx);
 }
 

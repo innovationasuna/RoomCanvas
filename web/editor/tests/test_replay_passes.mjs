@@ -189,7 +189,8 @@ test('an old cache pairs its schedule with its room: build, first review and rev
   assert.deepEqual(at('photo').hiddenNodes, ['Cup0']);
   assert.equal(at('check').model, 'round0');
   assert.deepEqual([at('final').model, at('final').added], ['final', null]);
-  assert.deepEqual([at('joints').model, shown(at('joints'))], ['articulated', null]);
+  // The cache names no source for the openable parts: the photo items stay overlaid (see holdsPhotos).
+  assert.deepEqual([at('joints').model, shown(at('joints'))], ['articulated', ['Cup0']]);
   assert.equal(at('author').model, 'seed');
 });
 
@@ -215,7 +216,9 @@ test('an openable-parts room cut from the photo room keeps its own photo meshes'
       {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20,
         overlay_model: 'small_objects', artifact_digest: 'p'},
       {id: 'joints', stage: 'parts', recorded_stage: 'articulate', display_minute: 20, model: 'articulated', minute: 130, ...joints}]});
-  for (const [joints, show] of [[{source_digest: 'p'}, null], [{source_digest: 'q'}, ['Cup0']], [{}, null], [{minute: 50}, ['Cup0']]]) {
+  // Only a source known to be the photo room holds them; a source without a digest, or none, keeps the overlay.
+  for (const [joints, show] of [[{source_digest: 'p'}, null], [{source_digest: 'q'}, ['Cup0']], [{source_known: true}, ['Cup0']],
+    [{}, ['Cup0']], [{minute: 50}, ['Cup0']]]) {
     const tl = current(joints);
     assert.deepEqual([sceneAt(tl, tl.duration).model, shown(sceneAt(tl, tl.duration))], ['articulated', show]);
   }
@@ -232,16 +235,23 @@ test('the published openable-parts room ends the replay, while each check shows 
   const served = {stages, presentation: 'by_stage', latest_event: 'articulated_published', models: oldRun.models,
     events: [oldRun.events[0], {...oldRun.events[1]}, ...pass, ...oldRun.events.slice(2, 4)]};
   const published = {...oldPass[2], id: 'articulated_published', minute: 131, published: true};
-  // The served one names the author's room as its source; the old answer has none (see holdsPhotos).
-  for (const [data, end] of [[served, ['Cup0']], [readReplay({...oldRun, events: [...oldRun.events, published]}), null]]) {
+  // The served one names the author's room as its source, the old answer none: both keep the overlay.
+  const recheck = {id: 'r1', stage: 'review', minute: 21, model: 'round1', kind: 'review'};
+  for (const [data, last] of [[served, 'final'], [readReplay({...oldRun, events: [...oldRun.events, published]}), 'final'],
+    [{...served, models: {...served.models, round1: 'r1'}, events: [...served.events.slice(0, -1), recheck]}, 'r1']]) {
     const tl = buildTimeline(data), at = id => tl.events.find(e => e.id === id).at;
     assert.deepEqual([sceneAt(tl, at('check')).model, shown(sceneAt(tl, at('check')))], ['round0', ['Cup0']]);
-    // Played through, and dragged straight to the end.
+    // Played through, dragged onto the last room shown (a re-check when there is no final), and to the end.
     const models = [];
-    for (let t = 0; t <= tl.duration; t += 0.05) if (models.at(-1) !== sceneAt(tl, t).model) models.push(sceneAt(tl, t).model);
-    assert.deepEqual(models.slice(-3), ['articulated', 'round0', 'articulated']);
-    assert.equal(sceneAt(tl, at('final')).modelEvent.id, 'articulated_published');
-    assert.deepEqual([sceneAt(tl, tl.duration).model, shown(sceneAt(tl, tl.duration))], ['articulated', end]);
+    for (const t of [...Array(Math.floor(tl.duration / 0.05) + 1).keys()].map(k => k * 0.05).concat(tl.duration)) {
+      if (models.at(-1) !== sceneAt(tl, t).model) models.push(sceneAt(tl, t).model);
+    }
+    const room = last === 'final' ? 'final' : 'round1';
+    assert.deepEqual(models.slice(-3), ['round0', room, 'articulated']);
+    assert.equal(sceneAt(tl, at(last)).model, room);
+    assert.equal(sceneAt(tl, at(last) + 0.5).model, room);
+    assert.equal(sceneAt(tl, tl.duration).modelEvent.id, 'articulated_published');
+    assert.deepEqual([sceneAt(tl, tl.duration).model, shown(sceneAt(tl, tl.duration))], ['articulated', ['Cup0']]);
   }
   // A room saved after the passes' records (a later run) still ends the replay.
   const tl = buildTimeline({...served, events: served.events.map(e => e.id === 'final' ? {...e, minute: 140} : e)});

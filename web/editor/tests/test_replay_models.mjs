@@ -965,6 +965,38 @@ test('the photo layer keeps the outgoing placement until the incoming room is th
   assert.deepEqual([drawn(cup), drawn(own)], [false, true]);
 });
 
+test('while a room holding its own photo models downloads, the photo items stay on the room still drawn', async () => {
+  const v = view(), ids = ['Cup0'], photoItems = {ids}, state = {photoItems, photoShow: new Set(ids)};
+  const cup = group('Cup0', mesh('Photo'));
+  photoLayer(v, ids, cup);
+  loaded(v, 'final', at(3, group('Cup0', mesh('Block'))));
+  const own = mesh('OwnPhoto'), root = loaded(v, 'articulated', at(3, group('Cup0', own)));
+  const gate = Promise.withResolvers(), entry = {};
+  entry.promise = gate.promise.then(() => Object.assign(entry, {root}));
+  v.models.articulated = entry;
+  const drawn = node => {for (let o = node; o; o = o.parent) if (!o.visible) return false; return true;};
+  const seen = [];
+  const frame = () => {
+    seen.push([drawn(cup), drawn(own)].join());
+    assert.equal([cup, own].filter(drawn).length, 1);
+  };
+  const options = {modelUrl: key => key === 'articulated' ? 'a.glb' : null};
+  apply(v, 'final', true, state, options);
+  frame();
+  apply(v, 'articulated', false, {photoItems, photoShow: null}, options);
+  frame();
+  tick(v);
+  apply(v, 'articulated', false, {photoItems, photoShow: null}, options);
+  frame();
+  gate.resolve();
+  await setImmediate();
+  frame();
+  while (v.incoming) {tick(v); apply(v, 'articulated', false, {photoItems, photoShow: null}, options); frame();}
+  // Shown until the handover, then the room's own: never gone and back.
+  assert.deepEqual([...new Set(seen)], ['true,false', 'false,true']);
+  assert.equal(v.current, 'articulated');
+});
+
 test('a photo item shows at its record while the room the card switches to fades in', () => {
   const v = view(), ids = ['Cup0', 'Bottle0'], photoItems = {ids};
   const cup = group('Cup0', mesh('PhotoCup')), bottle = group('Bottle0', mesh('PhotoBottle'));

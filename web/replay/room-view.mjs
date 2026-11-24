@@ -879,13 +879,14 @@ export class RoomView {
     this.photoSource = null;
   }
 
-  // The photo items shown and where (see revealModel): during a fade, as in the outgoing room until the incoming
-  // takes over. An item whose record is reached meanwhile shows at once, where the incoming room has it if the
-  // outgoing one does not; a fade into a room holding its own photo models keeps the outgoing room's items.
+  // The photo items shown and where (see revealModel): while the next room downloads or fades in, as in the room
+  // still drawn until the next takes over. An item whose record is reached meanwhile shows at once, where the
+  // incoming room has it if the outgoing one does not; a room holding its own photo models keeps the outgoing
+  // room's items until then.
   photoSlots() {
     const outgoing = this.models[this.current]?.root, incoming = this.models[this.incoming]?.root;
     let places = (outgoing || incoming)?.userData.photoPlaces;
-    const reached = this.state?.photoShow || (incoming && outgoing?.userData.photoShow);
+    const reached = this.state?.photoShow || (this.wanted !== this.current && outgoing?.userData.photoShow);
     if (!places || !reached) return null;
     if (outgoing && incoming?.userData.photoPlaces) places = new Map([...incoming.userData.photoPlaces, ...places]);
     return new Map([...places].filter(([id]) => reached.has(id)));

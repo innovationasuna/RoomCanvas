@@ -666,11 +666,15 @@ def pipeline_events(scene, until=None):
         event = {'id': 'articulated', 't': save['t'], 'stage': 'articulate', 'kind': 'milestone',
                  **({'display_t': save['display_t']} if 'display_t' in save else {}),
                  **articulation_result(save, evidence)}
-        start = next((r for r in reversed(rows[:next(k for k, r in enumerate(rows) if r is save)])
-                      if r.get('kind') == 'articulate_start' and not inside(r)), None)
+        # Its own start: the pass's, in the attempt that saved it.
+        before = reversed(rows[:next(k for k, r in enumerate(rows) if r is save)])
+        start = next((r for r in before if r.get('kind') in ('articulate_start', 'small_objects_start', 'trace_start')), None)
+        start = start if start and start['kind'] == 'articulate_start' and not inside(start) else None
         source = articulation_source(scene, event.get('artifact_digest'), start)
         if source:
             event['source_digest'] = source
+        elif start:
+            event['source_known'] = True  # its start record names the room, whose digest is gone
         events.append(event)
         if receipt and final and final <= save.get('display_t', save['t']):
             if receipt > save['t']:

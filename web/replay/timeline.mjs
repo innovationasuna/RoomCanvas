@@ -190,8 +190,9 @@ export function buildTimeline(data) {
   const firstReview = events.find(e => e.stage === 'review' && /^round\d+$/.test(e.model) && data.models?.[e.model]);
   const buildModel = build ? target : photoItems && firstReview ? firstReview.model : 'final';
   const model = (minute) => events.findLast((e) => e.model && displayMinute(e) <= minute)?.model;
-  // Checks after a projected pass show the rooms they checked. The replay still ends on the room published last:
-  // the pass's openable-parts room, if every room shown after it was saved before the passes' records.
+  // Checks after a projected pass show the rooms they checked. The replay still ends on the room published last
+  // (the pass's openable-parts room, if every room shown after it was saved before the passes' records), once
+  // the last of those rooms has had its turn.
   const rooms = events.filter(e => e.model), passRoom = rooms.findLast(e => e.recorded_stage === 'articulate' && data.models?.[e.model]);
   const passEnd = Math.max(...events.filter(e => standalonePass(e.recorded_stage)).map(e => e.minute));
   const later = rooms.slice(rooms.indexOf(passRoom) + 1);
@@ -233,7 +234,7 @@ export function buildTimeline(data) {
     photoItems.at = made[0].at;  // the photo items' card
     photoItems.times = new Map(made.toReversed().map(e => [e.object_id, e.at]));  // each item's own record
   }
-  if (ending) ending.at = ending.from.at;
+  if (ending) ending.at = events[events.indexOf(ending.from) + 1]?.at ?? duration;
   const latest = data.latest_event && events.find(e => e.id === data.latest_event);
   return {
     latestAt: latest && latest !== events.at(-1) ? latest.at : duration,
@@ -272,13 +273,14 @@ export function comparisonAt(event, tl, t) {
 }
 
 // The photo pass's own room, or an openable-parts room made from it (perhaps split and renamed), already holds
-// the photo models. Every other room takes the overlay, an earlier integrated small-object room included.
-// An older answer has no recorded source: the openable-parts pass then ran on the latest room before it.
+// the photo models. Every other room takes the overlay, an earlier integrated small-object room included. So does
+// an openable-parts room whose source is not known to be that room: one named without a digest (source_known),
+// or an older answer with no source at all. Missing the photo items is worse than a doubled part at a joint,
+// and the overlay still hides the room's own nodes of the same name.
 function holdsPhotos(items, event) {
-  if (!event) return false;
-  if (event.model.startsWith('small_')) return !!items.digest && [event.model, `small_${event.artifact_digest}`].includes(`small_${items.digest}`);
-  if (event.model !== 'articulated') return false;
-  return event.source_digest ? event.source_digest === items.digest : event.minute >= items.minute;
+  if (!event || !items.digest) return false;
+  if (event.model.startsWith('small_')) return [event.model, `small_${event.artifact_digest}`].includes(`small_${items.digest}`);
+  return event.model === 'articulated' && event.source_digest === items.digest;
 }
 
 // What the 3D view shows at playback time t.

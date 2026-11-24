@@ -228,7 +228,9 @@ for (const standalone of [false, true]) test(`all item pictures and original rev
   assert.ok(node('lb').innerHTML.includes(thumbs[1][2]));
 });
 
-test('the camera moves in on each photo item at its own record, and a rewind does not move it', async t => {
+// Three photo items made by a separate pass, none with a stand-in in the room, and their models (as the source
+// GLB places them) in a photo layer, attached when the test says they have loaded.
+async function photoReplay(t) {
   const ids = ['Cup0', 'Cup1', 'Cup2'];
   const job = {stages: [{id: 'plan', name: 'plan'}, {id: 'assemble', name: 'assemble'}],
     models: {seed: 'seed', final: 'final', small_objects: 'so'}, hidden_nodes: {},
@@ -238,19 +240,28 @@ test('the camera moves in on each photo item at its own record, and a rewind doe
       {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 1,
         kind: 'milestone', overlay_model: 'small_objects'}]};
   const times = buildTimeline(readReplay(job)).events.filter(e => e.object_id).map(e => e.at);
-  const {view, player} = await page(t, false, job);
-  // The photo models, where the source GLB has them (this room has no stand-in for them).
+  const replay = await page(t, false, job);
   const parts = [[1.5, 0, 1], [-1.5, 0, -1], [0, 0, 1.5]].map(([x, y, z], i) => {
     const part = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2));
     part.name = ids[i];
     part.position.set(x, y, z);
     return part;
   });
-  const layer = new SmallItemLayer(new THREE.Group().add(...parts), ids);
+  const {view} = replay;
   view.loadPhotoItems = () => {};
-  view.photoSource = {layer};
-  view.scene.add(layer.root);
+  const layer = new SmallItemLayer(new THREE.Group().add(...parts), ids);
+  const load = () => {
+    view.photoSource = {layer};
+    view.scene.add(layer.root);
+    view.apply(view.state, view.lastOptions);  // as when the layer arrives
+  };
   const centre = k => new THREE.Box3().setFromObject(parts[k]).getCenter(new THREE.Vector3());
+  return {...replay, ids, times, layer, load, centre};
+}
+
+test('the camera moves in on each photo item at its own record, and a rewind does not move it', async t => {
+  const {view, player, ids, times, layer, load, centre} = await photoReplay(t);
+  load();
   // Each item takes the time an object taking shape does, so the camera can reach it before the next.
   assert.ok(times.every((at, k) => !k || at - times[k - 1] >= 4.5));
   for (const [k, at] of times.entries()) {
@@ -267,6 +278,34 @@ test('the camera moves in on each photo item at its own record, and a rewind doe
   await loaded();
   assert.deepEqual(ids.map(id => layer.items.get(id).part.visible), [true, false, false]);
   assert.ok(view.aimTo.target.equals(target));
+});
+
+test('a photo item reached before its model loads is framed once it arrives, within its own record', async t => {
+  const {view, player, times, load, centre} = await photoReplay(t);
+  player.seek(times[0] + 0.01);
+  await loaded();
+  assert.ok(!view.aimTo?.close);  // nothing of it to frame yet
+  // The next record comes before the model: only that item waits to be framed.
+  player.seek(times[1] + 0.01);
+  await loaded();
+  assert.ok(!view.aimTo?.close);
+  load();
+  player.seek(times[1] + 0.02);  // a later frame of the same record
+  assert.ok(view.aimTo?.close && view.aimTo.target.distanceTo(centre(1)) < 1e-6);
+  // Framed once: a further frame of the record does not move in again.
+  const aim = view.aimTo;
+  player.seek(times[1] + 0.03);
+  assert.equal(view.aimTo, aim);
+});
+
+test('a photo item waiting for its model is not framed after a drag away from its record', async t => {
+  const {view, player, times, load} = await photoReplay(t);
+  player.seek(times[0] + 0.01);
+  await loaded();
+  player.seek(0.01);
+  load();
+  player.seek(0.02);
+  assert.ok(!view.aimTo?.close);
 });
 
 function checkOverviewSpin(view) {
