@@ -81,11 +81,10 @@ function painter(o) {
   };
 }
 
-// Area-weighted random points on the meshes' surfaces (world space) with the surface colour there, and the
-// meshes' triangle count.
+// Area-weighted random points on the meshes' surfaces (world space) with the surface colour there.
 function surface(meshes) {
   const parts = [], v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
-  let total = 0, triangles = 0;
+  let total = 0;
   for (const o of meshes) {
     const pos = o.geometry.attributes.position, index = o.geometry.index;
     if (!pos) continue;
@@ -101,7 +100,6 @@ function surface(meshes) {
       cum[t] = total;
     }
     parts.push({world, cum, at, end: total, paint: painter(o)});
-    triangles += tris;
   }
   const size = total > 0 ? Math.round(Math.min(Math.max(total * PER_M2, MIN_POINTS), MAX_POINTS)) : 0;
   const out = new Float32Array(size * 3), colors = new Float32Array(size * 3);
@@ -115,7 +113,7 @@ function surface(meshes) {
     for (let d = 0; d < 3; d++) out[k * 3 + d] = p.world[i0 + d] + u * (p.world[i1 + d] - p.world[i0 + d]) + w * (p.world[i2 + d] - p.world[i0 + d]);
     p.paint(lo, v0, v1, v2, u, w).toArray(colors, k * 3);
   }
-  return {points: out, colors, triangles};
+  return {points: out, colors};
 }
 
 export class Materializer {
@@ -185,7 +183,7 @@ export class Materializer {
         extras.push(w);
       }
     }
-    const e = {node, t: -delay, held, meshes, n: 0, cloud: null, kit, swaps, extras, triangles: 0, lo, hi,
+    const e = {node, t: -delay, held, meshes, n: 0, cloud: null, kit, swaps, extras, lo, hi,
       planes: {wireTop, wireAbove, solidTop, solidAbove}};
     this.active.set(node, e);
     this.place(e);
@@ -251,7 +249,7 @@ export class Materializer {
   // The points on the object's surface, in its own colour; some lighter so the cloud sparkles. Sampling order is
   // random, so drawing the first k points lights them up scattered over the whole shape.
   sample(e) {
-    const {points: target, colors, triangles} = surface(e.meshes);
+    const {points: target, colors} = surface(e.meshes);
     const n = target.length / 3;
     const col = new Float32Array(n * 3), tmp = new THREE.Color(), white = new THREE.Color(1, 1, 1);
     for (let k = 0; k < n; k++) {
@@ -265,7 +263,7 @@ export class Materializer {
     e.cloud = new THREE.Points(geo, e.kit.points);
     e.cloud.frustumCulled = false;
     this.scene.add(e.cloud);
-    Object.assign(e, {n, triangles});
+    e.n = n;
   }
 
   place(e) {
@@ -282,14 +280,6 @@ export class Materializer {
       c.opacity = m.opacity; c.depthWrite = m.depthWrite; c.visible = m.visible;
       c.polygonOffset = m.polygonOffset; c.polygonOffsetFactor = m.polygonOffsetFactor; c.polygonOffsetUnits = m.polygonOffsetUnits;
     });
-  }
-
-  // Triangles shown so far over all objects taking shape (null when none).
-  triangles() {
-    if (!this.active.size) return null;
-    let shownCount = 0;
-    for (const e of this.active.values()) shownCount += Math.round(e.triangles * span(e.t, [APPEAR[0] + 0.3, WIRE[1]]));
-    return shownCount;
   }
 
   finish(node) {

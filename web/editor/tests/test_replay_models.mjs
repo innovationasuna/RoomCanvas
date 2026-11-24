@@ -25,7 +25,7 @@ function view() {
   camera.position.set(0, 2, 5);
   return Object.assign(Object.create(RoomView.prototype), {
     models: {}, retryAt: {}, retiring: new Set(), wanted: null, current: null, incoming: null, mix: 1, wallFades: [], boxes: {}, scene, forming,
-    controls: {target: new THREE.Vector3(), update() {}}, camera, formTag: {}, calm: {matches: true}, userHeld: true, speed: 1, time: 1,
+    controls: {target: new THREE.Vector3(), update() {}}, camera, calm: {matches: true}, userHeld: true, speed: 1, time: 1,
     scaffoldReady: true, warm: async () => {}, renderer: {capabilities: {getMaxAnisotropy: () => 1}, render() {}},
   });
 }
@@ -88,7 +88,7 @@ for (const action of ['wait', 'seek', 'dispose']) test(`a paused assembly retrie
     for (const entry of Object.values(v.models)) entry.controller = new AbortController();
     Object.assign(v, {resizeObserver: {disconnect() {}}, scaffoldController: new AbortController(),
       environmentTarget: {dispose() {}}, lights: {}});
-    v.renderer.domElement = v.formTag = {remove() {}};
+    v.renderer.domElement = {remove() {}};
     v.renderer.dispose = v.controls.dispose = v.forming.dispose = () => {};
     await v.dispose();
   }

@@ -29,8 +29,8 @@ function room() {
   const view = Object.assign(Object.create(RoomView.prototype), {
     camera, controls: new OrbitControls(camera), scene: new THREE.Scene(), center: new THREE.Vector3(),
     vel: {theta: 0, phi: 0, dist: 0, target: new THREE.Vector3()}, paused: false, rate: 1, speed: 1, time: 1,
-    renderer: {capabilities: {getMaxAnisotropy: () => 1}, render() {}}, forming: {active: new Set(), waiting: () => false, update() {}, triangles: () => null,
-      releaseModel() {}, finishModel(root) {this.active.delete(root);}, finishAll() {this.active.clear();}}, formTag: {}, wallFades: [], wantPhysical: false,
+    renderer: {capabilities: {getMaxAnisotropy: () => 1}, render() {}}, forming: {active: new Set(), waiting: () => false, update() {},
+      releaseModel() {}, finishModel(root) {this.active.delete(root);}, finishAll() {this.active.clear();}}, wallFades: [], wantPhysical: false,
   });
   Object.assign(view, {models: {seed: model(), final: model()}, retryAt: {}, retiring: new Set(), boxes: {}, calm: {matches: false}});
   view.watchOrbit();
