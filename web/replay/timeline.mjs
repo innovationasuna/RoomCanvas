@@ -12,6 +12,52 @@ const STAGE_SECONDS = 1.5;        // a stage's first event keeps this long, to r
 const UNFOLD_SECONDS = 6;         // the scan stage at least: the scan unfolds slowly
 const TAIL_SECONDS = 3;           // after the last event
 
+const displayMinute = (e) => e.display_minute ?? e.minute;
+const standalonePass = (id) => id === 'small_objects' || id === 'articulate';
+
+// Offline answers from the previous service still put standalone passes after the reviews.
+// Move only their presentation. The minutes on the records and pictures describe the original run.
+function projectCachedPasses(data) {
+  const {events, stages} = data;
+  const oldParts = stages.find(s => s.id === 'articulate');
+  const ordered = stages.filter(s => !standalonePass(s.id)).map(s => {
+    if (s.id === 'assemble') return {...s, desc: '对照照片搭建房间，整理有记录的陈设和小物品。'};
+    if (s.id === 'review2') return {...s, desc: '查看当时的检查意见和修改记录。'};
+    return s;
+  });
+  const afterBuild = (id) => ['parts', 'review', 'review2', 'revise'].includes(id);
+  const boundary = ordered.findIndex(s => afterBuild(s.id));
+  if (oldParts && !ordered.some(s => s.id === 'parts')) {
+    ordered.splice(boundary < 0 ? ordered.length : boundary, 0, {...oldParts, id: 'parts'});
+  }
+
+  const main = events.filter(e => !standalonePass(e.stage));
+  const cut = main.findIndex(e => afterBuild(e.stage));
+  const anchor = (cut >= 0 ? main[cut] : main.at(-1))?.minute ?? 0;
+  const passes = [];
+  for (const [from, stage] of [['small_objects', 'assemble'], ['articulate', 'parts']]) {
+    for (const e of events.filter(e => e.stage === from)) {
+      passes.push({...e, recorded_stage: from, stage, display_minute: anchor});
+    }
+  }
+  const before = cut < 0 ? main : main.slice(0, cut);
+  const after = cut < 0 ? [] : main.slice(cut);
+  // Review images and verdicts describe their original snapshots. An older room must not
+  // replace the enhanced room on screen just because its review now follows the pass.
+  const lastSave = Math.max(-Infinity, ...passes.filter(e => e.model && data.models?.[e.model]).map(e => e.minute));
+  const lastPass = Math.max(-Infinity, ...passes.map(e => e.minute));
+  const reviews = after.map(e => {
+    const record = {...e};
+    if (e.model && e.minute <= lastSave) {
+      record.recorded_model = e.model;
+      delete record.model;
+    }
+    if (e.id === 'final' && e.minute <= lastPass) record.say = '导出当时的房间';
+    return record;
+  });
+  return {...data, presentation: 'by_stage', stages: ordered, events: [...before, ...passes, ...reviews]};
+}
+
 // Old offline answers used fixed success text before saves recorded joints and publication.
 export function readReplay(data) {
   const stages = data.stages.map(s => {
@@ -28,23 +74,47 @@ export function readReplay(data) {
     return {...s, name, desc};
   });
   const events = withoutErrors(data.events || []).map(e => {
+    if (e.say === '按检查出的问题修好了房间') return {...e, say: '已完成本轮修改'};
+    if (e.work === 'small' && e.say?.endsWith('换成了按照片重建的模型')) {
+      return {...e, say: e.say.replace('换成了按照片重建的模型', '的照片模型已就绪')};
+    }
+    if (e.say === '逐个看房间里的小物品，挑出需要按照片重做的') return {...e, say: '整理小物品的照片和模型'};
+    if (e.say?.startsWith('小物品处理好了')) {
+      return {...e, say: e.say.replace('小物品处理好了', '小物品处理完成').replace('按照片重做', '采用照片模型')};
+    }
     const standalone = e.model === 'articulated' && e.say === '装好可开合部件，这就是发布的房间';
     const integrated = e.kind === 'milestone' && /^parts\d+$/.test(e.id) && e.say === '装好可开合部件';
     if (!standalone && !integrated) return e;
     const say = (e.joints > 0 ? '装好可开合部件' : '完成开合处理') + (e.published ? '，已发布这版房间' : '');
     return {...e, say};
   });
-  return {...data, stages, events};
+  let answer = {...data, stages, events};
+  if (stages.some(s => standalonePass(s.id))) answer = projectCachedPasses(answer);
+  if (answer.hidden_nodes) return answer;
+  // A cached timeline only identifies the items with a successful per-object record.
+  // On integrated runs, full review/final rooms already include those models.
+  const nodes = new Set(events.filter(e => e.work === 'small' && e.object_id).map(e => e.object_id));
+  if (!nodes.size) return answer;
+  const hidden = {assembly: [...nodes]};
+  for (const key of Object.keys(data.models || {})) {
+    if (key === 'seed' || key.startsWith('draft') || (answer.presentation === 'by_stage' && /^(final|round\d+)$/.test(key))) {
+      hidden[key] = hidden.assembly;
+    }
+  }
+  const reveal = data.build?.reveal.filter(r => !nodes.has(r.node));
+  return {...answer, hidden_nodes: hidden, build: reveal?.length ? {reveal, base: reveal[0].minute} : null};
 }
 
 export function buildTimeline(data) {
   const events = (data.events || []).map((e, i) => ({...e, i}));
+  const hiddenNodes = data.hidden_nodes || {};
+  const hiddenDuringBuild = [...new Set([...(hiddenNodes.final || []), ...(hiddenNodes.assembly || [])])];
   const reached = (data.stages || []).filter((s) => events.some((e) => e.stage === s.id));
   let end = 0;
   const stages = reached.map((s) => {
     const own = events.filter((e) => e.stage === s.id);
     // Continuous real intervals; an event on a boundary belongs to the earlier stage.
-    const real = [end, Math.max(end, ...own.map((e) => e.minute))];
+    const real = [end, Math.max(end, ...own.map(displayMinute))];
     end = real[1];
     return {...s, real, count: own.length};
   });
@@ -55,13 +125,13 @@ export function buildTimeline(data) {
   const forms = (e) => (plan >= 0 && order.indexOf(e.stage) >= plan && e.show || [])
     .filter((k) => k !== '@boxes' && !seen.has(k) && seen.add(k)).length;
   const build = data.build || null;
-  const model = (minute) => events.findLast((e) => e.model && e.minute <= minute)?.model;
+  const model = (minute) => events.findLast((e) => e.model && displayMinute(e) <= minute)?.model;
   // parts named at the same minute appear together
   const batches = new Map();
   if (build && data.models?.final) for (const r of build.reveal) batches.set(r.minute, (batches.get(r.minute) || 0) + 1);
   // form: how many things take shape at this point (an event keeps its own count as e.forms)
   const points = [
-    ...events.map((e, k) => ({e, minute: e.minute, form: (e.forms = forms(e)), opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
+    ...events.map((e, k) => ({e, minute: displayMinute(e), form: (e.forms = forms(e)), opens: !k || events[k - 1].stage !== e.stage, scan: e.stage === 'scan'})),
     ...[...batches].filter(([minute]) => [undefined, 'seed'].includes(model(minute))).map(([minute, form]) => ({minute, form})),
   ].sort((a, b) => a.minute - b.minute);
   // Each point keeps only the time it takes to watch what it brings (a batch: its last object starts later);
@@ -87,7 +157,7 @@ export function buildTimeline(data) {
   stages.forEach((s, k) => (s.replay[1] = k + 1 < stages.length ? stages[k + 1].replay[0] : duration));
   if (events.length) events[0].at = 0;
   return {
-    duration, stages, events, build, models: data.models || {},
+    duration, stages, events, build, models: data.models || {}, hiddenNodes, hiddenDuringBuild,
     stageAt: (t) => stages.findLast((s) => t >= s.replay[0]) || stages[0],
     indexAt: (t) => events.findLastIndex((e) => e.at <= t),
     // Real minutes -> minutes the reconstruction worked (the clock).
@@ -106,6 +176,18 @@ export function buildTimeline(data) {
 export function clock(minutes) {
   const s = Math.round(minutes * 60), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
   return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// A projected pass has a display position separate from the photo's recorded minute.
+// Its after-picture becomes available when the pass's saved room is presented.
+export function comparisonAt(event, tl, t) {
+  const picture = event.media?.findLast(m => m.role === 'comparison');
+  if (!picture) return null;
+  if (event.work === 'small' && event.display_minute != null) {
+    return tl.events.some(e => e.at >= event.at && e.at <= t && ['small_objects', 'articulated'].includes(e.model))
+      ? picture : null;
+  }
+  return picture.minute <= tl.realAt(t) ? picture : null;
 }
 
 // What the 3D view shows at playback time t.
@@ -136,6 +218,7 @@ export function sceneAt(tl, t) {
     shell: by.plan ? t >= by.plan.replay[0] : !!model,
     built,
     model,
+    hiddenNodes: added ? tl.hiddenDuringBuild : tl.hiddenNodes[model || 'seed'],
     modelEvent: model === modelEvent?.model ? modelEvent : null,
     added,  // null: the model as it is; a set: only these agent-added parts of the final model show
   };
@@ -149,7 +232,8 @@ export function outcome(events) {
   if (last.passed) return {passed: true, repaired: false, text: '检查通过'};
   // Only a repair after the last check counts (a retried job may have repaired in an earlier run).
   const fix = events.slice(events.indexOf(last)).findLast((e) => String(e.id || '').startsWith('fix'));
-  if (fix?.kind === 'result') return {passed: true, repaired: true, text: '没通过检查，已按问题修好'};
+  if (fix?.kind === 'result') return {passed: false, repaired: true, text: fix.say?.includes('没有变化')
+    ? '检查未通过，修改尝试结束时房间没有变化' : '检查未通过，随后完成了修改，尚无复查结论'};
   return {passed: false, repaired: false, text: '没通过检查'};
 }
 

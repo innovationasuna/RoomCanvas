@@ -151,9 +151,9 @@ async function page(t, live, data = {}, {search = '?job=' + '0'.repeat(32), fetc
   view.ensureScaffold = () => {};
   const element = () => Object.defineProperty(Object.assign(new EventTarget(), {
     value: '1', children: [], dataset: {}, style: {}, classList: {toggle() {}, add() {}},
-    append() {}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
+    append(el) {this.children.push(el);}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({left: 0, width: 100}),
-  }), 'firstChild', {get: element});  // a card is parsed into a holder and its first child moved into the log
+  }), 'firstChild', {get() {return Object.assign(element(), {innerHTML: this.innerHTML});}});  // a card is parsed into a holder and its first child moved into the log
   function node(id) {
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
@@ -191,6 +191,28 @@ test('the replay picker links every available job through the oldest record', as
   const {node} = await page(t, false, {}, {search: '', fetcher: async () => Response.json({jobs})});
   const links = Array.from(node('loading').innerHTML.matchAll(/href="\?job=([a-f0-9]+)"/g), match => match[1]);
   assert.deepEqual(links, jobs.reverse().map(job => job.id));
+});
+
+test('object cards list every item without a detail toggle and review zoom uses the clicked view', async t => {
+  const items = Array.from({length: 24}, (_, i) => ({id: 'item' + i, kind: 'tool', stage: 'assemble', minute: i,
+    work: 'small', object_id: 'Cup' + i, object_name: '杯子', say: '原始逐件记录', img: i < 23 ? i + '.png' : null}));
+  const views = ['pair_00037.png', 'pair_00183.png'];
+  const events = [...items, {id: 'r0', kind: 'review', stage: 'review', minute: 25, say: '检查房间没通过',
+    img: views[0], media: views.map(src => ({role: 'review', src}))}];
+  const {node, player} = await page(t, false, {events, stages: [{id: 'assemble'}, {id: 'review'}], models: {}});
+  player.seek(player.duration, {pause: true});
+  const [objects, review] = node('log').children.slice(-2).map(el => el.innerHTML);
+  assert.match(objects, /已准备 24 件小物品的照片模型/);
+  assert.equal((objects.match(/class="cell"/g) || []).length, 23);
+  assert.match(objects, /class="bare">杯子 24</);
+  assert.doesNotMatch(objects, /原始逐件记录|data-more|class="detail"/);
+  const thumbs = [...review.matchAll(/class="wide" data-z="(\d+)" data-src="([^"]+)"/g)];
+  assert.deepEqual(thumbs.map(m => m[2].split('/').pop()), views);
+  const click = new Event('click');
+  Object.defineProperty(click, 'target', {value: {closest: sel => sel === '[data-z]'
+    ? {dataset: {z: thumbs[1][1], src: thumbs[1][2]}} : null}});
+  node('log').dispatchEvent(click);
+  assert.ok(node('lb').innerHTML.includes(thumbs[1][2]));
 });
 
 function checkOverviewSpin(view) {

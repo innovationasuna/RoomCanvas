@@ -225,7 +225,7 @@ function versionName(key, {interpolated: partial, modelEvent}) {
   if (key === 'seed') return partial ? '第一版房间 · 按记录推算' : '第一版房间';
   if (key === 'final') return partial ? '组装中的房间 · 按记录推算' : '最终房间';
   if (/^round\d+$/.test(key)) return modelEvent?.round ? `检查第 ${modelEvent.round} 轮` : '检查时的房间';
-  if (key === 'small_objects') return '小物品重建后';
+  if (key === 'small_objects' || key.startsWith('small_')) return '小物品处理后';
   if (key === 'articulated' || key.startsWith('articulated:')) {
     if (modelEvent?.joints > 0) return modelEvent.published ? '发布版（可开合）' : '已装配可开合部件';
     return modelEvent?.published ? '发布版' : '开合处理后';
@@ -893,12 +893,27 @@ export class RoomView {
   }
 
   revealModel(key) {
+    const root = this.models[key].root;
+    // Restore the previous frame's baseline before the ordinary build/seed schedule runs.
+    // A rewind can reuse this very GLB with a different mask.
+    const hidden = root.userData.replayHidden ??= new Map();
+    for (const [node, visible] of hidden) node.visible = visible;
+    hidden.clear();
+    let result = {appeared: []};
     if (this.state && key === 'seed') {
-      const result = this.revealed(!this.state.model, this.state.built);
+      result = this.revealed(!this.state.model, this.state.built);
       if (result.appeared.length > MAX_GROUP) result.appeared = [];
-      return result;
+    } else if (this.state && key === 'final') {
+      result.appeared = this.reveal(this.state.added);
     }
-    return {appeared: this.state && key === 'final' ? this.reveal(this.state.added) : []};
+    for (const name of this.state?.hiddenNodes || []) {
+      const node = namedNodes(root).get(name);
+      if (!node || hidden.has(node)) continue;
+      hidden.set(node, node.visible);
+      node.visible = false;
+    }
+    if (hidden.size) result.appeared = result.appeared.filter(node => shown(node));
+    return result;
   }
 
   // Agent-added parts of the final model: show only those in `added` (null shows all). A part that appears

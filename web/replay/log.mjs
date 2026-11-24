@@ -11,7 +11,7 @@
 export const GROUP_MAX = 6;
 export const GROUP_MINUTES = 3;
 export const WORK = {image: '已生成 {n} 件物品的清晰图', model: '已做好 {n} 件物品的模型', shape: '已检查 {n} 件物品的形状',
-                     small: '已按照片重做 {n} 件小物品'};
+                     small: '已准备 {n} 件小物品的照片模型'};
 
 const agent = (e) => typeof e.session === 'string';
 const type = (e) => (e.work && e.object_id ? 'objects' : agent(e) ? 'work' : 'same');
@@ -66,6 +66,12 @@ export function pictureUrls(event, files) {
   const media = event.media?.map((m) => ({...m, src: url(m.src, m.version)}));
   const i = event.media?.findIndex((m) => m.src === event.img) ?? -1;
   return {...event, img: i >= 0 ? media[i].src : event.img && url(event.img, event.img_version), media};
+}
+
+// Older review events carry only their first image.
+export function reviewPictures(event) {
+  const shots = event.media?.filter(m => m.role === 'review').map(m => m.src) || [];
+  return shots.length ? shots : event.img ? [event.img] : [];
 }
 
 // The part of an event's picture that shows its object ([left, top, right, bottom], fractions), if given.
@@ -148,7 +154,7 @@ export class CardImages {
     for (const [key, bySrc] of this.byCard) {
       const card = cards.get(key), members = card?.members || [];
       const sources = new Set(members.flatMap((k) => [events[k].img, ...(events[k].media || []).map((m) => m.src)]));
-      const grid = card?.type === 'objects' && members.length > 1;
+      const grid = card?.type === 'objects';
       for (const src of bySrc.keys()) if (!sources.has(src) || (!grid && this.strips.has(src))) bySrc.delete(src);
       if (!bySrc.size) this.byCard.delete(key);
     }

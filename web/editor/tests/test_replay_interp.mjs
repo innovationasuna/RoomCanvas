@@ -198,7 +198,7 @@ test('the version label follows visible models through loads, fades and interpol
   assert.equal(view.versionLabel(), '组装中的房间 · 按记录推算');
   applyFinal(view, null, true);
   assert.equal(view.versionLabel(), '最终房间');
-  for (const [key, label] of [['draft42', '搭建中的房间'], ['small_objects', '小物品重建后'], ['articulated', '开合处理后'], [null, '']]) {
+  for (const [key, label] of [['draft42', '搭建中的房间'], ['small_objects', '小物品处理后'], ['articulated', '开合处理后'], [null, '']]) {
     view.current = key;
     assert.equal(view.versionLabel(), label);
   }

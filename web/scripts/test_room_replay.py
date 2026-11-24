@@ -132,6 +132,28 @@ class Events(unittest.TestCase):
         self.assertEqual([e['issues'] for e in reviews], [['The bed is too bright.'], ['The curtains are too stiff.']])
         self.assertEqual(list(replay.models(self.scene, self.until)), ['seed', 'round0', 'round1', 'final'])
 
+    def test_review_pictures_follow_the_summarized_issues_and_original_image_numbers(self):
+        folder = self.scene / 'realism_authoring/acceptance/attempt-x/round_00'
+        names = ['pair_00000.png', 'pair_00037.png', 'pair_00073.png', 'pair_00110.png']
+        for name in names[1:]:
+            write(folder / 'compare/pairs' / name)
+        issues = [{'defect': ' ', 'images': [1]}, {'description': 'floor', 'images': [1, 2, 3]},
+                  {'defect': 'box', 'images': [2, 2]}, {'issue': 'picture', 'images': [2]},
+                  {'text': 'window', 'images': [3]}, {'defect': 'not summarized', 'images': [4]}]
+        def event(passed, issues):
+            write(folder / 'visual_review.json', json.dumps({'pass': passed, 'issues': issues}), T0 + 1000)
+            return replay.review_events(self.scene, self.until)[0]
+        e = event(False, issues)
+        self.assertEqual(e['issues'], ['floor', 'box', 'picture', 'window'])
+        self.assertEqual([Path(m['src']).name for m in e['media']], names[1:3])
+        self.assertEqual(e['img'], e['media'][0]['src'])
+        self.assertEqual(Path(event(True, issues)['img']).name, names[0])
+        self.assertEqual(Path(event(False, ['old issue'])['img']).name, names[0])
+        write(folder / 'compare/_pairs.txt', "".join(f"file '/source/{n}'\n" for n in names))
+        (folder / 'compare/pairs' / names[1]).unlink()
+        self.assertIsNone(event(False, [{'defect': 'box', 'images': [0, True, 2, 9]}])['img'])
+        self.assertEqual(Path(event(False, [{'defect': 'window', 'images': [3]}])['img']).name, names[2])
+
     def test_a_later_pass_on_an_older_run_keeps_its_models(self):
         rows = [{'t': T0 + 5000, 'kind': 'pipeline_stage', 'stage': 'ingest', 'schema_version': 2, 'event_id': 'e1'},
                 {'t': T0 + 5100, 'kind': 'artifact_published', 'path': replay.FINAL, 'schema_version': 2,
@@ -469,13 +491,12 @@ class LiveRecords(unittest.TestCase):
         data = replay.timeline(self.scene.parent.parent.parent, 'completed', T0 + 1300)
         starts = [e['t'] for e in data['events'] if e['say'].startswith('找出柜门')]
         self.assertEqual(starts, [T0 + 1200])
-        self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('articulate'), 0)
+        self.assertEqual([e['stage'] for e in data['events'] if e['t'] < T0 + 1200].count('parts'), 0)
 
 
 # The agent's adjusting and self-checks count as building the room; a second check, as the repair. The openable
-# parts come before the check; an older run that made them after publishing lists them last (OLD).
+# parts come before the check, including in the presentation of a historical run.
 EIGHT = ['scan', 'layout', 'photos', 'plan', 'assemble', 'parts', 'review', 'review2']
-OLD = ['scan', 'layout', 'photos', 'plan', 'assemble', 'review', 'review2', 'articulate']
 
 
 def phased(run):
@@ -536,23 +557,48 @@ class PhasedRun(unittest.TestCase):
         data = replay.timeline(job, 'completed', json.loads((job / 'job.json').read_text())['until'])
         events = data['events']
         self.assertFalse([e for e in events if e['say'].startswith('重新开始')])
-        self.assertEqual([s['id'] for s in data['stages']], OLD[:-1] + ['small_objects', 'articulate'])
-        self.assertEqual([e['stage'] for e in events if e['t'] > T0 + 1140], ['small_objects'] * 4 + ['articulate'] * 2)
-        self.assertEqual([e['say'] for e in events if e['stage'] == 'small_objects'],
-                         ['逐个看房间里的小物品，挑出需要按照片重做的', '纸巾盒换成了按照片重建的模型', '瓶子换成了按照片重建的模型',
-                          '小物品处理好了：按照片重做 2 件，去掉 1 件，1 件保持原样'])
-        self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'round0', 'final', 'small_objects', 'articulated'])
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT)
+        self.assertEqual([e['stage'] for e in events if e['t'] > T0 + 1140], ['assemble'] * 4 + ['parts'] * 2)
+        self.assertEqual([e['say'] for e in events if e.get('recorded_stage') == 'small_objects'],
+                         ['整理小物品的照片和模型', '纸巾盒的照片模型已就绪', '瓶子的照片模型已就绪',
+                          '小物品处理完成：采用照片模型 2 件，去掉 1 件，1 件保持原样'])
+        self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'small_objects', 'articulated'])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(data['models']['small_objects'], replay.SMALL_OBJECTS)
         self.assertIn('做好柜子2的模型', [e['say'] for e in events])
         self.assertEqual(data['model_evidence']['small_objects']['time'], T0 + 2510)
 
+    def test_projected_snapshots_keep_their_evidence_and_only_hide_identified_items(self):
+        write(self.run / 'small-objects/items.json', json.dumps([
+            {'id': 'TissueBox0', 'members': ['TissueBox0', 'TissueStack1']},
+            {'id': 'Book0', 'members': ['Book0']},
+        ]), T0 + 2450)
+        glb(self.scene / replay.SEED, {'@roots': ['Floor0']}, T0 + 95)
+        glb(self.scene / replay.FINAL, {'@roots': ['Floor0', 'TissueBox0', 'WaterBottle1', 'Mug0', 'Book0']}, T0 + 1140)
+        data = replay.timeline(self.root)
+        self.assertEqual(data['presentation'], 'by_stage')
+        events = data['events']
+        self.assertEqual(sorted(e.get('display_minute', e['minute']) for e in events),
+                         [e.get('display_minute', e['minute']) for e in events])
+        review = next(e for e in events if e['id'] == 'r0')
+        placed = next(e for e in events if e['id'] == 'small_objects')
+        self.assertEqual((placed['stage'], placed['recorded_stage'], placed['t']),
+                         ('assemble', 'small_objects', T0 + 2510))
+        self.assertLess(events.index(placed), events.index(review))
+        self.assertGreater(placed['minute'], review['minute'])
+        self.assertEqual((review['recorded_model'], review['t']), ('round0', T0 + 1085))
+        self.assertIn('round0', data['models'])
+        self.assertNotIn('model', review)
+        self.assertEqual(set(data['hidden_nodes']['final']), {'TissueBox0', 'TissueStack1', 'Mug0', 'WaterBottle1'})
+        self.assertEqual([part['node'] for part in data['build']['reveal']], ['Book0'])
+        self.assertNotIn('small_objects', data['hidden_nodes'])
+
     def test_a_live_view_shows_the_pass_as_it_goes(self):
         data = replay.timeline(self.root, 'running', T0 + 2400)  # <root>/run/pipeline/demo
-        self.assertEqual(data['stages'][-2]['id'], 'small_objects')
-        self.assertEqual(data['events'][-1]['say'], '瓶子换成了按照片重建的模型')
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT)
+        self.assertEqual([e for e in data['events'] if e['stage'] == 'assemble'][-1]['say'], '瓶子的照片模型已就绪')
         self.assertNotIn('small_objects', data['models'])
-        summary = replay.timeline(self.root, 'running', T0 + 2505)['events'][-1]  # counted, the room not saved yet
+        summary = next(e for e in replay.timeline(self.root, 'running', T0 + 2505)['events'] if e['id'] == 'small_objects')  # counted, the room not saved yet
         self.assertEqual((summary['t'], summary.get('model')), (T0 + 2500, None))
 
     def test_published_label_waits_for_the_matching_room_receipt(self):
@@ -621,19 +667,19 @@ class PhasedRun(unittest.TestCase):
             f.write(''.join(json.dumps(r) + '\n' for r in rows))
         events = replay.timeline(self.root, 'completed', T0 + 5000)['events']
         self.assertEqual([(e['t'], e['stage'], e['say']) for e in events if e['t'] > T0 + 1140], [
-            (T0 + 4000, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的'),
-            (T0 + 4100, 'small_objects', '瓶子换成了按照片重建的模型'),
-            (T0 + 4210, 'small_objects', '小物品处理好了：按照片重做 1 件，1 件保持原样'),
-            (T0 + 4500, 'articulate', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨'),
-            (T0 + 4800, 'articulate', '完成开合处理')])
+            (T0 + 4000, 'assemble', '整理小物品的照片和模型'),
+            (T0 + 4100, 'assemble', '瓶子的照片模型已就绪'),
+            (T0 + 4210, 'assemble', '小物品处理完成：采用照片模型 1 件，1 件保持原样'),
+            (T0 + 4500, 'parts', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨'),
+            (T0 + 4800, 'parts', '完成开合处理')])
         # Before the openable parts are made again, the earlier openable-parts room does not end the replay.
         events = replay.timeline(self.root, 'running', T0 + 4150)['events']
         self.assertEqual([(e['t'], e['stage']) for e in events if e['t'] > T0 + 1140],
-                         [(T0 + 4000, 'small_objects'), (T0 + 4100, 'small_objects')])
+                         [(T0 + 4000, 'assemble'), (T0 + 4100, 'assemble')])
         # Only the evidence run so far: no line of the pass before it is left.
         events = replay.timeline(self.root, 'running', T0 + 3950)['events']
-        self.assertEqual([(e['t'], e['say']) for e in events if e['stage'] == 'small_objects'],
-                         [(T0 + 3900, '逐个看房间里的小物品，挑出需要按照片重做的')])
+        self.assertEqual([(e['t'], e['say']) for e in events if e.get('recorded_stage') == 'small_objects'],
+                         [(T0 + 3900, '整理小物品的照片和模型')])
 
     def test_the_room_is_found_where_its_record_says(self):
         (self.run / replay.SMALL_OBJECTS).unlink()
@@ -868,24 +914,68 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual([s['id'] for s in data['stages']], EIGHT)
         events = [(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 650]
         self.assertEqual(events, [
-            (700, 'assemble', '逐个看房间里的小物品，挑出需要按照片重做的', None),
-            (760, 'assemble', '纸巾盒换成了按照片重建的模型', None),
-            (790, 'assemble', '小物品处理好了：按照片重做 1 件，去掉 1 件', None),
+            (700, 'assemble', '整理小物品的照片和模型', None),
+            (760, 'assemble', '纸巾盒的照片模型已就绪', None),
+            (790, 'assemble', '小物品处理完成：采用照片模型 1 件，去掉 1 件', None),
             (800, 'parts', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', None),
             (900, 'parts', '完成开合处理', None),
             (1000, 'review', '检查房间没通过', 'round0'),
             (1010, 'review2', '按检查出的问题开始修复房间', None),
-            (1050, 'review2', '逐个看房间里的小物品，挑出需要按照片重做的', None),
-            (1065, 'review2', '瓶子换成了按照片重建的模型', None),  # the tissue box was done already
-            (1085, 'review2', '小物品处理好了：按照片重做 2 件，去掉 1 件', 'small_objects'),
+            (1050, 'review2', '整理小物品的照片和模型', None),
+            (1065, 'review2', '瓶子的照片模型已就绪', None),  # the tissue box was done already
+            (1085, 'review2', '小物品处理完成：采用照片模型 2 件，去掉 1 件', 'small_objects'),
             (1090, 'review2', '找出柜门、抽屉等能开合的部件，开始装转轴和滑轨', None),
             (1120, 'review2', '装好可开合部件', 'articulated'),
-            (1130, 'review2', '按检查出的问题修好了房间', None),
+            (1130, 'review2', '已完成本轮修改', None),
             (1140, 'review2', '导出最终房间', 'final')])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(replay.scene_file(self.scene, replay.ARTICULATED),
                          (self.scene / 'realism_authoring/articulate/room_preview/Room.glb').resolve())
         self.assertFalse([e for e in data['events'] if re.search('沿用|复用', e['say'])])
+
+    def test_overwritten_pass_uses_only_the_recorded_room_version(self):
+        import hashlib
+        first, last = b'first pass room', b'small'
+        digest = hashlib.sha256(first).hexdigest()
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = replay.trace_rows(self.scene)
+        saves = [r for r in rows if r.get('model') == 'small_objects']
+        for row, content in zip(saves, (first, last)):
+            row['artifact_digest'] = hashlib.sha256(content).hexdigest()
+        write(trace, ''.join(json.dumps(row) + '\n' for row in rows))
+        old = write(self.scene / 'realism_authoring/small_objects/.stale/cache-first/room_preview/Room.glb', first)
+        rel = f'small-objects/history/{digest}.glb'
+        data = replay.timeline(self.root)
+        placed = [e for e in data['events'] if e['say'].startswith('小物品处理完成')]
+        self.assertEqual([e['stage'] for e in placed], ['assemble', 'review2'])
+        current_rel = f'small-objects/history/{hashlib.sha256(last).hexdigest()}.glb'
+        self.assertEqual([data['models'][e['model']] for e in placed], [rel, current_rel])
+        self.assertEqual(replay.scene_file(self.scene, current_rel).read_bytes(), last)
+        self.assertEqual(replay.scene_file(self.scene, rel), old.resolve())
+        self.assertIsNone(replay.scene_file(self.scene, str(old.relative_to(self.scene))))
+        # A slim registration must still serve both versions without access to the source.
+        slim = self.root / 'copy/run'
+        replay.slim(self.root / 'run', slim)
+        self.assertEqual(replay.scene_file(slim / 'pipeline/demo', rel).read_bytes(), first)
+        self.assertEqual(replay.scene_file(slim / 'pipeline/demo', current_rel).read_bytes(), last)
+        self.assertFalse((slim / current_rel).exists())  # current bytes already copied to room_preview
+        write(old, last)
+        self.assertIsNone(replay.scene_file(self.scene, rel))
+        data = replay.timeline(self.root)
+        self.assertNotIn('model', next(e for e in data['events'] if e['say'].startswith('小物品处理完成')))
+        self.assertNotIn(rel, data['models'].values())
+
+    def test_marker_boxes_stay_out_of_the_draft_before_any_item_has_finished(self):
+        scene = self.scene
+        glb(scene / replay.FINAL, {'@roots': ['Desk', 'Mug0']}, T0 + 610)
+        write(scene / 'realism_authoring/room_preview/room_layout.json',
+              json.dumps({'objects': [{'id': 'Mug0', 'small_marker': True}, {'id': 'Desk'}]}), T0 + 610)
+        data = replay.timeline(self.root, 'running', T0 + 650)
+        self.assertEqual(data['hidden_nodes'][replay.draft_key(T0 + 610)], ['Mug0'])
+        self.assertFalse(any(e.get('work') == 'small' for e in data['events']))
+        complete = replay.timeline(self.root)
+        self.assertNotIn('small_objects', complete['hidden_nodes'])
+        self.assertNotIn('final', complete['hidden_nodes'])
 
     def test_replay_reader_keeps_each_integrated_save_joint_count(self):
         trace = self.scene / replay.TRACES / 'trace.jsonl'
@@ -908,12 +998,12 @@ class PassesBeforeTheCheck(unittest.TestCase):
         done = next(r for r in rows if r['kind'] == 'repair_done')
         self.assertNotIn('changed', done)  # this run's records are of the older kind
         says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
-        self.assertEqual(says, ['按检查出的问题修好了房间'])
+        self.assertEqual(says, ['已完成本轮修改'])
         with (self.scene / replay.TRACES / 'trace.jsonl').open('a') as f:
             f.write(json.dumps({'t': T0 + 1135, 'kind': 'repair_done', 'status': 'repaired', 'changed': False,
                                 'stage': 'author', 'run': 'attempt-02'}) + '\n')
         says = [e['say'] for e in replay.review_events(self.scene) if e['id'].startswith('fix')]
-        self.assertEqual(says, ['按检查出的问题修好了房间', '按检查意见尝试修改，房间没有变化'])
+        self.assertEqual(says, ['已完成本轮修改', '按检查意见尝试修改，房间没有变化'])
 
     def test_the_items_of_the_author_stages_pass_are_cards_with_their_pictures(self):
         # The pass writes beside the room (realism_authoring/small_objects); its pictures are found and served there.
@@ -930,7 +1020,16 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual((dest / 'small-objects/evidence/TissueBox0/view0.jpg').read_bytes(), b'jpg')
 
     def test_without_a_repair_the_rooms_of_the_passes_show_before_the_check(self):
-        data = replay.timeline(self.root, 'running', T0 + 1005)
+        # A later, digest-less repair overwrote this fixture's first snapshot. Cutting off the
+        # replay clock cannot recover those bytes. A run that really ended here still has them.
+        cutoff = T0 + 1005
+        original = replay.timeline(self.root, 'running', cutoff)
+        self.assertNotIn('small_objects', original['models'])
+        self.assertFalse(any(e.get('model') == 'small_objects' for e in original['events']))
+        rows = replay.trace_rows(self.scene, cutoff)
+        write(self.scene / replay.TRACES / 'trace.jsonl', ''.join(json.dumps(r) + '\n' for r in rows))
+        write(self.scene / 'realism_authoring/small_objects/room_preview/Room.glb', b'first room', T0 + 789)
+        data = replay.timeline(self.root, 'running', cutoff)
         self.assertFalse(next(e for e in data['events'] if e.get('model') == 'articulated').get('published'))
         self.assertEqual([(e['t'] - T0, e['stage'], e.get('model')) for e in data['events'] if e.get('kind') == 'milestone'
                           and e['t'] > T0 + 650], [(790, 'assemble', 'small_objects'), (900, 'parts', 'articulated')])
@@ -1232,15 +1331,15 @@ class Sessions(unittest.TestCase):
         summary.condense(replay.agent_records(self.scene), self.run_('assemble'), T0, final=True)
         self.assertFalse([p for p in self.calls if 'revise' in p or 'small_objects' in p])  # not offered to the model
         data = replay.timeline(self.job, 'completed', T0 + 2400)
-        self.assertEqual([s['id'] for s in data['stages']], OLD[:-1] + ['revise', 'small_objects', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']], EIGHT + ['revise'])
         # The new session's steps (condensed as 'assemble'), its check (still round1), repair and final room.
         self.assertEqual([(e['t'] - T0, e['stage'], e['say'], e.get('model')) for e in data['events'] if e['t'] > T0 + 900], [
+            (2300, 'assemble', '整理小物品的照片和模型', None),
             (985, 'review', '检查房间没通过', 'round0'), (990, 'review2', '按检查出的问题开始修复房间', None),
-            (1020, 'review2', '按检查意见修改房间', None), (1100, 'review2', '按检查出的问题修好了房间', None),
+            (1020, 'review2', '按检查意见修改房间', None), (1100, 'review2', '已完成本轮修改', None),
             (2020, 'revise', '第 2 段', None), (2100, 'revise', '检查房间：通过', 'round1'),
             (2105, 'revise', '按检查出的问题开始修复房间', None), (2130, 'revise', '按检查意见修改房间', None),
-            (2150, 'revise', '按检查出的问题修好了房间', None), (2200, 'revise', '导出最终房间', 'final'),
-            (2300, 'small_objects', '逐个看房间里的小物品，挑出需要按照片重做的', None)])
+            (2150, 'revise', '已完成本轮修改', None), (2200, 'revise', '导出当时的房间', 'final')])
         self.assertEqual([e['id'] for e in data['events'] if e['kind'] == 'review'], ['r0', 'r1'])
         self.assertEqual([(e['model'], e['round']) for e in data['events'] if e['kind'] == 'review'],
                          [('round0', 1), ('round1', 1)])
@@ -1264,14 +1363,14 @@ class Sessions(unittest.TestCase):
         next_session(self.scene, T0 + 2000)  # asked for changes after the passes
         data = replay.timeline(self.job, 'running', T0 + 2050)
         self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140], [(T0 + 2020, 'revise')])
-        self.assertEqual([s['id'] for s in data['stages']][-2:], ['revise', 'articulate'])
+        self.assertEqual([s['id'] for s in data['stages']][-2:], ['review2', 'revise'])
         self.assertIn('articulated', data['models'])  # the earlier rooms stay listed; their lines go
         self.append([{'t': T0 + 2300, 'kind': 'small_objects_start', 'run': 'attempt-02'},
                      {'t': T0 + 2400, 'kind': 'articulate_start', 'run': 'attempt-02'},
                      {'t': T0 + 2500, 'kind': 'model_saved', 'model': 'articulated', 'run': 'attempt-02'}])
         data = replay.timeline(self.job, 'completed', T0 + 3000)
         self.assertEqual([(e['t'], e['stage']) for e in data['events'] if e['t'] > T0 + 1140],
-                         [(T0 + 2020, 'revise'), (T0 + 2300, 'small_objects'), (T0 + 2400, 'articulate'), (T0 + 2500, 'articulate')])
+                         [(T0 + 2300, 'assemble'), (T0 + 2400, 'parts'), (T0 + 2500, 'parts'), (T0 + 2020, 'revise')])
 
     def old_cache(self, batches):
         """summary.json as the code before the sessions were numbered on wrote it (no 'numbering')."""
@@ -1373,8 +1472,8 @@ class WorkingClock(unittest.TestCase):
 class PassesLeftUndone(unittest.TestCase):
     def test_items_a_pass_could_not_do_are_said(self):
         self.assertEqual(replay.small_summary({'rebuilt': 2, 'kept': 3, 'undone': 1}),
-                         '小物品处理好了：按照片重做 2 件，3 件保持原样，1 件没处理成，仍是原来的样子')
-        self.assertEqual(replay.small_summary({'rebuilt': 2, 'kept': 3}), '小物品处理好了：按照片重做 2 件，3 件保持原样')
+                         '小物品处理完成：采用照片模型 2 件，3 件保持原样，1 件没处理成，仍是原来的样子')
+        self.assertEqual(replay.small_summary({'rebuilt': 2, 'kept': 3}), '小物品处理完成：采用照片模型 2 件，3 件保持原样')
 
 
 class Service(unittest.TestCase):

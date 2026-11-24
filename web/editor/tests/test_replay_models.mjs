@@ -65,6 +65,36 @@ test('a paused seek emits only the destination and ordinary seeks preserve playb
   assert.deepEqual(frames, [[8, true], [3, false]]);
 });
 
+test('assembly hides the old item even while its support forms, and seeking back restores the mask', () => {
+  const v = view(), id = 'TissueBox0';
+  const support = group('Table0', mesh('Tabletop'), group(id, mesh('OldBlock')));
+  const authored = loaded(v, 'final', support);
+  const rebuilt = loaded(v, 'small_objects', group(id, mesh('PhotoMesh')));
+  const options = {addedAll: ['Table0']};
+  const assembly = {added: new Set(['Table0']), hiddenNodes: [id]};
+  const visibleMesh = (root, name) => {
+    const visible = [];
+    root.traverseVisible(node => visible.push(node.name));
+    return visible.includes(name);
+  };
+  apply(v, 'final', true, assembly, options);
+  assert.equal(visibleMesh(authored, 'Tabletop'), true);
+  assert.equal(visibleMesh(authored, 'OldBlock'), false);
+  v.forming.start(support, {held: true});
+  assert.deepEqual(v.forming.active.get(support).meshes.map(node => node.name), ['Tabletop']);
+  apply(v, 'small_objects', false, {}, options);
+  assert.equal(visibleMesh(rebuilt, 'PhotoMesh'), true);
+  assert.equal(visibleMesh(authored, 'OldBlock'), false);
+  apply(v, 'final', true, assembly, options);
+  assert.equal(visibleMesh(authored, 'OldBlock'), false);
+  assert.equal(visibleMesh(rebuilt, 'PhotoMesh'), false);
+  // A current-flow run can reuse this same GLB as its real finished room.
+  apply(v, 'final', true, {}, options);
+  assert.equal(visibleMesh(authored, 'OldBlock'), true);
+  apply(v, 'final', true, assembly, options);
+  assert.equal(visibleMesh(authored, 'OldBlock'), false);
+});
+
 for (const action of ['wait', 'seek', 'dispose']) test(`a paused assembly retries a disconnected seed only while waiting: ${action}`, async t => {
   t.mock.timers.enable({apis: ['setTimeout', 'Date']});
   t.mock.method(performance, 'now', () => Date.now());

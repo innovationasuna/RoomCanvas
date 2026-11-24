@@ -135,8 +135,8 @@ export class Materializer {
     this.finish(node);
     node.updateWorldMatrix(true, true);
     const meshes = [];
-    node.traverse((o) => {
-      if (o.isMesh && o.visible && !o.userData.mask && !(skipWindows && o.userData.replayWindowMesh)) meshes.push(o);
+    node.traverseVisible((o) => {
+      if (o.isMesh && !o.userData.mask && !(skipWindows && o.userData.replayWindowMesh)) meshes.push(o);
     });
     const box = new THREE.Box3();
     meshes.forEach((o) => box.expandByObject(o));
