@@ -79,6 +79,11 @@ test('asset publication errors retain their actionable pending or failed state',
 
 test('an unavailable full model is still reported as an import failure', async () => {
   await assert.rejects(loadModels('chair', async () => {throw new Error('model unavailable');}), /model unavailable/);
+  const response = Response.json({error: '物品重建服务暂时不可用'}, {status: 502});
+  await assert.rejects(loadModels('chair', async url => {
+    if (url.endsWith('result.glb')) throw Object.assign(new Error(`fetch for ${url} responded with 502`), {response});
+    return {scene: {}};
+  }), {message: '物品重建服务暂时不可用'});
 });
 
 test('ViewForge run ids become short names', () => {

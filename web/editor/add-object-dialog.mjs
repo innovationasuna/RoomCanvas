@@ -8,7 +8,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MIN_PHOTOS, MAX_PHOTOS, STAGES, objectName, stageLabel, duration, createObject, captureObject,
   startMasks, startReconstruction, follow, previewURL, saveMeasurement, coverSuggestion, readManifest} from './add-object.mjs';
-import {readAsset, modelURL, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs';
+import {readAsset, modelURL, modelLoadError, metricScale, placementMatrix, sizeInMeters, savedMeasurement} from './object-import.mjs';
 import {DIMENSION_AXES, createDimensionGuides, disposeObjectTree} from './object-dimensions.mjs';
 import {createImportMaterials} from './import-materials.mjs';
 import {createEnvironmentLighting} from './environment-lighting.mjs';
@@ -24,6 +24,7 @@ export function mountAddObject({onReady, toast}) {
   const dialog = $('#add-object-dialog'), card = $('#add-object');
   // step: photos → masks → build → size. files: [{file, url}] before upload.
   let state = {step: 'photos', files: []}, viewer = null, preparing = false, uploading = false;
+  let sizeRequest = 0;
 
   function show(step) {
     state.step = step;
@@ -201,26 +202,43 @@ export function mountAddObject({onReady, toast}) {
       remember({object: state.object, build: state.build, run: job.run, parent: state.parent});
       cardState('重建好了，填尺寸', '物品重建完成');
       if (!dialog.open) toast(`${state.object} 重建好了：点物品库里的“物品重建完成”填尺寸`);
-      await openSize();
     } catch (error) {
       $('#add-build-error').hidden = $('#add-build-again').hidden = false;
       $('#add-build-error').textContent = `重建没完成：${error.message}`;
       cardState('重建失败', '物品重建失败');
       remember(null);
+      return;
     }
+    await openSize();
   }
 
   // 4. The result and one measured edge.
   async function openSize() {
+    const session = state, request = ++sizeRequest;
     show('size');
+    closeViewer();
+    state.asset = null;
     $('#add-place').disabled = true;
+    $('#add-retry-size').hidden = $('#add-cover-view').hidden = true;
+    $('#add-cover-note').textContent = '';
     $('#add-size-note').textContent = '正在读取模型…';
-    state.asset = await readAsset(state.run);
-    const saved = savedMeasurement(state.asset);
-    if (saved) {$('#add-axis').value = saved.axis; $('#add-meters').value = String(+saved.meters.toFixed(3));}
-    describeSize();
-    await openViewer(state.run, state.asset.base, state.asset.manifest_url, state.asset.capabilities);
+    try {
+      const asset = await readAsset(session.run);
+      if (session !== state || request !== sizeRequest) return;
+      state.asset = asset;
+      const saved = savedMeasurement(asset);
+      if (saved) {$('#add-axis').value = saved.axis; $('#add-meters').value = String(+saved.meters.toFixed(3));}
+      describeSize();
+      await openViewer(session.run, asset.base, asset.manifest_url, asset.capabilities);
+    } catch (error) {
+      if (session !== state || request !== sizeRequest) return;
+      closeViewer();
+      $('#add-cover-note').textContent = '';
+      $('#add-size-note').textContent = `未能读取${state.asset ? '模型预览' : '物品尺寸'}：${error.message}`;
+      $('#add-retry-size').hidden = false;
+    }
   }
+  $('#add-retry-size').onclick = openSize;
   function measured() {
     return metricScale(state.asset.base, $('#add-axis').value, Number($('#add-meters').value));
   }
@@ -253,7 +271,6 @@ export function mountAddObject({onReady, toast}) {
   };
 
   async function openViewer(run, base, manifestURL, capabilities) {
-    closeViewer();
     $('#add-cover-view').hidden = true;
     $('#add-cover-note').textContent = manifestURL ? '正在读取补拍建议…' : '这个结果没有补拍建议，也可以直接补拍。';
     const host = $('#add-view'), width = host.clientWidth || 480, height = host.clientHeight || 260;
@@ -298,7 +315,10 @@ export function mountAddObject({onReady, toast}) {
     }};
     let gltf, model = 'glb_preview';
     try {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'preview.glb'));}
-    catch {gltf = await new GLTFLoader().loadAsync(modelURL(run, 'result.glb')); model = 'glb';}
+    catch {
+      gltf = await new GLTFLoader().loadAsync(modelURL(run, 'result.glb')).catch(modelLoadError);
+      model = 'glb';
+    }
     if (viewer?.renderer !== renderer) {disposeObjectTree(gltf.scene); return;}
     // Unit-sized, standing on y = 0, as the editor places it; the box shows the measured extent.
     const shape = new THREE.Group();
@@ -409,7 +429,9 @@ export function mountAddObject({onReady, toast}) {
     if (state.step === 'size' && state.run && !viewer) void openSize();
     dialog.showModal();
   };
-  dialog.addEventListener('close', () => {if (state.step === 'size') closeViewer();});
+  dialog.addEventListener('close', () => {
+    if (state.step === 'size') {sizeRequest++; closeViewer();}
+  });
   card.hidden = false;
   reset();
 

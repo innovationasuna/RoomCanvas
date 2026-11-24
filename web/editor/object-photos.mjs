@@ -56,7 +56,7 @@ export async function preparePhoto(file, onConvert = () => {}) {
     } catch (error) {URL.revokeObjectURL(url); throw error;}
   } catch {
     throw new Error(format === 'heic'
-      ? `“${file.name}”的 HEIC 照片转换失败，请在“预览”中导出为 JPEG 或 PNG 后重试（只改后缀无效）。`
+      ? `“${file.name}”无法自动转换。请用相册或图片工具另存为 JPG 或 PNG，再上传。`
       : `无法读取“${file.name}”，请确认照片已下载到本机且未损坏；更改后缀不会转换图片格式。`);
   }
 }

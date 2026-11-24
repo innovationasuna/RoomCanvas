@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOM_PREFIX = '/room-reconstruction/'
 # Writes that need the GPU; saving a measured size (/dimensions/...) does not.
 GPU_WRITES = re.compile(r'^/viewforge/objects/')
-PREVIEW = '这台服务器没有 GPU，只能浏览房间、物品和重建回放，不能提交重建。'
+PREVIEW = '当前只能浏览房间、物品和回放。要提交重建，请连接支持重建的服务器。'
 HOP_BY_HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers',
               'transfer-encoding', 'upgrade', 'host'}
 CHUNK = 1024 * 1024
@@ -72,9 +72,10 @@ class Gateway(HTTPAuth, BaseHTTPRequestHandler):
                 connection.send(chunk)
                 remaining -= len(chunk)
             response = connection.getresponse()
-        except OSError:
-            name = '房间重建服务' if (host, port) == self.rooms else '物体重建服务'
-            return self.fail(503, f'{name}未启动：网关连不上 {host}:{port}。')
+        except OSError as error:
+            name = '房间重建服务' if self.path.startswith(ROOM_PREFIX) else '物品重建服务'
+            print(f'{name} {host}:{port}: {error}', file=sys.stderr, flush=True)
+            return self.fail(503, f'{name}暂时不可用。请稍后重试，若仍然失败，请联系管理员。')
         with response:
             self.send_response(response.status)
             for name, value in response.getheaders():

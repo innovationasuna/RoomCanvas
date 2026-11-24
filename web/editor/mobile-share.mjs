@@ -11,7 +11,7 @@ export function mountMobileShare({button, capture}) {
     <div class="mobile-share-result" hidden>
       <div id="mobile-share-qr" role="img" aria-label="手机打开房间的二维码"></div>
       <div class="mobile-share-fields"><p id="mobile-share-version"></p>
-        <label for="mobile-share-host">电脑的 Wi-Fi 地址</label>
+        <label for="mobile-share-host">电脑的局域网 IP</label>
         <input id="mobile-share-host" list="mobile-share-addresses" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.8">
         <datalist id="mobile-share-addresses"></datalist>
         <label for="mobile-share-link">手机链接</label><input id="mobile-share-link" readonly>
@@ -38,7 +38,7 @@ export function mountMobileShare({button, capture}) {
     if (pieces.length !== 4 || pieces.some(p => !/^\d{1,3}$/.test(p) || +p > 255) || ['0', '127'].includes(pieces[0])) {
       $('#mobile-share-link').value = ''; $('#mobile-share-qr').replaceChildren();
       $('#mobile-share-copy').disabled = true;
-      status.textContent = '填写手机可访问的电脑 Wi-Fi IPv4 地址后生成二维码。'; return;
+      status.textContent = '请填写电脑的局域网 IP（例如 192.168.1.8），二维码会自动出现。'; return;
     }
     const url = `http://${host}:${published.port}${published.path}`;
     $('#mobile-share-link').value = url;
@@ -65,7 +65,7 @@ export function mountMobileShare({button, capture}) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '保存失败，请重试');
       published = result;
-      $('#mobile-share-version').textContent = `${metadata.name} · ${metadata.version.slice(0, 8)} · ${(blob.size / 1048576).toFixed(1)} MB`;
+      $('#mobile-share-version').textContent = `${metadata.name} · 生成于 ${new Date(metadata.createdAt).toLocaleString('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'})} · ${(blob.size / 1048576).toFixed(1)} MB`;
       $('#mobile-share-addresses').replaceChildren(...result.addresses.map(address => {const option = document.createElement('option'); option.value = address; return option;}));
       $('#mobile-share-host').value = result.addresses[0] || '';
       $('.mobile-share-result').hidden = false;

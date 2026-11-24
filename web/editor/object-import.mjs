@@ -47,10 +47,12 @@ export function sizeInMeters(base, scale) {
 }
 
 async function json(url, fetcher) {
-  const response = await fetcher(url, {cache: 'no-store'});
+  const response = await fetcher(url, {cache: 'no-store'}).catch(() => {
+    throw new Error('暂时连不上物品重建服务，请检查连接后重试。');
+  });
   if (!response.ok) {
     const data = await response.json?.().catch(() => ({}));
-    const error = new Error(data?.error || `ViewForge 读取失败（${response.status}）`);
+    const error = new Error(data?.error || `未能读取物品模型，请稍后重试（${response.status}）`);
     error.status = response.status;
     error.state = data?.state;
     throw error;
@@ -74,11 +76,23 @@ export async function readCatalog(fetcher = fetch) {
 export const readAsset = (run, fetcher = fetch) => json(assetAPI + encodeURIComponent(run), fetcher);
 export const modelURL = (run, file) => `${assetAPI}${encodeURIComponent(run)}/${file}`;
 
+// Three.js keeps the failed HTTP response on the error, including the service's explanation.
+export async function modelLoadError(error, missing) {
+  const response = error.response;
+  if (!response) throw error;
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    const detail = await response.json().catch(() => null);
+    if (typeof detail?.error === 'string' && detail.error) throw new Error(detail.error);
+  }
+  if (response.status === 404 && missing) throw new Error(missing);
+  throw new Error(`未能读取模型，请稍后重试（${response.status}）`);
+}
+
 // A geometry-only proxy is independent of the full display/PBR asset. Legacy runs
 // fall back to their preview, then a separate scene sharing the original geometry.
 export async function loadModels(run, load) {
   const [full, preview] = await Promise.all([
-    load(modelURL(run, 'result.glb')),
+    load(modelURL(run, 'result.glb')).catch(modelLoadError),
     load(modelURL(run, 'collision.glb')).catch(() => load(modelURL(run, 'preview.glb')).catch(() => null)),
   ]);
   return {full, light: preview || {scene: full.scene.clone(true)}};

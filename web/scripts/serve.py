@@ -224,7 +224,7 @@ class Handler(SimpleHTTPRequestHandler):
                             self.log_message('房间模型：已缓存 %s', entry['path'])
                 except (OSError, http.client.HTTPException) as error:
                     self.log_message('房间模型：下载失败 %s (%s)', entry['path'], error)
-                    failure = (503, {'error': '无法从服务器获取房间模型，请检查 SSH 连接和房间服务后刷新重试。'})
+                    failure = (503, {'error': '房间模型下载失败。请确认电脑已连上房间重建服务，再刷新页面。'})
                 except ValueError as error:
                     failure = (502, {'error': str(error)})
                 if failure and failure[0] == 503 and not scan:
@@ -239,7 +239,7 @@ class Handler(SimpleHTTPRequestHandler):
                         except (fetch_samples.FetchError, OSError, http.client.HTTPException):
                             failure = (503, {'error': '房间服务和 GitHub 均未能提供该模型，请检查连接后刷新重试。'})
                     else:
-                        failure = (503, {'error': '无法获取该示例模型。请连接已更新且备有该模型的房间服务，或配置 GitHub 登录（gh auth login / GH_TOKEN）后重启网页服务。刷新只会重试当前房间。'})
+                        failure = (503, {'error': '无法下载这个示例房间。请管理员确认房间服务备有模型，或按 web/README.md 的“示例房间的模型”说明，在运行网页服务的电脑上配置 GitHub 下载权限。完成后刷新当前房间。'})
                 # Complete cleanup before the browser receives an error and can retry.
                 if failure:
                     return self.room_json(*failure)
@@ -368,7 +368,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.relay(urllib.request.Request(self.room_backend + path), 60, room=True)
         status, body, kind, stale = self.room_answer(path, 8 if kept.is_file() else 60)
         if status is None:
-            return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
+            return self.room_json(503, {'error': '暂时连不上房间重建服务。请确认服务器已启动、电脑已连接，再重试。'})
         self.send_response(status)
         self.send_header('Content-Type', kind)
         self.send_header('Content-Length', str(len(body)))
@@ -512,8 +512,9 @@ class Handler(SimpleHTTPRequestHandler):
             response = error  # ViewForge's own error message (JSON) goes to the page as it is.
         except OSError as error:  # refused, timed out, or reset by an SSH tunnel whose remote side is down
             if room:
-                return self.room_json(503, {'error': '房间重建服务未连接，请启动服务并检查 SSH 隧道后重试。'})
-            return self.send_error(502, f'ViewForge not reachable at {self.viewforge} ({error})')
+                return self.room_json(503, {'error': '暂时连不上房间重建服务。请确认服务器已启动、电脑已连接，再重试。'})
+            self.log_error('ViewForge not reachable at %s (%s)', self.viewforge, error)
+            return self.room_json(502, {'error': '暂时连不上物品重建服务。请确认服务器已启动、电脑已连接，再重试。'})
         with response:
             self.send_response(response.status)
             for name in ('Content-Type', 'Content-Length'):

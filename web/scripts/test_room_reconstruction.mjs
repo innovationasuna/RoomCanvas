@@ -68,7 +68,7 @@ test('file picker and drag/drop upload the original archive without labelling TA
       assert.equal(sent.headers['Content-Type'], extension === 'zip' ? 'application/zip' : 'application/octet-stream');
       assert.equal(sent.headers['X-Room-Name'], encodeURIComponent('客厅'));
       assert.match(sent.headers['X-Upload-ID'], /^[0-9a-f]{32}$/);
-      assert.match(get('scan-selected').textContent, /ZIP \/ TAR/);
+      assert.equal(get('scan-selected').textContent, '选择或拖入完整扫描包');
       assert.equal(get('remove-scan').hidden, true);
     }
     assert.equal(uploads.length, 8);
@@ -76,14 +76,24 @@ test('file picker and drag/drop upload the original archive without labelling TA
 });
 test('progress reflects real stages and keeps errors distinct from completion', () => {
   assert.match(jobDescription({status: 'queued'}), /等待/);
-  assert.match(jobDescription({status: 'running', stages: [{name: 'ingest', status: 'reused'}]}), /重建场景物体/);
+  assert.match(jobDescription({status: 'running', stages: [{name: 'ingest', status: 'reused'}]}), /生成房间里的物品/);
   assert.match(jobDescription({status: 'preparing'}), /整理/);
-  assert.match(jobDescription({status: 'running', gpu_waiting: true, stages: []}), /等待 GPU/);
+  assert.match(jobDescription({status: 'running', gpu_waiting: true, stages: []}), /排队.*自动开始重建/);
   assert.equal(jobDescription({status: 'failed', error: '模型不可用'}), '模型不可用');
+  for (const [error, hint] of [
+    ['没有取得可用的 GPU，重建没有开始。请稍后重试；详情见服务器 task.log。', /尚未开始.*稍后重试/],
+    ['房间重建或可动部件生成失败，请检查运行目录的 pipeline.log 和 articulate.log 后重试。', /重试.*联系管理员/],
+  ]) {
+    const note = jobDescription({status: 'failed', error});
+    assert.match(note, hint);
+    assert.doesNotMatch(note, /GPU|\.log/);
+  }
+  assert.match(jobDescription({status: 'failed', retryable: false}), /重新导出后再上传/);
   assert.match(jobDescription({status: 'completed'}), /已加入房间列表/);
-  assert.match(jobDescription({status: 'completed', usable: false}), /产物暂不可用/);
+  assert.match(jobDescription({status: 'completed', usable: false}), /房间模型暂时无法打开.*查看过程/);
   assert.match(jobDescription({status: 'completed', quality: {status: 'warnings'},
-    enhancement: {added: 0, zero_added_reason: '已存在可动关节'}}), /待改善.*已存在可动关节/);
+    enhancement: {existing: 2, added: 0, zero_added_reason: 'no candidate objects'}}), /需要改进.*可开合部件原有 2 处，本次新增 0 处.*没有需要额外制作可开合部件的物品/);
+  assert.match(jobDescription({status: 'completed', enhancement: {added: 0, zero_added_reason: '物品保留原样'}}), /物品保留原样/);
 });
 test('a kept answer during an outage is marked, and a live one clears the mark', async () => {
   class Element {

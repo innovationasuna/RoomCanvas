@@ -160,6 +160,24 @@ class RoomReplay(unittest.TestCase):
 
 
 class Tunnel(unittest.TestCase):
+    def test_ssh_uses_one_gateway_forward_unless_either_service_is_explicit(self):
+        from unittest.mock import patch
+        import serve
+        for options, targets in [
+            ([], ['127.0.0.1:7865:127.0.0.1:7870']),
+            (['--remote', 'objects:9000'], ['127.0.0.1:7865:objects:9000', '127.0.0.1:7866:127.0.0.1:7866']),
+            (['--room-remote', 'rooms:9010'], ['127.0.0.1:7865:127.0.0.1:7862', '127.0.0.1:7866:rooms:9010']),
+        ]:
+            class TestHandler(Handler):
+                pass
+            with self.subTest(options=options), patch.object(sys, 'argv', ['serve.py', '--ssh', 'test-host', *options]), \
+                    patch.object(serve, 'Handler', TestHandler), patch.object(serve, 'CacheManager'), \
+                    patch.object(serve, 'open_tunnel', side_effect=SystemExit) as opening:
+                with self.assertRaises(SystemExit):
+                    serve.main()
+                command, _ = opening.call_args.args
+                self.assertEqual([command[i + 1] for i, part in enumerate(command) if part == '-L'], targets)
+
     def test_command_forwards_the_local_port_to_the_remote_service(self):
         command = tunnel_command('gpu-box', [(7865, '172.18.0.2:7862')])
         self.assertEqual(command[0], 'ssh')
