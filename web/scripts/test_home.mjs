@@ -1,5 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+
+test('bedroom note counts the rebuilt objects separately from the two piano lids', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../rooms.json', import.meta.url), 'utf8'));
+  const bedroom = manifest.rooms.find(room => room.id === 'room3');
+  const metadata = JSON.parse(await readFile(new URL(`../${bedroom.dir}/room_objects.json`, import.meta.url), 'utf8'));
+  const rebuilt = metadata.objects.filter(object => object.rebuilt);
+  const piano = metadata.groups.find(group => group.name === '钢琴');
+  assert.ok(!rebuilt.some(object => object.id === piano.id));
+  assert.equal(metadata.joints.filter(joint => joint.object === piano.id).length, 2);
+  const sentences = bedroom.note.split('。');
+  assert.ok(sentences.some(line => line.includes(`${rebuilt.length} 件`) && !line.includes('钢琴')));
+  assert.ok(sentences.some(line => line.includes('钢琴顶盖和琴键盖可以打开')));
+});
 
 // Exercise the home module and reconstruction polling together with an in-memory DOM/API.
 test('room cards follow reconstruction state and persist confirmed removal', async () => {
@@ -45,6 +59,10 @@ test('room cards follow reconstruction state and persist confirmed removal', asy
     assert.equal(cards().length, 2);
     assert.equal(get('rooms').children.length, 8);
     assert.equal(cards()[1].children[0].href, `replay.html?job=${job.id}`);
+    const help = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    const enterLabel = cards()[0].children[0].children[1].children[2].textContent;
+    assert.ok(help.includes(`标有“${enterLabel}”的房间卡片`));
+    assert.equal(cards()[1].children[0].children[1].children[2].textContent, '实时查看');
     assert.equal(cards()[1].children[0].children[0].children[1].children[0].textContent, '正在重建');
     const remove = cards()[0].children[1].children[1];
     await remove.onclick(); assert.equal(deletes, 0);

@@ -28,7 +28,7 @@ def describe(folder, record, state):
     if enhancement.get('attempt_id') and summary.get('attempt_id') == enhancement['attempt_id']:
         enhancement = {**summary, **enhancement}
     if enhancement.get('status') == 'failed':
-        warnings.append('可动部件增强未完成，已保留可用的房间模型。')
+        warnings.append('部分可开合部件未能生成，仍可打开房间模型。')
     timings = sorted((folder / 'run').glob('attempt-*/runtime-timing.json'))
     launch = read_json(timings[-1]) if timings else {}
     return {

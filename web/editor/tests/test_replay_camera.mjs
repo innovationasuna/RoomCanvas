@@ -141,7 +141,7 @@ test('a model requested in playback arrives fully visible on the first finished 
 });
 
 // Run the page's player, poll and scrub handlers with an in-memory job and a renderer-free view.
-async function page(t, live, data = {}) {
+async function page(t, live, data = {}, {search = '?job=' + '0'.repeat(32), fetcher} = {}) {
   const view = room(), nodes = new Map(), job = {
     live, stages: [{id: 'assemble', name: 'assemble'}], models: {seed: 'seed', final: 'final'},
     events: [{stage: 'assemble', minute: 0, kind: 'milestone', model: 'seed'}],
@@ -150,7 +150,7 @@ async function page(t, live, data = {}) {
   view.physical = () => {};
   view.ensureScaffold = () => {};
   const element = () => Object.defineProperty(Object.assign(new EventTarget(), {
-    value: '1', children: [], dataset: {}, style: {}, classList: {toggle() {}},
+    value: '1', children: [], dataset: {}, style: {}, classList: {toggle() {}, add() {}},
     append() {}, remove() {}, querySelector: () => null, querySelectorAll: () => [],
     getBoundingClientRect: () => ({left: 0, width: 100}),
   }), 'firstChild', {get: element});  // a card is parsed into a holder and its first child moved into the log
@@ -159,7 +159,7 @@ async function page(t, live, data = {}) {
     return nodes.get(id);
   }
   let frame, poll;
-  const host = {window: {view}, location: {href: 'https://room.test/replay.html', search: '?job=' + '0'.repeat(32)},
+  const host = {window: {view}, location: {href: 'https://room.test/replay.html', search},
     document: {getElementById: node, createElement: element}, ResizeObserver: class {observe() {}},
     addEventListener() {}, requestAnimationFrame(fn) {frame = fn;},
   };
@@ -168,16 +168,30 @@ async function page(t, live, data = {}) {
     Object.defineProperty(globalThis, name, {value, configurable: true});
     t.after(() => before ? Object.defineProperty(globalThis, name, before) : Reflect.deleteProperty(globalThis, name));
   }
-  t.mock.method(globalThis, 'fetch', async () => Response.json(job));
+  t.mock.method(globalThis, 'fetch', fetcher || (async () => Response.json(job)));
   t.mock.method(globalThis, 'setTimeout', fn => {poll = fn;});
   const hooks = registerHooks({resolve(name, context, next) {
     return next(name === './room-view.mjs' ? 'data:text/javascript,export class RoomView {constructor(){return window.view}}' : name, context);
   }});
   try {await import('../../replay/replay.mjs?' + encodeURIComponent(t.name));} finally {hooks.deregister();}
   await loaded();
-  return {view, job, player: window.player, finish: () => frame(performance.now() + window.player.duration * 1000 + 1),
+  return {view, job, node, player: window.player, finish: () => frame(performance.now() + window.player.duration * 1000 + 1),
     poll: () => poll(), scrub: x => node('track').dispatchEvent(Object.assign(new Event('pointerdown'), {clientX: x}))};
 }
+
+for (const search of ['', '?job=' + 'a'.repeat(32)]) {
+  test(`replay ${search || 'picker'} reports invalid credentials in the visible message`, async t => {
+    const {node} = await page(t, false, {}, {search, fetcher: async () => Response.json({error: 'unauthorized'}, {status: 401})});
+    assert.match(node('loading').textContent, /联系管理员检查服务凭证/);
+  });
+}
+
+test('the replay picker links every available job through the oldest record', async t => {
+  const jobs = Array.from({length: 15}, (_, i) => ({id: i.toString(16).padStart(32, '0'), created: i, status: 'completed'}));
+  const {node} = await page(t, false, {}, {search: '', fetcher: async () => Response.json({jobs})});
+  const links = Array.from(node('loading').innerHTML.matchAll(/href="\?job=([a-f0-9]+)"/g), match => match[1]);
+  assert.deepEqual(links, jobs.reverse().map(job => job.id));
+});
 
 function checkOverviewSpin(view) {
   frames(view, 400);

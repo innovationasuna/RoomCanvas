@@ -206,7 +206,7 @@ class Preview(unittest.TestCase):
             with self.assertRaises(HTTPError) as caught:
                 urlopen(Request(self.base + path, data=b'x', headers={'X-Upload-ID': 'b' * 32, 'X-Room-Name': 'r'}), timeout=10)
             self.assertEqual(caught.exception.code, 503)
-            self.assertIn('GPU', json.loads(caught.exception.read())['error'])
+            self.assertIn('请连接支持重建的服务器', json.loads(caught.exception.read())['error'])
 
 
 class APIIntegration(unittest.TestCase):

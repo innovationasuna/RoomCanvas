@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MIN_PHOTOS, objectName, stageLabel, duration, follow, previewURL, startReconstruction, saveMeasurement, coverSuggestion} from '../add-object.mjs';
+import {registerHooks} from 'node:module';
+import {MIN_PHOTOS, objectName, stageLabel, duration, follow, previewURL, startReconstruction, saveMeasurement, coverSuggestion, createObject} from '../add-object.mjs';
+
+test('oversized uploads explain how to reduce the batch and prefer a JSON reason', async t => {
+  let body = '<html>Request Entity Too Large</html>';
+  class Upload {
+    upload = {};
+    open() {}
+    send() {this.status = 413; this.responseText = body; this.onload();}
+  }
+  const original = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = Upload;
+  t.after(() => {globalThis.XMLHttpRequest = original;});
+  await assert.rejects(createObject('台灯', []), /减少照片数量或缩小照片/);
+  body = JSON.stringify({error: '单张照片太大'});
+  await assert.rejects(createObject('台灯', []), {message: '单张照片太大'});
+});
 
 test('object names are what the server accepts', () => {
   assert.equal(objectName('  我的 椅子 '), '我的_椅子');
@@ -10,10 +26,53 @@ test('object names are what the server accepts', () => {
   assert.equal(objectName('a'.repeat(100)).length, 80);
 });
 
+test('a completed build keeps its run when reading dimensions fails and retries from the size panel', async t => {
+  const vendor = new URL('../../vendor/', import.meta.url);
+  const hooks = registerHooks({resolve(name, context, next) {
+    if (name === 'three') return next(new URL('build/three.module.js', vendor).href, context);
+    if (name.startsWith('three/addons/')) return next(new URL(name.replace('three/addons/', 'examples/jsm/'), vendor).href, context);
+    return next(name, context);
+  }});
+  let mountAddObject;
+  try {({mountAddObject} = await import('../add-object-dialog.mjs'));} finally {hooks.deregister();}
+  const nodes = new Map();
+  const panels = ['photos', 'masks', 'build', 'size'].map(panel => ({dataset: {panel}}));
+  function get(selector) {
+    if (!nodes.has(selector)) nodes.set(selector, {value: '', dataset: {}, querySelector: get,
+      querySelectorAll: key => key === '[data-panel]' ? panels : [], addEventListener() {},
+      replaceChildren() {}, setAttribute() {}, showModal() {this.open = true;}});
+    return nodes.get(selector);
+  }
+  let saved = JSON.stringify({object: '椅子', build: 'build1'});
+  const storage = {getItem: () => saved, setItem: (_, text) => {saved = text;}, removeItem: () => {saved = null;}};
+  for (const [key, value] of Object.entries({document: {querySelector: get, createElement: () => ({})}, localStorage: storage})) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, {value, configurable: true});
+    t.after(() => previous ? Object.defineProperty(globalThis, key, previous) : Reflect.deleteProperty(globalThis, key));
+  }
+  const urls = [], message = '物品重建服务暂时不可用，请稍后重试';
+  t.mock.method(globalThis, 'fetch', async url => {
+    urls.push(url);
+    return url.endsWith('/jobs/build1') ? Response.json({status: 'complete', run: 'chair1'}) :
+      Response.json({error: message}, {status: 502});
+  });
+  mountAddObject({toast() {}});
+  get('#add-object').onclick();
+  await new Promise(setImmediate);
+  assert.deepEqual(panels.filter(panel => !panel.hidden).map(panel => panel.dataset.panel), ['size']);
+  assert.match(get('#add-size-note').textContent, new RegExp(message));
+  assert.equal(get('#add-retry-size').hidden, false);
+  assert.equal(get('#add-place').disabled, true);
+  assert.equal(get('#add-object-label').textContent, '物品重建完成');
+  assert.equal(JSON.parse(saved).run, 'chair1');
+  await get('#add-retry-size').onclick();
+  assert.deepEqual(urls, ['/viewforge/objects/jobs/build1', '/viewforge/assets/chair1', '/viewforge/assets/chair1']);
+});
+
 test('progress reads as the reconstruction stages', () => {
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'queued'}), '排队等 GPU');
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'da3'}), '估计深度与相机');
-  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'unknown'}), '准备输入');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'queued'}), '排队等待处理');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'da3'}), '分析拍摄角度');
+  assert.equal(stageLabel({kind: 'reconstruct', status: 'running', stage: 'unknown'}), '准备照片');
   assert.equal(stageLabel({kind: 'masks', status: 'running'}), '正在抠图');
   assert.equal(duration(185.7), '03:05');
 });

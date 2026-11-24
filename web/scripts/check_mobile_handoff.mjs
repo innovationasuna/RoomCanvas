@@ -19,7 +19,12 @@ try {
   await page.goto(values.url);
   await page.waitForFunction(() => window.roomEditor?.ready, null, {timeout: 90000});
   const before = await page.evaluate(() => window.roomEditor.snapshot());
+  await page.locator('#open-help').click();
+  const instructions = await page.locator('.rc-help-note').filter({hasText: 'Wi-Fi'}).innerText();
+  await page.locator('[aria-label="关闭帮助"]').click();
   await page.locator('#mobile-share').click();
+  assert.ok(instructions.includes(`“${await page.locator('#mobile-share').innerText()}”，再点“${await page.locator('#mobile-share-generate').innerText()}”`));
+  assert.ok(await page.locator('.mobile-share-result').isHidden());
   await page.locator('#mobile-share-generate').click();
   await page.waitForFunction(() => !document.querySelector('#mobile-share-generate').disabled, null, {timeout: 120000});
   const link = await page.locator('#mobile-share-link').inputValue();

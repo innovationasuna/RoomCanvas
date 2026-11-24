@@ -89,11 +89,31 @@ class Preview(Routing):
     def test_object_reconstruction_is_refused_with_a_reason(self):
         status, body = self.call('POST', '/viewforge/objects/create', b'{}', {'Content-Type': 'application/json'})
         self.assertEqual(status, 503)
-        self.assertIn('GPU', body['error'])
+        self.assertIn('请连接支持重建的服务器', body['error'])
 
     def test_reads_and_size_edits_still_pass(self):
         self.assertEqual(self.call('GET', '/viewforge/assets/catalog')[1]['service'], 'objects')
         self.assertEqual(self.call('POST', '/viewforge/dimensions/run1', b'{}')[1]['service'], 'objects')
+
+
+class Unavailable(unittest.TestCase):
+    def test_stopped_backends_name_the_service_and_log_the_address(self):
+        from io import StringIO
+        from unittest.mock import Mock, patch
+        from contextlib import redirect_stderr
+        for path, name, port in [('/viewforge/assets/catalog', '物品', 7862), ('/room-reconstruction/jobs', '房间', 7866)]:
+            handler = object.__new__(Gateway)
+            handler.path, handler.command, handler.headers = path, 'GET', {}
+            handler.rooms, handler.objects = ('localhost', 7866), ('localhost', 7862)
+            handler.fail = Mock()
+            with patch('gateway.http.client.HTTPConnection', side_effect=ConnectionRefusedError('refused')), redirect_stderr(StringIO()) as log:
+                handler.relay()
+            status, message = handler.fail.call_args.args
+            self.assertEqual(status, 503)
+            self.assertIn(name + '重建服务暂时不可用', message)
+            self.assertIn('联系管理员', message)
+            self.assertNotIn('localhost', message)
+            self.assertIn(f'localhost:{port}: refused', log.getvalue())
 
 
 class Address(unittest.TestCase):

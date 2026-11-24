@@ -697,7 +697,8 @@ class UnlinkedSampleServing(SampleServing):
         self.service.errors[self.source] = 404
         status, body, _ = self.get()
         self.assertEqual(status, 503)
-        self.assertIn('GitHub', json.loads(body)['error'])
+        self.assertIn('在运行网页服务的电脑上配置 GitHub 下载权限', json.loads(body)['error'])
+        self.assertIn('示例房间的模型', json.loads(body)['error'])
         self.assertIn('当前房间', json.loads(body)['error'])
         self.assertEqual(list(self.target.parent.iterdir()), [])
         self.service.errors.clear()
