@@ -1,305 +1,241 @@
 # 房间重建
 
-房间重建模块把 iPhone LiDAR + RoomPlan 扫描生成真实尺寸、带纹理的 `Room.glb`，供网页编辑器浏览和调整家具布局。流程包括房间结构重建、家具建模与摆放、视觉检查，并支持小物件重建和可动部件识别。
-
-## 运行环境
-
-房间服务启动和发现新回放时，会跳过无法读取、JSON 损坏或关键字段无效的 `job.json`，并在服务日志中记录路径；原文件保留供修复，其他任务继续加载。回放登记先完整写入临时文件，再原子替换 `job.json`。修复被跳过的普通任务记录后重启服务；回放记录会在下次扫描时自动载入。
-
-重建在 Linux GPU 服务器上运行；完成后把房间文件复制到本机，由本机网页编辑器读取。房间重建不依赖物体 API 的 7862 端口。
-
-设置 `ROOMCANVAS_HOME` 为环境和数据根目录的绝对路径。该目录下的 `.env` 保存 API 密钥和图像生成设置；`runtime/` 存放 `litereality-env/`、`trellis-env/`、`blender/` 和 `cuda-12.4/`，`backends/` 存放 `TRELLIS.2/` 与 `weights/`。下文 `<…>` 都要替换为自己的值。
-
-## 安装
-
-服务器准备 Linux x86_64、NVIDIA 驱动和至少 24 GB 显存的 GPU、Git、Python 3、Conda 或 Mamba、uv ≥ 0.9.17、已登录的 Codex CLI。系统包使用 Debian/Ubuntu apt，缺包时需 sudo 或 root；没有 sudo 时，`ffmpeg`、`git`、`git-lfs` 只要在 PATH 上即可（例如 `conda create -p <目录> -c conda-forge ffmpeg git-lfs` 后把 `<目录>/bin` 加入 PATH），库文件仍需管理员安装。
-
-**服务器上**，从仓库根目录执行；首次获取源码先运行 `git clone https://github.com/innovationasuna/RoomCanvas.git` 并进入 `RoomCanvas/`：
-
-```bash
-export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
-sh scripts/setup_server.sh rooms --dry-run  # 只看步骤，不安装或下载
-sh scripts/setup_server.sh rooms
-```
-
-也可直接运行 [`bash room-reconstruction/server/setup.sh`](../room-reconstruction/server/setup.sh)。脚本按仓库中的 [Dockerfile](../room-reconstruction/deploy/modal/trellis/Dockerfile) 和 [扩展构建配置](../room-reconstruction/deploy/modal/trellis/app.py) 安装：主环境在 `runtime/litereality-env/`，CUDA 12.4、Blender 5.1.2 和 TRELLIS 环境也放在 `runtime/`；源码与权重放在 `backends/`。稀疏解码器只下载所需的 JSON 和 safetensors 两个文件。默认（`MODEL_SOURCE=modelscope`）TRELLIS.2、稀疏解码器、Grounding DINO 和 DINOv2 改从 ModelScope 下载；固定版本的 DINOv3 仍从 Hugging Face 下载。官方 Blender 下载站访问不了时，把 `BLENDER_ARCHIVE_URL` 设为官方镜像上的同一文件（例如 `https://mirrors.aliyun.com/blender/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz`），脚本会按官方 SHA256 校验。TRELLIS 构建使用独立临时目录并保留现场；若上游使用固定 `/tmp/extensions` 且该路径已存在，会先停止，需核对其归属后处理。
-
-完成标记 `.roomcanvas-setup-complete` 只在文件与依赖检查通过后写入。重跑同一命令会跳过已完成步骤、恢复带 `.roomcanvas-setup-incomplete` 的步骤；无标记的已有目录只验证，不补装或覆盖，验证失败时停止并提示路径。不要给已有目录手工补标记来绕过检查。
-
-脚本仅在缺失时生成 `$ROOMCANVAS_HOME/.env`。填写 `OPENAI_API_KEY`；使用 Gemini 时填写 `GEMINI_API_KEY` 并设 `LR_IMAGE_PROVIDER=gemini`，`LR_SCANS_DIR`（扫描父目录）默认是 `scans_uploaded`，只在扫描放在别处时才填。本地运行保持 `.env` 和启动终端中的 `MODAL_TOKEN_ID`、`MODAL_TOKEN_SECRET`、`MODAL_PROFILE` 为空，设置 `LR_DINO_BACKEND=local`。Blender、生成与检测解释器路径由 [`run_room.py`](../room-reconstruction/server/run_room.py) 设置。`run_room.py` 读入的 `.env` 会覆盖启动服务时的同名环境变量；建模 agent 一次会话的时长上限 `LR_CODEX_SESSION_SECONDS`（默认 3600 秒，跑满按“没做完”处理，重试会接着已保存的房间继续）若写在 `.env` 里，就只能在那里改。
-
-后续更新前先等重建结束。**服务器上**，在仓库根目录更新源码；只刷新主环境依赖时仍使用同一个环境目录：
-
-```bash
-git pull --ff-only
-UV_PROJECT_ENVIRONMENT="$ROOMCANVAS_HOME/runtime/litereality-env" \
-  uv sync --project room-reconstruction --frozen --python 3.11 --extra modal
-```
-
-安装失败后直接重跑 `sh scripts/setup_server.sh rooms`。已有完整环境的模型版本或编译依赖需要变更时，先核对脚本配方，再选择新的 `ROOMCANVAS_HOME` 安装；完成标记不会自动触发升级。
-
-实测情况：2026-11-03 在 RTX 3090 服务器上对已有环境运行 `scripts/setup_server.sh all`，各组件按已有目录只做检查，全部通过；2026-10-30 在 RTX 4090 服务器（Ubuntu 26.04，无 sudo）从零安装，主环境、CUDA 12.4 和 Blender 已装好并通过检查。TRELLIS.2 编译和模型下载的全新安装尚未实测；安装脚本不运行 GPU 推理。
+用支持 LiDAR 的 iPhone 和 LiteReality Scanner 扫描房间。网页可把完整扫描包重建成按实际尺寸布置的房间，保留纹理、可移动物品和识别到的可开合部件。已有服务时从[网页上传](#从网页重建房间)开始。
 
 ## 从网页重建房间
 
-房间选择页右上角的 **重建房间** 接受一个房间的完整扫描包：LiteReality Scanner 导出的 tar 可以直接上传，也可以是 ZIP、`.tar.gz` 或 `.tgz`（最大 2 GB，解压后最大 8 GB / 50,000 个文件；按文件开头判断格式，不看扩展名）。扫描需要包含 `room.usdz`（也可以在 `roomplan/` 中）、`frame_*.json` 相机数据、`depth_*.png` 深度数据，以及图像帧或 `frames.mp4`；扫描 App 导出的 `pointcloud.pcd` 可一起放入（重建优先使用它）；支持外面套一层房间文件夹。这里只接收扫描数据，不接收普通照片集或已生成的场景包。
+1. 在扫描 App 中导出**一个房间的完整扫描包**。支持 ZIP、TAR、TAR.GZ、TGZ，可直接使用 App 导出的 TAR。
+2. 打开[本机房间首页](http://127.0.0.1:7880/web/#reconstruct)，点 **重建房间**，填写房间名称，选择或拖入文件，再点 **上传并开始重建**。
+3. 百分比走完表示上传结束。回到首页的 **房间重建任务** 看当前阶段。提交成功后可关页或刷新，服务器继续重建。按钮不可用时检查服务连接和运行模式。
 
-例如，可用 `tar -cf room.tar -C /path/to/scans room-folder` 打包单个扫描文件夹；需要 gzip 压缩时改用 `tar -czf room.tar.gz -C /path/to/scans room-folder`。已有 TAR 扫描包可以直接上传，无需重新压缩为 ZIP。
+### 扫描包要求
 
-### 启动服务
+| 内容 | 要求 |
+| --- | --- |
+| 房间结构 | 一份 `room.usdz`，可位于房间目录或其 `roomplan/` 子目录。可保留外层房间文件夹。 |
+| 相机与深度 | 每个 `frame_*.json` 都要有同编号的 `depth_*.png`。相机、深度和图像可在房间目录或 `images/` 中。 |
+| 图像与点云 | 同编号的 `frame_*.jpg`，或房间根目录的 `frames.mp4`。可一并上传扫描仪导出的 `pointcloud.pcd`，重建优先使用。 |
+| 容量 | 网页显示上传上限 2 GB，展开上限 8 GB、50,000 项。服务按文件内容识别格式。普通照片集或已经生成的场景包无法用于整屋重建。 |
 
-先按上文 [安装](#安装) 装好房间重建环境并填好 `.env`；房间重建服务直接调用这套环境，不会自己安装依赖。**服务器上**，在 `RoomCanvas/` 根目录执行：
+若手里是导出的文件夹，可在本机打包。以下任选其一，把路径和文件夹名替换为实际值。
 
 ```bash
-export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
-"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_service.py \
-  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs"
+tar -cf room.tar -C /path/to/scans room-folder
+tar -czf room.tar.gz -C /path/to/scans room-folder
 ```
-
-默认只监听服务器 `127.0.0.1:7866`。默认运行器调用 [`run_room.py`](../room-reconstruction/server/run_room.py)，沿用自动选卡、GPU 锁、服务器环境配置和可动部件生成。服务只用 Python 标准库，不需要额外安装。自动选卡只用完全空闲的卡；多人共用、卡上常驻别人小进程的机器，可设环境变量 `ROOMCANVAS_GPU=<编号>`（指定卡）和 `ROOMCANVAS_GPU_SHARED_MIB=<MiB>`（允许别人已占用不超过这么多显存），例如写进 `runtime/server-env.sh`；GPU 锁照常防止两个重建同时用一张卡，运行记录 `run-config.json` 里记下当时别人占用的显存。
-
-**本机**用 `python3 web/scripts/serve.py --ssh '<SSH 主机>'` 启动网页，默认经服务器上的网关（`python3 web/scripts/gateway.py`，监听 `127.0.0.1:7870`，房间服务在 `127.0.0.1:7866`，用 `--rooms` 改）转发；不用网关时给 `--remote` 或 `--room-remote '<地址>:<端口>'`，会回到分开的两条隧道（本机 `7865`、`7866`）。自己开隧道时用 `ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'`，再运行不带 `--ssh` 的 `serve.py`；本机端口不同时加 `--room-backend http://127.0.0.1:<端口>`。
-
-打开 <http://127.0.0.1:7880/web/>，点击 **重建房间**，或直接打开 <http://127.0.0.1:7880/web/#reconstruct>。
-
-房间服务会等待获准的 GPU 可用。直接运行 `server/run_room.py` 时可用 `--wait-gpu` 开启等待，终止等待进程会释放其持有的描述符。设置 `CUDA_VISIBLE_DEVICES` 后，自动选卡只在可见范围内进行；子进程以选中卡的 UUID 运行。小物件和可动部件在 author 阶段里运行，与主流程持同一把锁。
-
-房间与物体服务默认共用 `~/.cache/roomcanvas/gpu-locks/gpu-<UUID>.lock`。使用多个账号时，将两端的 `ROOMCANVAS_GPU_LOCK_DIR` 设为同一本地目录，并为各账号配置目录访问权限。房间旧的 `runtime/locks/gpu-<UUID>.lock` 继续持有，物体端原有 `VIEWFORGE_GPU_LOCK` 也继续生效。从两个独立锁协议升级时，先等旧版 GPU 作业退出，再切换两端进程。释放锁依靠关闭文件描述符，保留锁文件供后续进程复用。
-
-用 uv 直接安装的环境（例如 macOS + Modal）可选择 `--runner cli --pipeline-dir /path/to/RoomCanvas/room-reconstruction`，此模式调用 `uv run --no-sync litereality run ... --through publish`，使用该环境已有的模型配置，author 阶段同样做小物件和可动部件；部署方负责 GPU 资源协调。默认 `server` 模式沿用本项目已有的运行器。
 
 ### 使用与结果
 
-- 填写房间名称，选择或拖入扫描包（tar 或 ZIP），点击 **上传并开始重建**。服务未连接时仍显示入口和扫描要求，但不能提交。
-- 上传百分比只表示文件传输进度。提交后显示实际流水线阶段，不估算重建完成百分比；同一 API 服务一次运行一个任务。
-- 提交成功后可关闭窗口或刷新网页，任务继续运行。任务记录保存在 `--data-dir`，失败可重试并复用已有阶段；同一次上传的重复提交不会创建重复任务。
-- 服务重启会恢复排队任务，并把未完成任务标记为需重试。上次进程仍运行时，任务文件锁阻止重复执行。超时默认 6 小时，可用 `--timeout <秒>` 修改。
-- 完成后自动运行 `room_objects.py`，校验 GLB 节点与布局，再发布 `Room.glb`、`room_objects.json` 和可选的 `thumbnail.jpg`。服务器不生成缩略图，首页先显示“房间预览暂不可用”，不影响进入布置；在本机（`serve.py --ssh` 运行中）执行 `python3 web/scripts/thumbnail.py --url http://127.0.0.1:<端口>/web/ --room scan-<任务号> --ssh <服务器> --server-dir <服务器上的 RoomCanvas>`，会从编辑器截图并放到服务器上该房间的发布目录。
-- 新房间通过动态目录加入首页，不改写仓库中的 `web/rooms.json`。读取新房间仍需重建服务及隧道在线；后端离线不影响原有示例房间。
-- 原始扫描、运行输出及日志留在服务器的数据目录，不要放进 Git。失败详情看 `<任务号>/task.log`；默认运行器的阶段日志在 `<任务号>/run/attempt-*/`。网页不提供任意服务器路径或日志读取接口。
+- 完成后在首页点房间卡片进入布置。网页会检查模型和布局，生成物品清单，自动加入房间列表。新房间和回放下载到本机缓存后可离线打开。[服务器部署与缓存](SERVER_DEPLOYMENT.md)
+- 若任务失败，先看任务提示。可以重试的任务会复用已完成阶段。输入有误时重新导出并上传扫描包。日志位置及任务恢复规则见[任务记录与队列](architecture/replay-and-pipeline.md#任务记录与队列)。
+- 首页显示“房间预览暂不可用”时仍可进入房间。要补缩略图，在本机连接服务后，从仓库根目录运行下列命令。需安装 Playwright、Chromium 和 Pillow。
+
+```bash
+python3 web/scripts/thumbnail.py --url http://127.0.0.1:7880/web/ \
+  --room 'scan-<任务号>' --ssh '<SSH 主机>' --server-dir '<服务器数据根目录>'
+```
+
+缩略图工具写入 `--server-dir` 下的 `runs/web-room-jobs/<任务号>/assets/thumbnail.jpg`。用自定义 `--data-dir` 时先核对目录布局。
 
 ### 查看重建过程
 
-首页“房间重建任务”里，正在重建的任务有 **实时查看**，结束的任务有 **查看过程**，都打开 `web/replay.html?job=<任务号>`：
+1. 在任务旁点 **实时查看** 或 **查看过程**。左栏按阶段展示文字和缩略图，点图可放大。右侧会从扫描点云、墙线和物品框逐步切换到成形的房间。
+2. 重建中约每 5 秒刷新一次。拖动时间轴可回看，点 **回到最新** 恢复跟随。已完成任务从头播放，可逐步查看或选 0.5×、1×、2×、4×。
+3. 左栏通常有八个阶段。发布后按意见返修的房间还会显示修改过程。底部时钟表示重建实际工作的时间。结尾会说明检查和修改结果，未完成的任务可回首页查看原因。
 
-- 左栏按 8 个阶段（读取扫描、整理布局、整理物品图片、制作物品模型、搭建完整房间、装上可开合部件、检查房间、按检查修改；房间发布后又按意见修改过的多一个“按意见修改”。建模 agent 自己的核查、调整和自查，以及之后按照片做小物品，都算在“搭建完整房间”里；以前流程在修复后的再次检查算在“按检查修改”里。以前流程的任务发布后才单独重做小物品、装可开合部件，照旧显示为检查之后的“重做小物品”和最后的“装上可开合部件”）列出重建记录并配图，右边三维视图随过程变化：先是扫描点云（每个点的颜色取自扫描时拍的照片，按深度图判断是否被遮挡）从房间中间向四周展开，画出墙线和物品框时点云在一秒内淡出，之后不再显示；制作物品时房间的墙和地面先出现，物品做好一件，镜头就平滑地推近到它跟前（选没有别的物品、墙或柱子挡着、离墙不太近的方向，挡住时改从更高处看；已经看得清楚就不动，连着做好的物品之间直接移过去，不先退回全景），到位后物品表面亮起与它同色的细密点云，蓝色线框从下往上扫过，实体紧跟着填满（约 3 秒，左下角显示三角面数），没做的留线框；一次出现多件（如一组椅子）时从低到高依次成形，全部在约 4 秒内开始；建模 agent 后加的部件也这样出现，包括换成最终房间时已有的部件。拖动时间轴时直接显示结果，系统开启“减少动态效果”时不播放，底部右侧可选播放速度（0.5×、1×、2×、4×）：加速时运镜和 1× 一样，镜头移向物品的那一段仍按 1× 播放，物品成形和模型淡入只略微加快（2× 时约 1.4 倍，4× 时 2 倍），其余部分按所选倍速，所以整体比标称的倍速慢；之后依次换成初版房间、做好小物品的房间、装好可开合部件的房间、检查时的房间（就是装好部件的这一版）和最终房间（发布的就是这一版；新模型约 2 秒淡入，实时查看时模型还没写完导致加载失败会 5 秒后再试）；修过的房间，做好小物品和装好部件的房间在修复之后才换上。以前流程的任务在最终房间之后再换成重做了小物品的房间（跑过这一步时）和装好可开合部件的房间。实时查看建模时，正在改的房间也会显示，最多每 5 分钟换一次新版本（模型约 90 MB），记下最终房间后换成最终房间；左栏和结尾只说检查是否通过、是否修过，不显示分数。过程中失败的尝试和报错（如某件物品这次没做成）不在页面上显示，只留在日志里；任务本身没跑完时结尾显示“重建还没完成”（不标红），提示在任务列表里重试。底部时间轴可拖动、单步，时钟显示真实用时。
-- 左栏图文排在一起，不出现整段单独的大图或整段单独的文字。单条记录文字在左、小图在右（72 px，左栏很窄时 56 px），点小图放大；检查结论下面是一张矮的渲染／实拍对照图。连续对多件物品做同一件事（生成清晰图、做好模型、检查形状、按照片重做小物品）合成一张卡片：“已做好 N 件物品的模型”（按物品计，同一件做了两次只算一件），下面每排 3 张带名字的小图，最多两排，多出的显示“+N”，点开看全部物品和原始记录；没有图的物品只列名字。建模 agent 和修复 agent 同一会话里连续的记录按段合成卡片（每段最多 6 条，与上一条相隔超过 3 分钟就另起一段），显示第一条和最新一条，中间折叠，配这段记录里 agent 实际看过的 1–2 张图，没有就只有文字。检查结论、重新开始、阶段开头等其他记录单独显示，也把前后的卡片分开；连续相同的句子只显示一次并标次数。配图只用当时已有、与这条记录有关的图：生成清晰图配生成的参考图，不配之后才做好的模型；概括出的说明只配它概括的那几条记录里看过的图（概括时选的图不在这几条里就不用）；重做的小物品如果取用了 `premake` 做好的现成模型，且模型目录里有它的参考图（`<模型目录>/work/<种类>/reference.png`，按这件物品记录里的 `source` 找；在小物品这一步之前就有），配这张参考图（页面路径 `small-objects/reference/<物品>.png`，只开放这一个文件，`--slim-to` 时一起复制到副本的 `small-objects/reference/`）；否则配这一步从照片里裁出的物品图（`small-objects/evidence/<物品>/view0.jpg`；书柜上的物品，这张图框住的是整个书柜，就用拍摄相机把物品的位置投到这张图上，只显示物品所在的那一块，数据在 `media` 的 `crop` 里），这一步渲染出重做后的对照图（`pair_after.jpg`）以后，放大时显示照片和重做模型的对照。拖动时间轴时，卡片里的件数、小图和记录随时间增减，不会提前显示整组。实时查看时，新增记录或同样条数下说明、配图有变化都会更新左栏，展开的卡片保持展开；读者往上翻看时不强行滚到最新，回到底部后继续跟随；拖动时间轴、单步或点记录时把当前记录滚到视野里。
-- 已完成任务的回放文件由本机 `serve.py --ssh` 在后台下载到 `runs/room-cache/`，下载完后从本机读取，服务器关机也能看（见 [README](../README.md) 的服务器启动说明）。相同内容的文件只下载一次：房间服务对文件的 `HEAD` 请求不传内容，只给出大小和 sha256（响应头 `X-RoomCanvas-SHA256`，按路径、大小和修改时间缓存，不每次重算），本机已有相同文件时直接链接。
-- 重建中每 5 秒取一次新记录并停在最新处；往回拖可以看之前的步骤，点 **回到最新** 继续跟随。结束后从头自动播放。播到最后（房间建好）时换成与房间预览相同的“物理光照”（直接调用编辑器的 `web/editor/time-lighting.mjs`，那边调整后回放跟着变；灯光来自房间里的顶灯，回放此时还没有物品清单，按节点名找灯具，见 `web/editor/room-luminaires.mjs` 的 `namedLuminaires`），往回拖则回到回放自己的光照。回放把时间留给看得见的变化（时钟显示重建实际工作的时间：去掉没有任务在跑的空档，例如等人看结果、给下一轮提意见，以及成果被后一次取代或什么也没留下的运行，例如重跑前的小物品和可开合部件、刚开始就停掉的会话；时钟按运行目录里每次运行的开始（`attempt-NN/run-config.json`）和结束（`exit`）判断，`--slim-to` 的副本也保留这两个文件）：读取扫描至少 6 秒，每件物品第一次成形留 4.5 秒（同时出现的一批再加上依次开始的时间，最多 4 秒），换上新的房间模型留 2 秒，每个阶段的第一条记录留 1.5 秒；其余记录不论实际用了多久，每条只占 0.1 秒，重做已经在房间里的物品也不再停留。整体长度主要取决于成形的物品数量，一般两分钟左右。
-- 记录来自运行目录里流水线自己写的文件：`scene_init/obj_stage/traces/` 下的 `trace.jsonl`、建模 agent 的 `authoring_trace.*.jsonl`，以及 `realism_authoring/acceptance/` 的检查结果。新的重建还会在 `trace.jsonl` 里记下回放按真实时间排布所需的时间点：每件物品做好的时间（`object_done`，AI 重建和程序建模都有，建模过程中一做好就记，便于实时查看）、椅子形状没通过后的重新生成（`chair_qc_retry`、`chair_qc_restored`）、初版房间／检查时的房间／最终房间／装好可开合部件的房间的保存时间（`model_saved`，`seed`/`round`/`final`/`articulated`）、检查结论（`review_done`，通过与否）、修复开始和结果（`repair_start`、`repair_done`；新的记录带 `changed`，修复没有改动房间时为 false，回放说“按检查意见尝试修改，房间没有变化”，没有这个字段的旧记录照旧说“按检查出的问题修好了房间”；修复 agent 的操作另记在 `authoring_trace.repair.jsonl`）、可开合部件这一步的开始和结果（`articulate_start`、`articulate_done`）、小物品这一步的记录（见下）、建模 agent 每次编译房间新增的部件（`room_built`），以及每次运行的编号（`run`，`run_room.py` 用 `attempt-NN`，重试时回放会标出“重新开始重建”，检查次数按每次运行分别计）。有了这些记录，房间模型只按记录的时间出现：建模 agent 工作时会反复改写最终房间的文件，不再因此提前显示“导出最终房间”。没有这些记录的旧任务仍按文件时间和 agent 日志推断。流水线阶段用固定的中文说明；建模 agent 和修复 agent 的操作由重建服务按批交给 Codex（默认 `gpt-6-astra`、思考程度 `low`）概括成白话，结果缓存在 `<任务号>/replay/summary.json`，回看不再调用模型。修复 agent 的概括另存在同一文件的 `repair` 里，编号自成一套。概括出来之前先显示按时间合并的简要说明：写这几分钟在改哪些物品或地方（取记录里出现的物品编号和想法里提到的地板、灯光、材质等）、怎么检查的，例如“按检查意见修改柜子1、地板，对照照片自查”，不写操作次数。建模 agent 和修复 agent 每开一次新会话（中断后续跑、发布后按意见修改），上一次的记录被移到 `traces/history/authoring_trace.<author|repair>.run_NNN.jsonl`；回放按顺序读全部会话，后一次会话的记录编号接着前面的往下排，已缓存的概括仍对应原来的记录，新会话另行概括（一批不跨会话）。会话的配图按会话内的步号命名，被后一次会话同名覆盖的不再显示。以前的版本每次会话都从 0 编号，它写的 `summary.json`（没有 `"numbering": "sessions"` 标记）在使用前按时间对齐：每批记录移到它第一条说明的时间所在的会话，编号加上该会话前面的记录数；当时没概括到、又在最后一批之前的记录仍不显示，回放内容不变。重建服务对齐后把缓存连同标记写回，之后不再移动。
-- 新的重建里，小物品和可开合部件由 author 阶段在检查之前做（见 [运行](#运行)），这两步的记录（`small_objects_start`、`small_object_done`、`small_objects_done`、`articulate_start`、`articulate_done`，以及 `model_saved` 的 `small_objects`、`articulated`，文件在场景的 `realism_authoring/small_objects/`、`realism_authoring/articulate/` 下，按记录里的 `path` 找）带 `stage: "author"`。小物品的记录归入“搭建完整房间”：开始一行，按照片重做的物品每件一条记录（带物品名和图，左栏合成一张卡片），去掉和保持原样的只在最后一行汇总；可开合部件的记录在它自己的“装上可开合部件”阶段，排在检查之前。没通过检查、修复后重跑的这两步归入“按检查修改”，小物品只说这次新做的物品（修复没动到、这次直接用上次结果的，`reused` 为 true，不再说一遍）；同一种房间模型只在最后一次换上（修复后的重跑会改写同一个文件，前一次的这一行不换模型，检查时的房间仍是当时装好部件的那一版）。
-- 分几次运行的重建（每次运行一个 `attempt-NN`，例如先做物品、再搭建和检查房间；以前的流程之后还单独重做小物品、装可开合部件）在回放里是一次连续的重建：上一次运行正常结束（`attempt-NN/exit` 为 `0`）时，下一次只是接着做，不标“重新开始重建”；上一次失败，或者没有 `exit` 文件（以前的运行），仍然标出，网页上的重试总在失败之后，所以照旧标出。某次装可开合部件的尝试之后还有别的运行，或又开始了重做小物品、装可开合部件时，这次尝试的开始和失败都不显示；之后又开始了重做小物品或装可开合部件时，之前装好可开合部件的房间也不再作为结尾。这两步的运行编号自成一套（`attempt-01` 起），会与主运行的编号重名，所以按记录的先后判断，不按编号。从以前的重建直接取用的物品模型（`object_done` 带 `method: "provided"`，或带 `reused` 和 `source`）只是为了省时间，回放不把它与当场重建的区分开：同样说成“做好…的模型”（只说一次），也在房间里成形；同一次重建重试时从缓存复用的模型（只带 `reused`）仍在当初做好的时间说“做好…的模型”。以前的流程在发布后单独重做小物品，记下开始（`small_objects_start`）、每件物品的结果（`small_object_done`，`method` 为 `trellis`/`procedural`/`dropped`/`kept`）、件数汇总（`small_objects_done`，重做、去掉和保持原样的件数）和这一步的房间（`model_saved`，`small_objects`；按记录里的 `path` 找，只认运行目录内的文件，找不到时用运行目录的 `small-objects/room_preview/Room.glb`）。回放为它加一个“重做小物品”阶段，放在检查之后、装可开合部件之前：按照片重做的物品每件一条记录（带物品名，同名的几件编号，如“瓶子2”；左栏合成一张卡片），去掉和保持原样的只在最后一行汇总，这一行换上重做了小物品的房间（新做的小物品不单独成形，随房间淡入）。这一步跑过多次（先 `--through evidence` 只整理证据再正式运行，或改代码后重跑）时只显示最后一次，即最后一个 `small_objects_start` 之后的记录。没跑过这一步的以前的任务，回放与以前相同。
-- 房间发布（记下 `model_saved` 的 `final`）之后，建模 agent 又开了新会话（按修改意见回到这间房间）时，回放加一个“按意见修改”阶段，放在检查之后、重做小物品之前：从第一次这样的会话开始，会话里的步骤（不论概括时归入哪个阶段）、之后的检查、修复和再次导出的最终房间都归入这一阶段，检查的编号和对应的房间模型不变；发布前的会话（如中断后续跑）仍按原来的阶段。修改会话里 author 阶段在检查前做的小物品和可开合部件也归入这一阶段；发布之前 author 阶段做的这两步留在原来的阶段。以前流程在修改会话开始之前单独跑过的重做小物品、装可开合部件不再显示（它们用的房间正在被修改，之后会重跑），所以修改进行中和重跑之前，回放停在“按意见修改”；这些旧房间仍在可用模型列表里。
-- 概括使用 `$ROOMCANVAS_HOME/runtime/bin/codex`（没有时用 PATH 里的 `codex`）。模型和思考程度可用环境变量 `LR_REPLAY_MODEL`、`LR_REPLAY_EFFORT` 修改，`LR_REPLAY_CODEX` 指定其他命令；启动服务时加 `--no-replay-summary` 则不调用模型，只用简要说明。调用失败写入 `<任务号>/replay-error.log`，5 分钟后重试。
+<a id="api-与验证"></a>
 
-以前用命令行跑完的运行也可以登记进来回看，不复制运行目录：
+接口路径和验证命令见 [HTTP 接口与离线检查](architecture/replay-and-pipeline.md#http-接口与离线检查)。旧运行的登记命令见[登记命令行回放](#登记命令行回放)。阶段顺序、图文和模型如何对齐见[回放与流水线](architecture/replay-and-pipeline.md)。
 
-```bash
-"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_replay.py \
-  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs" --run '<运行目录，内含 pipeline/<场景>>' --name '<名称>'
-```
+<a id="运行环境"></a>
 
-一次运行目录常有几十 GB，大部分是回放用不到的物品建模中间文件。加 `--slim-to '<新目录>'` 会先把回放读取的文件（日志，包括 agent 以前会话的记录、检查结果、点云与布局、房间模型、配图、每次运行的 `exit`，保留文件时间）复制到新目录，再登记这份副本，原运行目录可以删除或留在别处。room3 的运行从 55 GB 减到 245 MB，回放内容与原目录一致。
+## 安装
 
-登记的任务只用于回看，不进入房间列表；默认忽略最后一次检查两分钟之后写入的记录，`--until <Unix 时间>` 可指定截止时间。服务运行中登记也会被识别，无需重启。
+在有 NVIDIA GPU 的 Linux 服务器上，从仓库根目录运行 `sh scripts/setup_server.sh rooms`。安装前先设置 `ROOMCANVAS_HOME`，加 `--dry-run` 可预览步骤。[服务器准备与安装](SERVER_DEPLOYMENT.md#安装环境)
 
-### API 与验证
-
-本机 `serve.py` 只转发以下接口到房间服务，并对写请求检查 Origin；大文件使用临时文件分块转发。
-
-| 接口 | 用途 |
+| 房间配置 | 设置方法 |
 | --- | --- |
-| `GET /room-reconstruction/health` | API 连通性，不代表所有模型依赖已经可用 |
-| `POST /room-reconstruction/jobs` | 原始扫描包请求体（ZIP、tar 或 .tar.gz）；请求头 `X-Room-Name` 为 URI 编码名称，`X-Upload-ID` 为 32 位小写十六进制幂等 ID |
-| `GET /room-reconstruction/jobs[/<任务号>]` | 任务列表或状态 |
-| `POST /room-reconstruction/jobs/<任务号>/retry` | 重试失败任务 |
-| `GET /room-reconstruction/catalog` | 已完成房间列表 |
-| `GET /room-reconstruction/assets/<任务号>/<文件>` | 仅已发布的模型、物品清单和缩略图 |
-| `GET /room-reconstruction/jobs/<任务号>/replay` | 重建过程：阶段、事件和已生成的房间模型 |
-| `GET /room-reconstruction/jobs/<任务号>/replay/scaffold/(points.bin\|layout.json\|colors.bin)` | 扫描点云、物品框和点云颜色（首次请求时由扫描照片生成；没有照片时 404，页面改用按高度的渐变色） |
-| `GET /room-reconstruction/jobs/<任务号>/replay/files/<相对路径>` | 运行目录里白名单内的模型和图片（物品图、各版房间模型、对比图，小物品这一步的 `small-objects/evidence/<物品>/(view0\|pair_before\|pair_after).jpg`，以及物品所用现成模型的参考图 `small-objects/reference/<物品>.png`），其余路径一律 404 |
+| 图像生成 | 在 `$ROOMCANVAS_HOME/.env` 配置 `OPENAI_API_KEY`，或为 Gemini 设置 `GEMINI_API_KEY` 和 `LR_IMAGE_PROVIDER=gemini`。建模另需登录 Codex CLI。 |
+| 扫描来源 | 默认扫描父目录为模块的 `scans_uploaded`。用 `LR_SCANS_DIR` 指向其他父目录，或在命令中给出扫描绝对路径。 |
+| 本地推理 | 设置 `LR_DINO_BACKEND=local`。保持 `.env` 和启动终端中的 `MODAL_TOKEN_ID`、`MODAL_TOKEN_SECRET`、`MODAL_PROFILE` 为空。解释器及 Blender 路径由运行器设置。 |
 
-离线测试不调用 GPU、模型或 Agent：
+<a id="启动服务"></a>
+
+只安装房间环境时，可直接启动独立房间服务。服务器和本机分别从各自仓库的根目录运行。要一并提供物品重建与默认单网关入口，见[启动与连接](SERVER_DEPLOYMENT.md)。
 
 ```bash
-python3 -m unittest discover -s web/scripts
-node --test web/scripts/test_room_reconstruction.mjs
+# 服务器，监听 127.0.0.1:7866
+"$ROOMCANVAS_HOME/runtime/litereality-env/bin/python" web/scripts/room_service.py \
+  --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs"
+
+# 本机，只转发房间服务。让这个 SSH 终端保持打开。
+ssh -N -L 127.0.0.1:7866:127.0.0.1:7866 '<SSH 主机>'
+
+# 本机，另一个终端，先按运维指南将服务凭证保存到仅本人可读的文件
+python3 web/scripts/serve.py --room-backend http://127.0.0.1:7866 --token-file '<本机凭证文件>'
 ```
 
 ## 运行
 
-扫描输入必须已在服务器上，每个扫描目录含 `room.usdz`、`frame_*.jpg` 和相应相机／深度数据，格式见 [模块运行说明](../room-reconstruction/README.md#run)。如扫描在本机，**本机**，任意目录可上传到服务器上已存在的扫描父目录；先配置好 `~/.ssh/config` 别名或使用 `user@host`：
+**标准完整重建。** 扫描已在服务器时可直接运行。扫描仍在本机时，先用下列命令传到服务器上已有的扫描父目录。`<SSH 主机>` 可用 SSH 配置别名或 `user@host`。
 
 ```bash
-scp -r '<本机扫描目录的绝对路径>' '<SSH 主机>:<服务器扫描父目录的绝对路径>/'
+scp -r '<本机扫描目录>' '<SSH 主机>:<服务器扫描父目录>/'
 ```
 
-**服务器上**，在 `RoomCanvas/` 根目录执行；每个新终端都重新设置 `ROOMCANVAS_HOME` 和 `PY`。检查输出确认路径和参数后，再执行正式命令：
+服务器上在仓库根目录执行。每次新开 Bash 终端先设好以下变量。把示例中的路径替换为绝对路径。这里显式选用建模模型和思考程度，并以发布为终点。
 
 ```bash
-export ROOMCANVAS_HOME='<环境与数据根目录的绝对路径>'
+export ROOMCANVAS_HOME='<环境与数据根目录>'
 PY="$ROOMCANVAS_HOME/runtime/litereality-env/bin/python"
-"$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' --check \
-  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
-"$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' \
-  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
+RUNNER=room-reconstruction/server/run_room.py
+SCAN='<服务器扫描目录>'
+RUN='<运行目录>'
+MODEL=(--set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high)
+"$PY" "$RUNNER" "$SCAN" "$RUN" --through publish --check "${MODEL[@]}"
+"$PY" "$RUNNER" "$SCAN" "$RUN" --through publish "${MODEL[@]}"
 ```
 
-`--check` 不占 GPU，只核对当前仓库的包加载位置并打印配置，不验证所有依赖、权重或推理。正式运行自动选择空闲 GPU 并加锁。author 的建模会话搭完房间后，先在这个房间上做小物件（见 [小物件](#小物件)：会话里放好的现成模型不再动，会话用 `mark_small` 标出的小物品逐件按照片用 TRELLIS 重建或去掉，会话自己搭的其余小物品逐件去掉、保留或重建）和可动部件（见 [可动部件](#可动部件)），再检查一次装好的完整房间（家具支撑，再由独立模型对照照片判断是否通过，不打分）。没通过就修一次：修复 agent 改的是 `Room.py`，改完重新编译，小物件和可动部件在修改后的房间上自动再做一遍（两步各自保留没被修改动到的物品的判断、模型和检查，只重做变了的），这个房间就是结果，不再复查，发布时也不再检查（`--repair-rounds 0` 只检查不修：没通过时这一阶段以 `needs_repair` 结束，不会发布，正式重建不要用）。发布的就是这个完整房间：检查时的版本没有变时不重新编译，直接把它放进 `realism_authoring/room_preview/` 并烘焙材质。哪一步没做成（日志 `realism_authoring/logs/small_objects.log`、`articulate.log`）时，房间不带这一步的结果继续检查和发布，`author_acceptance.json` 和发布的 `acceptance.json` 的 `passes` 记下每一步的结果。上面的模型和思考程度由命令行显式指定。
+`--check` 在取得 GPU 前检查当前代码的加载路径并打印配置。正式运行才会使用模型和 GPU。网页会等待可用卡，命令行要等待时加 `--wait-gpu`。[GPU 分配与锁](SERVER_DEPLOYMENT.md#分配-gpu)
 
-房间发布之后还要按意见修改时（例如换一张贴图、改几件物品），把要求写进 `LR_AUTHOR_EXTRA` 指向的说明里，再用 `run_room.py <扫描> <运行目录> --from author --through publish --revise`（其余 `--set` 与之前相同）：`--revise` 让已经完成的 author 阶段在现有房间上再开一次建模会话，不回到初版房间（`--force author` 才是从头再搭），之后照常做小物件和可动部件、检查、修复、发布。不带 `--revise` 时，已完成的 author 阶段会直接复用，不会开新会话。
+| 要确认的结果 | 查看位置 |
+| --- | --- |
+| 是否成功退出 | `$RUN/attempt-*/exit`、同目录 `pipeline.log`。中断后使用原输入与运行目录续跑。 |
+| 发布的房间 | `$RUN/pipeline/<场景>/realism_authoring/room_preview/` 中的 `Room.glb`、`Room.blend`、`room_layout.json`。场景名取含 `scene.json` 的实际目录。 |
+| 小物品、门与抽屉 | 在 `realism_authoring/small_objects/` 和 `articulate/` 下查看。关节在 `articulate/room/Objects/`。发布清单和检查报告见[检查与发布](architecture/replay-and-pipeline.md#检查与发布)。 |
 
-发布的房间在 `<运行目录>/pipeline/<场景>/realism_authoring/room_preview/`，两步各自的结果在旁边的 `small_objects/`、`articulate/`（可开合部件的关节文件在 `articulate/room/Objects/`）；加 `--no-articulate` 时 author 不做可动部件（对已经完成的 author 阶段不起作用）。场景名以实际生成的 `scene.json` 所在目录为准。中断后用同一输入和运行目录重新执行可续跑。检查终端退出信息以及 `<运行目录>/attempt-*/pipeline.log` 和对应的 `exit`；阶段失败时先看日志，不把目录存在当作重建成功。以前的流程在发布后另跑可动部件，产物在 `<运行目录>/articulate/room_preview/`，并写 `articulate-exit`。
+<a id="给建模-agent-的补充材料"></a>
+
+### 给建模会话补充说明
+
+在材料目录中写一份 `README.md`。例如列明要做成贴图的墙面海报、要能单独移动的桌面物品。可附近照、贴图或旧房间素材。缺少说明文件时建模阶段会停止。
+
+首次重建时，将材料目录作为参数加入前面的 Bash 命令。
+
+```bash
+"$PY" "$RUNNER" "$SCAN" "$RUN" --through publish \
+  --set LR_AUTHOR_EXTRA='<材料目录>' "${MODEL[@]}"
+```
+
+### 发布后按意见修改
+
+房间已发布时，把本轮修改要求写入材料目录的 `README.md`，用下列命令发起返修，并保留上一次使用的其他 `--set` 配置。
+
+```bash
+"$PY" "$RUNNER" "$SCAN" "$RUN" --from author --through publish --revise \
+  --set LR_AUTHOR_EXTRA='<材料目录>' "${MODEL[@]}"
+```
+
+`--revise` 在现有房间上开新会话。只改补充材料或模型目录不会自动触发已完成的 author 阶段。要从初版重新建模，可换一个运行目录。模块 CLI 的 `--force author` 与服务器包装器支持的选项见[阶段复用与建模输入](architecture/replay-and-pipeline.md#阶段复用与建模输入)。
 
 ### 路由偏好与沿用已有模型
 
-重建同一房间的新扫描时，可以指定物品走哪条生成路线，并让部分物品直接沿用以前重建好的模型。以下变量都通过 `--set` 传入：
+同一房间重新扫描时，可指定物品的建模方式，或沿用一次旧重建中的物品。以下参数通过 `--set` 传入。重建开始后，保持各阶段参数和来源文件一致。
 
-| 变量 | 作用 |
+| 参数 | 作用 |
 | --- | --- |
-| `LR_ROUTE_POLICY=trellis-first` | 几乎所有物品用 TRELLIS 图生 3D；只有储物类（名称含 storage、cabinet、shelf、bookshelf、wardrobe，包括 `Sink_Storage0` 这类合并物品）和分类模型判为普通矩形的桌子（table、desk）走程序化建模。椅子组始终走 TRELLIS，门窗仍由门窗分支生成。不设时与以前相同，由分类模型判断。 |
-| `LR_ROUTE_OVERRIDE=Table0=trellis,Storage1=procedural` | 按编号固定单个物品的路线，优先于上面的策略。路线只能是 `trellis` 或 `procedural`，编号必须是本次参与路由的物品或椅子组，否则报错。 |
-| `LR_PROVIDED_MODELS='<目录的绝对路径>'` | 用已有模型代替生成：`<目录>/<编号>.glb` 是成品静态模型，`<目录>/<编号>/` 是程序化物品目录（一个 `*.glb` 加 `object.py`、`object.md`，可带 `previews/`、`textures/`），目录内文件名可以仍是旧编号。`<编号>` 必须是本次扫描的物品、椅子组或门窗编号，有不匹配的名字时直接报错并列出有效编号。 |
-| `LR_PROVIDED_TURN=Table0=90` | 采用静态 `<编号>.glb` 时绕竖直轴转动给定角度（从上往下看逆时针为正），不适用于程序化目录。 |
+| `LR_ROUTE_POLICY=trellis-first` | 优先用 TRELLIS。储物类和判为普通矩形的桌子保留程序化建模。默认由分类模型判断。 |
+| `LR_ROUTE_OVERRIDE=Table0=trellis,Storage1=procedural` | 针对本次参与路由的物品或椅子组显式选路。仅接受表中示例的两种路线。 |
+| `LR_PROVIDED_MODELS=<目录>` | 放入同编号的静态 GLB 或程序化目录。目录含一个 GLB、`object.py`、`object.md`，可含 `previews/` 和 `textures/`，内部可沿用旧文件名。 |
+| `LR_PROVIDED_TURN=Table0=90` | 已有静态 GLB 绕竖直轴转动指定角度，从上方看逆时针为正。若日志提示长边将落在短边，先核实朝向。 |
 
-分三步运行。所有阶段都传入同一组 `--set`：重建阶段的输入指纹包含这些变量和模型目录的内容，前后不一致会让重建阶段整体强制重跑（TRELLIS 和程序化物品全部重新生成），漏传 `LR_PROVIDED_MODELS` 时对应物品会被重新生成。
+1. 在服务器 Bash 中运行到输入整理阶段，再查看本次物品编号。
+2. 打开场景的 `scene_init/obj_stage/object_init/`。在此目录内核对物品、椅子组和门窗的编号。
 
-1. **服务器上**，按上文设置 `ROOMCANVAS_HOME` 和 `PY`，先只跑到物品检测：
+   - 单个物品见 `object_refs/<场景>/<编号>/reference_1024.png`。
+   - 椅子组见 `chair_clusters/<场景>/chair_clusters.json`。
+   - 门窗见 `opening_refs/<场景>/`。
 
-   ```bash
-   SETS=(--set LR_ROUTE_POLICY=trellis-first --set LR_PROVIDED_MODELS='<已有模型目录的绝对路径>' \
-     --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high)
-   "$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' --through ingest "${SETS[@]}"
-   ```
-
-2. 在 `<运行目录>/pipeline/<场景>/scene_init/obj_stage/object_init/` 下查看编号：`object_refs/<场景>/<编号>/reference_1024.png` 是物品，`chair_clusters/<场景>/chair_clusters.json` 列出椅子组，`opening_refs/<场景>/` 是门窗。按这些编号在模型目录中放入 `<编号>.glb` 或 `<编号>/`；需要时再加 `LR_ROUTE_OVERRIDE`、`LR_PROVIDED_TURN`，之后各阶段保持不变。
-
-3. 从重建阶段继续：
-
-   ```bash
-   "$PY" room-reconstruction/server/run_room.py '<服务器扫描目录>' '<运行目录>' --from reconstruct --through publish "${SETS[@]}"
-   ```
-
-指定模型在重建阶段开始时复制到 `reconstructed_objs/`，来源记录在其中的 `provided.json`；TRELLIS、程序化和门窗分支以及椅子检查都不会重新生成这些物品，强制重跑时也一样。内容未变的模型重跑时不再复制。模型的水平长边会被放到新物品框短边上时，日志中出现 `[provided] WARNING`，列出两边的尺寸；确认是朝向不同后用 `LR_PROVIDED_TURN=<编号>=90` 转动静态模型。分类结果记录在 `object_init/routing/<场景>/routing.json`，参考图、策略和该物品的覆盖不变时，重跑沿用上次的判断，不再重新询问分类模型。
-
-### 给建模 agent 的补充材料
-
-重建以前做过的房间时，可以把补充材料放进一个目录交给 author：根目录放 `README.md`（写给 agent 的说明，例如哪些东西做成贴照片的平板、哪些小物件单独摆放），其余文件和子目录随意，例如上次重建的房间目录、近照及其说明。运行时加 `--set LR_AUTHOR_EXTRA=<该目录的绝对路径>`；目录里没有 `README.md` 时 author 直接失败。agent 在 `realism_authoring/evidence/operator/`（指向该目录的链接）看到它，各 provider 都可读取，任务说明里会多一段：先读 `README.md`，具体处照办；上次重建的东西只用来复用材质、纹理和部件代码，不用其坐标（新扫描的世界坐标系不同）。没有位姿的照片可用 `evidence/helpers/` 里的 `rectify.rectify_image(照片, 四角像素, 输出, 尺寸)` 拉正成墙上平板、画框、海报的纹理（角点按照片正常显示的方向取；HEIC 读不了，先转成 JPEG）。检查失败后的修复会话也会收到同一段说明。
-
-这些材料不计入 author 的输入指纹和断点：author 跑过之后再改 `README.md` 或照片，不会让它重跑，也不会作废断点；trace 的 `session_start` 记下目录和内容哈希，可据此核对用的是哪一版。要让改动生效，只能让 author 从头开始；`run_room.py` 没有这个开关，可换一个新的运行目录。
-
-会话上限用 `--set LR_CODEX_SESSION_SECONDS=<秒>`（默认 3600）和 `--set AUTHOR_STEPS=<工具调用次数>`（open 默认 300）。到达任一上限时 Codex 会话被结束，已保存的 `Room.py` 和断点保留，author 阶段报 `needs_repair` 而失败；用同样的参数重新执行即接着上次的房间开新会话。
-
-有预先做好的小物件模型时（见 [预先做好小物件模型](#预先做好小物件模型)），agent 自己把它们放进房间，不用在 `README.md` 里交代。建模 agent 本来就会把桌面、柜面上能在照片里指认的散放小物件用 `mark_small` 标出来（见 [小物件](#小物件)），交给小物件那一步重建。要让小物件那一步重建其余的某样东西，`README.md` 应要求 agent 同样用 `mark_small` 标出它，或把它做成单独一组（`group_fixture`），用描述性的驼峰名（如 `TissueBox0`、`Plant1`；小物件那一步按名字在扫描照片里找它），并声明 `rests_on`（桌面或地面），不要用 `attached_to` 挂在墙或天花板上，也不要标成可放东西的家具。agent 自己搭的物品中，挂墙的、类别为 `panel`、`socket`、`light` 等固定设施的，以及已有重建网格的物品都不会成为候选（`mark_small` 标出的总是候选）；命中单件预制模型的物件独立替换，例如两本书分别放入一个 `Book.glb` 实例。其余叠放候选若同为标记或同为手工几何，且覆盖达标，则合成一组。分开判断的物件保留上下支撑关系。
-
-## 接入网页
-
-`room_preview/` 中的主要产物是 `Room.glb`（网页模型）、`Room.blend`（建模源文件）和 `room_layout.json`（布局）。以下把选定的服务器结果复制到本机仓库的 `samples/my-room/`，再在本机生成清单；编辑器不直接读取服务器文件。
-
-**本机**，准备 Git、Python 3 和 SSH 客户端，从准备存放源码的目录开始；已有本机仓库则直接进入 `RoomCanvas/`，省略克隆：
+3. 按编号放好已有模型，必要时补上覆盖参数，接着跑到发布。未知编号会报错并列出可用编号。
 
 ```bash
-git clone https://github.com/innovationasuna/RoomCanvas.git
-cd RoomCanvas
+SETS=("${MODEL[@]}" --set LR_ROUTE_POLICY=trellis-first --set LR_PROVIDED_MODELS='<已有模型目录>')
+"$PY" "$RUNNER" "$SCAN" "$RUN" --through ingest "${SETS[@]}"
+# 对照编号准备好模型后执行
+"$PY" "$RUNNER" "$SCAN" "$RUN" --from reconstruct --through publish "${SETS[@]}"
+```
+
+<a id="小物件"></a>
+
+### 小物品与可开合部件
+
+完整重建会在检查前先处理小物品，再处理门、抽屉和盖子等部件。新任务加 `--no-articulate` 可略过开合处理。下表的变量也可用 `--set` 传给完整任务或独立补跑。标记的写法见[小物品标记、判断与恢复](architecture/replay-and-pipeline.md#小物品标记判断与恢复)。
+
+| 变量 | 适合的情形 |
+| --- | --- |
+| `LR_SMALL_OBJECTS_PHOTOS=<目录>` | 按 `<目录>/<物品编号>/*.jpg` 补充近照。扫描中看不清但有近照也可判断。近照加入参考底图前几格。 |
+| `LR_SMALL_OBJECTS_POLICY=trellis-first` | 优先重建手工搭建的小物品，仅在所有图均不可辨认时删除，形状规整到无需 TRELLIS 时沿用。占位标记自有判断规则。 |
+| `LR_SMALL_OBJECTS_FORCE=TissueBox0=trellis` | 可用逗号分隔逐件指定 `trellis`、`procedural`、`drop`。编号须属于本次候选。 |
+| `LR_SMALL_OBJECTS_MODELS=<模型目录>` | 优先采用 `<编号>.glb`，其次用去掉尾部数字的 `<种类>.glb`。供建模会话直接摆入房间，或在独立补跑时替换占位。 |
+
+<a id="预先做好小物件模型"></a>
+
+**预制小物品。** 在 `<近照目录>/<种类>/` 放 JPG 或 JPEG，同类物品可共用模型。可加一行 `description.txt` 描述物品。缺省按种类名称生成描述。若已有抠好的干净参考图，放 `reference.png` 即可，深色物品宜用透明底。
+
+```bash
+"$PY" "$RUNNER" --premake-small-objects '<近照目录>' '<模型目录>' --check
+"$PY" "$RUNNER" --premake-small-objects '<近照目录>' '<模型目录>'
+```
+
+仅制作部分种类可加 `--only TissueBox WaterBottle`。每类输出一个 `.glb` 和同名 JSON，再用上表的模型目录变量交给重建。失败项会在终端报告。来源、摆放和缓存规则见[预制模型](architecture/replay-and-pipeline.md#预制模型)。
+
+<a id="可动部件"></a>
+
+**独立补跑。** 输入是已有的场景目录。以下命令分别列候选、重做小物品、处理可开合部件。可先给相应命令加 `--check` 核对配置。单独补跑不自动触发整屋检查。关节文件的位置及旧版房间的处理见[开合部件与旧房间](architecture/replay-and-pipeline.md#开合部件与旧房间)。
+
+```bash
+SCENE="$RUN/pipeline/<实际场景名>"
+"$PY" "$RUNNER" --small-objects "$SCENE" "$RUN/small-objects" --through evidence
+# 按 candidates.md 中的编号准备近照后执行
+"$PY" "$RUNNER" --small-objects "$SCENE" "$RUN/small-objects" --set LR_SMALL_OBJECTS_PHOTOS='<近照目录>'
+"$PY" "$RUNNER" --articulate "$SCENE" "$RUN/articulate" "${MODEL[@]}" \
+  --set LR_ARTICULATE_SOURCE="$RUN/small-objects/room_preview"
+```
+
+`--through evidence` 列出候选编号、建模名称、类别、证据数和目录，仅整理证据。单独只做开合部件时省略 `LR_ARTICULATE_SOURCE`。如需串接两步，该来源必须是从当前房间完整生成的小物品结果。
+
+两个输出目录各有 `room_preview/`。`overview.jpg` 可对比替换前后或开合状态。若需核查独立结果，从仓库根运行只读几何检查，可加 `--json '<文件>'` 保存报告。退出码 0 为通过、2 为检查不通过、1 为未能检查。
+
+```bash
+PYTHONPATH=room-reconstruction/src "$PY" -m litereality_agent.pipeline.realism_authoring.passes \
+  "$SCENE/realism_authoring" "$RUN/articulate/room_preview"
+```
+
+### 接入网页
+
+网页提交的任务自动发布。手动重建的房间可复制到本机仓库并加入房间首页。下面以新目录 `samples/my-room/` 为例，已有同名目录时另取名称。
+
+1. 本机准备 Git、Python 3、SSH。已有仓库时直接进入仓库根目录。首次获取先运行 `git clone https://github.com/innovationasuna/RoomCanvas.git`，再 `cd RoomCanvas`。
+2. 从选定结果复制预览目录，需开合部件时再复制关节文件。以下 `<结果目录>` 通常是服务器场景的 `realism_authoring`。
+3. 生成物品清单，核对输出的物品数、可移动组数、关节数及 `joint left out` 提示。脚本用 Python 标准库读取布局、校验 GLB 节点并写出清单。
+
+```bash
 mkdir -p samples/my-room
-scp -r '<SSH 主机>:<服务器结果目录>/room_preview' samples/my-room/
-```
-
-`<服务器结果目录>` 是上一节选定的 `room_preview/` 的父目录，例如 `<运行目录>/pipeline/<场景>/realism_authoring`（以前流程的房间是 `<运行目录>/articulate`）。这里的 `my-room` 是新房间名，已有同名目录时另选名字。
-
-要保留开合部件，还要复制关节文件所在的 `room/Objects/`，其中含 `*/*/sim/*.urdf`：新流程在 `<服务器结果目录>/articulate/room/Objects`，以前流程在 `<服务器结果目录>/room/Objects`。**本机**，在 `RoomCanvas/` 根目录执行（该目录存在且需要关节时；以前流程的房间把两处 `articulate/` 去掉）：
-
-```bash
+scp -r '<SSH 主机>:<结果目录>/room_preview' samples/my-room/
 mkdir -p samples/my-room/articulate/room
-scp -r '<SSH 主机>:<服务器结果目录>/articulate/room/Objects' samples/my-room/articulate/room/
-```
-
-保持复制后的目录层级，脚本会自动找到 `room_preview/` 旁的 `../articulate/room/Objects/`，没有时找 `../room/Objects/`；若另存到其他位置，生成命令加 `--joints '<本机 Objects 目录>'`。上述 `scp -r` 会跟随目录中的符号链接复制实际文件；换用其他复制工具时，也要避免留下指向服务器路径的链接。没有关节文件仍能生成物品清单，但不会生成对应的开合数据。
-
-**本机**，在 `RoomCanvas/` 根目录生成清单，只需 Python 标准库：
-
-```bash
+scp -r '<SSH 主机>:<结果目录>/articulate/room/Objects' samples/my-room/articulate/room/
 python3 web/scripts/room_objects.py samples/my-room/room_preview
 ```
 
-脚本读取 `room_layout.json`，利用同目录的 `Room.glb` 检查节点，输出 `room_objects.json`；不会修改 GLB。检查输出的物品数、可动组数和关节数，并处理缺失节点或 `joint left out` 提示。
+独立开合结果的 `<结果目录>` 是 `$RUN/articulate`，其关节在 `room/Objects`。此时去掉复制命令中相对结果目录和相对样例目录的 `articulate/`。其他布局可用 `--joints '<本机 Objects 目录>'`。
 
-**本机**，编辑 `RoomCanvas/web/rooms.json`，在现有 `rooms` 数组中追加以下对象，保留原条目并补齐逗号；`dir` 相对 `web/`，不是相对仓库根目录：
+`scp -r` 会跟随符号链接。换用其他复制工具时应确保目标含实际文件。缺少关节源文件仍可浏览和移动物品，但无法恢复对应开合。
+
+在本机 `web/rooms.json` 的 `rooms` 数组中追加条目。目录相对 `web/`。启动 `python3 web/scripts/serve.py` 后，打开[新房间](http://127.0.0.1:7880/web/editor/?room=my-room)核对布局、移动与开合。
 
 ```json
 {"id": "my-room", "name": "我的房间", "dir": "../samples/my-room/room_preview", "note": "手机扫描重建的房间"}
 ```
 
-**本机**，在 `RoomCanvas/` 根目录启动网页：
+照片添物还需连接[物品重建服务](OBJECT_RECONSTRUCTION.md)。房间清单、缩略图见[网页指南](../web/README.md#房间文件)。
+
+### 登记命令行回放
+
+服务器上从仓库根目录登记含一个场景的运行。记录会出现在任务列表供回看，服务运行中也可发现。默认登记原目录的链接。如要保留精简副本，追加 `--slim-to '<新目录>'`。
 
 ```bash
-python3 web/scripts/serve.py
+"$PY" web/scripts/room_replay.py --data-dir "$ROOMCANVAS_HOME/runs/web-room-jobs" \
+  --run "$RUN" --name '<房间名>'
 ```
 
-打开 <http://127.0.0.1:7880/web/editor/?room=my-room>，确认模型、家具移动和部件开合正常。主页缩略图读取房间目录的 `thumbnail.jpg`，不影响编辑器加载；生成方法和文件格式见 [房间文件](../web/README.md#房间文件)。若要同时添加或导入照片重建的物品，改用 [带 SSH 隧道的启动方式](OBJECT_RECONSTRUCTION.md#在编辑器中使用)。
-
-## 小物件
-
-对房间中的书、拖鞋、枕头等物品，挑选照片、判断是否需要重建，再用 TRELLIS 生成模型并放回原处。
-
-建模 agent（simulation、open 两种任务说明）不再给散放的小物件（杯子、纸巾盒、盆栽、瓶子等）搭形状，只用 `Room.py` 里的 `scene.mark_small("TissueBox0", "tissue_box", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0", description="a white tissue box", color=(r, g, b))` 标出每一件：一个方块，底面中心、尺寸、朝向与 `place_model` 的约定相同，涂成它的主色，按种类加序号命名，`description` 一行写它是什么、颜色和材质。方块在 `room_layout.json` 里带 `small_marker: true`、`description` 和 `marker_pose`。其中 `bottom` 是世界坐标下的底面中心，`size` 是转动前的宽、深、高，`yaw_deg` 是相对正面（−Y）的有向角。书架上的一排书等属于家具本身的部分仍由家具建模。导出时按方块在场景中的实际位置、朝向和尺寸更新位姿，包括随支撑移动产生的变化。恢复旧房间时，任务说明会提示补齐过时的标记方法、索引逻辑或方块底面绕序。
-
-标记只在重建和删除之间选。匹配到预制模型时直接替换；没有预制模型、扫描视图和近照时判为删除，即使强制 `trellis` 或 `procedural` 也一样。有照片且没有预制模型时，每个候选问一次判断模型，问题附上作者的描述。对标记给出的 `procedural` 会改成 `trellis`，记录 `coerced: true`；生效的强制值记在 `decision.override`。只改强制来源且仍需重建时，复用已完成的模型。`LR_SMALL_OBJECTS_POLICY` 只影响手工建模的候选。
-
-单件标记的判断和参考图使用实测局部宽、深、高，照片投影使用世界坐标的包围盒。替换时按 `marker_pose` 放回，导入模型的根节点即使带旋转，也沿标记的三轴缩放到实测尺寸。转动 180° 会使原放置缓存失效。成摞重建的候选和缺少位姿记录的旧布局沿用整体足迹拟合。栈内类别按数量选择，平票按自下而上的稳定顺序决定。若判为删除的下层仍支撑存活物件，保留下层并在结果中列明原因。几何门禁沿用原碰撞器的检查范围。同一支撑面上的两个标记方框即使相互穿插，门禁也可能不报错。
-
-判断、参考图、TRELLIS 或单件网格处理失败时，保留该件的原方块，已完成的替换与删除仍然应用。`summary.md` 与 `small_object_done.reason` 给出本次失败原因，author 阶段以 `partial` 和 `left.small_objects` 记录未完成项。重跑时逐件检查成品；若成品丢失，可复用干净网格、原始网格或预制来源。材质校正失败后从干净网格继续，省去重新等待 GPU。可动部件步骤跳过仍带 `small_marker` 的方块。成功替换的散放物件带 `movable: true`，包括类别为 `light` 的台灯，网页将它列为独立可移动组。用 `place_model` 直接放上桌面或架面的散放台灯也可独立移动，挂墙和安装在天花板上的固定灯具仍归入设施。
-
-完整重建里由 author 阶段在检查之前自动做（结果在场景的 `realism_authoring/small_objects/`），下面的变量照样用 `--set` 传给完整重建。对以前发布的房间（发布后才单独做小物件的旧流程），也可以单独运行，不重跑房间建模，结果不经过检查：
-
-**服务器上**，在 `RoomCanvas/` 根目录，按 [运行](#运行) 设置 `ROOMCANVAS_HOME` 和 `PY` 后执行；输入是含 `scene.json` 的已有场景目录：
-
-```bash
-"$PY" room-reconstruction/server/run_room.py --small-objects '<运行目录>/pipeline/<场景>' '<新目录>' --check
-"$PY" room-reconstruction/server/run_room.py --small-objects '<运行目录>/pipeline/<场景>' '<新目录>'
-```
-
-结果在 `<新目录>/room_preview/`，包含 `Room.blend`、`Room.glb` 和 `room_layout.json`；`overview.jpg` 提供照片与重建前后的对比。按上面的接入方式导入网页后，小物件可单独移动，放在家具上的物件会随家具移动。
-
-加 `--through evidence` 只找候选和扫描照片里的证据，不调用判断模型、不改房间；`<新目录>/candidates.md`（终端也会打印）列出每个候选的 id、author 里对应的物件名、类别、证据数和证据目录。下面的变量都用 `--set` 传入，可选：
-
-| 变量 | 作用 |
-| --- | --- |
-| `LR_SMALL_OBJECTS_POLICY=trellis-first` | 尽量用 TRELLIS 重建：只有任何图里都看不出来才删，只有规整到 TRELLIS 帮不上忙的才保留原模型；不设时判断标准不变。`mark_small` 标出的方块本来就这样判断，不受它影响 |
-| `LR_SMALL_OBJECTS_FORCE=<id>=trellis,<id>=procedural,<id>=drop` | 逐个覆盖判断结果（需要判断时会同时取得重建描述）；id 不在候选里时报错；对标出的方块，`procedural` 按 `trellis` 处理 |
-| `LR_SMALL_OBJECTS_PHOTOS=<目录>` | `<目录>/<id>/*.jpg` 是该物件的近照，交给判断模型，并作为参考图的前几格；扫描里看不到但有近照的物件也会被判断 |
-| `LR_SMALL_OBJECTS_MODELS=<目录>` | 预先做好的模型（见下）：id 为 `<种类>` 或 `<种类>` 加数字的物件（`TissueBox0`、`TissueBox12`）直接用 `<目录>/<种类>.glb`，`<目录>/<id>.glb` 优先；不问判断模型、不生成参考图、不启动 TRELLIS（按它替换的物件尺寸再去一次碎块，以前做好的模型也一样），扫描里看不到也照样替换，之后和自己重建的一样贴合原位置、朝向并放回房间。记录里 `decision` 带 `forced` 和 `source`，`small_object_done` 带 `source`；换了某个模型只重做用它的物件；目录里没有对应物件的模型只在日志里列一次；目录不存在时报错 |
-
-近照和策略按物件记在它自己的输入里：重建前放进去就会用上，重建后再加或换某个物件的近照，只重新判断、重建这一个，其他物件和整个结果不作废。完整流程建议两步：先 `--through evidence` 看 `candidates.md`，按 id 整理近照，再去掉 `--through` 正式运行。每次运行在场景的 `trace.jsonl` 里记下 `small_objects_start`、每个物件定下结果时的 `small_object_done`（`method` 为 `trellis`、`procedural`、`dropped` 或 `kept`，沿用上次结果时 `reused` 为 true，时间仍是这次的）和 `small_objects_done`（重建、删除、保留的件数）；完整跑完时 `run_room.py` 再记 `model_saved`（`model` 为 `small_objects`）。
-
-### 预先做好小物件模型
-
-已经知道房间里有哪些小东西时，可以在重建之前先用近照把模型做好（TRELLIS 要用 GPU，做完 GPU 随即可以交还），交给 author 的建模会话直接摆进房间：
-
-```bash
-"$PY" room-reconstruction/server/run_room.py --premake-small-objects '<近照目录>' '<模型目录>' --check
-"$PY" room-reconstruction/server/run_room.py --premake-small-objects '<近照目录>' '<模型目录>' [--only TissueBox ...]
-```
-
-近照按种类分目录：`<近照目录>/<种类>/*.jpg`（或 `.jpeg`），例如 `TissueBox/`、`WaterBottle/`，同一种类的几件（两包纸巾）共用一个模型；可选 `<近照目录>/<种类>/description.txt`，一行写这是什么，没有时按种类名写成 “a tissue box”。种类目录里也可以放一张 `reference.png`：物件本身已经抠好的一张图（四周透明，或黑底），这时直接拿它当参考图，不再调用图像模型（可以没有近照）；适合只有一个好角度、已经有干净图的物件，深色物件用透明底才不会和黑底混在一起。每个种类走小物件重建的同一套步骤，只去掉需要房间的部分：近照拼成参考底图、图像模型生成参考图（设置取服务器 `.env`）、TRELLIS（经 `run_room.py` 取得 GPU 和 TRELLIS 环境）、去掉碎块（按接触判断：保留最大的一块、立在模型底面上的各块，以及和这些块相接触的块，其余不论大小都去掉；一排架子上各自立着的几件、一叠书、书上的花瓶都保留）、按参考图校正色相并把非金属物件的金属度归零。结果是 `<模型目录>/<种类>.glb`，旁边的 `<种类>.json` 记下近照哈希、描述和模型设置；重跑时输入没变的种类直接跳过，换了近照的重做。失败的种类不留下 `.glb`，命令以非零退出；终端打印每个种类用了几张近照、结果路径和用时。运行记录在 `<模型目录>/attempt-NN/`，不写回放记录。重建时加 `--set LR_SMALL_OBJECTS_MODELS=<模型目录>`：会话开始前，逐个处理 `<种类>.glb`。损坏的预制件会记录错误并从本次可用清单排除，旧房间已引用的副本保留；其余模型去掉碎块后复制到房间的 `Models/<种类>.glb`（`Models/.sources.json` 记下来源哈希，来源没变就不重做），任务说明里多一段，列出每个模型的描述、宽深高比例和参考图（`<模型目录>/work/<种类>/reference.png`），要 agent 用 `Room.py` 里的 `scene.place_model("TissueBox0", "Models/TissueBox.glb", bottom=(x, y, z), size=(宽, 深, 高), yaw_deg=角度, rests_on="Table0")` 按照片的位置放好，不再标占位方块：`bottom` 是底面中心，`size` 是量出的尺寸（只给一个数时是高度，保持模型比例），直放和标记替换都按导入模型求值后的世界顶点量取三轴范围和底面中心，再按 `yaw_deg` 将模型正面（−Y）转向照片中的方向。这样放进去的物件带 `source_glb`，小物件那一步不再动它；没有现成模型的小物件照常用 `mark_small` 标出。会话仍标了或自己搭了同名物件（如 `TissueBox1`）时，后续步骤只匹配本次准备成功且来源哈希仍一致的预制件，其余物件按照片判断。复用旧房间时，如果 `RoomScene.place_model` 仍用 `world_bbox(meshes)` 的八个包围盒角拟合尺寸，任务说明会提示从 `room_ops/compile/build_room.py` 替换这个方法。如果要放预制件的房间还缺这个方法，则提示从同一模板补上。迁移提示也会指出需要补齐的顶点测量函数、`_register` 对 `rebuilt` 的接收和保存以及 `index` 对它的转发。直放模型在首次登记和重新索引时都按实际顶点测量，`top_surface` 和布局里的物件尺寸沿用这组边界。和补充材料一样，模型目录不计入 author 的输入指纹，author 跑过之后再换模型不会让它重跑。单独运行小物件时也可以加这个变量，按名字替换占位。来源文件无法读取时，仅跳过该来源，每轮对同一文件只计算一次来源哈希。
-
-## 可动部件
-
-识别已有模型中的门、抽屉、盖子等部件，切分模型并添加关节和开合动画，再检查开合效果。切分之后，物体上与其余部分都不接触（5 mm 内）、面积不到 5% 的小碎块会被去掉（`apply.json` 的 `loose` 记下去掉了什么），免得检查认为它悬空。完整重建里由 author 阶段在小物件之后、检查之前自动执行（结果在场景的 `realism_authoring/articulate/`）；对以前发布的房间也可以单独运行，结果不经过检查：
-
-**服务器上**，在 `RoomCanvas/` 根目录，按 [运行](#运行) 设置 `ROOMCANVAS_HOME` 和 `PY` 后执行：
-
-```bash
-"$PY" room-reconstruction/server/run_room.py --articulate '<运行目录>/pipeline/<场景>' '<新目录>' --check \
-  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
-"$PY" room-reconstruction/server/run_room.py --articulate '<运行目录>/pipeline/<场景>' '<新目录>' \
-  --set LR_CODEX_MODEL=gpt-6-astra --set LR_CODEX_EFFORT=high
-```
-
-结果在 `<新目录>/room_preview/`，包含 `Room.blend`、`Room.glb` 和 `room_layout.json`；`overview.jpg` 展示开合对比。按 [接入网页](#接入网页) 将该目录及 `<新目录>/room/Objects/` 复制到本机，再生成 `room_objects.json`，即可在编辑器中操作可动部件。
-
-单独跑出的房间（小物件或可动部件的 `<新目录>/room_preview/`）可以按 author 检查房间的同一套规则查一遍，只读，不在结果旁写文件：`"$PY" -m litereality_agent.pipeline.realism_authoring.passes '<运行目录>/pipeline/<场景>/realism_authoring' '<新目录>/room_preview'`（需要 `PYTHONPATH=room-reconstruction/src`；加 `--json <文件>` 保存完整报告；退出码 0 通过、2 不通过、1 没能检查）。
-
-单独运行时也和完整重建一样记下 `articulate_start`、`articulate_done` 和 `model_saved`（`articulated`）；加了 `--through` 或 `--only` 的运行不出房间，不记。回放按固定位置 `<运行目录>/articulate/room_preview/Room.glb` 找这个房间，所以 `<新目录>` 用 `<运行目录>/articulate`。
-
-以前发布的房间要带上单独跑的小物件，顺序是小物件 → 可动部件，小物件结果放在 `<运行目录>/small-objects`，可动部件加 `--set LR_ARTICULATE_SOURCE=<运行目录>/small-objects/room_preview`：它读这个房间（`Room.blend`、`Room.glb`、`room_layout.json` 及小物件的网格），部件关节仍写在 author 房间的 `Objects/` 旁。该目录必须是小物件完整跑完的结果，且由当前的 author 房间生成，否则报错；换了来源房间，可动部件这一步整体重做。不会自动改用小物件的结果，免得用到过期的房间。
+`--until <Unix 时间>` 可指定截止时间。登记仅添加回放，若还要在编辑器里布置，按[接入网页](#接入网页)操作。副本内容、旧任务兼容及接口见[回放与流水线](architecture/replay-and-pipeline.md)。

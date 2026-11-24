@@ -1,20 +1,20 @@
-# 单独物体重建流水线
+# 单独物品重建流水线
 
-独立物体使用 **BiRefNet → DA3 → MV-SAM3D → 颜色烘焙 → COVER → 实测标定与摆放**。一张照片即可运行，也支持多角度照片和补拍。服务部署与接口见 [物体重建](OBJECT_RECONSTRUCTION.md)，环境配置见 [运行说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md)。
+本文面向维护物品服务与编辑器导入功能的开发者。拍照、标定和服务接口见[物品重建与补拍](OBJECT_RECONSTRUCTION.md)。环境和命令行重建见[运行说明](../object-reconstruction/docs/VIEWFORGE_RUNTIME.md)。
 
 ## 输入与重建
 
-1. 网页上传 1–40 张 JPEG / PNG，以独立物体名存入 `$VIEWFORGE_ROOT/data/inputs/`。
-2. BiRefNet 生成同尺寸 RGBA 蒙版，用户确认保留哪些照片；重建绑定已确认的照片与蒙版签名。
-3. 作业等待 GPU 锁，取得锁后检查可用显存。每次运行创建新目录，不覆盖已有结果。
-4. DA3 估计照片深度、相机与 pointmap。MV-SAM3D 使用这些几何条件和原照片生成 mesh 与 Gaussian；默认 seed 42、50 / 25 步和 entropy 加权，算法参数直接交给上游。
-5. 原生 Gaussian 颜色烘焙导出带 UV 贴图的 `result.glb`；同次生成 `result.ply`，供 Gaussian 展示与 COVER 使用。
-6. COVER 计算下一次补拍方向并保存 `cover/preview.json`。补拍保留原照片、顺序与首张锚点，在新目录完整重跑。
-7. 用户填写 X / Y / Z 任一边长，标定到米制尺寸，再在浏览器中摆放。
+1. 网页可选择 1–40 张照片。HEIC / HEIF 在浏览器本地转成 JPEG。服务接收 JPEG / PNG，也能识别 HDR JPEG 中的 MPO 主图。
+2. 服务在 `$VIEWFORGE_ROOT/data/inputs/<物品>/` 保留收到的原文件（含 MPO 辅助图）。重建只取主图，按 EXIF 校正方向并保存 RGB PNG。辅助图不占用拍摄视角。
+3. BiRefNet 生成与照片同尺寸的 RGBA 蒙版。用户确认保留的照片后，重建校验照片与蒙版签名。已有的有效蒙版可以复用，全部命中时只进行 CPU 检查。
+4. 重建作业取得共享 GPU 锁后检查可用显存，在独立运行目录执行 DA3 和 MV-SAM3D。DA3 估计深度、相机与 pointmap。
+5. MV-SAM3D 用原照片和几何条件生成 mesh 和 Gaussian。默认 seed 为 42，两阶段分别运行 50 / 25 步，使用 entropy 加权。配置中的 `mv` 参数直接传给上游。
+6. 将 Gaussian 外观烘焙为 UV 颜色贴图，输出网格和 Gaussian PLY。正式模型发布后，COVER 计算下一次补拍方向。
+7. 用户量出 X / Y / Z 对应的任一条边即可完成米制标定。补拍在新目录完整重跑，保留先前照片的顺序和首张锚点。房间中的原实例沿用原模型与标定。
 
 ## 颜色烘焙
 
-配置位于 [`configs/default.yaml`](../object-reconstruction/configs/default.yaml)：
+[默认配置](../object-reconstruction/configs/default.yaml)如下。
 
 ```yaml
 mesh_export:
@@ -25,24 +25,59 @@ mesh_export:
   texture_padding: nearest
 ```
 
-[`mvsam_pbr.py`](../object-reconstruction/scripts/mvsam_pbr.py) 适配上游导出：关闭 mesh 后处理，保留相同几何；通过现有 gsplat 非 packed 渲染路径生成虚拟观察，UV 展开后优化颜色贴图。只填充未覆盖的 UV 缝隙，不改动已有 texel。UV 缓存按源几何哈希校验，避免误用其他网格。
+[烘焙适配器](../object-reconstruction/scripts/mvsam_pbr.py)关闭 mesh 后处理以保留几何。它调用 gsplat 的非 packed 渲染路径生成虚拟视角，展开 UV 并优化颜色贴图。填充仅作用于未覆盖的 UV 缝隙，缓存按源几何哈希校验。
 
-颜色来自 Gaussian decoder，旧顶点色来自 mesh decoder，因此烘焙不仅是颜色的存储格式变化。固定粗糙度／金属度不代表恢复了真实材料属性，基础色也可能保留生成或拍摄光照。
+烘焙颜色来自 Gaussian decoder，旧版顶点色来自 mesh decoder。材质统一使用粗糙度 1、金属度 0，颜色可能保留生成或拍摄时的明暗，无法据此推断分区材质属性。
 
-缺少依赖或烘焙失败会使作业失败，不静默回退到顶点色。显式 `mode: vertex_color` 可用于已有流程或排查；它不要求烘焙依赖。
+默认模式缺少依赖或烘焙失败时，重建作业失败。需对照旧流程时可显式配置 `mode: vertex_color`，该模式无烘焙依赖。
 
 ## 输出与显示契约
 
-| 产物 | 含义 |
+以下路径相对于本次运行目录。
+
+| 文件 | 含义 |
 | --- | --- |
-| `result.json`、`config.yaml`、`inputs.json` | 运行状态、耗时、参数、源照片与代码版本 |
-| `reconstruction/result.glb` | 完整几何及 2048² 颜色贴图，PBR 粗糙度 1、金属度 0 |
-| `reconstruction/result.ply` | Gaussian，保留补拍与 Gaussian 展示能力 |
-| `reconstruction/materials.json` | 烘焙状态、方法、纹理大小、耗时；成功后资产接口才标记 `material_mode=pbr` |
-| `reconstruction/vertex-color.glb` | 同次原始几何对照，用于确认烘焙没有改变物体形状 |
-| `reconstruction/baking-*` | 本次 Gaussian、mesh 与已校验 UV 缓存，供故障排查 |
-| `cover/preview.json` | 模型坐标转换、尺寸预览与 COVER 补拍方向 |
+| `result.json`、`config.yaml`、`inputs.json` | 状态、耗时、实际参数、源照片和代码版本记录 |
+| `asset.json` | 已发布模型的文件清单、坐标变换、材质能力 |
+| `reconstruction/result.glb` | 完整几何。默认 PBR 模型含 2048² 颜色贴图 |
+| `reconstruction/result.ply` | 供显示与 COVER 使用的 Gaussian |
+| `reconstruction/materials.json` | 烘焙状态、方法、纹理大小和耗时。成功后资产接口标记 `material_mode=pbr` |
+| `reconstruction/vertex-color.glb` | 同次运行的原几何对照，用于检查形状 |
+| `reconstruction/baking-*` | 本次 Gaussian、mesh 及经校验的 UV 缓存 |
+| `reconstruction/collision.glb`、`reconstruction/collision-glb.json` | 可选的无材质碰撞模型及生成报告 |
+| `cover/preview.json` | 显示坐标与补拍方向。可在发布后补充建议 |
 
-旧的轻量 GLB 生成器会把贴图转回顶点色，所以烘焙结果使用完整 GLB 作为预览。尺寸预览与场景导入保留原 PBR 颜色贴图，补齐缺失法线，响应场景灯光并接收阴影；标记为烘焙 PBR 的资产不受旧版顶点色对照开关影响。
+### 模型何时可导入
 
-单独物体的 TRELLIS、TRELLIS 多图融合与分区材质尝试已清理。房间重建在 `room-reconstruction/` 内使用自己的 TRELLIS 流程，见 [房间重建](ROOM_RECONSTRUCTION.md)。
+| `result.json` 标志 | 读取含义 |
+| --- | --- |
+| `mesh_ready` | 重建步骤结束，GLB 与 PLY 已写出且非空。继续等待发布校验。 |
+| `asset_ready` | 发布成功。目录与尺寸接口允许读取模型或标定。 |
+| `recommendation_ready` | COVER 已成功生成建议。建议可以稍于模型就绪。 |
+
+发布点是 `asset.json` 的原子写入。服务先校验 GLB、Gaussian、材质能力与显示坐标，再公开模型。COVER 随后只更新建议、状态与消息。补拍失败也可继续使用先前发布的模型。[发布与旧结果读取](../object-reconstruction/scripts/asset_state.py)
+
+### 显示、碰撞与兼容
+
+- 烘焙 PBR 始终用完整 GLB 预览与显示，避免轻量生成器把贴图转回顶点色。编辑器补齐缺失法线，保留贴图，模型响应光照并接收阴影。旧版顶点色可切换受光。
+- 碰撞与支撑检测优先取 `collision.glb`。简化按连通部件进行，核对拓扑、包围盒与双向表面误差。超出容差则沿用该部件的原几何。
+- 生成碰撞模型失败时，完整模型仍可发布。导入端找不到可用代理时，依次尝试 `preview.glb`、完整模型。[代理生成](../object-reconstruction/scripts/collision_proxy.py) · [编辑器导入](../web/editor/object-import.mjs)
+- 旧结果尚无新版发布标记时，以完整 GLB 为读取条件，包括历史 `status=complete` 结果和无状态文件的旧导入模型。
+
+以下测试从 `object-reconstruction/` 运行，使用 Open3D 验证薄腿、孔洞和桌面支撑。
+
+```bash
+python -m unittest discover -s tests -p test_collision_proxy.py
+```
+
+### DA3 数组与兼容
+
+NPZ schema 2 只存一份 NHWC 的 `float32` pointmap。坐标轴沿 OpenCV 的右、下、前。MV-SAM3D 用转置视图读取 NCHW。读取器也接受旧的双布局或仅有 NCHW 的文件。[DA3 读取器](../object-reconstruction/scripts/da3_arrays.py)
+
+COVER、场景合并和姿态优化继续按需读取 `depth`、`extrinsics`、`intrinsics`、`image_files`。在模块目录运行下列 CPU 基准，可用已有 NPZ 比较两种数组的峰值内存、字节数、读写时间和误差。
+
+```bash
+python scripts/benchmark_da3_arrays.py --input-npz '<已有 DA3 NPZ 路径>'
+```
+
+单独物品的单图／多图 TRELLIS、分区材质试验决策见[历史交接记录](history/PROJECT_HANDOFF_2026-11-03.md)。房间流水线使用 TRELLIS 的场景见[房间重建](ROOM_RECONSTRUCTION.md)。
