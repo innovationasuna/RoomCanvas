@@ -4,7 +4,7 @@
 
 ## 安装与导入
 
-安装按下文构建的调试 APK；本仓库的 App 版本为 0.2.0，支持 Android API 26 及以上的 ARM 设备。已有安装的签名不同时，使用原签名构建更新可以保留本地房间。
+安装按下文构建的调试 APK；版本号见 [App 配置](app/build.gradle.kts)，支持 Android API 26 及以上的 ARM 设备。已有安装的签名不同时，使用原签名构建更新可以保留本地房间。
 
 | 我手上有…… | 怎么打开 |
 | --- | --- |
@@ -44,6 +44,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 构建版本见 [App 配置](app/build.gradle.kts)和 [Gradle Wrapper 配置](gradle/wrapper/gradle-wrapper.properties)。
 
+灯光资源回收的回归测试会调用真实 Filament 引擎。连接 ARM 模拟器或设备后，在 `android-app/` 执行 `./gradlew :app:connectedDebugAndroidTest`，覆盖更换模型、重复释放、引擎先销毁和 Activity 退出等场景。
+
 ## 在本机模拟器上调试
 
 1. 在 macOS 的 Android SDK 中安装 Emulator 和 Platform Tools，准备名为 `RoomCanvas_API_34` 的 Android 14 ARM64 虚拟设备。使用自定义 SDK 路径时设置 `ANDROID_HOME`。
@@ -52,7 +54,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```bash
 mkdir -p output/android
-cp android-app/app/build/outputs/apk/debug/app-debug.apk output/android/RoomCanvas-Mobile-0.2.0-debug.apk
+cp android-app/app/build/outputs/apk/debug/app-debug.apk output/android/RoomCanvas-Mobile-debug.apk
 ./scripts/start_android_emulator.command
 ```
 
