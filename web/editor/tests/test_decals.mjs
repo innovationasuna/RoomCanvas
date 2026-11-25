@@ -71,3 +71,36 @@ test('loader associations say which node a primitive belongs to, whatever the pr
   assert.equal(offsetDecals(THREE, room, associations), 1);
   assert.deepEqual([offset(part), offset(photo)], [[false], [[-1, -4]]]);
 });
+
+test('a part modelled over the end of a larger one, faces in common, is pulled in front of it', () => {
+  const room = new THREE.Group(), item = new THREE.Group(), dark = new THREE.MeshStandardMaterial(), pale = new THREE.MeshStandardMaterial();
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(.27, .02, .024), dark);
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(.05, .02, .024), pale); tip.position.x = .11;  // ends where the bar ends
+  const other = new THREE.Mesh(new THREE.BoxGeometry(.05, .02, .024), pale); other.position.set(.4, 0, 0);
+  item.rotation.y = .3; item.add(bar, tip, other); room.add(item);
+  assert.equal(offsetDecals(THREE, room), 1);
+  assert.deepEqual([offset(bar), offset(tip), offset(other)], [[false], [[-1, -4]], [false]]);
+  assert.equal(other.material, pale);
+});
+
+test('parts that only touch, or share a surface in one material, are left alone', () => {
+  const room = new THREE.Group(), red = new THREE.MeshStandardMaterial(), blue = new THREE.MeshStandardMaterial();
+  const book = new THREE.Mesh(new THREE.BoxGeometry(.03, .2, .15), red);
+  const next = new THREE.Mesh(new THREE.BoxGeometry(.03, .2, .15), blue); next.position.x = .03;  // side by side, flush fronts
+  const onTop = new THREE.Mesh(new THREE.BoxGeometry(.02, .01, .1), blue); onTop.position.y = .105;  // lying on the first
+  const same = new THREE.Mesh(new THREE.BoxGeometry(.03, .1, .15), red); same.position.y = -.05;  // inside the first, same material
+  room.add(book, next, onTop, same);
+  assert.equal(offsetDecals(THREE, room), 0);
+  assert.deepEqual([book, next, onTop, same].map(offset), [[false], [false], [false], [false]]);
+});
+
+test('primitives of two nodes of one object are compared; a picture already in front is not moved again', () => {
+  const room = new THREE.Group(), item = new THREE.Group(), dark = new THREE.MeshStandardMaterial(), pale = new THREE.MeshStandardMaterial();
+  const barNode = new THREE.Group(), bar = new THREE.Mesh(new THREE.BoxGeometry(.27, .02, .024), dark);
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(.05, .02, .024), pale); tip.position.x = .11;
+  const label = new THREE.Mesh(new THREE.BoxGeometry(.05, .0003, .024), textured()); label.position.y = .01;
+  barNode.add(bar); item.add(barNode, tip, label); room.add(item);
+  const associations = new Map([[bar, {primitives: 0}], [barNode, {nodes: 0}], [tip, {nodes: 1, primitives: 0}], [label, {nodes: 2, primitives: 0}]]);
+  assert.equal(offsetDecals(THREE, room, associations), 2);
+  assert.deepEqual([offset(bar), offset(tip), offset(label)], [[false], [[-1, -4]], [[-1, -4]]]);
+});
