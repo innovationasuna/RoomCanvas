@@ -3,7 +3,6 @@
     <!-- 深色玻璃 + 青蓝：场景本身是画面主体，控件只做低饱和的“玻璃层” -->
     <color name="bg_deep">#FF070B10</color>
     <color name="bg_panel">#E60C151E</color>
-    <color name="bg_panel_soft">#B30C151E</color>
 
     <color name="accent">#FF35C8DC</color>
     <color name="accent_soft">#FF7FE3EE</color>
@@ -16,7 +15,6 @@
     <color name="text_faint">#66FFFFFF</color>
 
     <color name="stroke_soft">#33FFFFFF</color>
-    <color name="stroke_accent">#6635C8DC</color>
     <color name="scrim_start">#F2070B10</color>
     <color name="scrim_mid">#D9070B10</color>
 </resources>

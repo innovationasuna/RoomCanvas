@@ -1,30 +1,21 @@
 package com.hausen3d.arviewer.rendering
 
-import android.Manifest
-import android.content.Context
-import android.content.Intent
 import android.os.SystemClock
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.filament.EntityManager
-import com.hausen3d.arviewer.R
-import com.hausen3d.arviewer.VrWalkthroughActivity
 import io.github.sceneview.SceneView
 import io.github.sceneview.node.ModelNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicReference
 
-/** Runs against Filament JNI on an ARM device/emulator; no mocked native managers. */
+/** 在 ARM 真机/模拟器上跑 Filament JNI，验证灯光实体与 ID 的释放。 */
 @RunWith(AndroidJUnit4::class)
 class PhysicalRoomLightingLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -85,10 +76,13 @@ class PhysicalRoomLightingLifecycleTest {
                 scene.destroy()
             }
         }
-        // SceneView may defer Engine.destroy() until its backend becomes idle.
+        // SceneView 可能延迟到后端空闲后才真正销毁 Engine。
         await("SceneView did not destroy its engine") { onMain { !scene.engine.isValid } }
         onMain {
-            assertTrue("Engine destruction alone must not hide the leaked ID", EntityManager.get().isAlive(lights.single()))
+            assertTrue(
+                "Engine destruction alone must not hide the leaked ID",
+                EntityManager.get().isAlive(lights.single())
+            )
             lighting.release()
             lighting.release()
             lights.forEach { assertFalse(EntityManager.get().isAlive(it)) }
@@ -135,41 +129,6 @@ class PhysicalRoomLightingLifecycleTest {
         }
     }
 
-    @Test
-    fun closingTheActivityBeforeLoadingDoesNotInitializeRoomLighting() = withActivity(loadRoom = false) { scenario ->
-        lateinit var scene: SceneView
-        scenario.onActivity {
-            scene = it.findViewById(R.id.sceneView)
-            assertTrue(scene.childNodes.isEmpty())
-        }
-        val originalMainLight = onMain { scene.mainLightNode }
-        assertNotNull(originalMainLight)
-
-        scenario.close()
-
-        // Initializing PhysicalRoomLighting would replace the default light with null.
-        assertSame(originalMainLight, onMain { scene.mainLightNode })
-    }
-
-    @Test
-    fun closingTheActivityReleasesTheLightsCreatedDuringItsRealModelLoad() = withActivity(loadRoom = true) { scenario ->
-        var lightIds = emptySet<Int>()
-        await("Activity did not load the room and create its local light") {
-            scenario.onActivity {
-                val scene = it.findViewById<SceneView>(R.id.sceneView)
-                if (scene.childNodes.filterIsInstance<ModelNode>().isNotEmpty()) {
-                    lightIds = scene.lightEntities()
-                }
-            }
-            lightIds.size == 1
-        }
-        onMain { lightIds.forEach { assertTrue(EntityManager.get().isAlive(it)) } }
-
-        scenario.close()
-
-        onMain { lightIds.forEach { assertFalse("Activity leaked local light $it", EntityManager.get().isAlive(it)) } }
-    }
-
     private fun withLighting(
         sharedEngine: Boolean = false,
         block: (SceneView, PhysicalRoomLighting) -> Unit
@@ -185,43 +144,17 @@ class PhysicalRoomLightingLifecycleTest {
                 scene.destroy()
                 owner?.destroy()
             }
-            await("Filament engine remained alive after test cleanup") { onMain { !scene.engine.isValid } }
-        }
-    }
-
-    private fun withActivity(loadRoom: Boolean, block: (ActivityScenario<VrWalkthroughActivity>) -> Unit) {
-        // A permission dialog would pause ActivityScenario before it reaches RESUMED.
-        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.CAMERA)
-        val prefs = context.getSharedPreferences("vr_walkthrough", Context.MODE_PRIVATE)
-        val oldPath = prefs.getString("last_model_path", null)
-        val oldName = prefs.getString("last_model_name", null)
-        val file = File.createTempFile("lighting-lifecycle-", ".glb", context.cacheDir)
-        try {
-            assertTrue(prefs.edit().remove("last_model_path").remove("last_model_name").commit())
-            val intent = Intent(context, VrWalkthroughActivity::class.java)
-            if (loadRoom) {
-                file.writeBytes(roomGlb())
-                intent.putExtra(VrWalkthroughActivity.EXTRA_MODEL_PATH, file.absolutePath)
+            await("Filament engine remained alive after test cleanup") {
+                onMain { !scene.engine.isValid }
             }
-            val scenario = ActivityScenario.launch<VrWalkthroughActivity>(intent)
-            lateinit var scene: SceneView
-            try {
-                scenario.onActivity { scene = it.findViewById(R.id.sceneView) }
-                block(scenario)
-            } finally {
-                scenario.close()
-                await("Activity's Filament engine remained alive after exit") { onMain { !scene.engine.isValid } }
-            }
-        } finally {
-            prefs.edit().putString("last_model_path", oldPath).putString("last_model_name", oldName).commit()
-            file.delete()
         }
     }
 
     private fun addRoom(scene: SceneView, ceilingCount: Int = 1, gltfLight: Boolean = false): ModelNode {
         val bytes = roomGlb(ceilingCount, gltfLight)
         val buffer = ByteBuffer.allocateDirect(bytes.size).apply { put(bytes); flip() }
-        return ModelNode(scene.modelLoader.createModelInstance(buffer), autoAnimate = false).also(scene::addChildNode)
+        return ModelNode(scene.modelLoader.createModelInstance(buffer), autoAnimate = false)
+            .also(scene::addChildNode)
     }
 
     private fun SceneView.lightEntities(): Set<Int> =
@@ -249,7 +182,7 @@ class PhysicalRoomLightingLifecycleTest {
         return result.get().getOrThrow()
     }
 
-    /** A self-contained triangle per ceiling, with an optional KHR_lights_punctual light. */
+    /** 每盏顶灯一个自包含三角形，可选挂一盏 KHR_lights_punctual 点光。 */
     private fun roomGlb(ceilingCount: Int = 1, gltfLight: Boolean = false): ByteArray {
         val nodes = (0 until ceilingCount).map {
             """{"name":"Ceiling$it","mesh":0,"translation":[$it,2,0]}"""

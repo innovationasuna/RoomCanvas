@@ -22,6 +22,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     buildTypes {
@@ -52,9 +53,10 @@ dependencies {
 
     // VrCameraController 是纯 Kotlin 数学，可在 JVM 上直接测真实走动/漂移判定
     testImplementation("junit:junit:4.13.2")
+    // RoomShareImport 在 JVM 单测里需要真正的 org.json 实现（Android 上由系统提供）
     testImplementation("org.json:json:20240303")
 
-    // Native Filament lifetime checks run on an ARM emulator or device.
+    // Filament 原生资源生命周期测试：必须在 ARM 真机/模拟器上跑
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
