@@ -8,7 +8,7 @@ ROOMCANVAS_AVD_NAME="RoomCanvas_API_34"
 ROOMCANVAS_EMULATOR_PORT="${ROOMCANVAS_EMULATOR_PORT:-5580}"
 ROOMCANVAS_DEVICE="emulator-$ROOMCANVAS_EMULATOR_PORT"
 ROOMCANVAS_ADB="$ROOMCANVAS_SDK_ROOT/platform-tools/adb"
-ROOMCANVAS_APK="$ROOMCANVAS_PROJECT_DIR/output/android/RoomCanvas-Mobile-0.2.0-debug.apk"
+ROOMCANVAS_APK="$ROOMCANVAS_PROJECT_DIR/output/android/RoomCanvas-Mobile-debug.apk"
 ROOMCANVAS_LOG_DIR="$HOME/Library/Logs/RoomCanvas"
 
 if [ ! -x "$ROOMCANVAS_SDK_ROOT/emulator/emulator" ] || [ ! -x "$ROOMCANVAS_ADB" ]; then

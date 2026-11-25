@@ -9,7 +9,7 @@
 | `<任务号>/job.json` | 任务名、状态、创建时间等。上传使用 `X-Upload-ID` 幂等。同一服务串行解包、排队执行。服务重启将排队项重新入队，把中断的运行或整理项标为失败。 |
 | `<任务号>/task.log`、`task.lock` | 服务超时默认为 21,600 秒，可用 `--timeout` 调整。任务锁由子进程继承。上次进程仍在工作时，重试会报告占用。扫描、日志、模型留在数据目录，API 只公开约定的文件。 |
 | `<场景>/.litereality/pipeline.json` | 记录各阶段结果。重试用原运行目录和阶段输入继续。任务状态另行区分是否可重试、模型是否可用、质量与可开合部件的结果。 |
-| `<运行目录>/attempt-NN/` | `run-config.json` 记录代码、命令、路径配置、选中的物理 GPU 和其他进程已占用的显存。`pipeline.log`、`exit` 记录该次执行，`runtime-timing.json` 区分等待显卡与运行。 |
+| `<运行目录>/attempt-NN/` | `run-config.json` 记录代码、命令、路径配置、选中的物理 GPU 和其他进程已占用的显存。`pipeline.log`、`exit` 记录该次执行，`runtime-timing.json` 区分等待显卡与运行。在 `room-reconstruction/` 执行 `uv run python -m litereality_agent.timing <任务目录>` 可得到排队、持锁、阶段重试和模型调用时间的只读 JSON 汇总；持锁时间包含 CPU 和接口调用，各段时间可能重叠，不能直接相加。 |
 
 服务独占 `--data-dir`。读不到、JSON 已损坏、ID 与目录不符或关键字段无效的任务会被跳过，日志指出路径，保留原文件，其他任务继续加载。修复普通记录后重启。新登记或修复的回放记录由下一次扫描发现。
 
@@ -45,7 +45,7 @@ uv run litereality run '<含 scene.json 的场景目录>' --from author --throug
 1. `LR_AUTHOR_EXTRA` 指向含 `README.md` 的目录，可自由附补充照片和旧房间。各 provider 都可从 `realism_authoring/evidence/operator/` 访问。建模和修复说明都要求先读其中的要求。
 2. 从旧房间复用材质、贴图和部件代码时，使用新扫描的世界坐标。无位姿的照片可用 `evidence/helpers/` 中的 `rectify.rectify_image(照片, 四角像素, 输出, 尺寸)` 拉正为海报或画框纹理。按正常显示方向选角，HEIC 先转 JPEG。
 3. `session_start` 记录补充材料目录和内容哈希。显式 `--set LR_CODEX_SESSION_SECONDS=<秒>` 可覆盖 `.env` 中的时限，默认 3,600 秒。用 `--set AUTHOR_STEPS=<次数>` 可调整工具调用预算，open 配置默认 300 次。
-4. 会话因限额提前结束时，已保存的 `Room.py` 与检查点可供下次接续。在阶段报 `needs_repair` 后以原输入、目录和参数重新运行。检查点的有效性与质量验收分别判定。[配置与恢复契约](../refactor/contracts.md)
+4. 会话因限额提前结束时，已保存的 `Room.py` 与检查点可供下次接续。在阶段报 `needs_repair` 后以原输入、目录和参数重新运行。检查点的有效性与质量验收分别判定。[配置与恢复契约](contracts.md)
 
 ## 检查与发布
 
@@ -209,7 +209,7 @@ scene.place_model(
 
 `room_replay.py --run` 查找一个包含 `scene_init/obj_stage` 的场景，登记为仅回看的 completed 任务，并将任务目录中的 `run` 链至源运行。默认截止时间取最后的检查、相关模型或匹配发布记录中最晚时间加 120 秒，`--until` 可显式指定。
 
-`--slim-to` 复制回放实际读取的历史会话、检查、点云与布局、白名单图片和模型、各次执行的 `run-config.json` 与 `exit`，尽量保留时间戳，然后让登记指向副本。若需继续重建或保留完整取证数据，请保留原运行。[历史样本测量](../history/ROOM_RECONSTRUCTION_VALIDATION.md)
+`--slim-to` 复制回放实际读取的历史会话、检查、点云与布局、白名单图片和模型、各次执行的 `run-config.json` 与 `exit`，尽量保留时间戳，然后让登记指向副本。若需继续重建或保留完整取证数据，请保留原运行。
 
 已完成任务由本机 `serve.py` 后台下载到 `runs/room-cache/`，全部缓存后可离线访问。实时目录/时间线优先询问服务，离线用上次响应。文件 HEAD 只传大小与 `X-RoomCanvas-SHA256`，已有同内容模型时建立链接。
 

@@ -72,7 +72,7 @@
 <tr><td><img src="docs/images/activity-classroom-2026-11-23/night-lighting.png" alt="夜间顶灯照亮长桌和书柜"><br><b>夜间</b> · 在环境面板切换时段，看灯光和阴影。</td>
 <td><img src="docs/images/activity-classroom-2026-11-23/add-object.png" alt="添加物品的名称输入框和照片选择区"><br><b>添加物品</b> · 从物品库选择照片，生成模型后确认尺寸。</td></tr></table>
 
-更多场景截图见 [Activity Classroom](docs/images/activity-classroom-2026-11-23/) · [办公室](docs/images/office-v1/)。
+更多场景截图见 [Activity Classroom](docs/images/activity-classroom-2026-11-23/)。
 
 <a id="1-启动"></a>
 
@@ -116,7 +116,7 @@ sh scripts/setup_server.sh
 bash scripts/start_server.sh
 ```
 
-环境与数据目录默认是仓库根目录，可用 `ROOMCANVAS_HOME` 指定。服务启动后按方式 B 连接。[服务凭证](web/README.md#共享服务器的服务凭证) · [进阶连接参数与缓存用量记录](docs/history/README_DEPLOYMENT_NOTES.md)
+环境与数据目录默认是仓库根目录，可用 `ROOMCANVAS_HOME` 指定。服务启动后按方式 B 连接。[服务凭证](web/README.md#共享服务器的服务凭证) · [服务器部署与运维](docs/SERVER_DEPLOYMENT.md)
 
 **构建 Android App。** 使用 JDK 21、Android SDK 35。Java/Kotlin 源码目标为 17。从仓库根目录进入 `android-app/`，再运行 `./gradlew :app:assembleDebug`。[安装、导入与模拟器](android-app/README.md)
 
@@ -221,7 +221,7 @@ CI 扫描提交历史中的密钥，并检查房间重建、网页、物品 API 
 | --- | --- |
 | 使用编辑器或在手机上看房间 | [网页操作](web/README.md) · [手机扫码与导入](docs/MOBILE_HANDOFF.md) · [Android App](android-app/README.md) |
 | 部署与运行重建服务 | [房间命令行重建](docs/ROOM_RECONSTRUCTION.md#运行) · [物品重建](docs/OBJECT_RECONSTRUCTION.md) |
-| 参与开发、查找验证记录 | [贡献指南](CONTRIBUTING.md) · [重构记录](docs/refactor/README.md) · [文档总索引](docs/README.md) |
+| 参与开发、查找验证记录 | [贡献指南](CONTRIBUTING.md) · [配置与维护契约](docs/architecture/contracts.md) · [文档总索引](docs/README.md) |
 
 ## 数据与隐私
 

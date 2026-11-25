@@ -4,7 +4,7 @@
 
 ## 安装与导入
 
-安装按下文构建的调试 APK；本仓库的 App 版本为 0.2.0，支持 Android API 26 及以上的 ARM 设备。已有安装的签名不同时，使用原签名构建更新可以保留本地房间。
+安装按下文构建的调试 APK；版本号见 [App 配置](app/build.gradle.kts)，支持 Android API 26 及以上的 ARM 设备。已有安装的签名不同时，使用原签名构建更新可以保留本地房间。
 
 | 我手上有…… | 怎么打开 |
 | --- | --- |
@@ -50,7 +50,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 找不到可用灯具、HDR 尚未就绪或加载失败时，保留原主光、环境光和曝光；加载顺序不会改变最终照明。切换回无法识别的模型也会恢复原照明。模型自带的 glTF 灯保持由模型持有，不被自动灯清理。
 
-JVM 测试覆盖窗户归组、遮帘排除和灯数预算。真实 Filament 测试还覆盖灯光／曝光恢复、两种加载顺序、带变换的 GLB 层级以及无模型 Activity 的加载行为。连接 ARM64 模拟器或设备后，在 `android-app/` 运行：
+JVM 测试覆盖窗户归组、遮帘排除和灯数预算。真实 Filament 测试还覆盖灯光／曝光恢复、两种加载顺序、带变换的 GLB 层级以及无模型 Activity 的加载行为。资源回收测试覆盖更换模型、重复释放、引擎先销毁和 Activity 退出等场景。连接 ARM64 模拟器或设备后，在 `android-app/` 运行：
 
 ```bash
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:connectedDebugAndroidTest
@@ -66,7 +66,7 @@ JVM 测试覆盖窗户归组、遮帘排除和灯数预算。真实 Filament 测
 
 ```bash
 mkdir -p output/android
-cp android-app/app/build/outputs/apk/debug/app-debug.apk output/android/RoomCanvas-Mobile-0.2.0-debug.apk
+cp android-app/app/build/outputs/apk/debug/app-debug.apk output/android/RoomCanvas-Mobile-debug.apk
 ./scripts/start_android_emulator.command
 ```
 

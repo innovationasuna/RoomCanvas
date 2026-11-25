@@ -23,7 +23,6 @@ class RoomLightLayoutTest {
         assertVecEquals(Vec3(0f, 1.1f - RoomLightLayout.CEILING_DROP_M, 0f), lamp.position)
         assertEquals(RoomLightLayout.CEILING_WATTS, lamp.watts, 0f)
         assertEquals(4700f, lamp.temperatureKelvin, 0f)
-        assertEquals(0.05f, lamp.bulbRadius, 0f)
         assertVecEquals(Vec3(0f, -1f, 0f), requireNotNull(lamp.direction))
     }
 

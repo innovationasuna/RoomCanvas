@@ -49,8 +49,7 @@ data class RoomLightSpec(
     val direction: Vec3?,
     val watts: Float,
     val temperatureKelvin: Float,
-    val falloff: Float,
-    val bulbRadius: Float
+    val falloff: Float
 )
 
 /** 局部灯使用 glTF 的 Y-up 坐标，优先从实际灯具与窗框布光。 */
@@ -58,11 +57,9 @@ object RoomLightLayout {
     const val CEILING_WATTS = 65f
     const val CEILING_TEMPERATURE_K = 4700f
     const val CEILING_DROP_M = 0.30f
-    const val CEILING_BULB_RADIUS_M = 0.05f
     const val WINDOW_WATTS = 220f
     const val WINDOW_TEMPERATURE_K = 6500f
     const val WINDOW_INSET_M = 0.08f
-    const val WINDOW_BULB_RADIUS_M = 0.20f
     const val WINDOW_DOWN_TILT = 0.10f
     const val LIGHT_FALLOFF_MULTIPLIER = 2.0f
 
@@ -120,8 +117,7 @@ object RoomLightLayout {
                 direction = Vec3(0f, -1f, 0f),
                 watts = CEILING_WATTS,
                 temperatureKelvin = CEILING_TEMPERATURE_K,
-                falloff = falloff,
-                bulbRadius = CEILING_BULB_RADIUS_M
+                falloff = falloff
             )
         }
 
@@ -156,8 +152,7 @@ object RoomLightLayout {
                 ),
                 watts = WINDOW_WATTS,
                 temperatureKelvin = WINDOW_TEMPERATURE_K,
-                falloff = falloff,
-                bulbRadius = WINDOW_BULB_RADIUS_M
+                falloff = falloff
             )
         }
 
