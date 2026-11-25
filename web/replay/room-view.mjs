@@ -512,15 +512,10 @@ export class RoomView {
     // draw as they were made: an opaque wall before what blends on it (a photo collage cut out of its photo),
     // which keeps from writing depth, or its clear texels would hide the wall wherever that is drawn after it.
     const wallMats = new Set();
-    // A faded wall's depth, drawn alone before its colours (see fadeWall), covering what each material covers: its
-    // sides, and not the holes its texture cuts out.
+    // A faded wall's depth, drawn alone before its colours (see fadeWall), on the sides each material draws.
     const noMask = new THREE.MeshBasicMaterial({visible: false}), depths = new Map();
     const depthOf = (m) => {
-      if (!depths.has(m)) {
-        const cut = m.alphaTest > 0;
-        depths.set(m, new THREE.MeshBasicMaterial({colorWrite: false, transparent: true, side: m.side, alphaTest: m.alphaTest,
-          map: cut ? m.map : null, alphaMap: cut ? m.alphaMap : null}));
-      }
+      if (!depths.has(m)) depths.set(m, new THREE.MeshBasicMaterial({colorWrite: false, transparent: true, side: m.side}));
       return depths.get(m);
     };
     for (const part of root.children.filter((o) => WALLISH.test(o.name))) {
@@ -542,9 +537,10 @@ export class RoomView {
         o.userData.renderOrder = o.renderOrder;
       });
       for (const o of meshes) {
-        // Glass lets what is behind it through (transmission): it keeps no depth of its own.
+        // Glass lets what is behind it through (transmission), and what a texture cuts out (alphaTest) is cut against
+        // the faded opacity, which the depth would not follow: neither keeps a depth of its own.
         const solid = [o.material].flat().map((m) => m.userData.depthWrite && m.userData.base > 0.9 && !m.userData.transparent
-          && !(m.transmission > 0));
+          && !(m.transmission > 0) && !(m.alphaTest > 0));
         if (!solid.some(Boolean) || o.isInstancedMesh || o.isSkinnedMesh) continue;
         const depth = [o.material].flat().map((m, i) => solid[i] ? depthOf(m) : noMask);
         const mask = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? depth : depth[0]);
@@ -1074,9 +1070,12 @@ export class RoomView {
     for (const name of pending) {
       const node = namedNodes(seed).get(name);
       if (!node || HIDDEN.test(node.name)) continue;
-      // A mesh above it (the floor's own, say) first gets separate visibility for its surface and its children.
+      // A mesh above it (the floor's own, say) first gets separate visibility for its surface and its children. A
+      // wall split so is faded and relinked from its new frame, which holds what hangs on it.
       for (let p = node.parent; p && p !== seed; p = p.parent) {
-        if (p.isMesh) splitMeshFrame(seed, p, p.children.filter(o => !o.userData.mask));
+        if (!p.isMesh) continue;
+        splitMeshFrame(seed, p, p.children.filter(o => !o.userData.mask));
+        for (const w of this.wallFades) if (w.part === p) w.part = p.parent;
       }
       objects.add(node);
       for (let p = node.parent; p && p !== seed; p = p.parent) above.add(p);

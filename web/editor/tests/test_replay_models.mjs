@@ -1195,10 +1195,11 @@ test('a faded wall keeps its depth while the room fades, covering what each mate
   const root = loaded(v, 'round0', group('Wall0', both, lace, glass));
   apply(v, 'round0', true);
   const depth = (o) => o.children.find(c => c.userData.mask === 'depth')?.material;
-  assert.equal(depth(glass), undefined);
-  assert.deepEqual([depth(both).side, depth(lace).alphaTest, depth(lace).map], [THREE.DoubleSide, .5, lace.material.map]);
+  // what a texture cuts out is cut against the faded opacity: no depth to disagree with it
+  assert.deepEqual([depth(glass), depth(lace)], [undefined, undefined]);
+  assert.equal(depth(both).side, THREE.DoubleSide);
   v.setFade(root, .5);
-  assert.deepEqual([depth(both).depthWrite, depth(lace).depthWrite], [true, true]);
+  assert.equal(depth(both).depthWrite, true);
 });
 
 test('a seek ends what of the photo items was taking shape', () => {
@@ -1232,6 +1233,20 @@ test('a first-room object under its floor shows on its own while pending, and al
   assert.deepEqual([seed.visible, shown(floor)], [true, false]);
   apply(v, 'seed', true);
   assert.deepEqual([shown(floor), shown(box.children[0]), shown(tile.children[0])], [true, true, true]);
+});
+
+test('a first-room wall split to show what hangs on it is faded and relinked from its new frame', () => {
+  const v = view(), wall = mesh('Wall0'), clock = group('Clock0', mesh('OldClock'));
+  wall.add(clock);
+  loaded(v, 'seed', wall);
+  loaded(v, 'final', group('Wall0', group('Clock0', mesh('NewClock'))));
+  apply(v, 'seed', true);
+  apply(v, 'final', true, {added: new Set(), pending: new Set(['Clock0']), buildModel: 'final'});
+  const fade = v.wallFades.find(w => w.root === v.models.seed.root);
+  assert.equal(fade.part, wall.parent);
+  assert.ok(fade.part.getObjectById(clock.id));
+  v.relinkWalls();
+  assert.ok(fade.mats.includes(clock.children[0].material));
 });
 
 test("the build room shows the first room's versions of the objects not reached yet, and only those", () => {
