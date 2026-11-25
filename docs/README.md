@@ -24,13 +24,12 @@
 | 网页与手势 | [编辑器光照、几何与渲染](architecture/web-editor-internals.md) · [手势模块](../gesture/README.md) |
 | 房间重建与回放 | [房间模块](../room-reconstruction/README.md) · [阶段、续跑与回放事件](architecture/replay-and-pipeline.md) |
 | 物品重建与模型契约 | [物品模块](../object-reconstruction/README.md) · [物品重建流水线](OBJECT_RECONSTRUCTION_PIPELINE.md) |
-| 配置优先级、GPU 锁与兼容边界 | [配置与维护契约](refactor/contracts.md) |
+| 配置优先级、GPU 锁与兼容边界 | [配置与维护契约](architecture/contracts.md) |
 | 手机客户端 | [快照导出与分享协议](architecture/mobile-handoff.md) · [Android 构建与模拟器](../android-app/README.md) |
 
 ## 我想查历史记录
 
-- [项目交接记录（2026-11-03）](history/PROJECT_HANDOFF_2026-11-03.md) · [服务连接与下载用量记录](history/README_DEPLOYMENT_NOTES.md)
 - [物品重建性能实验](history/OBJECT_RECONSTRUCTION_PERFORMANCE.md) · [PR 96 服务器验证](history/PR96_SERVER_VALIDATION.md)
-- [房间安装与验证记录](history/ROOM_RECONSTRUCTION_VALIDATION.md) · [手机分享阶段计划](history/MOBILE_HANDOFF_PLAN.md) · [手机分享验证记录](history/MOBILE_HANDOFF_VALIDATION.md)
-- [网页交互耗时记录](history/WEB_EDITOR_VALIDATION.md) · [重构实施与验收记录](refactor/README.md)
+- [手机分享阶段计划](history/MOBILE_HANDOFF_PLAN.md) · [手机分享验证记录](history/MOBILE_HANDOFF_VALIDATION.md)
+- [编辑器重构验证记录](history/EDITOR_REFACTOR_VALIDATION.md)
 - [Git 历史改写说明](history/README.md) · [完整提交哈希对照](history/commit-map-2026-11-19.txt)

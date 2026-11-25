@@ -47,7 +47,7 @@ export PATH="$HOME/.local/roomcanvas-tools/bin:$PATH"
 | `object-reconstruction/configs/local.env` | 首次安装生成，已有文件保留。默认 `VIEWFORGE_ROOT=$ROOMCANVAS_HOME/runtime/object-reconstruction`。安装时已有配置只提供这个根目录。与显式导出的值冲突会停止。 |
 | 物品环境 | 安装时需要的 GPU 或 `TORCH_CUDA_ARCH_LIST` 在调用终端导出。运行时先加载 `configs/local.env` 再加载 `scripts/env.sh`。时区按机器设置，精简容器可在配置中设 `TZ`。 |
 
-房间启动器先读取进程环境，再合并 `.env`。显式导出的 GPU 限制优先于 `.env`。运行器设置机器路径，命令行 `--set KEY=VALUE` 最后覆盖。单次 Codex 建模会话的 `LR_CODEX_SESSION_SECONDS` 默认 3600 秒。[配置优先级](refactor/contracts.md)
+房间启动器先读取进程环境，再合并 `.env`。显式导出的 GPU 限制优先于 `.env`。运行器设置机器路径，命令行 `--set KEY=VALUE` 最后覆盖。单次 Codex 建模会话的 `LR_CODEX_SESSION_SECONDS` 默认 3600 秒。[配置优先级](architecture/contracts.md)
 
 **选择模型来源**
 
@@ -160,7 +160,7 @@ PY
 | 下载情形 | 冷启动用量 |
 | --- | --- |
 | 只取三个示例，无本地副本 | 办公室 36.0 MB、卧室 69.7 MB、Activity Classroom 263.7 MB，共 369.4 MB |
-| 另用 SSH 缓存服务器任务 | 取决于已完成任务及模型版本，含点云、各版模型和配图。旧部署四示例、两任务的 2.49 GB 估算保留在[历史测量](history/README_DEPLOYMENT_NOTES.md#2026-11-21-下载测量)。 |
+| 另用 SSH 缓存服务器任务 | 取决于已完成任务及模型版本，含点云、各版模型和配图。 |
 
 1. 本机服务先预取缺失示例，再经 SSH 将完成任务存入 `runs/room-cache/`。正常每 5 分钟检查一次。可用 `--cache DIR` 改位置，`--no-download` 关闭后台预取。
 2. 手动获取示例用已登录的 GitHub CLI（`gh auth login`）或具有仓库读取权限的 `GH_TOKEN` / `GITHUB_TOKEN`。脚本也会给出浏览器下载位置与本机目标文件名。
