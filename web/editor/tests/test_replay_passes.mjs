@@ -298,3 +298,45 @@ test('from the build the photo items show one by one at their own records, also 
   assert.ok(at('placed') - at('again') < 1);
   assert.deepEqual(shown(sceneAt(tl, at('author'))), []);
 });
+
+test('the items on a carried holder come first, one after another, and the build never shows its own parts in it', () => {
+  const ids = ['Box0', 'Book0', 'Cup0', 'Book1', 'Cup1'];
+  const data = {stages, presentation: 'by_stage', latest_event: 'placed',
+    models: {seed: 's', round0: 'r', small_objects: 'so'}, hidden_nodes: {},
+    build: {model: 'round0', base: 1, reveal: [{node: 'Lamp0', minute: 2}, {node: 'Panel0', minute: 3}, {node: 'Panel1', minute: 3}]},
+    events: [{id: 'seed', stage: 'plan', minute: 0, model: 'seed'}, {id: 'author', stage: 'assemble', minute: 1},
+      ...ids.map(id => ({id, stage: 'assemble', recorded_stage: 'small_objects', minute: 100, display_minute: 20,
+        work: 'small', object_id: id})),
+      {id: 'placed', stage: 'assemble', recorded_stage: 'small_objects', minute: 109, display_minute: 20, overlay_model: 'small_objects'},
+      {id: 'check', stage: 'review', minute: 21, model: 'round0', kind: 'review'}],
+    photo_holders: {holders: {Book0: 'Shelf0', Book1: 'Shelf0', Cup0: 'Table0', Cup1: 'Table0'}, carried: ['Shelf0'],
+      inside: ['Panel0', 'Panel1']}};
+  const plain = buildTimeline({...data, photo_holders: undefined}), tl = buildTimeline(data);
+  const order = tl => tl.events.filter(e => e.object_id).map(e => e.id);
+  assert.deepEqual(order(plain), ids);
+  assert.deepEqual(order(tl), ['Book0', 'Book1', 'Box0', 'Cup0', 'Cup1']);
+  assert.deepEqual([...tl.photoItems.leads], [['Book0', 'Shelf0']]);
+  // The parts in the shelf take no time of their own and never show while the build plays.
+  assert.ok(plain.duration - tl.duration > 4);
+  const added = id => [...sceneAt(tl, tl.events.find(e => e.id === id).at).added];
+  assert.deepEqual(added('Book0'), ['Lamp0']);
+  assert.deepEqual(added('Cup1'), ['Lamp0']);
+  assert.deepEqual([...plain.photoItems.leads], []);
+});
+
+test("while the build plays, the first room's objects the agent changed show as they were until it reaches them", () => {
+  const tl = buildTimeline({stages, models: {seed: 's', round0: 'r'}, hidden_nodes: {},
+    build: {model: 'round0', base: 1, reveal: [{node: 'Lamp0', minute: 2}, {node: 'Chair0', minute: 3, changed: true},
+      {node: 'Shelf0', minute: 3, changed: true}, {node: 'Sofa0', minute: 5, changed: true}]},
+    events: [{id: 'seed', stage: 'plan', minute: 0, model: 'seed'}, {id: 'a', stage: 'assemble', minute: 1},
+      {id: 'b', stage: 'assemble', minute: 4}, {id: 'c', stage: 'assemble', minute: 6},
+      {id: 'check', stage: 'review', minute: 7, model: 'round0', kind: 'review'}],
+    photo_holders: {holders: {}, carried: ['Shelf0'], inside: []}});
+  const at = id => sceneAt(tl, tl.events.find(e => e.id === id).at);
+  assert.deepEqual([...at('a').pending], ['Chair0', 'Sofa0']);  // a carried holder never shows its first version
+  assert.deepEqual([[...at('b').added], [...at('b').pending]], [['Lamp0', 'Chair0', 'Shelf0'], ['Sofa0']]);
+  assert.deepEqual([...at('c').pending], []);
+  assert.equal(at('check').pending, null);
+  // The changed objects take time to watch as they take shape again.
+  assert.ok(tl.events.find(e => e.id === 'c').at - tl.events.find(e => e.id === 'b').at > 4);
+});

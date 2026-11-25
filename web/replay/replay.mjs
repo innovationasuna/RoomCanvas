@@ -1,10 +1,11 @@
 // Reconstruction replay page: live while a job runs (polls the room service), replay afterwards.
-import {buildTimeline, clock, comparisonAt, sceneAt, outcome, withoutScores, readReplay, DURATION} from './timeline.mjs';
+import {buildTimeline, buildRoom, clock, comparisonAt, sceneAt, outcome, withoutScores, readReplay, DURATION} from './timeline.mjs';
 
 // Playback length: set by the timeline (longer when many objects take shape).
 const span = () => tl?.duration ?? DURATION;
 import {Player, esc} from './player.mjs';
 import {RoomView} from './room-view.mjs';
+import {modelNodes, photoHolders} from './small-items.mjs';
 import {cards, upTo, objects, objectNames, pictureUrls, reviewPictures, lines, pictures, cropOf, isStrip, CardImages, keepReading, appendedEvents, nearEnd, cardScroll, WORK} from './log.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -76,7 +77,31 @@ async function choose() {
 async function fetchData() {
   const data = readReplay(await replayJSON(api, '没有找到这条记录，请返回房间列表重新选择。'));
   data.events = data.events.map(e => pictureUrls(e, files));
-  return data;
+  return withHolders(data);
+}
+
+// Which object each photo item stands on, and which of them the build room only has an earlier version of
+// (photoHolders): read from the two rooms' node lists, a small part at the start of each file. Without them the
+// items come in their recorded order.
+const trees = new Map();
+function nodesOf(rel, digest) {
+  const key = `${rel}#${digest || ''}`;
+  if (!trees.has(key)) trees.set(key, modelNodes(files(rel)).catch((error) => {trees.delete(key); throw error;}));
+  return trees.get(key);
+}
+async function withHolders(data) {
+  const pass = data.events.find(e => e.overlay_model && data.models?.[e.overlay_model]);
+  const made = data.events.filter(e => e.recorded_stage === 'small_objects' && e.work === 'small' && e.object_id);
+  const room = data.models?.[buildRoom(data)];
+  if (!pass || !made.length || !room) return data;
+  const ids = [...new Set(made.map(e => e.object_id))];
+  const objects = new Set([...(pass.overlay_objects || []), ...ids, ...data.events.flatMap(e => e.show || [])]);
+  try {
+    const [passNodes, buildNodes] = await Promise.all([nodesOf(data.models[pass.overlay_model], pass.artifact_digest), nodesOf(room)]);
+    return {...data, photo_holders: photoHolders(passNodes, buildNodes, ids, objects, pass.overlay_members)};
+  } catch {
+    return data;
+  }
 }
 
 async function start() {
@@ -411,10 +436,12 @@ function render(t, p, animate = p.playing) {
   // Once the room shell shows, a finished object takes shape in place: move in close to watch it (not to
   // one made again, which is already there and passes in a moment).
   if (p.playing && idx === prevIdx + 1 && e?.show && (e.forms || !scene.shell) && view.aim(e.show.filter((k) => k !== '@boxes'), {close: scene.shell})) hold = scene.shell ? WATCH : 2000;
-  // A photo item appears at its own record: move in on it, one after another.
+  // A photo item appears at its own record: move in on it, one after another. The first on a carried holder:
+  // on the holder, which fills with what else stood on it.
   if (p.playing && idx === prevIdx + 1 && e?.work === 'small' && scene.photoShow?.has(e.object_id)) {
-    if (view.boundsOf(e.object_id).isEmpty()) framing = {idx, id: e.object_id};
-    else if (view.aim([e.object_id], {close: true})) hold = WATCH;
+    const id = tl.photoItems.leads.get(e.object_id) || e.object_id;
+    if (view.boundsOf(id).isEmpty()) framing = {idx, id};
+    else if (view.aim([id], {close: true})) hold = WATCH;
   }
   renderLog(idx);
 }
