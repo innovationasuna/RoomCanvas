@@ -512,9 +512,17 @@ export class RoomView {
     // draw as they were made: an opaque wall before what blends on it (a photo collage cut out of its photo),
     // which keeps from writing depth, or its clear texels would hide the wall wherever that is drawn after it.
     const wallMats = new Set();
-    // A faded wall's depth, drawn alone before its colours (see fadeWall).
-    const wallMask = new THREE.MeshBasicMaterial({colorWrite: false, transparent: true});
-    const noMask = new THREE.MeshBasicMaterial({visible: false});
+    // A faded wall's depth, drawn alone before its colours (see fadeWall), covering what each material covers: its
+    // sides, and not the holes its texture cuts out.
+    const noMask = new THREE.MeshBasicMaterial({visible: false}), depths = new Map();
+    const depthOf = (m) => {
+      if (!depths.has(m)) {
+        const cut = m.alphaTest > 0;
+        depths.set(m, new THREE.MeshBasicMaterial({colorWrite: false, transparent: true, side: m.side, alphaTest: m.alphaTest,
+          map: cut ? m.map : null, alphaMap: cut ? m.alphaMap : null}));
+      }
+      return depths.get(m);
+    };
     for (const part of root.children.filter((o) => WALLISH.test(o.name))) {
       const mats = [], meshes = [], masks = [];
       part.traverse((o) => {
@@ -534,9 +542,12 @@ export class RoomView {
         o.userData.renderOrder = o.renderOrder;
       });
       for (const o of meshes) {
-        const solid = [o.material].flat().map((m) => m.userData.depthWrite && m.userData.base > 0.9 && !m.userData.transparent);
+        // Glass lets what is behind it through (transmission): it keeps no depth of its own.
+        const solid = [o.material].flat().map((m) => m.userData.depthWrite && m.userData.base > 0.9 && !m.userData.transparent
+          && !(m.transmission > 0));
         if (!solid.some(Boolean) || o.isInstancedMesh || o.isSkinnedMesh) continue;
-        const mask = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? solid.map((x) => x ? wallMask : noMask) : wallMask);
+        const depth = [o.material].flat().map((m, i) => solid[i] ? depthOf(m) : noMask);
+        const mask = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? depth : depth[0]);
         mask.userData.mask = 'depth';
         mask.userData.forming = 0;
         mask.visible = false;
@@ -564,8 +575,9 @@ export class RoomView {
     };
     root.children.forEach(collectWindows);
     for (const window of windows.values()) if (window) window.parts = windowParts(window.part, backdrops);
+    // A wall's depth (above) keeps writing it while the room fades: it is not one of the room's colours.
     const all = new Set();
-    root.traverse((o) => {if (o.isMesh) [o.material].flat().forEach((m) => all.add(m));});
+    root.traverse((o) => {if (o.isMesh && !o.userData.mask) [o.material].flat().forEach((m) => all.add(m));});
     root.userData.fadeMats = [...all].map((m) => ({m, opacity: m.userData.base ?? m.opacity, transparent: m.transparent,
       depthWrite: m.depthWrite, polygonOffset: m.polygonOffset, factor: m.polygonOffsetFactor, units: m.polygonOffsetUnits, wall: wallMats.has(m)}));
     root.userData.fade = 1;
@@ -574,7 +586,7 @@ export class RoomView {
     // A picture's mask carries the picture's offset too (see setFade).
     const decalMask = mask.clone();
     decalMask.polygonOffsetFactor += DECAL_OFFSET.factor; decalMask.polygonOffsetUnits += DECAL_OFFSET.units;
-    root.userData.sourceMaterials.push(mask, decalMask, wallMask, noMask);
+    root.userData.sourceMaterials.push(mask, decalMask, noMask, ...depths.values());
     root.userData.mask = [];
     const meshes = [];
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
@@ -1006,6 +1018,8 @@ export class RoomView {
     }
     if (inRoom) this.models[key].root.userData.modelEvent = state.modelEvent;
     if (quiet && inRoom) this.forming.finishModel(this.models[key].root);
+    // The photo items have their own root: a seek ends what of them was taking shape as well.
+    if (quiet && this.photoSource?.layer) this.forming.finishModel(this.photoSource.layer.root);
     const {shown: placed, appeared} = inRoom ? this.revealModel(key) : {};
     if (inRoom && !quiet) this.materialize(appeared);
     for (const [id, group] of Object.entries(this.boxes)) {
@@ -1043,16 +1057,37 @@ export class RoomView {
   underlay() {
     const seed = this.models.seed?.root;
     if (!seed) return;
-    const masked = seed.userData.underlayMasked ??= [];
-    for (const node of masked.splice(0)) node.visible = true;
+    // Every change is recorded and undone first, so the first room is as it was whenever it shows on its own.
+    const changes = seed.userData.underlayChanges ??= [];
+    for (const [node, visible] of changes.splice(0).reverse()) node.visible = visible;
     if (this.current === 'seed' || this.incoming === 'seed') return;
     const pending = this.current === (this.state?.buildModel || 'final') && this.state?.added && this.state.pending;
+    const set = (node, visible) => {
+      if (node.visible !== visible) {changes.push([node, node.visible]); node.visible = visible;}
+    };
+    // The root's own visibility belongs to the room switches (show, swap), which set it whenever the first room is shown.
     seed.visible = !!pending?.size;
     if (!seed.visible) return;
-    for (const o of seed.children) o.visible = pending.has(originalName(o)) && !HIDDEN.test(o.name);
+    // An object can stand or hang under the floor or a wall (changed_objects): only it shows, with the transforms
+    // above it, not the floor's or the wall's own surface.
+    const objects = new Set(), above = new Set();
+    for (const name of pending) {
+      const node = namedNodes(seed).get(name);
+      if (!node || HIDDEN.test(node.name)) continue;
+      objects.add(node);
+      for (let p = node.parent; p && p !== seed; p = p.parent) above.add(p);
+    }
+    (function walk(node) {
+      for (const child of node.children) {
+        if (child.userData.mask) continue;
+        if (objects.has(child)) set(child, true);
+        else if (above.has(child)) {set(child, true); walk(child);}
+        else set(child, false);
+      }
+    })(seed);
     for (const name of this.state.hiddenNodes || []) {
       const node = namedNodes(seed).get(name);
-      if (node?.visible) {node.visible = false; masked.push(node);}
+      if (node?.visible) set(node, false);
     }
   }
 

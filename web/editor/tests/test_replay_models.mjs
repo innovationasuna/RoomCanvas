@@ -1188,6 +1188,54 @@ test('a faded wall still hides what of it lies behind its nearest surface, after
   assert.deepEqual([depth()[0][1], leaf.material.polygonOffset], [false, false]);
 });
 
+test('a faded wall keeps its depth while the room fades, covering what each material covers, glass left out', () => {
+  const v = view(), both = mesh('Both', new THREE.MeshStandardMaterial({side: THREE.DoubleSide}));
+  const lace = mesh('Lace', new THREE.MeshStandardMaterial({alphaTest: .5, map: new THREE.Texture()}));
+  const glass = mesh('Glass', new THREE.MeshPhysicalMaterial({transmission: 1}));
+  const root = loaded(v, 'round0', group('Wall0', both, lace, glass));
+  apply(v, 'round0', true);
+  const depth = (o) => o.children.find(c => c.userData.mask === 'depth')?.material;
+  assert.equal(depth(glass), undefined);
+  assert.deepEqual([depth(both).side, depth(lace).alphaTest, depth(lace).map], [THREE.DoubleSide, .5, lace.material.map]);
+  v.setFade(root, .5);
+  assert.deepEqual([depth(both).depthWrite, depth(lace).depthWrite], [true, true]);
+});
+
+test('a seek ends what of the photo items was taking shape', () => {
+  const v = view(), ids = ['Cup0'], cup = group('Cup0', mesh('PhotoCup'));
+  v.calm = {matches: false};
+  const layer = photoLayer(v, ids, cup);
+  loaded(v, 'round0', group('Cup0', mesh('Block')));
+  apply(v, 'round0', true, {photoItems: {ids}, photoShow: new Set()});
+  apply(v, 'round0', false, {photoItems: {ids}, photoShow: new Set()});
+  apply(v, 'round0', false, {photoItems: {ids}, photoShow: new Set(ids)});
+  const inLayer = () => [...v.forming.active.keys()].filter(node => layer.root.getObjectById(node.id));
+  assert.equal(inLayer().length, 1);
+  apply(v, 'round0', true, {photoItems: {ids}, photoShow: new Set(ids)});
+  assert.deepEqual(inLayer(), []);
+  let extras = 0;
+  layer.root.traverse(o => {if (o.userData.mask === true) extras++;});
+  assert.equal(extras, 0);
+});
+
+test('a first-room object under its floor shows on its own while pending, and all is undone after', () => {
+  const v = view(), floor = mesh('Floor0'), box = group('Box0', mesh('OldBox')), tile = group('Tile0', mesh('OldTile'));
+  floor.add(box, tile);
+  const seed = loaded(v, 'seed', floor, group('Sofa0', mesh('OldSofa')));
+  loaded(v, 'final', group('Floor0', group('Box0', mesh('NewBox'))));
+  v.models.seed.root.visible = true;
+  apply(v, 'seed', true);
+  apply(v, 'final', true, {added: new Set(), pending: new Set(['Box0']), buildModel: 'final'});
+  const shown = (o) => {for (let p = o; p; p = p.parent) if (!p.visible) return false; return true;};
+  assert.deepEqual([shown(box.children[0]), shown(tile.children[0]), shown(seed.getObjectByName('OldSofa'))], [true, false, false]);
+  // the floor's own surface stays hidden: only the transform above the box shows
+  const own = floor.material, drawn = [];
+  seed.traverseVisible(o => {if (o.isMesh && o.material === own && !o.userData.mask) drawn.push(o);});
+  assert.equal(seed.visible, true);
+  apply(v, 'seed', true);
+  assert.deepEqual([shown(box.children[0]), shown(tile.children[0])], [true, true]);
+});
+
 test("the build room shows the first room's versions of the objects not reached yet, and only those", () => {
   const v = view(), oldChair = mesh('OldChair'), stand = mesh('OldCupBlock'), wall = group('Wall0', mesh('OldWall'));
   const seed = loaded(v, 'seed', wall, group('Chair0', oldChair), group('Table0', mesh('OldTable'), group('Cup0', stand)), group('Sofa0', mesh('OldSofa')));

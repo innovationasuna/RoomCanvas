@@ -1245,21 +1245,29 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual([s['id'] for s in data['stages']], EIGHT)
 
 
-def glb(path, tree, t, at=None):
+def glb(path, tree, t, at=None, paint=None):
     """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes; at = {name:
-    translation}."""
+    translation}; paint = {name: (material name, colour)}, a mesh of 8 vertices in that material."""
     import struct
-    nodes, roots = [], []
+    nodes, roots, meshes, materials = [], [], [], []
 
     def add(name, children):
         k = len(nodes)
         nodes.append({'name': name, **({'translation': at[name]} if at and name in at else {})})
+        if paint and name in paint:
+            material, colour = paint[name]
+            materials.append({'name': material, 'pbrMetallicRoughness': {'baseColorFactor': colour}})
+            meshes.append({'primitives': [{'attributes': {'POSITION': 0}, 'material': len(materials) - 1}]})
+            nodes[k]['mesh'] = len(meshes) - 1
         kids = [add(c, tree.get(c, [])) for c in children]
         if kids:
             nodes[k]['children'] = kids
         return k
     roots = [add(name, tree.get(name, [])) for name in tree['@roots']]
-    body = json.dumps({'scenes': [{'nodes': roots}], 'nodes': nodes}).encode()
+    gltf = {'scenes': [{'nodes': roots}], 'nodes': nodes}
+    if meshes:
+        gltf.update(meshes=meshes, materials=materials, accessors=[{'count': 8, 'type': 'VEC3', 'componentType': 5126}])
+    body = json.dumps(gltf).encode()
     body += b' ' * (-len(body) % 4)
     data = struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(body)) + struct.pack('<II', len(body), 0x4E4F534A) + body
     write(path, data, t)
@@ -1345,6 +1353,20 @@ class BuildSchedule(unittest.TestCase):
             self.assertEqual([(r['node'], r['t'], r.get('changed')) for r in reveal],
                              [('Chair0', T0 + 300, True), ('Lamp0', T0 + 610, True)])  # Lamp0 never named: at the end
             self.assertEqual(replay.build_schedule(scene, T0 + 1300, hidden=('Lamp0',))['reveal'][1:], [])
+
+    def test_objects_under_the_floor_and_repainted_in_the_same_material_count_as_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = make_run(Path(tmp) / 'run')
+            red, blue = [1, 0, 0, 1], [0, 0, 1, 1]
+            tree = {'@roots': ['Floor0', 'Wall0', 'Desk0'], 'Floor0': ['Box0', 'Tile0', 'Rug0'], 'Wall0': ['Clock0'], 'Desk0': ['Top']}
+            paint = {'Floor0': ('Floor', red), 'Tile0': ('Ceramic', red), 'Rug0': ('Wool', red), 'Clock0': ('Paint', red),
+                     'Top': ('Oak', red)}
+            glb(scene / replay.SEED, tree, T0 + 100, at={'Box0': [1, 0, 0]}, paint=paint)
+            # The box moved; the tile, the clock and the desk's top were repainted under the same material names; the
+            # floor itself was repainted too, and the rug left as it was.
+            glb(scene / replay.FINAL, tree, T0 + 1150, at={'Box0': [2, 0, 0]},
+                paint={**paint, 'Floor0': ('Floor', blue), 'Tile0': ('Ceramic', blue), 'Clock0': ('Paint', blue), 'Top': ('Oak', blue)})
+            self.assertEqual(replay.changed_objects(scene / replay.SEED, scene / replay.FINAL), ['Box0', 'Tile0', 'Clock0', 'Desk0'])
 
     def test_parts_named_in_an_earlier_session_appear_then(self):
         with tempfile.TemporaryDirectory() as tmp:

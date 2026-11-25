@@ -1065,12 +1065,34 @@ def _local(node):
     return [[rot[i][0] * sx, rot[i][1] * sy, rot[i][2] * sz, t[i]] for i in range(3)] + [[0, 0, 0, 1]]
 
 
+def _material_looks(gltf):
+    """Each material as it looks: its values, a texture by the image it shows (by its URI or its type and size, which
+    tells an image swapped in apart without reading it), not its name."""
+    textures, images, views = gltf.get('textures', []), gltf.get('images', []), gltf.get('bufferViews', [])
+
+    def image(t):
+        try:
+            source = images[textures[t]['source']]
+            return source.get('uri') or f"{source.get('mimeType')}:{views[source['bufferView']].get('byteLength')}"
+        except (IndexError, KeyError, TypeError):
+            return None
+
+    def resolve(value, key=None):
+        if isinstance(value, dict):
+            return {k: resolve(v, k) for k, v in value.items() if k != 'name'}
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return image(value) if key == 'index' and isinstance(value, int) else value
+    return [json.dumps(resolve(m), sort_keys=True) for m in gltf.get('materials', [])]
+
+
 def glb_parts(path):
-    """{node name: (its mesh's primitives as (vertices, material), its world transform to the millimetre)} and the
-    names of the scene's top nodes, from a GLB's JSON chunk."""
+    """{node name: (its mesh's primitives as (vertices, material name, material look), its world transform to the
+    millimetre)} and the names of the scene's top nodes, from a GLB's JSON chunk."""
     gltf = _glb_json(path)
     nodes, meshes = gltf.get('nodes', []), gltf.get('meshes', [])
     accessors, materials = gltf.get('accessors', []), gltf.get('materials', [])
+    looks = _material_looks(gltf)
     parts = {}
 
     def visit(k, parent):
@@ -1078,8 +1100,9 @@ def glb_parts(path):
         local = _local(node)
         world = [[sum(parent[i][j] * local[j][c] for j in range(4)) for c in range(4)] for i in range(4)]
         mesh = meshes[node['mesh']]['primitives'] if 'mesh' in node else []
-        shape = tuple((accessors[p['attributes']['POSITION']].get('count'), materials[p['material']].get('name')
-                       if 'material' in p else None) for p in mesh)
+        shape = tuple((accessors[p['attributes']['POSITION']].get('count'),
+                       materials[p['material']].get('name') if 'material' in p else None,
+                       looks[p['material']] if 'material' in p else None) for p in mesh)
         if node.get('name') and node['name'] not in parts:
             parts[node['name']] = (shape, tuple(round(v, 3) for row in world[:3] for v in row))
         for child in node.get('children', []):
@@ -1094,18 +1117,19 @@ SHELL = re.compile(r'(Floor|Wall|Ceiling)\d+')
 
 
 def changed_objects(seed, target):
-    """The first room's objects the agent changed (moved, reshaped, repainted or took apart): each top object, not
-    the floor, walls or ceiling, of which a part is missing from the target room or differs there."""
-    before, roots = glb_parts(seed)
+    """The first room's objects the agent changed (moved, reshaped, repainted or took apart): each object, not the
+    floor, walls or ceiling, of which a part is missing from the target room or differs there. An object is a top
+    node, or a node right under the floor, a wall or the ceiling (what stands or hangs there), in the seed's order."""
+    before = glb_parts(seed)[0]
     after = glb_parts(target)[0]
     tree = glb_tree(seed)
 
-    def top(name):
-        while tree.get(name) is not None:
+    def owner(name):
+        while tree.get(name) is not None and not SHELL.fullmatch(tree[name]):
             name = tree[name]
         return name
-    differ = {top(name) for name, part in before.items() if after.get(name) != part}
-    return [name for name in roots if name in differ and not SHELL.fullmatch(name)]
+    differ = {owner(name) for name, part in before.items() if after.get(name) != part}
+    return [name for name in tree if name in differ and not SHELL.fullmatch(name)]
 
 
 WORD = re.compile(r'[A-Za-z0-9_]+')
