@@ -1229,11 +1229,9 @@ test('a first-room object under its floor shows on its own while pending, and al
   const shown = (o) => {for (let p = o; p; p = p.parent) if (!p.visible) return false; return true;};
   assert.deepEqual([shown(box.children[0]), shown(tile.children[0]), shown(seed.getObjectByName('OldSofa'))], [true, false, false]);
   // the floor's own surface stays hidden: only the transform above the box shows
-  const own = floor.material, drawn = [];
-  seed.traverseVisible(o => {if (o.isMesh && o.material === own && !o.userData.mask) drawn.push(o);});
-  assert.equal(seed.visible, true);
+  assert.deepEqual([seed.visible, shown(floor)], [true, false]);
   apply(v, 'seed', true);
-  assert.deepEqual([shown(box.children[0]), shown(tile.children[0])], [true, true]);
+  assert.deepEqual([shown(floor), shown(box.children[0]), shown(tile.children[0])], [true, true, true]);
 });
 
 test("the build room shows the first room's versions of the objects not reached yet, and only those", () => {

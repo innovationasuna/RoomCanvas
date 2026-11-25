@@ -1074,6 +1074,10 @@ export class RoomView {
     for (const name of pending) {
       const node = namedNodes(seed).get(name);
       if (!node || HIDDEN.test(node.name)) continue;
+      // A mesh above it (the floor's own, say) first gets separate visibility for its surface and its children.
+      for (let p = node.parent; p && p !== seed; p = p.parent) {
+        if (p.isMesh) splitMeshFrame(seed, p, p.children.filter(o => !o.userData.mask));
+      }
       objects.add(node);
       for (let p = node.parent; p && p !== seed; p = p.parent) above.add(p);
     }
