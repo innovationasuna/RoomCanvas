@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 
 const APPEAR = [0, 1.2];    // seconds: the points on the surface light up, in random order
-const WIRE = [0.9, 2.3];    // wireframe front, bottom to top
-const SOLID = [1.4, 3.0];   // textured surface front
+const WIRE = [0.9, 2.0];    // wireframe front, bottom to top
+const SOLID = [1.3, 2.6];   // textured surface front
 const DONE = SOLID[1];
 const PER_M2 = 9000, MIN_POINTS = 2500, MAX_POINTS = 16000;
 

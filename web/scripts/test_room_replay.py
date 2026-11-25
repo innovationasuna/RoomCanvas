@@ -416,6 +416,22 @@ class LiveRecords(unittest.TestCase):
         write(self.scene / 'scene_init/obj_stage/object_init/object_refs/storage/Storage0/reference_1024.png')
         self.assertEqual(first('image')['img'], 'scene_init/obj_stage/object_init/object_refs/storage/Storage0/reference_1024.png')
 
+    def test_each_chair_type_has_its_clear_picture_and_its_model_shows_it(self):
+        refs = 'scene_init/obj_stage/object_init/chair_clusters/capture/references'
+        for chair in ('ChairCluster10', 'ChairCluster2'):
+            write(self.scene / refs / f'{chair}.png')
+        write(self.scene / refs / 'ChairCluster2_mask.png')
+        self.append([{'t': T0 + 11, 'kind': 'image_generation', 'name': 'generated', 'status': 'ok', 'event_id': 'g1'},
+                     {'t': T0 + 40, 'kind': 'object_done', 'name': 'ChairCluster2', 'method': 'trellis', 'status': 'ok'}])
+        events = replay.pipeline_events(self.scene, T0 + 1300)
+        pictures = [(e['id'], e['object_id'], e['say'], e['img']) for e in events if e.get('work') == 'image' and 'Chair' in e['object_id']]
+        self.assertEqual(pictures, [('g1:ChairCluster2', 'ChairCluster2', '生成椅子的清晰图', f'{refs}/ChairCluster2.png'),
+                                    ('g1:ChairCluster10', 'ChairCluster10', '生成椅子的清晰图', f'{refs}/ChairCluster10.png')])
+        self.assertFalse([e for e in events if e.get('object_id') == 'generated'])
+        model = next(e for e in events if e.get('work') == 'model' and e['object_id'] == 'ChairCluster2')
+        self.assertEqual(model['img'], f'{refs}/ChairCluster2.png')
+        self.assertTrue(replay.FILES.fullmatch(model['img']))
+
     def test_a_finished_object_is_said_once_and_retries_still_show(self):
         says = [e['say'] for e in sorted(replay.pipeline_events(self.scene, T0 + 1300), key=lambda e: e['t'])
                 if e.get('show') == ['Storage0']]
@@ -1229,14 +1245,15 @@ class PassesBeforeTheCheck(unittest.TestCase):
         self.assertEqual([s['id'] for s in data['stages']], EIGHT)
 
 
-def glb(path, tree, t):
-    """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes."""
+def glb(path, tree, t, at=None):
+    """A GLB with only a JSON chunk: tree = {name: [child names]} for the scene's top-level nodes; at = {name:
+    translation}."""
     import struct
     nodes, roots = [], []
 
     def add(name, children):
         k = len(nodes)
-        nodes.append({'name': name})
+        nodes.append({'name': name, **({'translation': at[name]} if at and name in at else {})})
         kids = [add(c, tree.get(c, [])) for c in children]
         if kids:
             nodes[k]['children'] = kids
@@ -1310,6 +1327,24 @@ class BuildSchedule(unittest.TestCase):
             self.assertEqual(times['Sheet'], T0 + 610)  # never named: when the session ends
             self.assertEqual(schedule['base'], T0 + 300)
             self.assertIsNone(replay.build_schedule(scene, T0 + 1100))  # final model not there yet
+
+    def test_objects_the_agent_changed_take_their_new_form_when_first_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = make_run(Path(tmp) / 'run')
+            glb(scene / replay.SEED, {'@roots': ['Floor0', 'Chair0', 'Chair1', 'Lamp0', 'Sofa0'], 'Lamp0': ['Shade']}, T0 + 100,
+                at={'Chair0': [1, 0, 0], 'Chair1': [2, 0, 0]})
+            # The floor moved, Chair1 now hangs under it where it stood, Chair0 moved, Lamp0 lost its shade.
+            glb(scene / replay.FINAL, {'@roots': ['Floor0', 'Lamp0', 'Sofa0'], 'Floor0': ['Chair0', 'Chair1']}, T0 + 1150,
+                at={'Floor0': [0, 1, 0], 'Chair0': [1, -1, 0.5], 'Chair1': [2, -1, 0]})
+            with (scene / replay.TRACES / 'authoring_trace.author.jsonl').open('a') as f:
+                # Read before it is acted on: a result naming it is not yet the change.
+                f.write(json.dumps({'seq': 7, 't': T0 + 250, 'kind': 'result', 'tool': 'Bash', 'output': 'Chair0 Lamp0 Sofa0'}) + '\n')
+                f.write(json.dumps({'seq': 8, 't': T0 + 300, 'kind': 'tool', 'tool': 'Bash', 'hint': 'move Chair0'}) + '\n')
+            self.assertEqual(replay.changed_objects(scene / replay.SEED, scene / replay.FINAL), ['Chair0', 'Lamp0'])
+            reveal = replay.build_schedule(scene, T0 + 1300)['reveal']
+            self.assertEqual([(r['node'], r['t'], r.get('changed')) for r in reveal],
+                             [('Chair0', T0 + 300, True), ('Lamp0', T0 + 610, True)])  # Lamp0 never named: at the end
+            self.assertEqual(replay.build_schedule(scene, T0 + 1300, hidden=('Lamp0',))['reveal'][1:], [])
 
     def test_parts_named_in_an_earlier_session_appear_then(self):
         with tempfile.TemporaryDirectory() as tmp:
