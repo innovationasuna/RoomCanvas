@@ -104,3 +104,24 @@ test('primitives of two nodes of one object are compared; a picture already in f
   assert.equal(offsetDecals(THREE, room, associations), 2);
   assert.deepEqual([offset(bar), offset(tip), offset(label)], [[false], [[-1, -4]], [[-1, -4]]]);
 });
+
+test('objects side by side are not parts of one, and a part a hair behind another is left hidden', () => {
+  // A board standing 0.1 mm behind a cabinet's front, both straight under the room, the floor or a wall.
+  for (const holder of ['room', 'Floor0', 'Wall2']) {
+    const room = new THREE.Group(), floor = new THREE.Group(); floor.name = holder;
+    const cabinet = new THREE.Mesh(new THREE.BoxGeometry(.6, .8, .4), new THREE.MeshStandardMaterial());
+    const board = new THREE.Mesh(new THREE.BoxGeometry(.2, .2, .02), new THREE.MeshStandardMaterial());
+    board.position.z = .2 - .01 - .0001;
+    (holder === 'room' ? room : floor).add(cabinet, board);
+    if (holder !== 'room') room.add(floor);
+    assert.equal(offsetDecals(THREE, room), 0, holder);
+  }
+  // Within one object too: only a part level with the other's face, or in front of it, is pulled forward.
+  const room = new THREE.Group(), item = new THREE.Group(), dark = new THREE.MeshStandardMaterial();
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(.27, .02, .024), dark);
+  // its front 0.1 mm behind the bar's, the rest inside the bar
+  const behind = new THREE.Mesh(new THREE.BoxGeometry(.05, .016, .02), new THREE.MeshStandardMaterial());
+  behind.position.set(.1, 0, .002 - .0001);
+  item.add(bar, behind); room.add(item);
+  assert.equal(offsetDecals(THREE, room), 0);
+});

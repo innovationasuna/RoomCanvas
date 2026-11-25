@@ -43,47 +43,62 @@ function isThinSlab(THREE, mesh, matrix = mesh.matrixWorld) {
   return true;
 }
 
-// A small mesh's triangles in the room, with their planes, and what bounds them.
-function faces(THREE, mesh) {
-  const position = mesh.geometry?.attributes?.position;
-  if (!position || position.count > MAX_VERTICES || mesh.isInstancedMesh) return null;
-  const index = mesh.geometry.index, count = index ? index.count : position.count, at = (i) => index ? index.getX(i) : i;
-  const triangles = [], box = new THREE.Box3();
-  let area = 0;
+// A small mesh's triangles in the room that reach into a region (within), with their planes.
+function faces(THREE, mesh, within) {
+  const position = mesh.geometry.attributes.position, index = mesh.geometry.index;
+  const count = index ? index.count : position.count, at = (i) => index ? index.getX(i) : i;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), box = new THREE.Box3(), triangles = [];
   for (let i = 0; i + 2 < count; i += 3) {
-    const triangle = new THREE.Triangle();
-    for (const [k, v] of [triangle.a, triangle.b, triangle.c].entries()) box.expandByPoint(v.fromBufferAttribute(position, at(i + k)).applyMatrix4(mesh.matrixWorld));
-    const size = triangle.getArea();
-    if (!(size > 1e-8)) continue;
-    area += size;
+    a.fromBufferAttribute(position, at(i)).applyMatrix4(mesh.matrixWorld);
+    b.fromBufferAttribute(position, at(i + 1)).applyMatrix4(mesh.matrixWorld);
+    c.fromBufferAttribute(position, at(i + 2)).applyMatrix4(mesh.matrixWorld);
+    if (!within.intersectsBox(box.setFromPoints([a, b, c]))) continue;
+    const triangle = new THREE.Triangle(a.clone(), b.clone(), c.clone());
+    if (!(triangle.getArea() > 1e-8)) continue;
     triangles.push({triangle, plane: triangle.getPlane(new THREE.Plane()), middle: triangle.getMidpoint(new THREE.Vector3())});
   }
-  return triangles.length ? {mesh, triangles, box: box.expandByScalar(FLUSH), area} : null;
+  return triangles;
 }
 
-// Whether a face of one part lies on a face of the other, both facing the same way. Faces that meet back to back
-// (a book against the next one, a vase on its shelf) are hidden, and no tie.
-function onOneSurface(part, other) {
-  return part.triangles.some(({plane, middle}) => other.triangles.some((face) => face.plane.normal.dot(plane.normal) > .999
-    && Math.abs(face.plane.distanceToPoint(middle)) < FLUSH && face.triangle.containsPoint(middle)));
+// Whether a face of one part lies on a face of the other, both facing the same way, the part's level with it or a
+// hair in front. Faces that meet back to back (a book against the next one, a vase on its shelf) are hidden, and
+// no tie; a part a hair behind the other's face is meant to be hidden by it.
+function onOneSurface(part, other, within) {
+  return part.some(({plane, middle}) => within.containsPoint(middle) && other.some((face) => {
+    if (face.plane.normal.dot(plane.normal) <= .999) return false;
+    const d = face.plane.distanceToPoint(middle);
+    return d > -1e-5 && d < FLUSH && face.triangle.containsPoint(middle);
+  }));
 }
 
-// The parts under root that share a surface with a larger part beside them, of another material (two parts of one
-// material show no tie). Parts already settled in front (pictures) are left as they are.
+// The parts of one object (the nodes under one object node) that share a surface with a larger part beside them,
+// of another material (two parts of one material show no tie). Objects standing side by side are not parts of one:
+// those under the room's root, the floor, a wall or the ceiling are never compared. Parts already settled in front
+// (pictures) are left as they are. Only where two parts' bounds meet are their triangles compared.
 function flushParts(THREE, root, associations) {
   const groups = new Map(), found = [];
   root.traverse((mesh) => {
-    if (!mesh.isMesh || isStructure(mesh, associations) || [mesh.material].flat().some((m) => !m || m.polygonOffset)) return;
-    const own = associations?.get(mesh), node = own && own.nodes === undefined ? mesh.parent : mesh;
-    const part = node.parent && faces(THREE, mesh);
-    if (part) groups.set(node.parent, [...(groups.get(node.parent) || []), part]);
+    if (!mesh.isMesh || mesh.isInstancedMesh || isStructure(mesh, associations)) return;
+    const position = mesh.geometry?.attributes?.position;
+    if (!position || position.count > MAX_VERTICES || [mesh.material].flat().some((m) => !m || m.polygonOffset)) return;
+    const own = associations?.get(mesh), node = own && own.nodes === undefined ? mesh.parent : mesh, object = node.parent;
+    if (!object || object === root || object.isScene || !object.parent || STRUCTURE.test(object.name)) return;
+    groups.set(object, [...(groups.get(object) || []), mesh]);
   });
-  for (const parts of groups.values()) {
-    parts.sort((a, b) => a.area - b.area);
+  for (const meshes of groups.values()) {
+    if (meshes.length < 2) continue;
+    // the smaller (by its bounds) is the detail
+    const parts = meshes.map((mesh) => {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const box = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld).expandByScalar(FLUSH);
+      return {mesh, box, materials: new Set([mesh.material].flat()), size: box.getSize(new THREE.Vector3()).lengthSq()};
+    }).sort((a, b) => a.size - b.size);
     parts.forEach((part, i) => {
-      const materials = new Set([part.mesh.material].flat());
-      const larger = (other) => other.box.intersectsBox(part.box) && [other.mesh.material].flat().some((m) => !materials.has(m));
-      if (parts.slice(i + 1).some((other) => larger(other) && onOneSurface(part, other))) found.push(part.mesh);
+      for (const other of parts.slice(i + 1)) {
+        if (!other.box.intersectsBox(part.box) || [other.mesh.material].flat().every((m) => part.materials.has(m))) continue;
+        const within = part.box.clone().intersect(other.box);
+        if (onOneSurface(faces(THREE, part.mesh, within), faces(THREE, other.mesh, within), within)) {found.push(part.mesh); break;}
+      }
     });
   }
   return found;
