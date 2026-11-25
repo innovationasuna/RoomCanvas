@@ -1,5 +1,7 @@
-// Collision metadata stays numeric. Queries retain the original triangle/point
-// arrays; face IDs always refer to their original triangle positions.
+import {triangleCount, readTriangle} from './triangle-geometry.mjs';
+
+// Collision metadata stays numeric. Geometry stays in its original nested or
+// packed form; face IDs always refer to their original triangle positions.
 const STRIDE = 10; // bounding box (6), unit plane normal (3), plane distance (1)
 
 function partitionFaces(data, faces, start, end, mid, axis) {
@@ -79,10 +81,12 @@ export function makeTriangleTree(data, faces) {
   return {box: Array.from(boxes.subarray(0, 6)), boxes, links, order};
 }
 
-export function buildTriangleIndex(triangles) {
-  const data = new Float64Array(triangles.length * STRIDE), faces = [];
-  for (let face = 0; face < triangles.length; face++) {
-    const triangle = triangles[face], [a, b, c] = triangle;
+export function buildTriangleIndex(source) {
+  const geometry = Array.isArray(source) ? {triangles: source} : {vertices: source.vertices, index: source.index};
+  const count = triangleCount(geometry), data = new Float64Array(count * STRIDE), faces = [];
+  const scratch = geometry.triangles ? null : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let face = 0; face < count; face++) {
+    const triangle = readTriangle(geometry, face, scratch), [a, b, c] = triangle;
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
     const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
@@ -100,7 +104,7 @@ export function buildTriangleIndex(triangles) {
     faces.push(face);
   }
   const tree = makeTriangleTree(data, faces);
-  return {triangles, data, faces: new Uint32Array(faces), tree};
+  return {...geometry, data, faces: new Uint32Array(faces), tree};
 }
 
 export function nodeBox(tree, node) {
@@ -114,9 +118,9 @@ export function nodeFaces(tree, node) {
 
 // For narrow-phase operations that still take array vectors. Callers may keep a
 // query-local cache by face ID; this module never retains decoded face objects.
-export function readFace(index, face) {
+export function readFace(index, face, scratch = null) {
   const data = index.data, offset = face * STRIDE;
-  return {triangle: index.triangles[face], faceIndex: face,
+  return {triangle: readTriangle(index, face, scratch), faceIndex: face,
     box: [data[offset], data[offset + 1], data[offset + 2], data[offset + 3], data[offset + 4], data[offset + 5]],
     plane: [data[offset + 6], data[offset + 7], data[offset + 8]], d: data[offset + 9]};
 }
