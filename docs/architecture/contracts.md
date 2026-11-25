@@ -1,8 +1,6 @@
-[重构说明与文档导航](README.md)
-
 # 配置、维护边界与漫游行为契约
 
-核对日期：2026-11-18。本文记录本次重构后的源码契约，不代表服务器已经部署这些改动。部署提交、GPU 实测和设备结果另记于验证记录；现有示例、归档和历史记录均保留。
+核对日期：2026-11-18。本文记录 2026-11 重构（#78）之后的源码契约。部署提交、GPU 实测和设备结果不在本文范围。
 
 ## 1. 配置入口与优先级
 
@@ -96,7 +94,6 @@
 node --test web/editor/tests/test_walk.mjs
 node web/scripts/check_room.mjs --scene-dir samples/office
 node web/scripts/check_room.mjs --scene-dir samples/room3
-node web/scripts/check_room.mjs --scene-dir samples/room-3934
 ```
 
 在 `room-reconstruction/` 使用该模块环境验证配置、共享锁、独立 walk 页面协议、缓存及恢复：
@@ -109,13 +106,4 @@ uv run pytest -q tests/test_walk_viewer.py tests/test_cache_contracts.py tests/t
 
 GPU 锁用例采用受控设备列表和子进程 FD，证明互斥协议，不证明真实 GPU 模型质量。`test_walk_viewer.py` 校验独立查看器 HTML/资源/路由，不能替代浏览器操控。TRELLIS 冒烟必须另记所用 GPU UUID、图片、seed、decimation、texture size、缓存命中与 force 结果。
 
-Android 验证在 `android-app/` 执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`，需要 JDK 17 和本机 Android SDK；CI 当前不包含 Android。本文没有把“提供命令”计作“本轮已完成构建或真机测试”。手势按 [CONTRIBUTING.md](../../CONTRIBUTING.md) 及 vendor README 重建验证。
-
-本轮边界：新增共享 GPU 协议、配置表、内容缓存/恢复约束和共享回归场景；保留 legacy、上游独立 walk、Android 与现有示例。未做归档删除、Git LFS 迁移、历史重写、跨端物理碰撞统一、上游生成器重建或 Android 真机验收。
-
-本轮本地验证记录（2026-11-18，套件之间有重叠，数量不相加）：
-
-- 配置、GPU 选择/锁/launcher、独立 walk 协议、pipeline runner 与新增内容缓存/恢复回归组合：61 passed；使用受控设备和子进程，不调用真实模型。
-- TRELLIS service、small_objects、articulate、author 恢复及 reconstruction/publish/console 扩展组合：153 passed、1 deselected；仅出现第三方 Dash 的 pytest 弃用提示。
-- 网页 `test_walk.mjs`：5 passed，覆盖方向/归一化、墙面滑动、家具射线、出生点、点击与视角拖动互斥。
-- 本文 27 个本地链接均已核对存在。Android 构建、真机操作、上游重新 vendor 及真实 GPU 结果不在以上结论内。
+Android 验证在 `android-app/` 执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`，需要 JDK 21 和本机 Android SDK；CI 当前不包含 Android。本文没有把“提供命令”计作“本轮已完成构建或真机测试”。手势按 [CONTRIBUTING.md](../../CONTRIBUTING.md) 及 vendor README 重建验证。

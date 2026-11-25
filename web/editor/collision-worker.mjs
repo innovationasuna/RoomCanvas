@@ -1,7 +1,7 @@
 // The full collision checks of a drop, off the page's thread: the piano beside its stool takes
 // a second or more, which would freeze the room and the hand. Same code and same triangles as
 // the page's own collision (collision.mjs), so the answers are the same.
-import {buildCollision, unpackOwners, collisionIndexes} from './collision.mjs';
+import {buildCollision, collisionIndexes} from './collision.mjs';
 
 let collision = null;
 let owners = new Map(), generation = 0;
@@ -11,7 +11,9 @@ self.onmessage = ({data}) => {
     generation = data.generation;
     if (data.type === 'build') owners = new Map();
     for (const id of data.removed || []) owners.delete(id);
-    const changed = unpackOwners(data.owners);
+    // Keep the transferred Float64/Uint32 geometry for both construction and
+    // later drop checks. Expanding it into point/triangle arrays defeats packing.
+    const changed = data.owners;
     for (const owner of changed) owners.set(owner.id, owner);
     // In the page's order, so both name the same obstacle when a move meets several.
     collision = buildCollision(data.order.map((id) => owners.get(id)), {keepAuthoredOverlaps: data.keepAuthoredOverlaps});

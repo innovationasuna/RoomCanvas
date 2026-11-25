@@ -11,7 +11,7 @@
 export const GROUP_MAX = 6;
 export const GROUP_MINUTES = 3;
 export const WORK = {image: '已生成 {n} 件物品的清晰图', model: '已做好 {n} 件物品的模型', shape: '已检查 {n} 件物品的形状',
-                     small: '已准备 {n} 件小物品的照片模型'};
+                     small: '已按照片制作 {n} 件小物品'};
 
 const agent = (e) => typeof e.session === 'string';
 const type = (e) => (e.work && e.object_id ? 'objects' : agent(e) ? 'work' : 'same');

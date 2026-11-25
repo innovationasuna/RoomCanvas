@@ -174,6 +174,7 @@ shasum -a 256 "samples/$room/Room.glb"
 | 环节 | 保持的行为 |
 | --- | --- |
 | 建立索引 | `entity-geometry.mjs` 提供稳定的原始几何。`triangle-index.mjs` 用 Float64 保存三角形边界、法向和节点边界，Uint32 保存面编号与树结构。 |
+| Worker 几何 | 直接保留传入的 Float64 顶点和 Uint32 面索引，构建和查询不再把整个房间展开为点／三角形数组。顶点身份与原面序保持不变，局部查询按需读取坐标。 |
 | 安装与复用 | Worker 完成首次构建，主线程安装传回的紧凑数组，供同步碰撞及 `ray-queries.mjs` 复用。各端保有一份紧凑数组，无需跨域隔离或 SharedArrayBuffer。 |
 | 射线 | 公共边同距命中依原遍历顺序选面。漫游按实时世界矩阵查询开门、抽屉及承载姿态。地板索引参与射线查询，不作为物品碰撞障碍。 |
 | 增删物品 | 只传变更几何并复用原有 BVH、支撑采样与静态索引。需要建索引时暂缓编辑，镜头和渲染可用。纯删除可直接复用剩余索引。 |
@@ -235,6 +236,7 @@ node web/scripts/check_replay_resources.mjs --playwright "$PW" --output /tmp/roo
 | `check_ground_grid.mjs` | 108 组投影、距离、仰角、小幅旋转和合成管线的像素对比。地面遮住内部网格，外部网格仍清晰。 |
 | `check_object_photos.mjs` | 模拟接口验证合成 HEIC、误改后缀、预览尺寸及颜色、损坏提示和实际上传编码。 |
 | `check_replay_resources.mjs` | 24 次 draft 替换的真实 WebGL 资源稳定性，覆盖成形中替换、回拖、1／2／8 倍速、灯光切换及迟到的 load、warm、prefetch。 |
+| `check_editor_latency.mjs` | 对 office 和 room3 各做 5 轮新建浏览器上下文和同上下文重载，测量首开耗时与滚轮输入到首次绘图的延迟。须加 `--output <报告路径>`，默认访问 `http://127.0.0.1:7880/web/`。延迟不含操作系统输入和合成器呈现。 |
 
 **对照射线与 Worker。** 给 `check_lighting.mjs` 同时加 `--asset-edits --editor-queries` 可验证物品增删、开合、承载、漫游及真实 Worker。
 
@@ -251,7 +253,27 @@ node web/scripts/check_replay_resources.mjs --playwright "$PW" --output /tmp/roo
 | `collisionMainBuild` | 正常路径连接已有索引并准备射线，`roomLightingLab.geometryStatus().collision.builtMeshes` 应为 0。Worker 失败时此处才实际构建。 |
 | `thumbnails`、`rebuild`、`floorSearch` | 缩略图、资产增删总耗时（含等待 Worker）、导入后落点搜索。 |
 
-启用 `--asset-edits` 时，显示与碰撞使用仓库中同一把椅子模型，可用报告的 `conditions.assetEditModelSha256` 核对输入。解释耗时前可先看[旧指南的体验耗时记录](../history/WEB_EDITOR_VALIDATION.md)。
+启用 `--asset-edits` 时，显示与碰撞使用仓库中同一把椅子模型，可用报告的 `conditions.assetEditModelSha256` 核对输入。
+
+**Worker 保留几何对照（2026-11-24，#108）。** 基线为 `47cf0279d389a9db6abec8962beddeeefab0501a`，候选让 Worker 直接使用传入的紧凑几何，并延后边界查询中的坐标读取。测试使用当前 `activity-classroom` 模型（SHA-256 `60fa27d2cce5fb3acfa675f9e39509b844f53551ad4712b6c1e239d6468ae5e6`），共 2,433,884 个三角形，含 32 个仅用于射线的地板面。
+
+同一台 Apple M5、16 GB 机器，Node 24.14.1 的真实 Worker 与 Chromium 分别做三轮基线／候选对照，以下为中位数。浏览器每次启动独立进程，窗口 1440×1000、DPR 1，关闭增强光照、AO 和环境，使用 SwiftShader；这些结果不代表手机或真实 GPU 性能。内存为强制 GC 后的 JS 堆和缓冲区保留量，MB 按 1,000,000 字节计算，不是进程 RSS、加载峰值或显存。
+
+| 指标 | 基线 | 紧凑几何 |
+| --- | ---: | ---: |
+| Node Worker 构建处理（含原有解包和索引回复准备） | 1348.9 ms | 1131.8 ms |
+| Node Worker 构建后保留量 | 703.55 MB | 376.23 MB |
+| 浏览器 Worker 构建后保留量 | 520.48 MB | 371.45 MB |
+| 浏览器页面 + Worker 构建后保留量 | 1893.26 MB | 1744.23 MB |
+| 浏览器提交构建到收到回复 | 1659.0 ms | 1359.1 ms |
+| 浏览器最重可编辑物体 `CardboardBox0` 原地确认 | 251.0 ms | 237.1 ms |
+| 浏览器 `Chair0` 沿 X 移动 20 m 的完整检查 | 772.4 ms | 727.2 ms |
+
+Node 24 的 `arrayBuffers` 不包含收到的转移缓冲区，因此 Node 内存数据额外计入候选仍持有的 110.42 MB 输入，不能只比较 `heapUsed`。浏览器使用主线程和 Worker 各自的 CDP `usedSize + backingStorageSize`；六次查询后仍保留约 7.9% 的合计节省。两种运行环境的 Worker 内存降幅不同，应分别解读。
+
+查询按固定顺序执行 `Chair0` 的 X/Z/Y 各 5 cm、旋转 0.5°、X 方向 20 m，再确认 `CardboardBox0` 原姿态；计时覆盖 Worker 的接触和连续移动检查，不含主线程准备。六类查询的全部输出与基线一致，另有 104 项真实布局对照通过。Node 中纸箱查询为 260.1→243.6 ms，长距离检查为 787.1→791.6 ms；浏览器普通椅子平移／抬高相差约 0.1–2.9 ms，没有发现首版那样的明显查询退化。
+
+这是分阶段优化：主线程仍保留原始几何和转换后的点数组，首次打包仍在主线程执行，双方也各自保有一份紧凑索引；复杂连续移动仍需数百毫秒。后续可分别测量主线程几何重复、打包高峰和复杂查询热点。进一步调整存储或遍历时，仍须保持 Float64、原面序、公共边命中以及扫描交叠的 5 mm 边界规则。
 
 **回放资源释放。** 单个 `RoomView` 复用点云与线框 shader 池，纹理材质裁切副本随模型释放。替换 draft 时先取消异步上传、移除成形与墙体淡出引用，再等待已开始的 shader 编译完成，最后释放模型。过期 GLTF 加载结果不能重新进入场景。
 

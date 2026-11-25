@@ -15,6 +15,7 @@ Pipeline records become events with fixed Chinese wording. The modelling agent's
 results, thoughts, in English) is condensed into plain Chinese by a model in batches; the results are
 cached next to the job, and a rule-based wording stands in until (or unless) a batch is condensed.
 """
+import hashlib
 import json
 import os
 import re
@@ -106,6 +107,13 @@ def read_jsonl(path):
     except OSError:
         pass
     return rows
+
+
+def _read_json(path):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def model_path(scene, rel):
@@ -658,6 +666,15 @@ def pipeline_events(scene, until=None):
         event = {'id': 'articulated', 't': save['t'], 'stage': 'articulate', 'kind': 'milestone',
                  **({'display_t': save['display_t']} if 'display_t' in save else {}),
                  **articulation_result(save, evidence)}
+        # Its own start: the pass's, in the attempt that saved it.
+        before = reversed(rows[:next(k for k, r in enumerate(rows) if r is save)])
+        start = next((r for r in before if r.get('kind') in ('articulate_start', 'small_objects_start', 'trace_start')), None)
+        start = start if start and start['kind'] == 'articulate_start' and not inside(start) else None
+        source = articulation_source(scene, event.get('artifact_digest'), start)
+        if source:
+            event['source_digest'] = source
+        elif start:
+            event['source_known'] = True  # its start record names the room, whose digest is gone
         events.append(event)
         if receipt and final and final <= save.get('display_t', save['t']):
             if receipt > save['t']:
@@ -668,6 +685,65 @@ def pipeline_events(scene, until=None):
             if evidence['source'] == 'event':
                 event['published'] = True
     return events
+
+
+def articulation_source(scene, digest, start=None):
+    """The room an openable-parts room was cut from. Its bundle.json names the cut and the output; the
+    key binds the pass's dependencies.json, which hashes the input room. A pass that kept no parts
+    copies its input. Without those receipts, the pass's start record names another pass's room it
+    took (LR_ARTICULATE_SOURCE, recorded since that setting exists); else it took the author's room."""
+    if not digest:
+        return None
+    folder = model_path(scene, ARTICULATED).parent
+    made = _read_json(folder.parent / 'dependencies.json')
+    if isinstance(made, dict):
+        source = ((made.get('dependencies') or {}).get('preview') or {}).get('Room.glb')
+        if source == digest:
+            return source
+        receipt = _read_json(folder / 'bundle.json')
+        outputs = receipt.get('outputs') if isinstance(receipt, dict) else None
+        cut = {'source': made.get('key'), 'plan': _read_json(folder / 'plan.json')}
+        key = hashlib.sha256(json.dumps(cut, sort_keys=True, default=str).encode()).hexdigest()
+        if isinstance(outputs, dict) and outputs.get('Room.glb') == digest and receipt.get('key') == key:
+            return source
+    if not start:
+        return None
+    if not start.get('source'):
+        return picture_version(Path(scene) / FINAL)
+    # Recorded where the pass ran; a slim copy keeps the room at the same place in its run.
+    small = model_path(scene, SMALL_OBJECTS)
+    if Path(start['source']).parts[-2:] == small.parent.parts[-2:] and (_mtime(small) or float('inf')) <= start['t']:
+        return picture_version(small)
+    return None
+
+
+def small_overlay(scene, event, ids, until=None):
+    """Bounds for cutting the pass's items out of its saved room, whose GLB marks no object: every object
+    of that room's layout, and the stand-ins each merged item replaced. Read only from the receipt of the
+    room saved by this event; members fall back to the pass's item list."""
+    folder = model_path(scene, SMALL_OBJECTS).parent
+    receipt = _read_json(folder / 'bundle.json')
+    outputs = receipt.get('outputs') if isinstance(receipt, dict) else None
+    paired = isinstance(outputs, dict) and event.get('artifact_digest') and outputs.get('Room.glb') == event['artifact_digest']
+    out = {}
+    layout = _read_json(folder / 'room_layout.json') if paired and outputs.get('room_layout.json') == picture_version(
+        folder / 'room_layout.json') else None
+    if isinstance(layout, dict) and isinstance(layout.get('objects'), list):
+        names = {name for o in layout['objects'] if isinstance(o, dict)
+                 for name in (o.get('id'), o.get('handle')) if isinstance(name, str)}
+        out['overlay_objects'] = sorted(names)
+    placed = (_read_json(folder / 'apply.json') or {}).get('placed') if paired else None
+    if not isinstance(placed, list):
+        items = small_folder(scene) / 'items.json'
+        placed = _read_json(items) if not until or (_mtime(items) or 0) <= until else None
+    members = {}
+    for item in placed if isinstance(placed, list) else []:
+        if (isinstance(item, dict) and item.get('id') in ids and isinstance(item.get('members'), list)
+                and set(item['members']) - {item['id']}):
+            members[item['id']] = item['members']
+    if members:
+        out['overlay_members'] = members
+    return out
 
 
 def integrated_articulation(scene, row):
@@ -988,16 +1064,14 @@ def chair_clusters(scene):
         return None
 
 
-def build_schedule(scene, until=None, hidden=()):
-    """When the modelling agent added each new part of the room.
-
-    No room model is saved while the agent works, so the replay shows the final model with the parts the
-    agent added appearing at the time its log first names them (the rest of the room switches to the
-    final look when the first of them appears). Parts never named appear when the agent's session ends."""
+def build_schedule(scene, until=None, hidden=(), target=FINAL):
+    """Reconstruct additions to the selected room from the build records available by its cutoff."""
     scene = Path(scene)
-    seed, final = scene / SEED, scene / FINAL
+    seed, final = scene / SEED, scene / target
     trace = trace_rows(scene, until)
-    if not (_model_time(scene, trace, 'seed', SEED, until) and _model_time(scene, trace, 'final', FINAL, until)):
+    if not _model_time(scene, trace, 'seed', SEED, until):
+        return None
+    if target == FINAL and not _model_time(scene, trace, 'final', FINAL, until):
         return None
     before, after = glb_tree(seed), glb_tree(final)
     added = [n for n, p in after.items() if n not in before and n not in hidden and (p is None or p in before)]
@@ -1432,9 +1506,22 @@ def timeline(job_dir, status='completed', until=None):
     latest_event = next((e['id'] for e in reversed(events) if e['kind'] != 'error'), None)
     projected = project_standalone(events, revised)
     hidden = small_node_masks(scene, rows, available, revised, until)
-    build = build_schedule(scene, until, hidden.get('assembly', ())) if start else None
+    build_model = 'final'
+    build_until = until
+    overlay = next((e for e in events if e.get('overlay_model') in available), None)
+    if overlay:
+        made = {e['object_id'] for e in events if e.get('recorded_stage') == 'small_objects' and e.get('work') == 'small'}
+        overlay.update(small_overlay(scene, overlay, made, until))
+        review = next((e for e in events if e['stage'] == 'review' and e.get('model', '').startswith('round')
+                       and e['model'] in available), None)
+        if review:
+            build_model, build_until = review['model'], review['t']
+        elif revised:
+            build_model = None
+    build = (build_schedule(scene, build_until, hidden.get('assembly', ()), available[build_model])
+             if start and build_model in available else None)
     if build:
-        build = {'base': round((build['base'] - start) / 60, 3),
+        build = {**({'model': build_model} if build_model != 'final' else {}), 'base': round((build['base'] - start) / 60, 3),
                  'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
     idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
                                if not until or a <= until], start) if start else []
@@ -1498,30 +1585,40 @@ def project_standalone(events, revised):
     late = [e for e in events if e['stage'] in STANDALONE]
     if not late:
         return False
-    if revised:
-        # Earlier passes have been superseded. These were run on the revised room.
-        for e in late:
-            e['recorded_stage'], e['stage'] = e['stage'], 'revise'
-            e.setdefault('display_minute', e['minute'])
-        return True
     base = [e for e in events if e['stage'] not in STANDALONE]
     split = next((i for i, e in enumerate(base) if STAGE_IDS.index(e['stage']) >= STAGE_IDS.index('parts')), len(base))
     boundary = base[min(split, len(base) - 1)] if base else {'minute': 0}
     anchor = boundary.get('display_minute', boundary['minute'])
-    latest_save = max((e.get('display_minute', e['minute']) for e in late if e.get('model')), default=-float('inf'))
+    projected, tail = [], []
+    # Only a saved room with items made from photos becomes an overlay. Without one, the pass shows as
+    # before and an openable-parts room after it keeps the end of the replay.
+    overlay = (any(e['stage'] == 'small_objects' and 'model' in e for e in late)
+               and any(e['stage'] == 'small_objects' and e.get('work') == 'small' for e in late))
     last_pass = max(e.get('display_minute', e['minute']) for e in late)
+    latest_save = max((e.get('display_minute', e['minute']) for e in late if e.get('model')), default=-float('inf'))
     for e in late:
-        e['recorded_stage'] = e['stage']
-        e['stage'] = STANDALONE[e['stage']]
+        phase = e['recorded_stage'] = e['stage']
+        if revised and (phase == 'articulate' or not overlay):
+            e['stage'] = 'revise'
+            e.setdefault('display_minute', e['minute'])
+            tail.append(e)
+            continue
+        e['stage'] = STANDALONE[phase]
         e['display_minute'] = anchor
-    # An earlier review is evidence about its original room. Keep its images and file available,
-    # while the 3D presentation keeps the enhanced room which the viewer has just seen.
-    for e in base[split:]:
-        if e.get('model') and e['minute'] <= latest_save:
+        if overlay and phase == 'small_objects' and 'model' in e:
+            e['overlay_model'] = e.pop('model')
+        projected.append(e)
+    for e in base[split:] if not revised else ():
+        # The passes' saved rooms keep their enhanced-room presentation, as before overlays. With an overlay the
+        # checks show the rooms they checked, and the replay still ends on the openable-parts room (timeline.mjs).
+        if not overlay and e.get('model') and e['minute'] <= latest_save:
             e['recorded_model'] = e.pop('model')
         if e['id'] == 'final' and e['minute'] <= last_pass:
             e['say'] = '导出当时的房间'
-    events[:] = base[:split] + sorted(late, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
+    events[:] = base[:split] + sorted(projected, key=lambda e: STAGE_IDS.index(e['stage'])) + base[split:]
+    if tail:
+        events.extend(tail)
+        events.sort(key=lambda e: e.get('display_minute', e['minute']))
     return True
 
 
@@ -1744,6 +1841,12 @@ def slim(run, dest):
     # The later passes' rooms (the openable-parts one was published), beside the scene, and how each launcher
     # attempt ended (whether a later one was a retry).
     extra = [(model_path(scene, rel), dest / rel) for rel in (ARTICULATED, SMALL_OBJECTS)]
+    # Their receipts: the room the openable parts were cut from, and the objects and merged items of the
+    # small-object room (articulation_source, small_overlay). Each is checked against its room's digest.
+    parts, room = model_path(scene, ARTICULATED).parent, model_path(scene, SMALL_OBJECTS).parent
+    extra += [(parts.parent / 'dependencies.json', dest / Path(ARTICULATED).parent.parent / 'dependencies.json')]
+    extra += [(parts / name, dest / Path(ARTICULATED).parent / name) for name in ('bundle.json', 'plan.json')]
+    extra += [(room / name, dest / Path(SMALL_OBJECTS).parent / name) for name in ('bundle.json', 'room_layout.json', 'apply.json')]
     small = small_folder(scene)
     extra.append((small / 'items.json', dest / 'small-objects/items.json'))
     for _, rel in set(saved_small_rooms(scene, trace_rows(scene)).values()):
