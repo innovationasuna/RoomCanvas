@@ -236,6 +236,7 @@ node web/scripts/check_replay_resources.mjs --playwright "$PW" --output /tmp/roo
 | `check_ground_grid.mjs` | 108 组投影、距离、仰角、小幅旋转和合成管线的像素对比。地面遮住内部网格，外部网格仍清晰。 |
 | `check_object_photos.mjs` | 模拟接口验证合成 HEIC、误改后缀、预览尺寸及颜色、损坏提示和实际上传编码。 |
 | `check_replay_resources.mjs` | 24 次 draft 替换的真实 WebGL 资源稳定性，覆盖成形中替换、回拖、1／2／8 倍速、灯光切换及迟到的 load、warm、prefetch。 |
+| `check_editor_latency.mjs` | 对 office 和 room3 各做 5 轮新建浏览器上下文和同上下文重载，测量首开耗时与滚轮输入到首次绘图的延迟。须加 `--output <报告路径>`，默认访问 `http://127.0.0.1:7880/web/`。延迟不含操作系统输入和合成器呈现。 |
 
 **对照射线与 Worker。** 给 `check_lighting.mjs` 同时加 `--asset-edits --editor-queries` 可验证物品增删、开合、承载、漫游及真实 Worker。
 
@@ -252,7 +253,7 @@ node web/scripts/check_replay_resources.mjs --playwright "$PW" --output /tmp/roo
 | `collisionMainBuild` | 正常路径连接已有索引并准备射线，`roomLightingLab.geometryStatus().collision.builtMeshes` 应为 0。Worker 失败时此处才实际构建。 |
 | `thumbnails`、`rebuild`、`floorSearch` | 缩略图、资产增删总耗时（含等待 Worker）、导入后落点搜索。 |
 
-启用 `--asset-edits` 时，显示与碰撞使用仓库中同一把椅子模型，可用报告的 `conditions.assetEditModelSha256` 核对输入。解释耗时前可先看[旧指南的体验耗时记录](../history/WEB_EDITOR_VALIDATION.md)。
+启用 `--asset-edits` 时，显示与碰撞使用仓库中同一把椅子模型，可用报告的 `conditions.assetEditModelSha256` 核对输入。
 
 **Worker 保留几何对照（2026-11-24，#108）。** 基线为 `47cf0279d389a9db6abec8962beddeeefab0501a`，候选让 Worker 直接使用传入的紧凑几何，并延后边界查询中的坐标读取。测试使用当前 `activity-classroom` 模型（SHA-256 `60fa27d2cce5fb3acfa675f9e39509b844f53551ad4712b6c1e239d6468ae5e6`），共 2,433,884 个三角形，含 32 个仅用于射线的地板面。
 

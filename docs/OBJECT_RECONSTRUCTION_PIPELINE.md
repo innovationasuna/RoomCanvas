@@ -80,4 +80,10 @@ COVER、场景合并和姿态优化继续按需读取 `depth`、`extrinsics`、`
 python scripts/benchmark_da3_arrays.py --input-npz '<已有 DA3 NPZ 路径>'
 ```
 
-单独物品的单图／多图 TRELLIS、分区材质试验决策见[历史交接记录](history/PROJECT_HANDOFF_2026-11-03.md)。房间流水线使用 TRELLIS 的场景见[房间重建](ROOM_RECONSTRUCTION.md)。
+改动重建流程后，可用同一输入和随机种子各跑一次，再比较两次结果的几何、表面颜色、支撑和 COVER。检查在 CPU 上运行，允许 GPU 输出有合理的数值差异。
+
+```bash
+python scripts/check_reconstruction_quality.py --old-run '<基线运行目录>' --new-run '<候选运行目录>' --output '<报告.json>'
+```
+
+单独物品的主线是 MV-SAM3D 加颜色烘焙和场景受光。单图／多图 TRELLIS 与分区材质的试验没有采用，其源码、测试和对比文档已于 2026-11-03 前清理。房间流水线使用 TRELLIS 的场景见[房间重建](ROOM_RECONSTRUCTION.md)。
