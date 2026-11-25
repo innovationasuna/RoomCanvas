@@ -14,6 +14,7 @@ const hooks = registerHooks({resolve(name, context, next) {
 const {RoomView} = await import('../../replay/room-view.mjs');
 const {Materializer} = await import('../../replay/materialize.mjs');
 const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
+const {SmallItemLayer, selectPhotoItems} = await import('../../replay/small-items.mjs');
 hooks.deregister();
 
 function view() {
@@ -777,4 +778,276 @@ test('a picture with a plain slot gets a depth mask per slot', () => {
   const root = loaded(v, 'room', sheet);
   const masks = root.userData.mask.find((m) => m.parent === sheet).material;
   assert.deepEqual(masks.map((m) => [m.polygonOffsetFactor, m.polygonOffsetUnits]), [[-2, -8], [-1, -4]]);
+});
+
+test('standalone photo nodes keep their world transform, follow a moved marker and never bring its furniture', async t => {
+  const json = {scenes: [{nodes: [0]}], nodes: [
+    {name: 'Table0', mesh: 0, translation: [4, 0, 0], children: [1, 2, 3]},
+    {name: 'Cup0', mesh: 1, children: [4]}, {name: 'Lamp0', mesh: 2}, {name: 'Cup1', mesh: 1},
+    {name: 'Storage0', mesh: 3, extras: {room_id: 'Storage0'}},
+  ]};
+  const ids = ['Cup0', 'Cup1'];
+  selectPhotoItems(json, ids);
+  assert.deepEqual(json.nodes[0].children, [1, 3]);
+  assert.equal(json.nodes[0].mesh, undefined);
+  assert.deepEqual(json.nodes[1].children, []);
+
+  const photo = mesh('Photo'), cup = group('Cup0', photo), nextCup = group('Cup1', mesh('Second'));
+  const lateTable = group('Table0', cup, nextCup);
+  lateTable.position.set(4, 1, 0);
+  lateTable.rotation.y = 0.5;
+  cup.scale.set(1, 2, 1);
+  lateTable.updateMatrixWorld(true);
+  const world = cup.matrixWorld.clone();
+  const layer = new SmallItemLayer(group('donor', lateTable), ids);
+  assert.deepEqual(layer.root.children.map(p => p.name).sort(), ids);
+
+  // Only the first item's record has been reached.
+  const v = view(), photoItems = {model: 'small_objects', ids}, state = {photoItems, photoShow: new Set(['Cup0'])};
+  t.mock.method(v, 'loadPhotoItems', () => {});
+  v.photoSource = {source: photoItems, layer};
+  v.scene.add(layer.root);
+  const old = mesh('Block'), marker = group('Cup0', old), table = group('Table0', marker);
+  table.position.copy(lateTable.position);
+  marker.scale.copy(cup.scale);
+  loaded(v, 'seed', table);
+  apply(v, 'seed', true, state);
+  assert.equal(old.visible, false);
+  assert.equal(cup.visible, true);
+  assert.ok(cup.matrix.equals(world));
+  assert.equal(nextCup.visible, false);
+  const revised = group('Table0', group('Cup0', mesh('Block')), group('Cup1', mesh('Block')));
+  revised.position.set(7, 1, 0);
+  loaded(v, 'draft-1', revised);
+  v.models['draft-1'].controller = new AbortController();
+  apply(v, 'draft-1', true, {...state, photoShow: new Set(ids)});
+  assert.equal(nextCup.visible, true);
+  assert.equal(cup.matrix.elements[12], 7);
+  assert.equal(revised.position.x, 7);
+  apply(v, 'seed', true, state);
+  assert.ok(cup.matrix.equals(world));
+  assert.equal(nextCup.visible, false);
+  apply(v, 'seed', true, {photoItems, hiddenNodes: ids});
+  assert.equal(layer.root.visible, false);
+  assert.equal(old.visible, false);
+  assert.equal(v.photoSource.layer, layer);
+});
+
+// A photo layer of boxes (1 m, bottom centre 0.5 m below the node), already placed as the source GLB has them.
+function photoLayer(v, ids, ...parts) {
+  const layer = new SmallItemLayer(group('donor', ...parts), ids);
+  v.photoSource = {source: {ids}, layer};
+  v.scene.add(layer.root);
+  return layer;
+}
+const at = (x, node) => {node.position.x = x; return node;};
+
+// An integrated small-object room from the build takes the overlay like a review room (see test_replay_passes).
+for (const key of ['round0', 'small_' + 'a'.repeat(64)]) test(`each photo item shows from its record, on its stand-in in ${key} or unshifted`, () => {
+  const v = view(), ids = ['Cup0', 'Bottle0'];
+  const cup = at(1, group('Cup0', mesh('PhotoCup'))), bottle = at(3, group('Bottle0', mesh('PhotoBottle')));
+  bottle.position.y = 2;
+  const layer = photoLayer(v, ids, cup, bottle), bottleWorld = bottle.matrix.clone();
+  const block = mesh('Block'), photoItems = {ids};
+  loaded(v, key, at(1.5, group('Cup0', block)));
+  // From the build the stand-in is gone before any record is reached.
+  apply(v, key, true, {photoItems, photoShow: new Set()});
+  assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, false, false]);
+  apply(v, key, true, {photoItems, photoShow: new Set(['Cup0'])});
+  assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, true, false]);
+  assert.equal(cup.matrix.elements[12], 1.5);
+  apply(v, key, true, {photoItems, photoShow: new Set(ids)});
+  assert.deepEqual([cup.visible, bottle.visible], [true, true]);
+  assert.ok(bottle.matrix.equals(bottleWorld));
+  apply(v, key, true, {photoItems, photoShow: new Set(['Cup0'])});  // dragged back
+  assert.deepEqual([block.visible, cup.visible, bottle.visible], [false, true, false]);
+  apply(v, key, true, {photoItems, photoShow: null, hiddenNodes: ['Cup0']});
+  assert.equal(layer.root.visible, false);
+});
+
+test('an openable-parts room cut from the photo room keeps its renamed, re-localised split meshes', () => {
+  const v = view(), ids = ['Cup0'], photoItems = {ids};
+  const cup = group('Cup0', mesh('geometry_0'));
+  const layer = photoLayer(v, ids, cup);
+  // Articulation renames what it cuts off and writes its vertices around the joint.
+  const flap = mesh('Cup0_Flap_1');
+  flap.geometry.translate(-0.4, 0, 0);
+  flap.position.x = 0.4;
+  const body = mesh('Cup0_Body');
+  loaded(v, 'articulated', group('Cup0', body, group('Cup0_Hinges', flap)));
+  // The timeline knows it holds the photo models (see test_replay_passes), so nothing is overlaid.
+  apply(v, 'articulated', true, {photoItems, photoShow: null});
+  assert.deepEqual([body.visible, flap.visible, layer.root.visible], [true, true, false]);
+  assert.equal(v.models.articulated.root.userData.photoPlaces, null);
+});
+
+test('a separate child without extras is neither cut into the photo item nor masked with its stand-in', () => {
+  const json = () => ({scenes: [{nodes: [0]}], nodes: [{name: 'Book0', mesh: 0, children: [1]}, {name: 'Bookmark0', mesh: 1}]});
+  const unbounded = json(), bounded = json(), objects = new Set(['Book0', 'Bookmark0']);
+  selectPhotoItems(unbounded, ['Book0']);
+  selectPhotoItems(bounded, ['Book0'], objects);
+  assert.deepEqual([unbounded.nodes[0].children, bounded.nodes[0].children], [[1], []]);
+
+  const v = view(), ids = ['Book0'], photoItems = {ids, objects};
+  const book = group('Book0', mesh('PhotoBook'));
+  photoLayer(v, ids, book);
+  const world = book.matrix.clone();
+  const old = mesh('OldBook'), mark = at(5, mesh('Bookmark0'));
+  old.add(mark);
+  loaded(v, 'round0', group('Book0', old));
+  apply(v, 'round0', true, {photoItems, photoShow: new Set(ids)});
+  assert.deepEqual([old.visible, mark.visible, book.visible], [false, true, true]);
+  assert.ok(book.matrix.equals(world));  // the bookmark's mesh is not part of the anchor
+});
+
+test('a merged item is anchored on its whole group, also when a member leaves or returns on rewind', () => {
+  const v = view(), ids = ['Book0'], photoItems = {ids, members: {Book0: ['Book0', 'Book1']}};
+  // Generation fitted the photo model to the offset stack: its centre is between the two books.
+  const book = at(0.045, group('Book0', mesh('PhotoStack')));
+  photoLayer(v, ids, book);
+  const world = book.matrix.clone();
+  const first = mesh('First'), second = mesh('Second'), member = at(0.09, group('Book1', second));
+  loaded(v, 'round0', group('Book0', first), member);
+  const state = {photoItems, photoShow: new Set(ids), hiddenNodes: ['Book0', 'Book1']};
+  apply(v, 'round0', true, state);
+  assert.deepEqual([first.visible, second.visible, book.visible], [false, false, true]);
+  assert.ok(book.matrix.equals(world));
+  member.visible = false;  // this version's state does not show the second book
+  apply(v, 'round0', true, state);
+  assert.ok(Math.abs(book.matrix.elements[12]) < 1e-9);
+  member.visible = true;
+  apply(v, 'round0', true, state);
+  assert.ok(book.matrix.equals(world));
+});
+
+test('the photo layer keeps the outgoing placement until the incoming room is the one shown', () => {
+  const v = view(), ids = ['Cup0'], photoItems = {ids}, state = {photoItems, photoShow: new Set(ids)};
+  const cup = group('Cup0', mesh('Photo'));
+  const layer = photoLayer(v, ids, cup);
+  for (const [k, x] of [['round0', 0], ['round1', 1], ['round2', 2], ['final', 3]]) loaded(v, k, at(x, group('Cup0', mesh('Block'))));
+  const own = mesh('OwnPhoto'), door = mesh('Door');
+  loaded(v, 'articulated', at(3, group('Cup0', own)), door);
+  const x = () => cup.matrix.elements[12];
+  apply(v, 'round0', true, state);
+  // Playback: the next round fades in over the current one.
+  apply(v, 'round1', false, state);
+  assert.deepEqual([v.current, v.incoming, x()], ['round0', 'round1', 0]);
+  while (v.incoming) {tick(v); apply(v, 'round1', false, state);}
+  assert.deepEqual([v.current, x()], ['round1', 1]);
+  // A live update replaces the target while it fades: the room taking over brings its placement.
+  apply(v, 'round2', false, state);
+  tick(v);
+  apply(v, 'final', false, state);
+  assert.deepEqual([v.current, v.incoming, x()], ['round2', 'final', 2]);
+  // Rewinding mid-fade shows the destination at once.
+  apply(v, 'round0', true, state);
+  assert.deepEqual([v.current, v.incoming, x(), layer.root.visible], ['round0', null, 0, true]);
+  // A room holding its own photo models fades in with them held back: the overlay and they hand over at once.
+  const drawn = node => {for (let o = node; o; o = o.parent) if (!o.visible) return false; return true;};
+  const once = () => assert.equal([cup, own].filter(drawn).length, 1);
+  const parts = {photoItems, photoShow: null};
+  apply(v, 'final', true, state);
+  apply(v, 'articulated', false, parts);
+  assert.deepEqual([v.incoming, drawn(cup), drawn(own), drawn(door), x()], ['articulated', true, false, true, 3]);
+  tick(v);
+  assert.ok(v.mix > 0 && v.mix < 1);
+  once();
+  v.paused = true;  // paused mid-fade: the fade still finishes
+  apply(v, 'articulated', false, parts);
+  once();
+  v.paused = false;
+  apply(v, 'final', true, state);  // rewound mid-fade
+  assert.deepEqual([v.current, v.incoming, drawn(cup), drawn(own)], ['final', null, true, false]);
+  apply(v, 'articulated', false, parts);
+  while (v.incoming) {tick(v); once(); apply(v, 'articulated', false, parts); once();}
+  assert.deepEqual([layer.root.visible, drawn(own)], [false, true]);
+  apply(v, 'articulated', true, parts);
+  assert.deepEqual([drawn(cup), drawn(own)], [false, true]);
+});
+
+test('while a room holding its own photo models downloads, the photo items stay on the room still drawn', async () => {
+  const v = view(), ids = ['Cup0'], photoItems = {ids}, state = {photoItems, photoShow: new Set(ids)};
+  const cup = group('Cup0', mesh('Photo'));
+  photoLayer(v, ids, cup);
+  loaded(v, 'final', at(3, group('Cup0', mesh('Block'))));
+  const own = mesh('OwnPhoto'), root = loaded(v, 'articulated', at(3, group('Cup0', own)));
+  const gate = Promise.withResolvers(), entry = {};
+  entry.promise = gate.promise.then(() => Object.assign(entry, {root}));
+  v.models.articulated = entry;
+  const drawn = node => {for (let o = node; o; o = o.parent) if (!o.visible) return false; return true;};
+  const seen = [];
+  const frame = () => {
+    seen.push([drawn(cup), drawn(own)].join());
+    assert.equal([cup, own].filter(drawn).length, 1);
+  };
+  const options = {modelUrl: key => key === 'articulated' ? 'a.glb' : null};
+  apply(v, 'final', true, state, options);
+  frame();
+  apply(v, 'articulated', false, {photoItems, photoShow: null}, options);
+  frame();
+  tick(v);
+  apply(v, 'articulated', false, {photoItems, photoShow: null}, options);
+  frame();
+  gate.resolve();
+  await setImmediate();
+  frame();
+  while (v.incoming) {tick(v); apply(v, 'articulated', false, {photoItems, photoShow: null}, options); frame();}
+  // Shown until the handover, then the room's own: never gone and back.
+  assert.deepEqual([...new Set(seen)], ['true,false', 'false,true']);
+  assert.equal(v.current, 'articulated');
+});
+
+test('a photo item shows at its record while the room the card switches to fades in', () => {
+  const v = view(), ids = ['Cup0', 'Bottle0'], photoItems = {ids};
+  const cup = group('Cup0', mesh('PhotoCup')), bottle = group('Bottle0', mesh('PhotoBottle'));
+  photoLayer(v, ids, cup, bottle);
+  loaded(v, 'seed', at(1, group('Cup0', mesh('Block'))));
+  loaded(v, 'round0', at(2, group('Cup0', mesh('Block'))));
+  apply(v, 'seed', true, {photoItems, photoShow: new Set()});
+  assert.deepEqual([cup.visible, bottle.visible], [false, false]);
+  // Played across the card: the first record switches rooms; each item is there from its record, the cup on
+  // the outgoing room's stand-in until the handover, the bottle (no stand-in anywhere) where its GLB has it.
+  const reached = new Set(['Cup0']);
+  apply(v, 'round0', false, {photoItems, photoShow: reached});
+  assert.deepEqual([v.incoming, cup.visible, bottle.visible, cup.matrix.elements[12]], ['round0', true, false, 1]);
+  tick(v);
+  reached.add('Bottle0');
+  apply(v, 'round0', false, {photoItems, photoShow: new Set(reached)});
+  while (v.incoming) {
+    assert.deepEqual([cup.visible, bottle.visible, cup.matrix.elements[12]], [true, true, 1]);
+    tick(v);
+    apply(v, 'round0', false, {photoItems, photoShow: new Set(reached)});
+  }
+  assert.deepEqual([v.current, cup.visible, bottle.visible, cup.matrix.elements[12]], ['round0', true, true, 2]);
+});
+
+test('a withdrawn photo source cancels its download and frees what was parsed', async t => {
+  const bin = Buffer.from(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer);
+  const text = JSON.stringify({asset: {version: '2.0'}, scene: 0, scenes: [{nodes: [0]}], nodes: [{name: 'Cup0', mesh: 0}],
+    meshes: [{primitives: [{attributes: {POSITION: 0}}]}], bufferViews: [{buffer: 0, byteLength: 36}], buffers: [{byteLength: 36}],
+    accessors: [{bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0]}]});
+  const json = Buffer.from(text.padEnd(Math.ceil(text.length / 4) * 4));
+  const chunk = (type, data) => Buffer.concat([Buffer.from(new Uint32Array([data.length, type]).buffer), data]);
+  const body = Buffer.concat([chunk(0x4E4F534A, json), chunk(0x004E4942, bin)]);
+  const glb = Buffer.concat([Buffer.from(new Uint32Array([0x46546C67, 2, 12 + body.length]).buffer), body]);
+  const reply = Promise.withResolvers();
+  // A late reply arrives whether or not the request was aborted.
+  const requests = t.mock.method(globalThis, 'fetch', () => reply.promise);
+  const disposed = t.mock.method(THREE.BufferGeometry.prototype, 'dispose');
+  const v = view(), photoItems = {model: 'small_objects', ids: ['Cup0']};
+  const options = {modelUrl: key => key === 'small_objects' ? 'http://room.test/so.glb' : null};
+  loaded(v, 'round0', group('Cup0', mesh('Block')));
+  const children = v.scene.children.length;
+  apply(v, 'round0', true, {photoItems, photoShow: new Set(['Cup0'])}, options);
+  const {signal} = requests.mock.calls[0].arguments[1];
+  apply(v, 'round0', true, {photoItems, photoShow: null}, options);  // an ordinary rewind keeps it
+  assert.deepEqual([signal.aborted, requests.mock.callCount()], [false, 1]);
+  apply(v, 'round0', true, {photoItems: null}, options);
+  assert.deepEqual([signal.aborted, v.photoSource, v.photoRetry], [true, null, null]);
+  const before = disposed.mock.callCount();
+  reply.resolve(new Response(glb));
+  for (let i = 0; i < 50 && disposed.mock.callCount() === before; i++) await new Promise(r => setTimeout(r, 2));
+  assert.ok(disposed.mock.callCount() > before);
+  assert.equal(v.scene.children.length, children);
+  assert.equal(v.photoSource, null);
 });

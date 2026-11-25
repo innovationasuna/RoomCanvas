@@ -569,7 +569,7 @@ class PhasedRun(unittest.TestCase):
         self.assertEqual([e['say'] for e in events if e.get('recorded_stage') == 'small_objects'],
                          ['整理小物品的照片和模型', '纸巾盒的照片模型已就绪', '瓶子的照片模型已就绪',
                           '小物品处理完成：采用照片模型 2 件，去掉 1 件，1 件保持原样'])
-        self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'small_objects', 'articulated'])
+        self.assertEqual([e['model'] for e in events if e.get('model')], ['seed', 'articulated', 'round0', 'final'])
         self.assertEqual(list(data['models']), ['seed', 'round0', 'final', 'small_objects', 'articulated'])
         self.assertEqual(data['models']['small_objects'], f'small-objects/history/{hashlib.sha256(b"small").hexdigest()}.glb')
         self.assertEqual(replay.scene_file(self.scene, data['models']['small_objects']).read_bytes(), b'small')
@@ -583,6 +583,8 @@ class PhasedRun(unittest.TestCase):
         ]), T0 + 2450)
         glb(self.scene / replay.SEED, {'@roots': ['Floor0']}, T0 + 95)
         glb(self.scene / replay.FINAL, {'@roots': ['Floor0', 'TissueBox0', 'WaterBottle1', 'Mug0', 'Book0']}, T0 + 1140)
+        glb(self.scene / 'realism_authoring/acceptance/attempt-x/round_01/Room.glb',
+            {'@roots': ['Floor0', 'Book0']}, T0 + 1080)
         data = replay.timeline(self.root)
         self.assertEqual(data['presentation'], 'by_stage')
         events = data['events']
@@ -594,12 +596,111 @@ class PhasedRun(unittest.TestCase):
                          ('assemble', 'small_objects', T0 + 2510))
         self.assertLess(events.index(placed), events.index(review))
         self.assertGreater(placed['minute'], review['minute'])
-        self.assertEqual((review['recorded_model'], review['t']), ('round0', T0 + 1085))
+        self.assertEqual((review['model'], review['t']), ('round0', T0 + 1085))
         self.assertIn('round0', data['models'])
-        self.assertNotIn('model', review)
+        # The openable-parts room published after the passes ends the replay (timeline.mjs), not this export.
+        self.assertEqual(next(e for e in events if e['id'] == 'final')['say'], '导出当时的房间')
+        self.assertNotIn('model', placed)
+        self.assertEqual(placed['overlay_model'], 'small_objects')
+        self.assertEqual(data['build']['model'], 'round0')
         self.assertEqual(set(data['hidden_nodes']['final']), {'TissueBox0', 'TissueStack1', 'Mug0', 'WaterBottle1'})
         self.assertEqual([part['node'] for part in data['build']['reveal']], ['Book0'])
         self.assertNotIn('small_objects', data['hidden_nodes'])
+
+    def keep_rows(self, keep):
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows if keep(r)))
+
+    def test_a_pass_without_photo_items_keeps_the_openable_room_at_the_end(self):
+        for empty in ('start only', 'nothing rebuilt'):
+            with self.subTest(empty):
+                self.tearDown()
+                self.setUp()
+                self.keep_rows(lambda r: r.get('kind') not in ('small_object_done', 'small_objects_done') and (
+                    empty == 'nothing rebuilt' or r.get('model') != 'small_objects'))
+                data = replay.timeline(self.root)
+                events = data['events']
+                self.assertFalse([e for e in events if 'overlay_model' in e])
+                self.assertEqual([e['model'] for e in events if e.get('model')][-1], 'articulated')
+                self.assertEqual(next(e for e in events if e['id'] == 'final')['recorded_model'], 'final')
+                self.assertNotIn('model', data['build'] or {})
+
+    def test_openable_room_names_the_room_it_was_cut_from(self):
+        small, articulated = (hashlib.sha256(b).hexdigest() for b in (b'small', b'articulated'))
+        folder = self.run / 'articulate/room_preview'
+        write(self.run / 'articulate/dependencies.json', json.dumps({'key': 'k', 'dependencies': {'preview': {'Room.glb': small}}}))
+        write(folder / 'plan.json', json.dumps([{'id': 'Storage1', 'parts': [{'name': 'Door'}]}]))
+        cut = hashlib.sha256(json.dumps({'source': 'k', 'plan': [{'id': 'Storage1', 'parts': [{'name': 'Door'}]}]},
+                                        sort_keys=True).encode()).hexdigest()
+        author = hashlib.sha256((self.scene / replay.FINAL).read_bytes()).hexdigest()
+        # Without matching receipts its start record tells: no source named is the author's room.
+        for key, expected in [('stale', author), (cut, small)]:
+            write(folder / 'bundle.json', json.dumps({'key': key, 'outputs': {'Room.glb': articulated}}))
+            event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+            self.assertEqual(event.get('source_digest'), expected)
+
+    def test_without_receipts_the_openable_pass_start_names_its_room(self):
+        small = hashlib.sha256(b'small').hexdigest()
+        author = hashlib.sha256((self.scene / replay.FINAL).read_bytes()).hexdigest()
+        trace = self.scene / replay.TRACES / 'trace.jsonl'
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        for source, expected in [(None, author), ('/elsewhere/run/small-objects/room_preview', small),
+                                 ('/elsewhere/run/other/room_preview', None)]:
+            start = {'source': source} if source else {}
+            write(trace, ''.join(json.dumps({**r, **start} if r.get('kind') == 'articulate_start' and r['t'] == T0 + 3010
+                                            else r) + '\n' for r in rows))
+            event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+            self.assertEqual(event.get('source_digest'), expected)
+            # A named room whose digest is gone is told apart from no evidence (the page keeps the overlay for both).
+            self.assertEqual(event.get('source_known'), None if expected else True)
+        # A small-object room written after the openable parts began is not the one they took.
+        os.utime(self.run / replay.SMALL_OBJECTS, (T0 + 3100, T0 + 3100))
+        write(trace, ''.join(json.dumps({**r, 'source': '/x/small-objects/room_preview'} if r.get('kind') == 'articulate_start'
+                                        and r['t'] == T0 + 3010 else r) + '\n' for r in rows))
+        event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+        self.assertEqual((event.get('source_digest'), event.get('source_known')), (None, True))
+        # Without a start record nothing is known.
+        write(trace, ''.join(json.dumps(r) + '\n' for r in rows if not (r.get('kind') == 'articulate_start' and r['t'] == T0 + 3010)))
+        event = next(e for e in replay.timeline(self.root)['events'] if e['id'] == 'articulated')
+        self.assertFalse({'source_digest', 'source_known'} & set(event))
+
+    def test_a_slim_copy_keeps_the_pass_receipts_that_match_its_rooms(self):
+        small, articulated = (hashlib.sha256(b).hexdigest() for b in (b'small', b'articulated'))
+        plan = [{'id': 'Storage1', 'parts': [{'name': 'Door'}]}]
+        write(self.run / 'articulate/dependencies.json', json.dumps({'key': 'k', 'dependencies': {'preview': {'Room.glb': small}}}))
+        write(self.run / 'articulate/room_preview/plan.json', json.dumps(plan))
+        cut = hashlib.sha256(json.dumps({'source': 'k', 'plan': plan}, sort_keys=True).encode()).hexdigest()
+        write(self.run / 'articulate/room_preview/bundle.json', json.dumps({'key': cut, 'outputs': {'Room.glb': articulated}}))
+        folder = self.run / 'small-objects/room_preview'
+        layout = write(folder / 'room_layout.json', json.dumps({'objects': [{'id': 'Book0'}, {'id': 'Bookmark0'}]}))
+        write(folder / 'apply.json', json.dumps({'placed': [{'id': 'TissueBox0', 'members': ['TissueBox0', 'TissueStack1']}]}))
+        write(folder / 'bundle.json', json.dumps({'outputs': {
+            'Room.glb': small, 'room_layout.json': hashlib.sha256(layout.read_bytes()).hexdigest()}}))
+        dest = self.root / 'slim'
+        replay.slim(self.run, dest)
+        a = replay.timeline(self.data / replay.register(self.data, self.run, 'a'), 'completed', T0 + 4000)
+        b = replay.timeline(self.data / replay.register(self.data, dest, 'b'), 'completed', T0 + 4000)
+        self.assertEqual(a, b)
+        placed = next(e for e in b['events'] if e.get('overlay_model'))
+        self.assertEqual((placed['overlay_objects'], placed['overlay_members']),
+                         (['Book0', 'Bookmark0'], {'TissueBox0': ['TissueBox0', 'TissueStack1']}))
+        self.assertEqual(next(e for e in b['events'] if e['id'] == 'articulated')['source_digest'], small)
+
+    def test_overlay_bounds_come_from_the_saved_room_receipt(self):
+        folder = self.run / 'small-objects/room_preview'
+        layout = write(folder / 'room_layout.json', json.dumps({'objects': [
+            {'id': 'TissueBox0', 'handle': 'TissueBox0'}, {'id': 'Bookmark0', 'handle': 'Bookmark0'}, {'id': 'Floor0'}]}))
+        write(folder / 'apply.json', json.dumps({'placed': [{'id': 'TissueBox0', 'members': ['TissueBox0', 'TissueStack1']},
+                                                            {'id': 'WaterBottle1', 'members': ['WaterBottle1']}]}))
+        write(self.run / 'small-objects/items.json', json.dumps([{'id': 'TissueBox0', 'members': ['TissueBox0', 'Old1']}]))
+        for room, objects, members in [(b'small', ['Bookmark0', 'Floor0', 'TissueBox0'], ['TissueBox0', 'TissueStack1']),
+                                       (b'other', None, ['TissueBox0', 'Old1'])]:
+            write(folder / 'bundle.json', json.dumps({'outputs': {
+                'Room.glb': hashlib.sha256(room).hexdigest(), 'room_layout.json': hashlib.sha256(layout.read_bytes()).hexdigest()}}))
+            placed = next(e for e in replay.timeline(self.root)['events'] if e.get('overlay_model'))
+            self.assertEqual(placed.get('overlay_objects'), objects)
+            self.assertEqual(placed['overlay_members'], {'TissueBox0': members})
 
     def test_a_live_view_shows_the_pass_as_it_goes(self):
         data = replay.timeline(self.root, 'running', T0 + 2400)  # <root>/run/pipeline/demo
@@ -624,10 +725,10 @@ class PhasedRun(unittest.TestCase):
                 self.assertEqual(latest['say'], last)
                 self.assertNotIn('small_objects', data['models'])
             else:
-                self.assertEqual((latest['model'], latest['t']), (last, T0 + 15))
+                self.assertEqual((latest.get('overlay_model') or latest['model'], latest['t']), (last, T0 + 15))
                 own = [e for e in events if e.get('recorded_stage') == latest['recorded_stage']]
                 self.assertIs(own[-1], latest)
-                self.assertTrue(all('model' not in e for e in events if e['id'] == 'final'))
+                self.assertEqual(next(e['model'] for e in events if e['id'] == 'final'), 'final')
 
     def test_published_label_waits_for_the_matching_room_receipt(self):
         import hashlib
@@ -1065,6 +1166,7 @@ class PassesBeforeTheCheck(unittest.TestCase):
             data = replay.timeline(job, until=T0 + 1200)
             rel = data['models'][f'small_{digest}']
             self.assertEqual(replay.scene_file(scene, rel).read_bytes(), b'small')
+            # No item was made from photos: the saved room itself shows, as before overlays.
             new = next(e for e in replay.timeline(job)['events'] if e.get('model') == 'small_objects')
             self.assertEqual(new['artifact_digest'], hashlib.sha256(b'new').hexdigest())
 
