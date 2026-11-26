@@ -122,6 +122,14 @@ class PhysicalRoomLightingEnvironmentTest {
             assertPhysical(rig.scene, hdr)
             rig.scene.nativeLights()
         }
+        for (lights in listOf(modelFirst, environmentFirst)) {
+            assertEquals(1, lights.size)
+            val ceiling = lights.single()
+            assertEquals(LightManager.Type.FOCUSED_SPOT, ceiling.type)
+            assertVector(floatArrayOf(0f, 2.65f, 0f), ceiling.position)
+            assertVector(floatArrayOf(0f, -1f, 0f), ceiling.direction)
+            assertTrue(ceiling.intensity > 0f)
+        }
         assertEquals(modelFirst, environmentFirst)
     }
 

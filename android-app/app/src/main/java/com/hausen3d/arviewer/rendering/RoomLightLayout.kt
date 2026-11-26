@@ -34,11 +34,14 @@ data class RoomBounds(val min: Vec3, val max: Vec3) {
         }
 }
 
+data class RoomLightAncestor(val entityId: Int, val name: String)
+
 data class NamedRoomBounds(
     val name: String,
     val bounds: RoomBounds,
     /** Outer-to-inner transform ancestors, excluding this renderable's own name. */
-    val ancestors: List<String> = emptyList()
+    val ancestors: List<RoomLightAncestor> = emptyList(),
+    val entityId: Int? = null
 )
 
 enum class RoomLightKind { CEILING, WINDOW }
@@ -70,28 +73,32 @@ object RoomLightLayout {
     private val ceilingPanel = Regex("^ceiling\\d+$", RegexOption.IGNORE_CASE)
     private val linearFixture = Regex("^linear light housing(?:\\.\\d+)?$", RegexOption.IGNORE_CASE)
 
-    private fun excludedWindowPart(name: String): Boolean {
-        if (windowHelper.containsMatchIn(name)) return true
-        val covering = windowCovering.find(name) ?: return false
-        // A complete window can include its blind in the same mesh. A separate
-        // curtain/blind (including its own frame) must not enlarge the aperture.
-        val frame = name.indexOf("frame", ignoreCase = true)
-        return !(name.startsWith("window", ignoreCase = true) &&
-            frame >= 0 && frame < covering.range.first)
-    }
+    // This is the composite mesh used by the office sample, not any frame
+    // whose name happens to contain a covering word later in the string.
+    private val compositeWindow = Regex(
+        "^window(?:[_-]?\\d+)?_frame_fixed_lights_sill_blind(?:\\.\\d+)?$",
+        RegexOption.IGNORE_CASE
+    )
 
-    private fun windowKey(part: NamedRoomBounds): String? {
-        val path = part.ancestors + part.name
-        if (path.any(::excludedWindowPart)) return null
-        // Window1..8 can be leaves of Window0, rather than eight separate windows.
-        // The outermost semantic root also includes unnamed renderable children.
-        val root = part.ancestors.indexOfFirst { windowAncestor.containsMatchIn(it) }
+    private fun excludedWindowPart(name: String): Boolean =
+        windowHelper.containsMatchIn(name) ||
+            (windowCovering.containsMatchIn(name) && !compositeWindow.matches(name))
+
+    private data class WindowKey(val entityId: Int?, val name: String)
+
+    private fun windowKey(part: NamedRoomBounds, ancestorEntities: Set<Int>): WindowKey? {
+        val path = part.ancestors.map { it.name } + part.name
+        val root = part.ancestors.indexOfFirst { windowAncestor.containsMatchIn(it.name) }
             .takeIf { it >= 0 } ?: part.ancestors.size
-        // A complete frame may itself be the named parent of anonymous meshes.
-        // Normalize its suffix just as the original flat-name grouping did.
+        // Outer containers such as CurtainWall do not describe a window covering.
+        if (path.drop(root).any(::excludedWindowPart)) return null
         val group = windowGroup.find(path[root])?.value ?: return null
-        val groupPath = path.take(root) + group
-        return groupPath.joinToString("\u0000") { it.lowercase() }
+        val rootEntity = part.ancestors.getOrNull(root)?.entityId
+            // A renderable window root and its descendants must share one group.
+            ?: part.entityId?.takeIf { it in ancestorEntities }
+        val rootName = if (rootEntity != null) path[root] else group
+        val name = (path.take(root) + rootName).joinToString("\u0000") { it.lowercase() }
+        return WindowKey(rootEntity, name)
     }
 
     fun shellBounds(parts: List<NamedRoomBounds>, fallback: RoomBounds): RoomBounds {
@@ -121,10 +128,16 @@ object RoomLightLayout {
             )
         }
 
-        val windowGroups = parts.mapNotNull { part -> windowKey(part)?.let { it to part } }
-            .groupBy({ it.first }, { it.second }).toSortedMap()
-        val windowLights = windowGroups.values.map { windowParts ->
-            val bounds = windowParts.map { it.bounds }.reduce(RoomBounds::union)
+        val ancestorEntities = parts.flatMap { it.ancestors }.map { it.entityId }.toSet()
+        val windowGroups = parts.mapNotNull { part -> windowKey(part, ancestorEntities)?.let { it to part } }
+            .groupBy({ it.first }, { it.second })
+            .map { (key, group) -> key to group.map { it.bounds }.reduce(RoomBounds::union) }
+            // Entity IDs identify groups but must not decide which lights survive
+            // the budget: IDs may change when the same model is loaded again.
+            .sortedWith(compareBy({ it.first.name },
+                { it.second.min.x }, { it.second.min.y }, { it.second.min.z },
+                { it.second.max.x }, { it.second.max.y }, { it.second.max.z }))
+        val windowLights = windowGroups.map { (_, bounds) ->
             val center = bounds.center
             val roomCenter = room.center
             var inwardX = roomCenter.x - center.x

@@ -195,11 +195,11 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         val renderableManager = sceneView.engine.renderableManager
         val transformManager = sceneView.engine.transformManager
         val names = asset.entities.associateWith { asset.getName(it).orEmpty() }
-        fun ancestors(entity: Int): List<String> {
-            val path = mutableListOf<String>()
+        fun ancestors(entity: Int): List<RoomLightAncestor> {
+            val path = mutableListOf<RoomLightAncestor>()
             var parent = transformManager.getParent(transformManager.getInstance(entity))
             while (parent in names) {
-                names[parent]?.takeIf { it.isNotEmpty() }?.let(path::add)
+                path += RoomLightAncestor(parent, names.getValue(parent))
                 if (!transformManager.hasComponent(parent)) break
                 parent = transformManager.getParent(transformManager.getInstance(parent))
             }
@@ -214,7 +214,7 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
                 transformManager.getInstance(entity),
                 FloatArray(16)
             )
-            NamedRoomBounds(name, box.transform(transform), ancestors(entity))
+            NamedRoomBounds(name, box.transform(transform), ancestors(entity), entity)
         }
     }
 
