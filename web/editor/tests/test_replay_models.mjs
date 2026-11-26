@@ -14,7 +14,7 @@ const hooks = registerHooks({resolve(name, context, next) {
 const {RoomView} = await import('../../replay/room-view.mjs');
 const {Materializer} = await import('../../replay/materialize.mjs');
 const {GLTFLoader} = await import('three/addons/loaders/GLTFLoader.js');
-const {SmallItemLayer, selectPhotoItems} = await import('../../replay/small-items.mjs');
+const {SmallItemLayer, selectPhotoItems, photoHolders, modelNodes} = await import('../../replay/small-items.mjs');
 hooks.deregister();
 
 function view() {
@@ -619,7 +619,7 @@ test('ambiguous backdrops keep all candidate windows and plates on the ordinary 
     apply(v, 'final');
     tick(v);
     old.traverse(o => {
-      if (!o.isMesh) return;
+      if (!o.isMesh || o.userData.mask) return;
       assert.equal(o.visible, true, o.name);
       assert.equal(next.getObjectByName(o.name).material.opacity, v.mix, o.name);
     });
@@ -1021,6 +1021,34 @@ test('a photo item shows at its record while the room the card switches to fades
   assert.deepEqual([v.current, cup.visible, bottle.visible, cup.matrix.elements[12]], ['round0', true, true, 2]);
 });
 
+test('a photo item reached while playing takes shape, with what else stands on its carried holder; after a seek it is there', () => {
+  const ids = ['Book0', 'Book1'], objects = new Set(['Shelf0', 'Book0', 'Book1', 'Book2']);
+  const holders = {Book0: 'Shelf0', Book1: 'Shelf0'}, photoItems = {ids, holders, objects};
+  const setup = () => {
+    const v = view(), book = group('Book0', mesh('PhotoBook')), other = group('Book1', mesh('PhotoBook1')), agentBook = group('Book2', mesh('AgentBook'));
+    const layer = new SmallItemLayer(group('donor', group('Shelf0', mesh('Carcass'), book, other, agentBook)), ids,
+      {holders: ['Shelf0'], contents: name => objects.has(name)});
+    v.photoSource = {source: {ids}, layer};
+    v.scene.add(layer.root);
+    loaded(v, 'round0', group('Shelf0', mesh('OldCarcass')));
+    const formed = [];
+    v.materialize = nodes => formed.push(nodes.map(node => node.name));
+    return {v, formed};
+  };
+  const played = setup();
+  // The layer comes into view with its holder: nothing forms. Then each record brings its own item.
+  apply(played.v, 'round0', true, {photoItems, photoShow: new Set()});
+  apply(played.v, 'round0', false, {photoItems, photoShow: new Set()});
+  apply(played.v, 'round0', false, {photoItems, photoShow: new Set(['Book0'])});
+  apply(played.v, 'round0', false, {photoItems, photoShow: new Set(['Book0'])});
+  apply(played.v, 'round0', false, {photoItems, photoShow: new Set(ids)});
+  assert.deepEqual(played.formed.filter(names => names.length), [['Book2', 'Book0'], ['Book1']]);
+  const sought = setup();
+  apply(sought.v, 'round0', true, {photoItems, photoShow: new Set()});
+  apply(sought.v, 'round0', true, {photoItems, photoShow: new Set(ids)});
+  assert.deepEqual(sought.formed.filter(names => names.length), []);
+});
+
 test('a withdrawn photo source cancels its download and frees what was parsed', async t => {
   const bin = Buffer.from(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer);
   const text = JSON.stringify({asset: {version: '2.0'}, scene: 0, scenes: [{nodes: [0]}], nodes: [{name: 'Cup0', mesh: 0}],
@@ -1050,4 +1078,195 @@ test('a withdrawn photo source cancels its download and frees what was parsed', 
   assert.ok(disposed.mock.callCount() > before);
   assert.equal(v.scene.children.length, children);
   assert.equal(v.photoSource, null);
+});
+
+test('the node list is read from the start of a GLB, without the rest of the file', async t => {
+  const json = new TextEncoder().encode(JSON.stringify({nodes: [{name: 'Shelf0', mesh: 0, children: [1]}, {name: 'Book0', extras: {room_id: 'Book0'}}]}));
+  const head = new DataView(new ArrayBuffer(20));
+  head.setUint32(0, 0x46546c67, true); head.setUint32(4, 2, true); head.setUint32(12, json.length, true); head.setUint32(16, 0x4e4f534a, true);
+  const bytes = new Uint8Array(20 + json.length);
+  bytes.set(new Uint8Array(head.buffer)); bytes.set(json, 20);
+  let sent = 0, cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      if (sent >= bytes.length) {controller.enqueue(new Uint8Array(1 << 20)); return;}  // the binary chunk: never wanted
+      controller.enqueue(bytes.slice(sent, sent + 7));
+      sent += 7;
+    },
+    cancel() {cancelled = true;},
+  });
+  t.mock.method(globalThis, 'fetch', async () => new Response(body));
+  assert.deepEqual(await modelNodes('room.glb'), [
+    {name: 'Shelf0', parent: null, mesh: true, roomId: undefined}, {name: 'Book0', parent: 0, mesh: false, roomId: 'Book0'}]);
+  assert.ok(cancelled);
+});
+
+test('a holder the build room has none of the photo items of is carried, with what stands in it', () => {
+  const node = (name, parent = null, extra = {}) => ({name, parent, mesh: true, ...extra});
+  // Pass room: Floor0 > Shelf0 > Book0 (photo), Book2 (made by the agent); Floor0 > Table0 > Cup0; Floor0 > Box0.
+  const pass = [node('Floor0'), node('Shelf0', 0), node('Book0', 1), node('Book2', 1), node('Table0', 0), node('Cup0', 4), node('Box0', 0)];
+  const objects = new Set(['Floor0', 'Shelf0', 'Book0', 'Book2', 'Table0', 'Cup0', 'Box0']);
+  // Build room: an earlier shelf with a panel, the table with the cup's stand-in.
+  const build = [node('Floor0'), node('Shelf0', 0), node('Panel0', 1), node('Strip', 2), node('Table0', 0), node('Cup0', 4)];
+  assert.deepEqual(photoHolders(pass, build, ['Book0', 'Cup0', 'Box0'], objects),
+    {holders: {Book0: 'Shelf0', Cup0: 'Table0'}, carried: ['Shelf0'], inside: ['Panel0', 'Strip']});
+  // A stand-in named among an item's members also stands for it.
+  assert.deepEqual(photoHolders(pass, [...build, node('OldBook', 1)], ['Book0'], objects, {Book0: ['Book0', 'OldBook']}).carried, []);
+});
+
+test("a carried holder replaces the room's own, empty until its first item is reached; a later version keeps its own", () => {
+  const json = {scenes: [{nodes: [0]}], nodes: [
+    {name: 'Shelf0', mesh: 0, children: [1, 2]}, {name: 'Book0', mesh: 1}, {name: 'Book2', mesh: 2, extras: {room_id: 'Book2'}},
+  ]};
+  const ids = ['Book0', 'Book1'], objects = new Set(['Shelf0', 'Book0', 'Book1', 'Book2']);
+  selectPhotoItems(json, ids, objects, ['Shelf0']);
+  assert.deepEqual([json.nodes[0].mesh, json.nodes[0].children], [0, [1, 2]]);  // whole, the agent's book included
+
+  const v = view(), carcass = mesh('Carcass'), book = group('Book0', mesh('PhotoBook')), other = group('Book1', mesh('PhotoBook1'));
+  const agentBook = group('Book2', mesh('AgentBook'));
+  const layer = new SmallItemLayer(group('donor', group('Shelf0', carcass, book, other, agentBook)), ids,
+    {holders: ['Shelf0'], contents: name => objects.has(name)});
+  assert.deepEqual([...layer.items.keys()].sort(), ids);
+  assert.deepEqual(layer.holders.get('Shelf0').contents.map(o => o.name), ['Book2']);
+  v.photoSource = {source: {ids}, layer};
+  v.scene.add(layer.root);
+  const holders = {Book0: 'Shelf0', Book1: 'Shelf0'}, photoItems = {ids, holders, objects};
+  const panel = mesh('Panel0'), old = group('Shelf0', mesh('OldCarcass'), panel);
+  loaded(v, 'round0', old);
+  apply(v, 'round0', true, {photoItems, photoShow: new Set()});
+  assert.deepEqual([old.visible, carcass.visible, agentBook.visible, book.visible], [false, true, false, false]);
+  apply(v, 'round0', true, {photoItems, photoShow: new Set(['Book0'])});
+  assert.deepEqual([old.visible, agentBook.visible, book.visible, other.visible], [false, true, true, false]);
+  assert.ok(v.boundsOf('Shelf0').containsBox(new THREE.Box3().setFromObject(carcass)));
+  // A version with an item's stand-in has the shelf the items were placed in.
+  const later = group('Shelf0', mesh('NewCarcass'), group('Book1', mesh('Block')));
+  loaded(v, 'round5', later);
+  apply(v, 'round5', true, {photoItems, photoShow: new Set(ids)});
+  assert.deepEqual([later.visible, layer.holders.get('Shelf0').part.visible, book.visible, other.visible], [true, false, true, true]);
+});
+
+test("a wall fading in is drawn in front of the shown room's wall until it is the room shown", () => {
+  const v = view(), wall = () => group('Wall0', mesh('WallFace'));
+  const first = loaded(v, 'round0', wall()), second = loaded(v, 'round1', wall());
+  const face = second.getObjectByName('WallFace').material;
+  apply(v, 'round0', true);
+  apply(v, 'round1');
+  tick(v);
+  assert.ok(v.incoming === 'round1' && v.mix < 1);
+  assert.deepEqual([face.polygonOffset, face.polygonOffsetFactor, face.polygonOffsetUnits], [true, -1, -4]);
+  assert.equal(first.getObjectByName('WallFace').material.polygonOffset, false);
+  while (v.incoming) tick(v);
+  tick(v);
+  assert.deepEqual([face.polygonOffset, face.polygonOffsetFactor, face.polygonOffsetUnits], [false, 0, 0]);
+});
+
+test('a faded wall still hides what of it lies behind its nearest surface, after the room has drawn', () => {
+  const v = view(), collage = mesh('Collage', new THREE.MeshStandardMaterial({transparent: true, opacity: 0.5}));
+  const leaf = mesh('Leaf'), handles = mesh('Handles');
+  handles.position.z = -2; collage.position.z = 2;
+  loaded(v, 'round0', group('Wall0', leaf, handles, collage));
+  apply(v, 'round0', true);
+  const wall = v.wallFades[0], state = () => [leaf, handles, collage].map(o => [o.renderOrder, o.material.depthWrite, o.material.transparent]);
+  const depth = () => wall.masks.map(mask => [mask.parent.name, mask.visible, mask.renderOrder, mask.material.colorWrite, mask.material.depthWrite]);
+  v.fadeWall(wall);
+  assert.deepEqual(state(), [[0, true, false], [0, true, false], [1, false, true]]);
+  assert.deepEqual(depth(), [['Leaf', false, 0, false, true], ['Handles', false, 0, false, true]]);
+  wall.a = 0.5;
+  v.fadeWall(wall);
+  // The wall's depth alone first, of what is solid on it; then its colours, in front of that depth and writing
+  // none: both sides' handles behind the leaf stay hidden, and parts sharing a surface blend whichever comes first.
+  assert.deepEqual(depth(), [['Leaf', true, 3, false, true], ['Handles', true, 3, false, true]]);
+  assert.deepEqual(state(), [[4, false, true], [4, false, true], [5, false, true]]);
+  assert.deepEqual([leaf.material.polygonOffset, leaf.material.polygonOffsetFactor, leaf.material.polygonOffsetUnits], [true, -1, -4]);
+  // A nearer faded wall draws wholly after it.
+  wall.rank = 2;
+  v.fadeWall(wall);
+  assert.deepEqual([depth()[0][2], ...state().map(([order]) => order)], [9, 10, 10, 11]);
+  wall.a = 1;
+  v.fadeWall(wall);
+  assert.deepEqual(state(), [[0, true, false], [0, true, false], [1, false, true]]);
+  assert.deepEqual([depth()[0][1], leaf.material.polygonOffset], [false, false]);
+});
+
+test('a faded wall keeps its depth while the room fades, covering what each material covers, glass left out', () => {
+  const v = view(), both = mesh('Both', new THREE.MeshStandardMaterial({side: THREE.DoubleSide}));
+  const lace = mesh('Lace', new THREE.MeshStandardMaterial({alphaTest: .5, map: new THREE.Texture()}));
+  const glass = mesh('Glass', new THREE.MeshPhysicalMaterial({transmission: 1}));
+  const root = loaded(v, 'round0', group('Wall0', both, lace, glass));
+  apply(v, 'round0', true);
+  const depth = (o) => o.children.find(c => c.userData.mask === 'depth')?.material;
+  // what a texture cuts out is cut against the faded opacity: no depth to disagree with it
+  assert.deepEqual([depth(glass), depth(lace)], [undefined, undefined]);
+  assert.equal(depth(both).side, THREE.DoubleSide);
+  v.setFade(root, .5);
+  assert.equal(depth(both).depthWrite, true);
+});
+
+test('a seek ends what of the photo items was taking shape', () => {
+  const v = view(), ids = ['Cup0'], cup = group('Cup0', mesh('PhotoCup'));
+  v.calm = {matches: false};
+  const layer = photoLayer(v, ids, cup);
+  loaded(v, 'round0', group('Cup0', mesh('Block')));
+  apply(v, 'round0', true, {photoItems: {ids}, photoShow: new Set()});
+  apply(v, 'round0', false, {photoItems: {ids}, photoShow: new Set()});
+  apply(v, 'round0', false, {photoItems: {ids}, photoShow: new Set(ids)});
+  const inLayer = () => [...v.forming.active.keys()].filter(node => layer.root.getObjectById(node.id));
+  assert.equal(inLayer().length, 1);
+  apply(v, 'round0', true, {photoItems: {ids}, photoShow: new Set(ids)});
+  assert.deepEqual(inLayer(), []);
+  let extras = 0;
+  layer.root.traverse(o => {if (o.userData.mask === true) extras++;});
+  assert.equal(extras, 0);
+});
+
+test('a first-room object under its floor shows on its own while pending, and all is undone after', () => {
+  const v = view(), floor = mesh('Floor0'), box = group('Box0', mesh('OldBox')), tile = group('Tile0', mesh('OldTile'));
+  floor.add(box, tile);
+  const seed = loaded(v, 'seed', floor, group('Sofa0', mesh('OldSofa')));
+  loaded(v, 'final', group('Floor0', group('Box0', mesh('NewBox'))));
+  v.models.seed.root.visible = true;
+  apply(v, 'seed', true);
+  apply(v, 'final', true, {added: new Set(), pending: new Set(['Box0']), buildModel: 'final'});
+  const shown = (o) => {for (let p = o; p; p = p.parent) if (!p.visible) return false; return true;};
+  assert.deepEqual([shown(box.children[0]), shown(tile.children[0]), shown(seed.getObjectByName('OldSofa'))], [true, false, false]);
+  // the floor's own surface stays hidden: only the transform above the box shows
+  assert.deepEqual([seed.visible, shown(floor)], [true, false]);
+  apply(v, 'seed', true);
+  assert.deepEqual([shown(floor), shown(box.children[0]), shown(tile.children[0])], [true, true, true]);
+});
+
+test('a first-room wall split to show what hangs on it is faded and relinked from its new frame', () => {
+  const v = view(), wall = mesh('Wall0'), clock = group('Clock0', mesh('OldClock'));
+  wall.add(clock);
+  loaded(v, 'seed', wall);
+  loaded(v, 'final', group('Wall0', group('Clock0', mesh('NewClock'))));
+  apply(v, 'seed', true);
+  apply(v, 'final', true, {added: new Set(), pending: new Set(['Clock0']), buildModel: 'final'});
+  const fade = v.wallFades.find(w => w.root === v.models.seed.root);
+  assert.equal(fade.part, wall.parent);
+  assert.ok(fade.part.getObjectById(clock.id));
+  v.relinkWalls();
+  assert.ok(fade.mats.includes(clock.children[0].material));
+});
+
+test("the build room shows the first room's versions of the objects not reached yet, and only those", () => {
+  const v = view(), oldChair = mesh('OldChair'), stand = mesh('OldCupBlock'), wall = group('Wall0', mesh('OldWall'));
+  const seed = loaded(v, 'seed', wall, group('Chair0', oldChair), group('Table0', mesh('OldTable'), group('Cup0', stand)), group('Sofa0', mesh('OldSofa')));
+  const chair = group('Chair0', mesh('NewChair')), table = group('Table0', mesh('NewTable'));
+  const built = loaded(v, 'round0', group('Wall0', mesh('NewWall')), chair, table, group('Sofa0', mesh('NewSofa')));
+  const options = {addedAll: ['Chair0', 'Table0']};
+  const build = (added, pending) => ({buildModel: 'round0', added: new Set(added), pending: new Set(pending), hiddenNodes: ['Cup0']});
+  apply(v, 'round0', true, build([], ['Chair0', 'Table0']), options);
+  const shown = root => root.children.filter(o => o.visible).map(o => o.name);
+  assert.equal(seed.visible, true);
+  assert.deepEqual(shown(seed), ['Chair0', 'Table0']);
+  assert.equal(stand.parent.visible, false);  // a photo item's stand-in stays out, as in the build room
+  assert.deepEqual([chair.visible, table.visible], [false, false]);
+  apply(v, 'round0', true, build(['Chair0'], ['Table0']), options);
+  assert.deepEqual([shown(seed), chair.visible, table.visible], [['Table0'], true, false]);
+  apply(v, 'round0', true, build(['Chair0', 'Table0'], []), options);
+  assert.equal(seed.visible, false);
+  // Back to the first room: it shows whole again, the stand-in's mask released.
+  apply(v, 'seed', true, {shell: true});
+  assert.deepEqual([seed.visible, stand.parent.visible, built.visible], [true, true, false]);
 });

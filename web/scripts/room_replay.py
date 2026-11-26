@@ -249,12 +249,22 @@ def _object_image(scene, name, made=True):
     """A picture of an object: its finished model's front view, else its reference, else its photo. Before its
     model is `made` (its clear picture just generated), only the reference or photo."""
     model = [f'scene_init/obj_stage/reconstructed_objs/{name}/previews/preview_front.png'] if made else []
+    # A chair type's pictures are kept with the chair types (see chair_pictures).
     for pattern in (*model, f'scene_init/obj_stage/object_init/*_refs/*/{name}/reference_1024.png',
-                    f'scene_init/obj_stage/object_init/*_refs/*/{name}/input2imagegen.jpg'):
+                    f'scene_init/obj_stage/object_init/chair_clusters/*/references/{name}.png',
+                    f'scene_init/obj_stage/object_init/*_refs/*/{name}/input2imagegen.jpg',
+                    f'scene_init/obj_stage/object_init/chair_clusters/*/input2imagegen/{name}.jpg'):
         found = _first(Path(scene).glob(pattern))
         if found:
             return _rel(scene, found)
     return None
+
+
+def chair_pictures(scene):
+    """[(chair type, its clear picture)], as the chair types' generation left them."""
+    pictures = sorted(Path(scene).glob('scene_init/obj_stage/object_init/chair_clusters/*/references/ChairCluster*.png'),
+                      key=lambda path: int(re.sub(r'\D', '', path.stem) or 0))
+    return [(path.stem, _rel(scene, path)) for path in pictures if re.fullmatch(r'ChairCluster\d+', path.stem)]
 
 
 CATEGORY = {'bed': '床', 'storage': '柜子', 'cabinet': '柜子', 'wardrobe': '衣柜', 'table': '桌子', 'desk': '书桌',
@@ -539,8 +549,15 @@ def pipeline_events(scene, until=None):
             elif stage == 'reconstruct':
                 add(r, 'plan', '形状复杂的物品已由 AI 重建完成')
         elif kind == 'image_generation' and status == 'ok' and r.get('name'):
-            add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'],
-                img=_object_image(scene, r['name'], made=False), **thing(r['name'], 'image'))
+            # The chair types get their clear pictures in one go ('generated'): a line for each, with its picture,
+            # so they are the same chairs as the models made of them.
+            chairs = chair_pictures(scene) if r['name'] == 'generated' else []
+            for chair, picture in chairs:
+                add(r, 'photos', f'生成{name(chair)}的清晰图', 'image', once='img:' + chair, img=picture,
+                    **thing(chair, 'image'), **({'id': f'{r["event_id"]}:{chair}'} if r.get('event_id') else {}))
+            if not chairs:
+                add(r, 'photos', f'生成{name(r["name"])}的清晰图', 'image', once='img:' + r['name'],
+                    img=_object_image(scene, r['name'], made=False), **thing(r['name'], 'image'))
         elif kind == 'object_done' and status == 'ok' and r.get('name'):
             # Objects reconstructed by AI, each at the time its model was written; a resumed run
             # records reused models again with that time, so they read as made then. A model taken
@@ -1014,15 +1031,19 @@ def models(scene, until=None):
     return out
 
 
-def glb_tree(path):
-    """{node name: parent name or None} from a GLB's JSON chunk (no mesh data is read)."""
+def _glb_json(path):
     try:
         with open(path, 'rb') as f:
             head = f.read(20)
             length = struct.unpack('<I', head[12:16])[0]
-            gltf = json.loads(f.read(length))
+            return json.loads(f.read(length))
     except (OSError, ValueError, struct.error):
         return {}
+
+
+def glb_tree(path):
+    """{node name: parent name or None} from a GLB's JSON chunk (no mesh data is read)."""
+    gltf = _glb_json(path)
     nodes = gltf.get('nodes', [])
     parent = {}
     for k, node in enumerate(nodes):
@@ -1030,6 +1051,85 @@ def glb_tree(path):
             parent[child] = k
     return {node.get('name'): (nodes[parent[k]].get('name') if k in parent else None)
             for k, node in enumerate(nodes) if node.get('name')}
+
+
+def _local(node):
+    """A node's local transform as a row-major 4x4 matrix."""
+    if 'matrix' in node:
+        m = node['matrix']
+        return [[m[c * 4 + r] for c in range(4)] for r in range(4)]
+    (x, y, z, w), (sx, sy, sz), t = node.get('rotation', (0, 0, 0, 1)), node.get('scale', (1, 1, 1)), node.get('translation', (0, 0, 0))
+    rot = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+           [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+           [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
+    return [[rot[i][0] * sx, rot[i][1] * sy, rot[i][2] * sz, t[i]] for i in range(3)] + [[0, 0, 0, 1]]
+
+
+def _material_looks(gltf):
+    """Each material as it looks: its values, a texture by the image it shows (by its URI or its type and size, which
+    tells an image swapped in apart without reading it), not its name."""
+    textures, images, views = gltf.get('textures', []), gltf.get('images', []), gltf.get('bufferViews', [])
+
+    def image(t):
+        try:
+            source = images[textures[t]['source']]
+            return source.get('uri') or f"{source.get('mimeType')}:{views[source['bufferView']].get('byteLength')}"
+        except (IndexError, KeyError, TypeError):
+            return None
+
+    def resolve(value, key=None):
+        if isinstance(value, dict):
+            return {k: resolve(v, k) for k, v in value.items() if k != 'name'}
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return image(value) if key == 'index' and isinstance(value, int) else value
+    return [json.dumps(resolve(m), sort_keys=True) for m in gltf.get('materials', [])]
+
+
+def glb_parts(path):
+    """{node name: (its mesh's primitives as (vertices, material name, material look), its world transform to the
+    millimetre)} and the names of the scene's top nodes, from a GLB's JSON chunk."""
+    gltf = _glb_json(path)
+    nodes, meshes = gltf.get('nodes', []), gltf.get('meshes', [])
+    accessors, materials = gltf.get('accessors', []), gltf.get('materials', [])
+    looks = _material_looks(gltf)
+    parts = {}
+
+    def visit(k, parent):
+        node = nodes[k]
+        local = _local(node)
+        world = [[sum(parent[i][j] * local[j][c] for j in range(4)) for c in range(4)] for i in range(4)]
+        mesh = meshes[node['mesh']]['primitives'] if 'mesh' in node else []
+        shape = tuple((accessors[p['attributes']['POSITION']].get('count'),
+                       materials[p['material']].get('name') if 'material' in p else None,
+                       looks[p['material']] if 'material' in p else None) for p in mesh)
+        if node.get('name') and node['name'] not in parts:
+            parts[node['name']] = (shape, tuple(round(v, 3) for row in world[:3] for v in row))
+        for child in node.get('children', []):
+            visit(child, world)
+    roots = (gltf.get('scenes') or [{}])[gltf.get('scene', 0)].get('nodes', [])
+    for k in roots:
+        visit(k, [[float(i == j) for j in range(4)] for i in range(4)])
+    return parts, [nodes[k].get('name') for k in roots]
+
+
+SHELL = re.compile(r'(Floor|Wall|Ceiling)\d+')
+
+
+def changed_objects(seed, target):
+    """The first room's objects the agent changed (moved, reshaped, repainted or took apart): each object, not the
+    floor, walls or ceiling, of which a part is missing from the target room or differs there. An object is a top
+    node, or a node right under the floor, a wall or the ceiling (what stands or hangs there), in the seed's order."""
+    before = glb_parts(seed)[0]
+    after = glb_parts(target)[0]
+    tree = glb_tree(seed)
+
+    def owner(name):
+        while tree.get(name) is not None and not SHELL.fullmatch(tree[name]):
+            name = tree[name]
+        return name
+    differ = {owner(name) for name, part in before.items() if after.get(name) != part}
+    return [name for name in tree if name in differ and not SHELL.fullmatch(name)]
 
 
 WORD = re.compile(r'[A-Za-z0-9_]+')
@@ -1075,6 +1175,9 @@ def build_schedule(scene, until=None, hidden=(), target=FINAL):
         return None
     before, after = glb_tree(seed), glb_tree(final)
     added = [n for n, p in after.items() if n not in before and n not in hidden and (p is None or p in before)]
+    # The first room's objects the agent changed take their new form when the records first name them, as an added
+    # part appears: until then the first room's version shows (changed).
+    changed = [n for n in changed_objects(seed, final) if n not in hidden]
     # Runs that record each build of the authored room: a part shows from the first build that has it.
     built = {}
     for r in trace:
@@ -1085,26 +1188,31 @@ def build_schedule(scene, until=None, hidden=(), target=FINAL):
     for paths in agent_sessions(scene) + agent_sessions(scene, repair=True):  # every session, earlier ones too
         for path in paths:
             rows += [r for r in read_jsonl(path) if isinstance(r.get('t'), (int, float)) and (not until or r['t'] <= until)]
-    if not rows or not added:
+    if not rows or not (added or changed):
         return None
     rows.sort(key=lambda r: r['t'])
     texts = [(r['t'], json.dumps(r, ensure_ascii=False)) for r in rows]
     end = rows[-1]['t']
     # A name of word characters only is found as a whole word: index the words once (one regex per part over
     # every record took seconds on a long room); other names are looked for one by one.
-    first_seen = {}
-    for t, text in texts:
+    first_seen, first_acted = {}, {}
+    for (t, text), row in zip(texts, rows):
         for token in WORD.findall(text):
             first_seen.setdefault(token, t)
+            if row.get('kind') == 'tool':
+                first_acted.setdefault(token, t)
 
-    def first(name):
+    def first(name, acted=False):
+        """When the records first name a part; acted: first name it in a command of the agent's own (it reads
+        the whole room, every object named, before it changes any)."""
         if name in built:
             return built[name]
         if WORD.fullmatch(name):
-            return first_seen.get(name, end)
+            return (first_acted if acted else first_seen).get(name, end)
         word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
-        return next((t for t, text in texts if word.search(text)), end)
-    reveal = sorted(({'node': n, 't': first(n)} for n in added), key=lambda r: r['t'])
+        return next((t for (t, text), row in zip(texts, rows) if (not acted or row.get('kind') == 'tool') and word.search(text)), end)
+    reveal = sorted([*({'node': n, 't': first(n)} for n in added),
+                     *({'node': n, 't': first(n, acted=True), 'changed': True} for n in changed)], key=lambda r: r['t'])
     return {'base': reveal[0]['t'], 'reveal': reveal}
 
 
@@ -1522,7 +1630,8 @@ def timeline(job_dir, status='completed', until=None):
              if start and build_model in available else None)
     if build:
         build = {**({'model': build_model} if build_model != 'final' else {}), 'base': round((build['base'] - start) / 60, 3),
-                 'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3)} for r in build['reveal']]}
+                 'reveal': [{'node': r['node'], 'minute': round((r['t'] - start) / 60, 3), **({'changed': True} if r.get('changed') else {})}
+                            for r in build['reveal']]}
     idle = idle_spans(events, [(a, min(b, until) if until else b) for a, b in attempt_spans(scene)
                                if not until or a <= until], start) if start else []
     return {'live': status in ('queued', 'running', 'preparing'), 'status': status, 'start': start,

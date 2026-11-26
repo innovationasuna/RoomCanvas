@@ -387,7 +387,18 @@ export class RoomView {
       g.attributes.color.needsUpdate = true;
     }).catch(() => {});
     this.scene.add(this.points);
-    const lineMat = (color, opacity) => new THREE.LineBasicMaterial({color, transparent: true, opacity});
+    // A scan box stands on the floor and against walls, its edges at their very depth: drawn there they broke into
+    // dashes that came and went as the camera moved. Polygon offset does not apply to lines, so the edges are
+    // drawn a centimetre towards the camera.
+    const lineMat = (color, opacity) => {
+      const material = new THREE.LineBasicMaterial({color, transparent: true, opacity});
+      material.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>',
+          '#include <project_vertex>\nmvPosition.z += 0.01;\ngl_Position = projectionMatrix * mvPosition;');
+      };
+      material.customProgramCacheKey = () => 'lifted-lines';
+      return material;
+    };
     this.wallLines = new THREE.Group();
     for (const w of plan.walls) {
       const [ax, az] = w.a, [bx, bz] = w.b, len = Math.hypot(bx - ax, bz - az);
@@ -501,13 +512,21 @@ export class RoomView {
     // draw as they were made: an opaque wall before what blends on it (a photo collage cut out of its photo),
     // which keeps from writing depth, or its clear texels would hide the wall wherever that is drawn after it.
     const wallMats = new Set();
+    // A faded wall's depth, drawn alone before its colours (see fadeWall), on the sides each material draws.
+    const noMask = new THREE.MeshBasicMaterial({visible: false}), depths = new Map();
+    const depthOf = (m) => {
+      if (!depths.has(m)) depths.set(m, new THREE.MeshBasicMaterial({colorWrite: false, transparent: true, side: m.side}));
+      return depths.get(m);
+    };
     for (const part of root.children.filter((o) => WALLISH.test(o.name))) {
-      const mats = [];
+      const mats = [], meshes = [], masks = [];
       part.traverse((o) => {
         if (!o.isMesh) return;
+        meshes.push(o);
         const copies = [o.material].flat().map(material => {
           const copy = material.clone();
-          Object.assign(copy.userData, {base: copy.opacity, transparent: copy.transparent, depthWrite: copy.depthWrite});
+          Object.assign(copy.userData, {base: copy.opacity, transparent: copy.transparent, depthWrite: copy.depthWrite,
+            offset: [copy.polygonOffset, copy.polygonOffsetFactor, copy.polygonOffsetUnits]});
           mats.push(copy); wallMats.add(copy);
           return copy;
         });
@@ -515,9 +534,24 @@ export class RoomView {
         // What blends on a wall (the photo collage) draws after it. Once the wall fades both are sorted by
         // distance, and their centres differ, so turning the camera swapped them and the collage flickered.
         if (copies.some((m) => m.userData.transparent)) o.renderOrder = 1;
+        o.userData.renderOrder = o.renderOrder;
       });
+      for (const o of meshes) {
+        // Glass lets what is behind it through (transmission), and what a texture cuts out (alphaTest) is cut against
+        // the faded opacity, which the depth would not follow: neither keeps a depth of its own.
+        const solid = [o.material].flat().map((m) => m.userData.depthWrite && m.userData.base > 0.9 && !m.userData.transparent
+          && !(m.transmission > 0) && !(m.alphaTest > 0));
+        if (!solid.some(Boolean) || o.isInstancedMesh || o.isSkinnedMesh) continue;
+        const depth = [o.material].flat().map((m, i) => solid[i] ? depthOf(m) : noMask);
+        const mask = new THREE.Mesh(o.geometry, Array.isArray(o.material) ? depth : depth[0]);
+        mask.userData.mask = 'depth';
+        mask.userData.forming = 0;
+        mask.visible = false;
+        o.add(mask);
+        masks.push(mask);
+      }
       const c = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
-      this.wallFades.push({mats, c, root, part, a: 1});
+      this.wallFades.push({mats, meshes, masks, c, root, part, a: 1});
     }
     const windows = root.userData.windows = new Map(), backdrops = [];
     root.updateWorldMatrix(true, true);
@@ -537,8 +571,9 @@ export class RoomView {
     };
     root.children.forEach(collectWindows);
     for (const window of windows.values()) if (window) window.parts = windowParts(window.part, backdrops);
+    // A wall's depth (above) keeps writing it while the room fades: it is not one of the room's colours.
     const all = new Set();
-    root.traverse((o) => {if (o.isMesh) [o.material].flat().forEach((m) => all.add(m));});
+    root.traverse((o) => {if (o.isMesh && !o.userData.mask) [o.material].flat().forEach((m) => all.add(m));});
     root.userData.fadeMats = [...all].map((m) => ({m, opacity: m.userData.base ?? m.opacity, transparent: m.transparent,
       depthWrite: m.depthWrite, polygonOffset: m.polygonOffset, factor: m.polygonOffsetFactor, units: m.polygonOffsetUnits, wall: wallMats.has(m)}));
     root.userData.fade = 1;
@@ -547,7 +582,7 @@ export class RoomView {
     // A picture's mask carries the picture's offset too (see setFade).
     const decalMask = mask.clone();
     decalMask.polygonOffsetFactor += DECAL_OFFSET.factor; decalMask.polygonOffsetUnits += DECAL_OFFSET.units;
-    root.userData.sourceMaterials.push(mask, decalMask);
+    root.userData.sourceMaterials.push(mask, decalMask, noMask, ...depths.values());
     root.userData.mask = [];
     const meshes = [];
     root.traverse((o) => {if (o.isMesh) meshes.push(o);});
@@ -635,6 +670,23 @@ export class RoomView {
       for (const mesh of w.receivers) mesh.receiveShadow = receiving;
       w.receiving = receiving;
     }
+    // Faded, a wall shows only its nearest surface (not a door's far handle through its leaf, nor the shelves
+    // through the side of a cabinet on it): its depth is drawn first, alone, then its colours where they are that
+    // surface. The colours write no depth, so parts that share a surface or cut through one another blend the same
+    // whichever is drawn first; writing depth, they took turns in front as the camera moved. Faded walls draw
+    // after the room's other see-through things, the farthest first (see tick), so what is behind one shows
+    // through it.
+    const faded = !receiving, order = faded ? 3 + 3 * (w.rank || 0) : 0;
+    if (w.faded !== faded || w.order !== order) {
+      w.faded = faded; w.order = order;
+      for (const mesh of w.meshes || []) mesh.renderOrder = mesh.userData.renderOrder + (faded ? order + 1 : 0);
+      for (const mask of w.masks || []) mask.renderOrder = order;
+    }
+    const masked = faded && w.a * w.root.userData.fade > 0;
+    for (const mask of w.masks || []) {
+      mask.userData.fadeVisible = masked;
+      mask.visible = masked && !mask.userData.forming;  // an object taking shape on the wall is not there yet
+    }
     for (const m of w.mats) {
       const f = this.windowHandoff?.materials.has(m) ? 1 : w.root.userData.fade;
       const solid = w.a > 0.97 && f === 1;
@@ -642,6 +694,13 @@ export class RoomView {
       if (m.transparent !== transparent) {m.transparent = transparent; m.needsUpdate = true;}
       m.opacity = m.userData.base * w.a * f;
       m.depthWrite = solid && m.userData.depthWrite && m.userData.base > 0.9;
+      // Drawn a little in front: of the wall's own depth, and, fading in, of the shown room's wall it lies on
+      // (as setFade does for the rest of the room), so it blends over that wall rather than the two walls' tiles
+      // taking turns in front.
+      const [offset, factor, units] = m.userData.offset;
+      m.polygonOffset = !solid || offset;
+      m.polygonOffsetFactor = !solid ? -1 + (offset ? Math.min(factor, 0) : 0) : factor;
+      m.polygonOffsetUnits = !solid ? -4 + (offset ? Math.min(units, 0) : 0) : units;
     }
   }
 
@@ -792,6 +851,7 @@ export class RoomView {
           m.userData.base ??= m.opacity;
           m.userData.transparent ??= m.transparent;
           m.userData.depthWrite ??= m.depthWrite;
+          m.userData.offset ??= [m.polygonOffset, m.polygonOffsetFactor, m.polygonOffsetUnits];
           w.mats.push(m);
         }
       });
@@ -813,6 +873,7 @@ export class RoomView {
     for (const node of root?.userData.photoHeld || []) {node.visible = hidden.get(node); hidden.delete(node);}
     if (root) root.userData.photoHeld = null;
     this.syncPhotos();
+    this.underlay();
     // A live job's room-in-progress comes as a newer copy every few minutes; free the ones no longer shown.
     for (const k of Object.keys(this.models)) {
       const replaced = key?.includes(':') && k.split(':')[0] === key.split(':')[0];
@@ -851,14 +912,19 @@ export class RoomView {
   loadPhotoItems(source, url) {
     if (!source || !url) return;
     const previous = this.photoSource;
+    const holders = [...new Set(Object.values(source.holders || {}))];
     if (previous?.url === url && (previous.source === source || (previous.source.digest === source.digest &&
-        previous.source.ids.length === source.ids.length && source.ids.every((id, i) => id === previous.source.ids[i])))) return;
+        previous.source.ids.length === source.ids.length && source.ids.every((id, i) => id === previous.source.ids[i])
+        && String(previous.holders) === String(holders)))) return;
     this.dropPhotoItems();
-    const entry = this.photoSource = {source, url, controller: new AbortController()};
-    loadModel(url, source.digest, entry.controller.signal, json => selectPhotoItems(json, source.ids, {has: id => this.knownObject(id, source)}))
-      .then(({scene}) => {
+    const entry = this.photoSource = {source, url, holders, controller: new AbortController()};
+    const known = {has: id => this.knownObject(id, source)};
+    loadModel(url, source.digest, entry.controller.signal, json => selectPhotoItems(json, source.ids, known, holders))
+      .then(({scene, parser}) => {
         if (entry.controller.signal.aborted) {disposeModel(scene); return;}
-        entry.layer = new SmallItemLayer(scene, source.ids);
+        // As in a room (see prepare): pictures and parts sharing a surface with another, on a carried holder too.
+        offsetDecals(THREE, scene, parser?.associations);
+        entry.layer = new SmallItemLayer(scene, source.ids, {holders, contents: name => known.has(name)});
         this.scene.add(entry.layer.root);
         this.apply(this.state, this.lastOptions);
       }).catch(() => {
@@ -875,7 +941,9 @@ export class RoomView {
     clearTimeout(this.photoRetry);
     this.photoRetry = null;
     this.photoSource?.controller.abort();
-    this.photoSource?.layer?.dispose();
+    const layer = this.photoSource?.layer;
+    if (layer) this.forming.releaseModel(layer.root);
+    layer?.dispose();
     this.photoSource = null;
   }
 
@@ -892,8 +960,19 @@ export class RoomView {
     return new Map([...places].filter(([id]) => reached.has(id)));
   }
 
+  // The holders carried in the room drawn (see revealModel), and whether what else stood on each shows yet: from
+  // the record of its first item on (the items come one after another, see timeline.mjs).
+  photoHolders() {
+    const outgoing = this.models[this.current]?.root, incoming = this.models[this.incoming]?.root;
+    const carried = (outgoing || incoming)?.userData.photoHolders;
+    const reached = this.state?.photoShow || (this.wanted !== this.current && outgoing?.userData.photoShow);
+    if (!carried || !reached) return null;
+    return new Map([...carried].map(([holder, items]) => [holder, items.some(id => reached.has(id))]));
+  }
+
+  // Returns the photo items (and what stands with them on a carried holder) that just came into view.
   syncPhotos() {
-    this.photoSource?.layer?.show(this.photoSlots());
+    return this.photoSource?.layer?.show(this.photoSlots(), this.photoHolders()) || [];
   }
 
   // The boundary between a masked or photo item and another room object below it (see separateObject).
@@ -935,6 +1014,8 @@ export class RoomView {
     }
     if (inRoom) this.models[key].root.userData.modelEvent = state.modelEvent;
     if (quiet && inRoom) this.forming.finishModel(this.models[key].root);
+    // The photo items have their own root: a seek ends what of them was taking shape as well.
+    if (quiet && this.photoSource?.layer) this.forming.finishModel(this.photoSource.layer.root);
     const {shown: placed, appeared} = inRoom ? this.revealModel(key) : {};
     if (inRoom && !quiet) this.materialize(appeared);
     for (const [id, group] of Object.entries(this.boxes)) {
@@ -960,7 +1041,57 @@ export class RoomView {
         }, Math.ceil(delay));
       }
     }
-    this.syncPhotos();
+    // A photo item takes shape at its record like the room's own objects (after a seek it is simply there).
+    const items = this.syncPhotos();
+    if (!quiet && items.length) this.materialize(items);
+    this.underlay();
+  }
+
+  // While the build plays in its room, the first room's objects the agent changed but has not reached yet show as
+  // they were in it (state.pending): the build room's own versions stay hidden until then (see reveal). The first
+  // room shows only those, its photo stand-ins left out as in the build room.
+  underlay() {
+    const seed = this.models.seed?.root;
+    if (!seed) return;
+    // Every change is recorded and undone first, so the first room is as it was whenever it shows on its own.
+    const changes = seed.userData.underlayChanges ??= [];
+    for (const [node, visible] of changes.splice(0).reverse()) node.visible = visible;
+    if (this.current === 'seed' || this.incoming === 'seed') return;
+    const pending = this.current === (this.state?.buildModel || 'final') && this.state?.added && this.state.pending;
+    const set = (node, visible) => {
+      if (node.visible !== visible) {changes.push([node, node.visible]); node.visible = visible;}
+    };
+    // The root's own visibility belongs to the room switches (show, swap), which set it whenever the first room is shown.
+    seed.visible = !!pending?.size;
+    if (!seed.visible) return;
+    // An object can stand or hang under the floor or a wall (changed_objects): only it shows, with the transforms
+    // above it, not the floor's or the wall's own surface.
+    const objects = new Set(), above = new Set();
+    for (const name of pending) {
+      const node = namedNodes(seed).get(name);
+      if (!node || HIDDEN.test(node.name)) continue;
+      // A mesh above it (the floor's own, say) first gets separate visibility for its surface and its children. A
+      // wall split so is faded and relinked from its new frame, which holds what hangs on it.
+      for (let p = node.parent; p && p !== seed; p = p.parent) {
+        if (!p.isMesh) continue;
+        splitMeshFrame(seed, p, p.children.filter(o => !o.userData.mask));
+        for (const w of this.wallFades) if (w.part === p) w.part = p.parent;
+      }
+      objects.add(node);
+      for (let p = node.parent; p && p !== seed; p = p.parent) above.add(p);
+    }
+    (function walk(node) {
+      for (const child of node.children) {
+        if (child.userData.mask) continue;
+        if (objects.has(child)) set(child, true);
+        else if (above.has(child)) {set(child, true); walk(child);}
+        else set(child, false);
+      }
+    })(seed);
+    for (const name of this.state.hiddenNodes || []) {
+      const node = namedNodes(seed).get(name);
+      if (node?.visible) set(node, false);
+    }
   }
 
   revealModel(key) {
@@ -1014,11 +1145,24 @@ export class RoomView {
         places.set(id, anchors.get(group));
       } else if (!nodes.length || standing) places.set(id, null);
     }
+    // A holder this version has, but none of its photo items, is an earlier version of it (see photoHolders): it
+    // gives way, everything on it included, to the one the items were placed in, from the pass's room.
+    const layer = this.photoSource?.layer, held = new Map(), carried = photos ? new Map() : null;
+    for (const id of photos ? photos.ids : []) {
+      const holder = photos.holders?.[id];
+      if (holder && layer?.holders.has(holder)) held.set(holder, [...(held.get(holder) || []), id]);
+    }
+    for (const [holder, items] of held) {
+      const node = namedNodes(root).get(holder);
+      if (!node || items.some(id => [id, ...(photos.members?.[id] || [])].some(name => namedNodes(root).has(name)))) continue;
+      hide(node);
+      carried.set(holder, items);
+    }
     for (const name of this.state?.hiddenNodes || []) {
       const node = namedNodes(root).get(name);
       if (node) mask(node);
     }
-    Object.assign(root.userData, {photoPlaces: places, photoShow: show});
+    Object.assign(root.userData, {photoPlaces: places, photoShow: show, photoHolders: carried});
     // A room fading in with its own photo models shows them at the handover, when the overlay over the outgoing
     // room goes (swap): an item is never drawn twice. The rest of the room fades in as usual.
     const overlaid = !show && this.incoming === key && this.photoSource?.layer && this.photoSlots();
@@ -1126,8 +1270,8 @@ export class RoomView {
   boundsOf(key) {
     const box = new THREE.Box3();
     // A photo item that has appeared; while its model loads, its stand-in or scan box below.
-    const photo = this.photoSource?.layer?.items.get(key)?.part;
-    if (photo?.visible && this.photoSource.layer.root.visible) return box.setFromObject(photo);
+    const layer = this.photoSource?.layer, photo = layer?.items.get(key)?.part || layer?.holders.get(key)?.part;
+    if (photo?.visible && layer.root.visible) return box.setFromObject(photo);
     const root = this.current && this.models[this.current]?.root;
     const nodes = partsOf(root, key);
     if (!nodes.length) nodes.push(...partsOf(this.models.final?.root, key));
@@ -1352,6 +1496,10 @@ export class RoomView {
     // Walls on the camera side fade gradually (no sudden switch at one angle).
     const cam = this.camera.position, tgt = this.controls.target;
     const view = new THREE.Vector2(cam.x - tgt.x, cam.z - tgt.z).normalize();
+    // Their drawing order when faded: the farthest first; of two rooms' walls in one place, the room coming in last.
+    const incoming = this.models[this.incoming]?.root;
+    const far = (w) => Math.round(cam.distanceTo(w.c) * 20) - (w.root === incoming ? 0.5 : 0);
+    this.wallFades.filter((w) => w.root.visible).sort((a, b) => far(b) - far(a)).forEach((w, k) => (w.rank = k));
     for (const w of this.wallFades) {
       const d = new THREE.Vector2(w.c.x - tgt.x, w.c.z - tgt.z).normalize();
       const goal = 1 - 0.88 * THREE.MathUtils.smoothstep(d.dot(view), 0.05, 0.6);
