@@ -290,7 +290,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
             binding.vrTouchControls.inputEnabled = false
         }
 
-        if (!trackingEnabled || !roomLighting.quality.arEnabled) {
+        if (!trackingEnabled || !currentExperiment.quality.arEnabled) {
             updateStartHint()
             return
         }
@@ -793,7 +793,14 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 context = this,
                 filamentView = binding.sceneView.view,
                 qualitySummary = {
-                    "${currentExperiment.quality.summary()} ${roomLighting.debugLightSummary}"
+                    // 诊断日志不能成为构造 PhysicalRoomLighting 的副作用：
+                    // 它会清空 SceneView 默认主光，影响“未加载模型不初始化灯光”的语义。
+                    val lights = if (roomLightingDelegate.isInitialized()) {
+                        roomLighting.debugLightSummary
+                    } else {
+                        "lights=0"
+                    }
+                    "${currentExperiment.quality.summary()} $lights"
                 },
                 poseRenderer = { poseRenderer }
             )
@@ -1003,7 +1010,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     private fun applyRenderExperiment(experiment: RenderExperiment) {
-        val wasArEnabled = roomLighting.quality.arEnabled
+        val wasArEnabled = currentExperiment.quality.arEnabled
         currentExperiment = experiment
         roomLighting.applyQuality(experiment.quality)
         modelNode?.let { roomLighting.applyTo(it) }
@@ -1021,6 +1028,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 startArSessionIfPossible(resumeAfterCreate = false)
             }
         }
+        // A7 关闭 AR 时同步注销传感器；切回 A0 且仍在漫游时重新注册。
+        syncMotionSensors()
     }
 
     private fun stopRenderExperiment(restoreBaseline: Boolean) {
@@ -1045,8 +1054,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
             Toast.makeText(this, "请先选择房间模型", Toast.LENGTH_SHORT).show()
             return
         }
-        // 位姿跟踪只在漫游期间消费 IMU；在这里才开始监听，退出漫游时停止。
-        motionMonitor.start()
         controller.resetToStart(null)
         controller.speedScale = speedScales[speedIndex]
 
@@ -1056,10 +1063,11 @@ class VrWalkthroughActivity : AppCompatActivity() {
             needsReanchor = false
         } else {
             // 等第一帧有效位姿到来时再建立参考（保持当前视角）
-            needsReanchor = trackingEnabled && roomLighting.quality.arEnabled
+            needsReanchor = trackingEnabled && currentExperiment.quality.arEnabled
         }
 
         started = true
+        syncMotionSensors()
         lastFrameMs = 0L
         binding.startOverlay.visibility = View.GONE
         binding.menuRoot.visibility = View.VISIBLE
@@ -1067,7 +1075,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         binding.vrTouchControls.inputEnabled = true
         binding.sceneView.cameraNode.worldTransform = controller.cameraPose()
 
-        if (trackingEnabled && roomLighting.quality.arEnabled &&
+        if (trackingEnabled && currentExperiment.quality.arEnabled &&
             controller.isArPoseApplied && !realWalkHintShown
         ) {
             realWalkHintShown = true
@@ -1082,6 +1090,16 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     /**
+     * IMU 只在“正在漫游 + AR 实际可用”时注册：权限拒绝、AR Engine 缺失、
+     * 选 A7 或切后台都会注销；从 A7 切回 A0 时重新注册。
+     */
+    private fun syncMotionSensors() {
+        val shouldRun = started && trackingEnabled &&
+            currentExperiment.quality.arEnabled && sessionResumed
+        if (shouldRun) motionMonitor.start() else motionMonitor.stop()
+    }
+
+    /**
      * 结束漫游：回到“开始漫游”页，保留已加载的模型。
      *
      * 不能调 finish()——VrWalkthroughActivity 是 launcher，也没有父页面可返回，
@@ -1092,10 +1110,16 @@ class VrWalkthroughActivity : AppCompatActivity() {
         if (BuildConfig.DEBUG && (debugCameraTrackRunning || currentExperiment != RenderExperiment.A0)) {
             stopRenderExperiment(restoreBaseline = true)
         }
+        if (BuildConfig.DEBUG) {
+            // A0 采样/截图结束后 debugCameraTrackRunning 已为 false，但冻结状态可能仍在；
+            // 离开漫游时无条件清理，保证下次进入重新消费 AR 位姿。
+            debugCameraTrackRunning = false
+            debugFreezeArPose = false
+        }
         started = false
         lastFrameMs = 0L
         needsReanchor = false
-        motionMonitor.stop()
+        syncMotionSensors()
 
         setMenuOpen(false)          // 收起菜单面板
         handler.removeCallbacks(menuHideRunnable)
@@ -1144,7 +1168,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
      *                          需要在这里补做 resume + GLSurfaceView.onResume。
      */
     private fun startArSessionIfPossible(resumeAfterCreate: Boolean) {
-        if (!roomLighting.quality.arEnabled) return
+        if (!currentExperiment.quality.arEnabled) return
         if (!AREnginesApk.isAREngineApkReady(this)) {
             onArEngineMissing()
             return
@@ -1189,6 +1213,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
         if (resumeAfterCreate && started) {
             needsReanchor = true
         }
+        // 权限弹窗期间已开始漫游时，ARSession 就绪后补注册传感器。
+        syncMotionSensors()
     }
 
     private fun pauseArPump() {
@@ -1293,7 +1319,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
             inputCpuNanos = System.nanoTime() - inputStartedAt
 
             val arStartedAt = System.nanoTime()
-            if (trackingEnabled && roomLighting.quality.arEnabled && !debugFreezeArPose) {
+            if (trackingEnabled && currentExperiment.quality.arEnabled && !debugFreezeArPose) {
                 var isNewArFrame = false
                 val arPose = poseRenderer.withPoseSnapshot { snapshot ->
                     if (!snapshot.isTracking) {
@@ -1358,6 +1384,9 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 )
                 if (debugCameraTrackRunning && !perfMonitor.isRunActive) {
                     debugCameraTrackRunning = false
+                    // 采样结束后必须解除 AR 冻结；否则退出再进入会一直跳过位姿更新。
+                    debugFreezeArPose = false
+                    if (started) needsReanchor = true
                     binding.vrTouchControls.inputEnabled =
                         started && binding.menuPanel.visibility != View.VISIBLE
                     showStatus("${currentExperiment.name} 采样完成，画质保持；可在诊断面板恢复 A0")
@@ -1418,7 +1447,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     private fun currentTrackingPose(): Pair<Mat4, Long>? = poseRenderer.withPoseSnapshot { snapshot ->
-        if (trackingEnabled && roomLighting.quality.arEnabled && snapshot.isTracking) {
+        if (trackingEnabled && currentExperiment.quality.arEnabled && snapshot.isTracking) {
             arPoseCache.get(snapshot) to snapshot.timestampNs
         } else {
             null
