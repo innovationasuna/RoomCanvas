@@ -933,7 +933,6 @@ class VrWalkthroughActivity : AppCompatActivity() {
             return
         }
 
-        debugFreezeArPose = true
         val generation = ++debugIntentGeneration
         val deadline = SystemClock.elapsedRealtime() + 30_000L
         renderPerfDialog?.dismiss()
@@ -960,6 +959,8 @@ class VrWalkthroughActivity : AppCompatActivity() {
                     return
                 }
                 renderPerfDialog?.dismiss()
+                // 只有确认能开始采样后才冻结位姿；等待超时/启动失败时不得留下冻结状态。
+                debugFreezeArPose = true
                 debugCameraTrack.start(System.nanoTime())
                 debugCameraTrackRunning = true
                 binding.vrTouchControls.inputEnabled = false
@@ -1007,6 +1008,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
                 if (view == "piano") controller.applyLookDelta(-1200f, 0f)
 
                 started = true
+                syncMotionSensors()
                 lastFrameMs = 0L
                 binding.startOverlay.visibility = View.GONE
                 binding.menuRoot.visibility = View.VISIBLE
@@ -1043,14 +1045,25 @@ class VrWalkthroughActivity : AppCompatActivity() {
     }
 
     private fun stopRenderExperiment(restoreBaseline: Boolean) {
-        debugCameraTrackRunning = false
-        debugFreezeArPose = false
+        finishDebugCameraTrack()
         if (BuildConfig.DEBUG) perfMonitor.cancelRun()
         binding.vrTouchControls.inputEnabled = started && binding.menuPanel.visibility != View.VISIBLE
         if (restoreBaseline && currentExperiment != RenderExperiment.A0) {
             applyRenderExperiment(RenderExperiment.A0)
         }
+        // 手动停止后同样恢复传感器注册（A7 等实验可能已注销）。
+        syncMotionSensors()
         showStatus("已停止诊断${if (restoreBaseline) "，恢复 A0" else ""}")
+    }
+
+    /**
+     * 结束固定轨迹采样：解除 AR 位姿冻结；若仍在漫游则重建参考，
+     * 避免恢复位姿更新时视角跳变。自然结束与手动停止共用同一逻辑。
+     */
+    private fun finishDebugCameraTrack() {
+        debugCameraTrackRunning = false
+        debugFreezeArPose = false
+        if (started) needsReanchor = true
     }
 
     // ---------------- 开始 / 菜单 ----------------
@@ -1393,10 +1406,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
                     cameraCpuNanos = cameraCpuNanos
                 )
                 if (debugCameraTrackRunning && !perfMonitor.isRunActive) {
-                    debugCameraTrackRunning = false
-                    // 采样结束后必须解除 AR 冻结；否则退出再进入会一直跳过位姿更新。
-                    debugFreezeArPose = false
-                    if (started) needsReanchor = true
+                    finishDebugCameraTrack()
                     binding.vrTouchControls.inputEnabled =
                         started && binding.menuPanel.visibility != View.VISIBLE
                     showStatus("${currentExperiment.name} 采样完成，画质保持；可在诊断面板恢复 A0")
