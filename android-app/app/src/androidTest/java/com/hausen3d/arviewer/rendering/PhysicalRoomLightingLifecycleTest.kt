@@ -26,7 +26,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicReference
 
-/** Runs against Filament JNI on an ARM device/emulator; no mocked native managers. */
+/** 在 ARM 真机/模拟器上跑 Filament JNI，验证灯光实体与 ID 的释放。 */
 @RunWith(AndroidJUnit4::class)
 class PhysicalRoomLightingLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -87,10 +87,13 @@ class PhysicalRoomLightingLifecycleTest {
                 scene.destroy()
             }
         }
-        // SceneView may defer Engine.destroy() until its backend becomes idle.
+        // SceneView 可能延迟到后端空闲后才真正销毁 Engine。
         await("SceneView did not destroy its engine") { onMain { !scene.engine.isValid } }
         onMain {
-            assertTrue("Engine destruction alone must not hide the leaked ID", EntityManager.get().isAlive(lights.single()))
+            assertTrue(
+                "Engine destruction alone must not hide the leaked ID",
+                EntityManager.get().isAlive(lights.single())
+            )
             lighting.release()
             lighting.release()
             lights.forEach { assertFalse(EntityManager.get().isAlive(it)) }
@@ -182,7 +185,11 @@ class PhysicalRoomLightingLifecycleTest {
 
         scenario.close()
 
-        onMain { lightIds.forEach { assertFalse("Activity leaked local light $it", EntityManager.get().isAlive(it)) } }
+        onMain {
+            lightIds.forEach {
+                assertFalse("Activity leaked local light $it", EntityManager.get().isAlive(it))
+            }
+        }
     }
 
     @Test
@@ -235,7 +242,9 @@ class PhysicalRoomLightingLifecycleTest {
                 scene.destroy()
                 owner?.destroy()
             }
-            await("Filament engine remained alive after test cleanup") { onMain { !scene.engine.isValid } }
+            await("Filament engine remained alive after test cleanup") {
+                onMain { !scene.engine.isValid }
+            }
         }
     }
 
@@ -260,7 +269,9 @@ class PhysicalRoomLightingLifecycleTest {
                 block(scenario)
             } finally {
                 scenario.close()
-                await("Activity's Filament engine remained alive after exit") { onMain { !scene.engine.isValid } }
+                await("Activity's Filament engine remained alive after exit") {
+                    onMain { !scene.engine.isValid }
+                }
             }
         } finally {
             prefs.edit().putString("last_model_path", oldPath).putString("last_model_name", oldName).commit()
@@ -271,7 +282,8 @@ class PhysicalRoomLightingLifecycleTest {
     private fun addRoom(scene: SceneView, ceilingCount: Int = 1, gltfLight: Boolean = false): ModelNode {
         val bytes = roomGlb(ceilingCount, gltfLight)
         val buffer = ByteBuffer.allocateDirect(bytes.size).apply { put(bytes); flip() }
-        return ModelNode(scene.modelLoader.createModelInstance(buffer), autoAnimate = false).also(scene::addChildNode)
+        return ModelNode(scene.modelLoader.createModelInstance(buffer), autoAnimate = false)
+            .also(scene::addChildNode)
     }
 
     private fun SceneView.lightEntities(): Set<Int> =
@@ -299,7 +311,7 @@ class PhysicalRoomLightingLifecycleTest {
         return result.get().getOrThrow()
     }
 
-    /** A self-contained triangle per ceiling, with an optional KHR_lights_punctual light. */
+    /** 每盏顶灯一个自包含三角形，可选挂一盏 KHR_lights_punctual 点光。 */
     private fun roomGlb(ceilingCount: Int = 1, gltfLight: Boolean = false): ByteArray {
         val nodes = (0 until ceilingCount).map {
             """{"name":"Ceiling$it","mesh":0,"translation":[$it,2,0]}"""

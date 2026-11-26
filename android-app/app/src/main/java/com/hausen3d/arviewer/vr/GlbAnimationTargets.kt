@@ -34,6 +34,7 @@ object GlbAnimationTargets {
      *
      * @property targets 动画索引 → 被驱动节点名
      * @property openTimes 动画索引 → “打开到底”对应的 clip 时间（秒）；仅往返片段有值
+     * @property floorY 快照记录的地面高度（米）；旧文件没有该字段时为 null
      */
     data class Result(
         val targets: Map<Int, List<String>> = emptyMap(),
