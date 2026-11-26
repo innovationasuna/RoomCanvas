@@ -70,18 +70,26 @@ class ArticulationController(
     private val transformManager = sceneView.engine.transformManager
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** EntityInstance → Entity：TransformManager 没有 getEntity(instance)，只能反查 */
-    private val entityByTransformInstance: Map<Int, Int> =
+    /**
+     * EntityInstance → Entity：TransformManager 没有 getEntity(instance)，只能反查。
+     *
+     * 只在点击拾取时用，且对每个 entity 都要一次 JNI；无动画模型（很常见）不应
+     * 为了它扫描全模型。本类所有方法都在主线程调用，故用 NONE 模式免同步开销。
+     */
+    private val entityByTransformInstance: Map<Int, Int> by lazy(LazyThreadSafetyMode.NONE) {
         modelNode.modelInstance.entities.toList().mapNotNull { entity ->
             val instance = transformManager.getInstance(entity)
             if (instance == 0) null else instance to entity
         }.toMap()
+    }
 
-    /** 模型里真实存在的节点名，用来校验动画目标 */
-    private val nodeNames: Set<String> = buildSet {
-        modelNode.nodes.forEach { node -> node.name?.takeIf { it.isNotBlank() }?.let(::add) }
-        modelNode.modelInstance.entities.forEach { entity ->
-            asset.getName(entity)?.takeIf { it.isNotBlank() }?.let(::add)
+    /** 模型里真实存在的节点名，用来校验动画目标；只在真有动画时由 buildEntries 触发构建 */
+    private val nodeNames: Set<String> by lazy(LazyThreadSafetyMode.NONE) {
+        buildSet {
+            modelNode.nodes.forEach { node -> node.name?.takeIf { it.isNotBlank() }?.let(::add) }
+            modelNode.modelInstance.entities.forEach { entity ->
+                asset.getName(entity)?.takeIf { it.isNotBlank() }?.let(::add)
+            }
         }
     }
 
@@ -233,13 +241,24 @@ class ArticulationController(
         if (matches.isEmpty()) return false
 
         val open = !matches.first().open
-        matches.forEach {
-            it.open = open
-            it.target = if (open) 1f else 0f
-            it.moving = true
-        }
+        matches.forEach { setOpen(it, open) }
         onToggled?.invoke(matches.first().label, open)
         return true
+    }
+
+    internal fun toggleAnimationForDebug(index: Int): Boolean {
+        if (released) return false
+        val entry = entries.getOrNull(index) ?: return false
+        val open = !entry.open
+        setOpen(entry, open)
+        onToggled?.invoke(entry.label, open)
+        return true
+    }
+
+    private fun setOpen(entry: Entry, open: Boolean) {
+        entry.open = open
+        entry.target = if (open) 1f else 0f
+        entry.moving = true
     }
 
     /** 必须在销毁 FilamentAsset 之前调用；之后不再触碰任何 Filament 对象。 */

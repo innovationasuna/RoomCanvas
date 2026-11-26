@@ -95,10 +95,14 @@ class PhysicalRoomLighting(private val sceneView: SceneView) {
         lightEntities.clear()
     }
 
-    /** Release our entity IDs even if SceneView has already destroyed its engine. */
+    /**
+     * Activity 退出时释放我们创建的灯光实体。
+     *
+     * SceneView 也会通过生命周期观察者/窗口 detach 自行销毁，等 [onDestroy] 走到这里时
+     * Scene 可能已经不可用；此时仍要归还 EntityManager 的实体 ID，否则每次重建 Activity
+     * 都会泄漏一组 ID。必须在 `sceneView.destroy()` 之前调用。
+     */
     fun release() {
-        // SceneView also destroys itself through its lifecycle observer and window detach.
-        // Its Scene may already be gone when Activity.onDestroy reaches us.
         val engine = sceneView.engine
         lightEntities.forEach { entity ->
             if (engine.isValid) {
