@@ -51,6 +51,7 @@ import com.huawei.hiar.ARSession
 import com.huawei.hiar.ARWorldTrackingConfig
 import dev.romainguy.kotlin.math.Float3
 import dev.romainguy.kotlin.math.Mat4
+import io.github.sceneview.environment.Environment
 import io.github.sceneview.model.ModelInstance
 import io.github.sceneview.node.ModelNode
 import kotlinx.coroutines.CancellationException
@@ -121,6 +122,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
     private var sessionResumed = false
 
     private var modelNode: ModelNode? = null
+    private var roomEnvironment: Environment? = null
     private var cameraController: VrCameraController? = null
 
     /** 驱动柜门/窗扇/推拉门的点击开关；模型没有动画时内部条目为空，点击无副作用 */
@@ -457,6 +459,7 @@ class VrWalkthroughActivity : AppCompatActivity() {
         modelNode?.let { releaseModelNode(it) }
         binding.sceneView.addChildNode(node)
         modelNode = node
+        roomLighting.setEnvironment(roomEnvironment)
         roomLighting.applyTo(node)
         articulation = ArticulationController(
             sceneView = binding.sceneView,
@@ -759,11 +762,18 @@ class VrWalkthroughActivity : AppCompatActivity() {
 
     private fun loadEnvironment() {
         lifecycleScope.launch {
-            val environment = binding.sceneView.environmentLoader
-                .loadHDREnvironment("environments/studio_small_09_2k.hdr")
-            environment?.indirectLight?.intensity = PhysicalRoomLighting.ENVIRONMENT_INTENSITY
-            binding.sceneView.indirectLight = environment?.indirectLight
-            binding.sceneView.skybox = environment?.skybox
+            roomEnvironment = try {
+                binding.sceneView.environmentLoader
+                    .loadHDREnvironment("environments/studio_small_09_2k.hdr")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "房间环境加载失败，保留原有照明", error)
+                null
+            }
+            // A model may finish before or after the HDR. Keep both orders
+            // equivalent without initializing lighting for an empty Activity.
+            if (modelNode != null) roomLighting.setEnvironment(roomEnvironment)
         }
     }
 

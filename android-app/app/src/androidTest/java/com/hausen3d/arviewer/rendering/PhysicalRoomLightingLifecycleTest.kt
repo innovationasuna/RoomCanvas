@@ -8,9 +8,11 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.filament.EntityManager
+import com.google.android.filament.LightManager
 import com.hausen3d.arviewer.R
 import com.hausen3d.arviewer.VrWalkthroughActivity
 import io.github.sceneview.SceneView
+import io.github.sceneview.environment.Environment
 import io.github.sceneview.node.ModelNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -141,16 +143,21 @@ class PhysicalRoomLightingLifecycleTest {
     @Test
     fun closingTheActivityBeforeLoadingDoesNotInitializeRoomLighting() = withActivity(loadRoom = false) { scenario ->
         lateinit var scene: SceneView
+        lateinit var lightingDelegate: Lazy<*>
         scenario.onActivity {
             scene = it.findViewById(R.id.sceneView)
+            lightingDelegate = VrWalkthroughActivity::class.java.getDeclaredField("roomLightingDelegate")
+                .apply { isAccessible = true }.get(it) as Lazy<*>
             assertTrue(scene.childNodes.isEmpty())
+            assertFalse(lightingDelegate.isInitialized())
         }
         val originalMainLight = onMain { scene.mainLightNode }
         assertNotNull(originalMainLight)
 
         scenario.close()
 
-        // Initializing PhysicalRoomLighting would replace the default light with null.
+        // The fallback now preserves the default light even if lighting is initialized.
+        assertFalse(lightingDelegate.isInitialized())
         assertSame(originalMainLight, onMain { scene.mainLightNode })
     }
 
@@ -160,13 +167,21 @@ class PhysicalRoomLightingLifecycleTest {
         await("Activity did not load the room and create its local light") {
             scenario.onActivity {
                 val scene = it.findViewById<SceneView>(R.id.sceneView)
-                if (scene.childNodes.filterIsInstance<ModelNode>().isNotEmpty()) {
-                    lightIds = scene.lightEntities()
-                }
+                lightIds = scene.automaticSpotlights()
             }
             lightIds.size == 1
         }
-        onMain { lightIds.forEach { assertTrue(EntityManager.get().isAlive(it)) } }
+        scenario.onActivity {
+            val scene = it.findViewById<SceneView>(R.id.sceneView)
+            val manager = scene.engine.lightManager
+            val entity = lightIds.single()
+            assertTrue(EntityManager.get().isAlive(entity))
+            val position = manager.getPosition(manager.getInstance(entity), FloatArray(3))
+            val expectedPosition = floatArrayOf(0f, 1.7f, 0f)
+            expectedPosition.indices.forEach { axis ->
+                assertEquals(expectedPosition[axis], position[axis], 0.001f)
+            }
+        }
 
         scenario.close()
 
@@ -175,6 +190,41 @@ class PhysicalRoomLightingLifecycleTest {
                 assertFalse("Activity leaked local light $it", EntityManager.get().isAlive(it))
             }
         }
+    }
+
+    @Test
+    fun delayedHdrDoesNotMistakeTheFallbackMainLightForAnAutomaticSpotlight() = withLighting { scene, lighting ->
+        onMain {
+            val environment = Environment(indirectLight = scene.indirectLight, skybox = scene.skybox)
+            assertNotNull(environment.indirectLight)
+            val mainLight = scene.mainLightNode
+            assertNotNull(mainLight)
+            lighting.setEnvironment(null)
+            lighting.applyTo(addRoom(scene))
+            assertSame(mainLight, scene.mainLightNode)
+            assertEquals(1, scene.lightEntities().size)
+            assertTrue(scene.automaticSpotlights().isEmpty())
+
+            // Complete HDR explicitly after the model, without relying on I/O timing.
+            lighting.setEnvironment(environment)
+            val automaticLights = scene.automaticSpotlights()
+            assertEquals(1, automaticLights.size)
+            assertFalse(mainLight!!.entity in automaticLights)
+            lighting.release()
+            assertReleased(scene, automaticLights)
+            assertTrue(EntityManager.get().isAlive(mainLight.entity))
+        }
+    }
+
+    private fun SceneView.automaticSpotlights(): Set<Int> {
+        val models = childNodes.filterIsInstance<ModelNode>()
+        // A model can arrive before HDR, leaving only the fallback main light.
+        if (models.isEmpty() || mainLightNode != null) return emptySet()
+        val manager = engine.lightManager
+        return lightEntities().filter { entity ->
+            manager.getType(manager.getInstance(entity)) == LightManager.Type.FOCUSED_SPOT &&
+                models.none { model -> model.lightNodes.any { it.entity == entity } }
+        }.toSet()
     }
 
     private fun withLighting(

@@ -44,7 +44,21 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 构建版本见 [App 配置](app/build.gradle.kts)和 [Gradle Wrapper 配置](gradle/wrapper/gradle-wrapper.properties)。
 
-灯光资源回收的回归测试会调用真实 Filament 引擎。连接 ARM 模拟器或设备后，在 `android-app/` 执行 `./gradlew :app:connectedDebugAndroidTest`，覆盖更换模型、重复释放、引擎先销毁和 Activity 退出等场景。
+## 房间照明与回归验证
+
+可识别的房间使用顶灯、窗光和 HDR 环境。窗户按模型中窗根节点的实体 ID 归组，同名兄弟窗仍是独立窗，组合窗的子扇则共用一盏窗光；无窗祖先的平铺网格沿用名字分组。排除规则只检查窗自身的分支，不因外层 `CurtainWall` 等容器名称排除真窗。独立窗帘、百叶、窗边座椅和室外背景不参与窗户包围盒；带 `Blind` 的例外仅支持办公室使用的 `Window_Frame_Fixed_Lights_Sill_Blind` 命名（含窗编号及 Blender 数字后缀）。有窗时，局部灯预算至少留一个窗光名额。活动室仍使用原来的三盏顶灯和一盏窗光。
+
+找不到可用灯具、HDR 尚未就绪或加载失败时，保留原主光、环境光和曝光；加载顺序不会改变最终照明。切换回无法识别的模型也会恢复原照明。模型自带的 glTF 灯保持由模型持有，不被自动灯清理。
+
+JVM 测试覆盖窗户归组、遮帘排除和灯数预算。真实 Filament 测试还覆盖灯光／曝光恢复、两种加载顺序、带变换的 GLB 层级以及无模型 Activity 的加载行为。资源回收测试覆盖更换模型、重复释放、引擎先销毁和 Activity 退出等场景。连接 ARM64 模拟器或设备后，在 `android-app/` 运行：
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:connectedDebugAndroidTest
+```
+
+2026-11-24 在 Android 14 ARM64 模拟器上通过 26 项 JVM 测试和 7 项照明 JNI 测试，与资源清理修复组合后的 15 项 JNI 测试也通过。最新活动室模型按层级合并后的窗框包围盒与原包围盒一致，灯光位置和功率保持不变。模拟器验证不能替代真机上对靠窗处和房间深处的亮度检查；不同房间的视觉标定仍需在目标设备确认。
+
+2026-11-26 审查修复使用临时 JDK 21 和 Kotlin 2.2.21 直接编译，通过 20 项排灯 JVM 测试。旧算法在新增回归用例中出现 3 项预期失败，修复后全部通过。离线读取办公室、卧室和活动室 GLB 的节点层级与世界包围盒，确认修复前后的灯数、位置、方向、功率、色温和衰减距离一致。退出测试现等待自动聚光灯，补充 HDR 晚于模型的确定性用例；加载顺序测试明确检查灯数、类型和位置。这次未运行 Gradle 构建、APK 或 JNI／设备测试，上述 2026-11-24 结果不代表当前修改已通过设备验证。
 
 ## 在本机模拟器上调试
 

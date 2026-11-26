@@ -34,7 +34,15 @@ data class RoomBounds(val min: Vec3, val max: Vec3) {
         }
 }
 
-data class NamedRoomBounds(val name: String, val bounds: RoomBounds)
+data class RoomLightAncestor(val entityId: Int, val name: String)
+
+data class NamedRoomBounds(
+    val name: String,
+    val bounds: RoomBounds,
+    /** Outer-to-inner transform ancestors, excluding this renderable's own name. */
+    val ancestors: List<RoomLightAncestor> = emptyList(),
+    val entityId: Int? = null
+)
 
 enum class RoomLightKind { CEILING, WINDOW }
 
@@ -59,8 +67,39 @@ object RoomLightLayout {
     const val LIGHT_FALLOFF_MULTIPLIER = 2.0f
 
     private val windowGroup = Regex("^window(?:[_-]?\\d+)?", RegexOption.IGNORE_CASE)
+    private val windowAncestor = Regex("^window(?:[_-]?\\d+)?(?:$|[_ .-])", RegexOption.IGNORE_CASE)
+    private val windowCovering = Regex("drape|sheer|curtain|blind", RegexOption.IGNORE_CASE)
+    private val windowHelper = Regex("bench|daylight|backdrop", RegexOption.IGNORE_CASE)
     private val ceilingPanel = Regex("^ceiling\\d+$", RegexOption.IGNORE_CASE)
     private val linearFixture = Regex("^linear light housing(?:\\.\\d+)?$", RegexOption.IGNORE_CASE)
+
+    // This is the composite mesh used by the office sample, not any frame
+    // whose name happens to contain a covering word later in the string.
+    private val compositeWindow = Regex(
+        "^window(?:[_-]?\\d+)?_frame_fixed_lights_sill_blind(?:\\.\\d+)?$",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun excludedWindowPart(name: String): Boolean =
+        windowHelper.containsMatchIn(name) ||
+            (windowCovering.containsMatchIn(name) && !compositeWindow.matches(name))
+
+    private data class WindowKey(val entityId: Int?, val name: String)
+
+    private fun windowKey(part: NamedRoomBounds, ancestorEntities: Set<Int>): WindowKey? {
+        val path = part.ancestors.map { it.name } + part.name
+        val root = part.ancestors.indexOfFirst { windowAncestor.containsMatchIn(it.name) }
+            .takeIf { it >= 0 } ?: part.ancestors.size
+        // Outer containers such as CurtainWall do not describe a window covering.
+        if (path.drop(root).any(::excludedWindowPart)) return null
+        val group = windowGroup.find(path[root])?.value ?: return null
+        val rootEntity = part.ancestors.getOrNull(root)?.entityId
+            // A renderable window root and its descendants must share one group.
+            ?: part.entityId?.takeIf { it in ancestorEntities }
+        val rootName = if (rootEntity != null) path[root] else group
+        val name = (path.take(root) + rootName).joinToString("\u0000") { it.lowercase() }
+        return WindowKey(rootEntity, name)
+    }
 
     fun shellBounds(parts: List<NamedRoomBounds>, fallback: RoomBounds): RoomBounds {
         return parts.filter {
@@ -89,13 +128,16 @@ object RoomLightLayout {
             )
         }
 
-        val windowLights = parts.filter {
-            it.name.startsWith("window", ignoreCase = true) &&
-                !it.name.contains("drape|sheer|curtain|blind|bench".toRegex(RegexOption.IGNORE_CASE))
-        }.groupBy {
-            windowGroup.find(it.name)?.value?.lowercase() ?: it.name.lowercase()
-        }.toSortedMap().values.map { windowParts ->
-            val bounds = windowParts.map { it.bounds }.reduce(RoomBounds::union)
+        val ancestorEntities = parts.flatMap { it.ancestors }.map { it.entityId }.toSet()
+        val windowGroups = parts.mapNotNull { part -> windowKey(part, ancestorEntities)?.let { it to part } }
+            .groupBy({ it.first }, { it.second })
+            .map { (key, group) -> key to group.map { it.bounds }.reduce(RoomBounds::union) }
+            // Entity IDs identify groups but must not decide which lights survive
+            // the budget: IDs may change when the same model is loaded again.
+            .sortedWith(compareBy({ it.first.name },
+                { it.second.min.x }, { it.second.min.y }, { it.second.min.z },
+                { it.second.max.x }, { it.second.max.y }, { it.second.max.z }))
+        val windowLights = windowGroups.map { (_, bounds) ->
             val center = bounds.center
             val roomCenter = room.center
             var inwardX = roomCenter.x - center.x
@@ -127,6 +169,7 @@ object RoomLightLayout {
             )
         }
 
-        return (ceilingLights + windowLights).take(maxLocalLights)
+        val ceilingBudget = if (windowLights.isEmpty()) maxLocalLights else maxLocalLights - 1
+        return (ceilingLights.take(ceilingBudget) + windowLights).take(maxLocalLights)
     }
 }
